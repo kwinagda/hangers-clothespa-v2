@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hangers Phase 1 — Setup Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --blue:       #023c62;
+    --blue-mid:   #035a8f;
+    --blue-light: #e8f0f7;
+    --blue-glow:  #b8d0e8;
+    --white:      #ffffff;
+    --off-white:  #f7f9fc;
+    --text:       #1a2332;
+    --muted:      #6b7fa3;
+    --success:    #0d7a4e;
+    --success-bg: #e6f7f0;
+    --warn:       #b35a00;
+    --warn-bg:    #fff3e0;
+    --code-bg:    #0d1b2a;
+    --code-border:#1e3a52;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--off-white);
+    color: var(--text);
+    line-height: 1.65;
+  }
+
+  /* ── Header ──────────────────────────────────────────────── */
+  .hero {
+    background: var(--blue);
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(3,90,143,0.6) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .hero::after {
+    content: '';
+    position: absolute;
+    bottom: -40px; left: 20%;
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(184,208,232,0.15) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .hero-inner {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 48px 32px 40px;
+    position: relative; z-index: 1;
+  }
+  .hero-tag {
+    display: inline-block;
+    background: rgba(184,208,232,0.18);
+    border: 1px solid rgba(184,208,232,0.3);
+    color: var(--blue-glow);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin-bottom: 18px;
+  }
+  .hero h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 2.6rem;
+    font-weight: 800;
+    color: var(--white);
+    line-height: 1.15;
+    margin-bottom: 12px;
+  }
+  .hero h1 span { color: var(--blue-glow); }
+  .hero p {
+    color: rgba(232,240,247,0.75);
+    font-size: 1rem;
+    font-weight: 300;
+    max-width: 560px;
+  }
+  .hero-meta {
+    display: flex; gap: 24px;
+    margin-top: 28px;
+    flex-wrap: wrap;
+  }
+  .hero-meta-item {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--blue-glow);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+  }
+  .hero-meta-item .dot {
+    width: 7px; height: 7px;
+    background: #4ade80;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ── Progress bar ─────────────────────────────────────────── */
+  .progress-bar {
+    background: var(--blue);
+    border-top: 1px solid rgba(184,208,232,0.15);
+  }
+  .progress-inner {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 32px;
+    display: flex;
+    gap: 0;
+  }
+  .prog-step {
+    flex: 1; padding: 14px 0;
+    border-bottom: 3px solid transparent;
+    color: rgba(184,208,232,0.4);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .prog-step.active {
+    color: var(--blue-glow);
+    border-bottom-color: var(--blue-glow);
+  }
+  .prog-step.done {
+    color: #4ade80;
+    border-bottom-color: #4ade80;
+  }
+
+  /* ── Layout ──────────────────────────────────────────────── */
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+
+  /* ── Phase card ──────────────────────────────────────────── */
+  .phase-card {
+    background: white;
+    border-radius: 16px;
+    border: 1px solid #dce8f0;
+    overflow: hidden;
+    margin-bottom: 28px;
+    box-shadow: 0 2px 16px rgba(2,60,98,0.06);
+  }
+  .phase-header {
+    background: var(--blue);
+    padding: 20px 28px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .phase-num {
+    width: 36px; height: 36px;
+    background: rgba(184,208,232,0.2);
+    border: 1px solid rgba(184,208,232,0.3);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--blue-glow);
+    flex-shrink: 0;
+  }
+  .phase-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: white;
+  }
+  .phase-subtitle {
+    font-size: 0.8rem;
+    color: rgba(184,208,232,0.7);
+    margin-top: 2px;
+  }
+  .phase-badge {
+    margin-left: auto;
+    background: rgba(184,208,232,0.15);
+    border: 1px solid rgba(184,208,232,0.25);
+    color: var(--blue-glow);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+  .phase-body {
+    padding: 24px 28px;
+  }
+
+  /* ── Step items ──────────────────────────────────────────── */
+  .step {
+    display: flex; gap: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--blue-light);
+  }
+  .step:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .step-icon {
+    width: 38px; height: 38px;
+    background: var(--blue-light);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .step-content h4 {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--blue);
+    margin-bottom: 6px;
+  }
+  .step-content p {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  /* ── Code blocks ─────────────────────────────────────────── */
+  .code-block {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 10px 0;
+    font-family: 'DM Mono', monospace;
+  }
+  .code-header {
+    background: rgba(255,255,255,0.05);
+    border-bottom: 1px solid var(--code-border);
+    padding: 8px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .code-label {
+    font-size: 10px;
+    color: var(--blue-glow);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .copy-btn {
+    background: rgba(184,208,232,0.15);
+    border: 1px solid rgba(184,208,232,0.2);
+    color: var(--blue-glow);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .copy-btn:hover { background: rgba(184,208,232,0.25); }
+  .copy-btn.copied { color: #4ade80; border-color: #4ade80; }
+  .code-content {
+    padding: 16px;
+    color: #e2f0ff;
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+  .code-content .cmd { color: #79c0ff; }
+  .code-content .comment { color: #6b8aa8; }
+  .code-content .key { color: #ffa657; }
+  .code-content .val { color: #a5f3a5; }
+  .code-content .str { color: #ff9e9e; }
+
+  /* ── Alerts ──────────────────────────────────────────────── */
+  .alert {
+    padding: 14px 18px;
+    border-radius: 10px;
+    font-size: 0.875rem;
+    margin: 12px 0;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .alert-success { background: var(--success-bg); color: var(--success); border-left: 3px solid var(--success); }
+  .alert-warn    { background: var(--warn-bg);    color: var(--warn);    border-left: 3px solid var(--warn); }
+  .alert-info    { background: var(--blue-light); color: var(--blue);    border-left: 3px solid var(--blue); }
+
+  /* ── File tree ───────────────────────────────────────────── */
+  .file-tree {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12.5px;
+    color: #c9d1d9;
+    line-height: 2;
+  }
+  .file-tree .dir  { color: #79c0ff; }
+  .file-tree .file { color: #a5f3a5; }
+  .file-tree .new  { color: #ffa657; }
+
+  /* ── What's included ─────────────────────────────────────── */
+  .files-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .file-card {
+    background: var(--blue-light);
+    border: 1px solid #c5d9ea;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .file-card .fname {
+    font-family: 'DM Mono', monospace;
+    font-size: 11.5px;
+    color: var(--blue);
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .file-card .fdesc {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ── Endpoint table ──────────────────────────────────────── */
+  .endpoint-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  .endpoint-table th {
+    background: var(--blue);
+    color: white;
+    padding: 10px 14px;
+    text-align: left;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .endpoint-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--blue-light);
+    vertical-align: top;
+  }
+  .endpoint-table tr:last-child td { border-bottom: none; }
+  .endpoint-table tr:nth-child(even) td { background: var(--off-white); }
+  .method {
+    display: inline-block;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 5px;
+  }
+  .method.post { background: #e6f3ff; color: #0066cc; }
+  .method.get  { background: #e6f7e6; color: #0d7a4e; }
+
+  /* ── Checklist ───────────────────────────────────────────── */
+  .checklist { list-style: none; }
+  .checklist li {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--blue-light);
+    font-size: 0.9rem;
+  }
+  .checklist li:last-child { border-bottom: none; }
+  .check-box {
+    width: 22px; height: 22px;
+    border: 2px solid var(--blue-glow);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 1px;
+  }
+  .check-box:hover { background: var(--blue-light); }
+  .check-box.checked { background: var(--blue); border-color: var(--blue); }
+  .check-box.checked::after { content: '✓'; color: white; font-size: 12px; }
+
+  /* ── Summary bar ─────────────────────────────────────────── */
+  .summary-bar {
+    background: var(--blue);
+    border-radius: 14px;
+    padding: 28px 32px;
+    color: white;
+    display: flex; gap: 40px; flex-wrap: wrap;
+    margin-top: 32px;
+    align-items: center;
+  }
+  .summary-stat h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--blue-glow);
+  }
+  .summary-stat p {
+    font-size: 0.8rem;
+    color: rgba(232,240,247,0.6);
+  }
+  .summary-cta {
+    margin-left: auto;
+    background: var(--blue-glow);
+    color: var(--blue);
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    padding: 12px 28px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    border: none;
+  }
+
+  @media (max-width: 600px) {
+    .hero h1 { font-size: 1.8rem; }
+    .files-grid { grid-template-columns: 1fr; }
+    .summary-bar { flex-direction: column; }
+    .summary-cta { margin-left: 0; width: 100%; text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-tag">🧺 HANGERS CLOTHES SPA</div>
+    <h1>Phase 1 Complete —<br><span>Start Your Backend</span></h1>
+    <p>All the code for your Node.js backend has been written. Follow these steps to get it running on your computer in under 30 minutes.</p>
+    <div class="hero-meta">
+      <div class="hero-meta-item"><div class="dot"></div> Node.js + Express + PostgreSQL</div>
+      <div class="hero-meta-item"><div class="dot"></div> MSG91 OTP Auth</div>
+      <div class="hero-meta-item"><div class="dot"></div> JWT + RBAC</div>
+      <div class="hero-meta-item"><div class="dot"></div> Full Audit Logs</div>
+    </div>
+  </div>
+</div>
+
+<!-- PROGRESS -->
+<div class="progress-bar">
+  <div class="progress-inner">
+    <div class="prog-step done">1. INSTALL</div>
+    <div class="prog-step done">2. DATABASE</div>
+    <div class="prog-step active">3. ENV</div>
+    <div class="prog-step">4. RUN</div>
+    <div class="prog-step">5. TEST</div>
+    <div class="prog-step">6. NEXT</div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- WHAT'S INCLUDED -->
+  <div class="phase-card">
+    <div class="phase-header">
+      <div class="phase-num">📦</div>
+      <div>
+        <div class="phase-title">What Was Just Built For You</div>
+        <div class="phase-subtitle">10 files, ~700 lines of production code</div>
+      </div>
+      <div class="phase-badge">PHASE 1</div>
+    </div>
+    <div class="phase-body">
+      <div class="file-tree">
+        <div><span class="dir">hangers-backend/</span></div>
+        <div>&nbsp;&nbsp;├── <span class="file">package.json</span> &nbsp;<span style="color:#6b8aa8">— all dependencies</span></div>
+        <div>&nbsp;&nbsp;├── <span class="new">.env.example</span> &nbsp;<span style="color:#6b8aa8">— your config template</span></div>
+        <div>&nbsp;&nbsp;├── <span class="dir">prisma/</span></div>
+        <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="file">schema.prisma</span> &nbsp;<span style="color:#6b8aa8">— full database structure</span></div>
+        <div>&nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="new">seed.js</span> &nbsp;<span style="color:#6b8aa8">— creates first admin account</span></div>
+        <div>&nbsp;&nbsp;└── <span class="dir">src/</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">index.js</span> &nbsp;<span style="color:#6b8aa8">— Express server entry point</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="dir">config/</span> &nbsp;<span class="file">database.js</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="dir">services/</span> &nbsp;<span class="file">msg91 · jwt · activity</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="dir">middleware/</span> &nbsp;<span class="file">auth · rbac · errorHandler</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="dir">controllers/</span> &nbsp;<span class="file">auth · staffAuth</span></div>
+        <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="dir">routes/</span> &nbsp;<span class="file">auth.routes · staff.routes</span></div>
+      </div>
+
+      <div class="files-grid" style="margin-top:20px">
+        <div class="file-card"><div class="fname">schema.prisma</div><div class="fdesc">7 database tables: customers, staff, addresses, sessions, OTP, permissions, activity_logs</div></div>
+        <div class="file-card"><div class="fname">msg91.service.js</div><div class="fdesc">Sends OTP via your MSG91 account. Auto-prints OTP in console during development</div></div>
+        <div class="file-card"><div class="fname">auth.controller.js</div><div class="fdesc">Full OTP flow: send → verify → register/login → JWT token → session saved</div></div>
+        <div class="file-card"><div class="fname">rbac.js</div><div class="fdesc">9 staff roles with 30+ granular permissions, plus per-staff override/revoke support</div></div>
+        <div class="file-card"><div class="fname">staffAuth.controller.js</div><div class="fdesc">Staff login, session, create accounts. Passwords hashed with bcrypt-12</div></div>
+        <div class="file-card"><div class="fname">activity.service.js</div><div class="fdesc">Fire-and-forget audit log. Every login, action, and change recorded automatically</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 1: INSTALL -->
+  <div class="phase-card">
+    <div class="phase-header">
+      <div class="phase-num">1</div>
+      <div>
+        <div class="phase-title">Install Required Software</div>
+        <div class="phase-subtitle">One-time setup on your computer — takes ~15 min</div>
+      </div>
+    </div>
+    <div class="phase-body">
+
+      <div class="step">
+        <div class="step-icon">⬇️</div>
+        <div class="step-content">
+          <h4>Install Node.js (if not installed)</h4>
+          <p>Go to <strong>nodejs.org</strong> → Download the LTS version → Install it. After installing, open Command Prompt (Windows) or Terminal (Mac) and run:</p>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">TERMINAL</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content"><span class="cmd">node --version</span>   <span class="comment"># should show v18 or higher</span>
+<span class="cmd">npm --version</span>    <span class="comment"># should show 9 or higher</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">🐘</div>
+        <div class="step-content">
+          <h4>Install PostgreSQL Database</h4>
+          <p>Go to <strong>postgresql.org/download</strong> → Download for your OS → Install with default settings. Remember the password you set for the <code>postgres</code> user — you'll need it in Step 3.</p>
+          <div class="alert alert-warn">⚠️ &nbsp;Write down your PostgreSQL password — you cannot recover it easily if forgotten.</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">📁</div>
+        <div class="step-content">
+          <h4>Copy the code folder to your computer</h4>
+          <p>The ZIP file you downloaded contains the <code>hangers-backend</code> folder. Move it to a convenient location like your Desktop or Documents. Then open your terminal and navigate to it:</p>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">TERMINAL</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content"><span class="cmd">cd Desktop/hangers-backend</span>   <span class="comment"># or wherever you placed it</span>
+<span class="cmd">npm install</span>                   <span class="comment"># installs all packages (~1 min)</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STEP 2: DATABASE -->
+  <div class="phase-card">
+    <div class="phase-header">
+      <div class="phase-num">2</div>
+      <div>
+        <div class="phase-title">Create the Database</div>
+        <div class="phase-subtitle">Set up your PostgreSQL database for Hangers</div>
+      </div>
+    </div>
+    <div class="phase-body">
+
+      <div class="step">
+        <div class="step-icon">🗄️</div>
+        <div class="step-content">
+          <h4>Create a new database called <code>hangers_db</code></h4>
+          <p>Open the PostgreSQL command line tool (<strong>psql</strong>) or use <strong>pgAdmin</strong> (installed with PostgreSQL). Run this command:</p>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">PSQL / PGADMIN SQL</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content"><span class="cmd">CREATE DATABASE hangers_db;</span></div>
+          </div>
+          <p style="margin-top:8px">If using psql, first connect with: <code>psql -U postgres</code> and enter your password.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STEP 3: ENV FILE -->
+  <div class="phase-card">
+    <div class="phase-header">
+      <div class="phase-num">3</div>
+      <div>
+        <div class="phase-title">Configure Your Environment File</div>
+        <div class="phase-subtitle">Your personal settings — never share this file</div>
+      </div>
+    </div>
+    <div class="phase-body">
+
+      <div class="step">
+        <div class="step-icon">📝</div>
+        <div class="step-content">
+          <h4>Create your <code>.env</code> file</h4>
+          <p>In the <code>hangers-backend</code> folder, make a copy of <code>.env.example</code> and rename it to <code>.env</code>. Then fill in your values:</p>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">.env — FILL IN YOUR VALUES</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content"><span class="key">PORT</span>=<span class="val">5000</span>
+<span class="key">NODE_ENV</span>=<span class="val">development</span>
+
+<span class="comment"># Replace 'yourpassword' with your PostgreSQL password</span>
+<span class="key">DATABASE_URL</span>=<span class="str">"postgresql://postgres:yourpassword@localhost:5432/hangers_db"</span>
+
+<span class="comment"># Generate with: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"</span>
+<span class="key">JWT_SECRET</span>=<span class="str">"paste_your_generated_secret_here"</span>
+<span class="key">JWT_CUSTOMER_EXPIRES_IN</span>=<span class="val">30d</span>
+<span class="key">JWT_STAFF_EXPIRES_IN</span>=<span class="val">12h</span>
+
+<span class="comment"># Your MSG91 credentials (from msg91.com dashboard)</span>
+<span class="key">MSG91_AUTH_KEY</span>=<span class="str">"your_msg91_key"</span>
+<span class="key">MSG91_TEMPLATE_ID</span>=<span class="str">"your_template_id"</span>
+
+<span class="comment"># Razorpay test keys (from razorpay.com dashboard)</span>
+<span class="key">RAZORPAY_KEY_ID</span>=<span class="str">"rzp_test_XXXXXXXXXX"</span>
+<span class="key">RAZORPAY_KEY_SECRET</span>=<span class="str">"XXXXXXXXXXXXXXXX"</span>
+
+<span class="key">SHOP_NAME</span>=<span class="str">"Hangers Clothes Spa"</span>
+<span class="key">SHOP_PHONE</span>=<span class="str">"+91 7977417014"</span></div>
+          </div>
+          <div class="alert alert-info">ℹ️ &nbsp;<strong>MSG91 not set up yet?</strong> No problem — the server will print OTPs directly in the terminal window during development so you can still test everything.</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">🔑</div>
+        <div class="step-content">
+          <h4>Generate your JWT Secret</h4>
+          <p>Run this in your terminal to generate a secure random secret:</p>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">TERMINAL</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content"><span class="cmd">node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"</span></div>
+          </div>
+          <p style="margin-top:8px">Copy the long string it outputs and paste it as your <code>JWT_SECRET</code> in the .env file.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STEP 4: RUN -->
+  <div class="phase-card">
+    <div class="phase-header">
+      <div class="phase-num">4</div>
+      <div>
+        <div class="phase-title">Run the Database Migrations & Start Server</div>
+        <div class="phase-subtitle">Create all tables and start your API</div>
+      </div>
+    </div>
+    <div class="phase-body">
+
+      <div class="step">
+        <div class="step-icon">🔄</div>
+        <div class="step-content">
+          <h4>Run Prisma database migration</h4>
+          <p>This creates all the tables in your <code>hangers_db</code> database automatically:</p>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">TERMINAL — in hangers-backend folder</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content"><span class="cmd">npx prisma migrate dev --name init</span>
+<span class="comment"># ✅ Creates: customers, staff, addresses, sessions, otp_verifications, activity_logs</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">🌱</div>
+        <div class="step-content">
+          <h4>Seed the database — create your admin account</h4>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">TERMINAL</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content"><span class="cmd">node prisma/seed.js</span>
+<span class="comment"># Creates: admin@hangers.in / Hangers@2025 (change after first login!)</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">🚀</div>
+        <div class="step-content">
+          <h4>Start the development server</h4>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">TERMINAL</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content"><span class="cmd">npm run dev</span>
+
+<span class="comment"># You should see:</span>
+<span class="val">─────────────────────────────────────────</span>
+<span class="val">🧺  Hangers Clothes Spa</span>
+<span class="val">✅  Server running on port 5000</span>
+<span class="val">🌍  Environment: development</span>
+<span class="val">─────────────────────────────────────────</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STEP 5: TEST YOUR API -->
+  <div class="phase-card">
+    <div class="phase-header">
+      <div class="phase-num">5</div>
+      <div>
+        <div class="phase-title">Test Your API Endpoints</div>
+        <div class="phase-subtitle">Verify everything is working correctly</div>
+      </div>
+    </div>
+    <div class="phase-body">
+
+      <div class="step">
+        <div class="step-icon">🩺</div>
+        <div class="step-content">
+          <h4>Health check — open this in your browser</h4>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">BROWSER URL</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content">http://localhost:5000/health</div>
+          </div>
+          <div class="alert alert-success">✅ &nbsp;You should see: <code>{"success": true, "message": "🧺 Hangers API is running"}</code></div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">🔌</div>
+        <div class="step-content">
+          <h4>Install a free API testing tool</h4>
+          <p>Download <strong>Postman</strong> (getpostman.com) or <strong>Insomnia</strong> (insomnia.rest) — free tools to send API requests for testing. Then test these endpoints:</p>
+
+          <table class="endpoint-table">
+            <thead>
+              <tr><th>METHOD</th><th>ENDPOINT</th><th>WHAT IT DOES</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="method get">GET</span></td><td><code>/health</code></td><td>Server health check</td></tr>
+              <tr><td><span class="method post">POST</span></td><td><code>/api/v1/auth/send-otp</code></td><td>Send OTP to customer phone</td></tr>
+              <tr><td><span class="method post">POST</span></td><td><code>/api/v1/auth/verify-otp</code></td><td>Verify OTP → get token</td></tr>
+              <tr><td><span class="method get">GET</span></td><td><code>/api/v1/auth/me</code></td><td>Get customer profile (needs token)</td></tr>
+              <tr><td><span class="method post">POST</span></td><td><code>/api/v1/staff/auth/login</code></td><td>Staff login → get token</td></tr>
+              <tr><td><span class="method get">GET</span></td><td><code>/api/v1/staff/auth/me</code></td><td>Get staff profile + permissions</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">👤</div>
+        <div class="step-content">
+          <h4>Test Staff Login</h4>
+          <p>In Postman, create a POST request to <code>http://localhost:5000/api/v1/staff/auth/login</code> with this body:</p>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">REQUEST BODY (JSON)</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content">{
+  <span class="key">"email"</span>:    <span class="str">"admin@hangers.in"</span>,
+  <span class="key">"password"</span>: <span class="str">"Hangers@2025"</span>
+}</div>
+          </div>
+          <div class="alert alert-success">✅ &nbsp;You should get back a <code>token</code> and your staff profile with role <code>SUPER_ADMIN</code> and all permissions.</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">📱</div>
+        <div class="step-content">
+          <h4>Test Customer OTP Login</h4>
+          <p>POST to <code>/api/v1/auth/send-otp</code> with body <code>{"phone": "9876543210"}</code>. The OTP will print in your terminal (dev mode). Then POST to <code>/api/v1/auth/verify-otp</code>:</p>
+          <div class="code-block">
+            <div class="code-header"><span class="code-label">REQUEST BODY (JSON)</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-content">{
+  <span class="key">"phone"</span>: <span class="str">"9876543210"</span>,
+  <span class="key">"otp"</span>:   <span class="str">"123456"</span>,  <span class="comment">// use the OTP printed in terminal</span>
+  <span class="key">"name"</span>:  <span class="str">"Test Customer"</span>
+}</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- CHECKLIST -->
+  <div class="phase-card">
+    <div class="phase-header">
+      <div class="phase-num">✓</div>
+      <div>
+        <div class="phase-title">Phase 1 Completion Checklist</div>
+        <div class="phase-subtitle">Tick these off as you go</div>
+      </div>
+    </div>
+    <div class="phase-body">
+      <ul class="checklist" id="checklist">
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Node.js and PostgreSQL installed on my computer</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span><code>hangers_db</code> database created in PostgreSQL</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span><code>.env</code> file created with my database password and JWT secret</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span><code>npm install</code> completed without errors</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span><code>npx prisma migrate dev</code> ran — all tables created</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Seed ran — admin@hangers.in account exists</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Server starts with <code>npm run dev</code> — see "🧺 Hangers API is running"</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Health check at localhost:5000/health returns success</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Staff login works — got token back for admin@hangers.in</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Customer OTP flow works — send OTP → verify → got token</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Changed default admin password (admin@hangers.in)</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- NEXT PHASE -->
+  <div class="phase-card">
+    <div class="phase-header">
+      <div class="phase-num">→</div>
+      <div>
+        <div class="phase-title">What's Coming in Phase 2</div>
+        <div class="phase-subtitle">Customer App — screens built in React Native</div>
+      </div>
+      <div class="phase-badge">NEXT</div>
+    </div>
+    <div class="phase-body">
+      <ul class="checklist">
+        <li><div class="check-box" style="border-color:#c5d9ea;cursor:default"></div><span>React Native (Expo) project setup for Android app</span></li>
+        <li><div class="check-box" style="border-color:#c5d9ea;cursor:default"></div><span>Splash screen with Hangers logo and #023c62 brand</span></li>
+        <li><div class="check-box" style="border-color:#c5d9ea;cursor:default"></div><span>Phone number entry + OTP verification screens</span></li>
+        <li><div class="check-box" style="border-color:#c5d9ea;cursor:default"></div><span>Home dashboard screen with services</span></li>
+        <li><div class="check-box" style="border-color:#c5d9ea;cursor:default"></div><span>Rate chart screen — real prices from your CSV</span></li>
+        <li><div class="check-box" style="border-color:#c5d9ea;cursor:default"></div><span>Connect customer app to the Phase 1 backend API</span></li>
+      </ul>
+      <div class="alert alert-info" style="margin-top:16px">📱 &nbsp;<strong>Once Phase 1 is fully working</strong>, come back and say <strong>"Let's start Phase 2"</strong> — I'll write all the React Native code for your customer app.</div>
+    </div>
+  </div>
+
+  <!-- SUMMARY BAR -->
+  <div class="summary-bar">
+    <div class="summary-stat"><h3>10</h3><p>files created</p></div>
+    <div class="summary-stat"><h3>700+</h3><p>lines of code</p></div>
+    <div class="summary-stat"><h3>9</h3><p>staff roles</p></div>
+    <div class="summary-stat"><h3>7</h3><p>DB tables</p></div>
+    <button class="summary-cta" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑ Back to Top</button>
+  </div>
+
+</div>
+
+<script>
+function copyCode(btn) {
+  const block = btn.closest('.code-block').querySelector('.code-content');
+  const text  = block.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓ Copied';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function toggleCheck(el) {
+  el.classList.toggle('checked');
+}
+</script>
+</body>
+</html>

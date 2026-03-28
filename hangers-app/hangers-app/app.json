@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name":        "Hangers",
+    "slug":        "hangers-clothes-spa",
+    "version":     "1.0.0",
+    "orientation": "portrait",
+    "icon":        "./src/assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image":           "./src/assets/splash.png",
+      "resizeMode":      "contain",
+      "backgroundColor": "#023c62"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet":  false,
+      "bundleIdentifier":"com.hangers.clothesspa"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage":  "./src/assets/adaptive-icon.png",
+        "backgroundColor":  "#023c62"
+      },
+      "package": "com.hangers.clothesspa",
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-location",
+        { "locationAlwaysAndWhenInUsePermission": "Allow Hangers to use your location for pickup & delivery." }
+      ]
+    ]
+  }
+}

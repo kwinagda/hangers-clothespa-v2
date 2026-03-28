@@ -1,0 +1,32 @@
+{
+  "name": "hangers-crm",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev":   "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001"
+  },
+  "dependencies": {
+    "next":            "14.2.5",
+    "react":           "^18.3.0",
+    "react-dom":       "^18.3.0",
+    "axios":           "^1.7.0",
+    "js-cookie":       "^3.0.5",
+    "date-fns":        "^3.6.0",
+    "react-hot-toast": "^2.4.1",
+    "lucide-react":    "^0.400.0",
+    "qrcode":          "^1.5.3"
+  },
+  "devDependencies": {
+    "@types/node":      "^20",
+    "@types/react":     "^18",
+    "@types/react-dom": "^18",
+    "@types/js-cookie": "^3",
+    "typescript":       "^5",
+    "tailwindcss":      "^3.4.0",
+    "postcss":          "^8",
+    "autoprefixer":     "^10",
+    "@types/qrcode":    "^1.5.5"
+  }
+}

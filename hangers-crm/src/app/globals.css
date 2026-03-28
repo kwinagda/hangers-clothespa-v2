@@ -1,0 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+body { font-family: 'DM Sans', sans-serif; background: #f4f7fb; color: #1a2332; -webkit-font-smoothing: antialiased; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #f0f4f8; }
+::-webkit-scrollbar-thumb { background: #b8d0e8; border-radius: 99px; }
+
+.nav-link { display:flex; align-items:center; gap:12px; padding:10px 16px; border-radius:12px; font-size:14px; font-weight:500; color:rgba(219,234,254,0.7); transition:all 0.15s; }
+.nav-link:hover { background:rgba(255,255,255,0.1); color:white; }
+.nav-link.active { background:rgba(255,255,255,0.15); color:white; }
+
+.status-badge { display:inline-flex; align-items:center; padding:3px 10px; border-radius:99px; font-size:11px; font-weight:600; border:1px solid; letter-spacing:0.03em; }
+.status-PENDING            { background:#fffbeb; color:#92400e; border-color:#fde68a; }
+.status-PICKED_UP          { background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; }
+.status-PROCESSING         { background:#eef2ff; color:#4338ca; border-color:#c7d2fe; }
+.status-WASHING            { background:#ecfeff; color:#0e7490; border-color:#a5f3fc; }
+.status-DRYING             { background:#f0f9ff; color:#0369a1; border-color:#bae6fd; }
+.status-IRONING            { background:#fff7ed; color:#c2410c; border-color:#fed7aa; }
+.status-QC                 { background:#faf5ff; color:#7e22ce; border-color:#e9d5ff; }
+.status-READY_FOR_DELIVERY { background:#f0fdfa; color:#0f766e; border-color:#99f6e4; }
+.status-OUT_FOR_DELIVERY   { background:#f5f3ff; color:#6d28d9; border-color:#ddd6fe; }
+.status-DELIVERED          { background:#f0fdf4; color:#15803d; border-color:#bbf7d0; }
+.status-CANCELLED          { background:#fef2f2; color:#b91c1c; border-color:#fecaca; }

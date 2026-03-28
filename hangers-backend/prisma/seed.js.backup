@@ -1,0 +1,144 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// DATABASE SEED — Creates the first Super Admin account
+// Run: node prisma/seed.js
+// ─────────────────────────────────────────────────────────────────────────────
+
+require('dotenv').config();
+const { PrismaClient } = require('@prisma/client');
+const bcrypt           = require('bcryptjs');
+
+const prisma = new PrismaClient();
+
+async function main() {
+  console.log('🌱 Seeding database...\n');
+
+  // ── Create Super Admin ────────────────────────────────────────────────────
+  const superAdminEmail    = 'admin@hangers.in';
+  const superAdminPassword = 'Hangers@2025';   // CHANGE THIS after first login!
+
+  const existing = await prisma.staff.findUnique({
+    where: { email: superAdminEmail },
+  });
+
+  if (existing) {
+    console.log('⚠️  Super Admin already exists — skipping');
+  } else {
+    const passwordHash = await bcrypt.hash(superAdminPassword, 12);
+
+    const admin = await prisma.staff.create({
+      data: {
+        name:         'Shop Owner',
+        phone:        '7977417014',
+        email:        superAdminEmail,
+        passwordHash,
+        role:         'SUPER_ADMIN',
+        pin:          await bcrypt.hash('1234', 10),
+      },
+    });
+
+    console.log('✅ Super Admin created:');
+    console.log(`   Email:    ${superAdminEmail}`);
+    console.log(`   Password: ${superAdminPassword}`);
+    console.log(`   ID:       ${admin.id}`);
+    console.log('\n⚠️  IMPORTANT: Change the password after first login!\n');
+  }
+
+  // ── Sample Manager Account ────────────────────────────────────────────────
+  const managerEmail = 'manager@hangers.in';
+  const managerExists = await prisma.staff.findUnique({ where: { email: managerEmail } });
+
+  if (!managerExists) {
+    await prisma.staff.create({
+      data: {
+        name:         'Store Manager',
+        phone:        '9999999999',
+        email:        managerEmail,
+        passwordHash: await bcrypt.hash('Manager@2025', 12),
+        role:         'MANAGER',
+        pin:          await bcrypt.hash('5678', 10),
+      },
+    });
+    console.log('✅ Sample Manager created:');
+    console.log('   Email:    manager@hangers.in');
+    console.log('   Password: Manager@2025');
+  }
+
+  // ── Seed Pricing Catalog ──────────────────────────────────────────────────
+  const CATALOG = [
+    { category: 'Dry Clean — Men', items: [
+      { name: 'Shirt', price: 80 }, { name: 'T-Shirt', price: 70 }, { name: 'Trousers', price: 90 },
+      { name: 'Jeans', price: 110 }, { name: 'Blazer', price: 180 }, { name: 'Suit (2pc)', price: 320 },
+      { name: 'Suit (3pc)', price: 420 }, { name: 'Sherwani', price: 500 }, { name: 'Kurta', price: 100 },
+      { name: 'Kurta-Pajama', price: 150 }, { name: 'Jacket', price: 200 }, { name: 'Sweater', price: 140 },
+      { name: 'Hoodie', price: 150 }, { name: 'Shorts', price: 80 }, { name: 'Waistcoat', price: 120 },
+    ]},
+    { category: 'Dry Clean — Women', items: [
+      { name: 'Saree (Simple)', price: 200 }, { name: 'Saree (Heavy)', price: 350 }, { name: 'Blouse', price: 80 },
+      { name: 'Salwar Suit (2pc)', price: 180 }, { name: 'Salwar Suit (3pc)', price: 240 }, { name: 'Kurti', price: 100 },
+      { name: 'Lehenga', price: 500 }, { name: 'Lehenga Choli', price: 600 }, { name: 'Gown', price: 350 },
+      { name: 'Dress', price: 200 }, { name: 'Tops', price: 70 }, { name: 'Skirt', price: 100 },
+      { name: 'Dupatta', price: 80 }, { name: 'Scarf / Stole', price: 60 }, { name: 'Abaya', price: 280 },
+    ]},
+    { category: 'Dry Clean — Kids', items: [
+      { name: 'Kids Shirt', price: 50 }, { name: 'Kids T-Shirt', price: 50 }, { name: 'Kids Jeans', price: 70 },
+      { name: 'Kids Frock', price: 80 }, { name: 'School Uniform', price: 60 }, { name: 'Party Wear', price: 150 },
+    ]},
+    { category: 'Dry Clean — Home', items: [
+      { name: 'Single Bedsheet', price: 150 }, { name: 'Double Bedsheet', price: 200 },
+      { name: 'Pillow Cover', price: 50 }, { name: 'Blanket (Single)', price: 300 }, { name: 'Blanket (Double)', price: 400 },
+      { name: 'Quilt (Single)', price: 350 }, { name: 'Quilt (Double)', price: 450 }, { name: 'Curtain (per panel)', price: 200 },
+      { name: 'Sofa Cover (1 seater)', price: 200 }, { name: 'Sofa Cover (3 seater)', price: 500 },
+      { name: 'Carpet (per sqft)', price: 25 }, { name: 'Table Cloth', price: 100 },
+    ]},
+    { category: 'Steam Ironing', items: [
+      { name: 'Shirt / T-Shirt', price: 20 }, { name: 'Trousers / Jeans', price: 25 }, { name: 'Kurta', price: 25 },
+      { name: 'Saree', price: 50 }, { name: 'Suit (2pc)', price: 60 }, { name: 'Dress', price: 40 },
+      { name: 'Blouse', price: 20 }, { name: 'Bedsheet', price: 40 }, { name: 'Pillowcase', price: 15 },
+    ]},
+    { category: 'Normal Ironing', items: [
+      { name: 'Shirt / T-Shirt', price: 12 }, { name: 'Trousers / Jeans', price: 15 }, { name: 'Kurta', price: 15 },
+      { name: 'Saree', price: 35 }, { name: 'Bedsheet (Single)', price: 25 }, { name: 'Bedsheet (Double)', price: 35 },
+    ]},
+    { category: 'Roll Press', items: [
+      { name: 'Shirt', price: 15 }, { name: 'T-Shirt', price: 12 }, { name: 'Trousers', price: 18 },
+      { name: 'Saree', price: 40 }, { name: 'Bedsheet', price: 30 },
+    ]},
+    { category: 'Shoe Cleaning', items: [
+      { name: 'Sneakers (Basic)', price: 150 }, { name: 'Sneakers (Deep Clean)', price: 250 },
+      { name: 'Formal Shoes', price: 120 }, { name: 'Boots', price: 200 }, { name: 'Sandals', price: 80 },
+      { name: 'Heels', price: 100 }, { name: 'Canvas Shoes', price: 120 },
+    ]},
+  ];
+
+  let catalogCreated = 0;
+  let catalogSkipped = 0;
+  for (const cat of CATALOG) {
+    for (let idx = 0; idx < cat.items.length; idx++) {
+      const item = cat.items[idx];
+      const existing = await prisma.service.findFirst({
+        where: { name: item.name, category: cat.category },
+      });
+      if (existing) {
+        catalogSkipped++;
+      } else {
+        await prisma.service.create({
+          data: { name: item.name, category: cat.category, basePrice: item.price, isActive: true, sortOrder: idx },
+        });
+        catalogCreated++;
+      }
+    }
+  }
+  console.log(`✅ Pricing catalog: ${catalogCreated} created, ${catalogSkipped} already existed`);
+
+  console.log('\n🎉 Seed complete!');
+  console.log('─────────────────────────────────────────');
+  console.log('Next steps:');
+  console.log('1. Login to CRM with admin@hangers.in');
+  console.log('2. Change the default password immediately');
+  console.log('3. Create your real staff accounts from the CRM');
+  console.log('─────────────────────────────────────────\n');
+}
+
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());

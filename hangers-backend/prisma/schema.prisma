@@ -1,0 +1,591 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id                  String               @id @default(uuid())
+  phone               String               @unique
+  name                String?
+  isActive            Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  notifPush           Boolean              @default(true)
+  notifWhatsApp       Boolean              @default(true)
+  pushToken           String?
+  dob                 DateTime?
+  ordersDue           Float                @default(0)
+  referralCode        String?              @unique
+  referredById        String?
+  walletBalance       Float                @default(0)
+  loyaltyPoints       Int                  @default(0)
+  notes               String?
+  tag                 String?              @default("REGULAR")
+  mapLocation         String?
+  savedAddresses      CustomerAddress[]
+  orders              Order[]
+  addresses           Address[]
+  sessions            CustomerSession[]
+  referrer            Customer?            @relation("ReferredBy", fields: [referredById], references: [id])
+  referred            Customer[]           @relation("ReferredBy")
+  loyaltyTransactions LoyaltyTransaction[]
+  otps                OtpVerification[]
+  recurringPickups    RecurringPickup[]
+  referralReceived    Referral?            @relation("ReferralReceived")
+  referralsMade       Referral[]           @relation("ReferralsMade")
+  walletTxns          WalletTransaction[]
+
+  @@map("customers")
+}
+
+model Address {
+  id           String   @id @default(uuid())
+  customerId   String
+  label        String   @default("Home")
+  addressLine1 String
+  addressLine2 String?
+  landmark     String?
+  city         String
+  pincode      String
+  latitude     Float?
+  longitude    Float?
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("addresses")
+}
+
+model Staff {
+  id                String            @id @default(uuid())
+  name              String
+  phone             String            @unique
+  email             String?           @unique
+  passwordHash      String
+  role              StaffRole
+  isActive          Boolean           @default(true)
+  pin               String?
+  createdBy         String?
+  lastLoginAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  orders            Order[]
+  stageChanges      OrderStage[]
+  paymentsCollected Payment[]
+  attendance        Attendance[]
+  permissions       StaffPermission[]
+  sessions          StaffSession[]
+
+  @@map("staff")
+}
+
+model StaffPermission {
+  id         String  @id @default(uuid())
+  staffId    String
+  permission String
+  granted    Boolean @default(true)
+  staff      Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, permission])
+  @@map("staff_permissions")
+}
+
+model CustomerSession {
+  id         String   @id @default(uuid())
+  customerId String
+  token      String   @unique
+  deviceInfo String?
+  ipAddress  String?
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("customer_sessions")
+}
+
+model StaffSession {
+  id         String   @id @default(uuid())
+  staffId    String
+  token      String   @unique
+  deviceInfo String?
+  ipAddress  String?
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  staff      Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@map("staff_sessions")
+}
+
+model OtpVerification {
+  id          String     @id @default(uuid())
+  phone       String
+  otp         String
+  purpose     OtpPurpose @default(LOGIN)
+  attempts    Int        @default(0)
+  maxAttempts Int        @default(3)
+  isUsed      Boolean    @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime   @default(now())
+  customerId  String?
+  customer    Customer?  @relation(fields: [customerId], references: [id])
+
+  @@map("otp_verifications")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  actorType   String
+  actorId     String?
+  actorName   String?
+  action      String
+  resource    String?
+  resourceId  String?
+  description String
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([actorId])
+  @@index([resourceId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+model Order {
+  id              String              @id @default(cuid())
+  orderNumber     String              @unique
+  customerId      String
+  status          OrderStatus         @default(PENDING)
+  source          String              @default("COUNTER")
+  subtotal        Float               @default(0)
+  discount        Float               @default(0)
+  totalAmount     Float               @default(0)
+  paidAmount      Float               @default(0)
+  writeOffAmount  Float               @default(0)
+  pickupDate      DateTime?
+  deliveryDate    DateTime?
+  deliveredAt     DateTime?
+  notes           String?
+  assignedToId    String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  paymentStatus   String              @default("UNPAID")
+  pickupAddress   String?
+  pickupSlot      String?
+  couponCode      String?
+  couponDiscount  Float               @default(0)
+  isReturn        Boolean             @default(false)
+  originalOrderId String?
+  returnReason    String?
+  upcharge        Float               @default(0)
+  assignedTo      Staff?              @relation(fields: [assignedToId], references: [id])
+  customer        Customer            @relation(fields: [customerId], references: [id])
+  items           OrderItem[]
+  stages          OrderStage[]
+  payments        Payment[]
+  challanOrders   ChallanOrder[]
+  walletTxns      WalletTransaction[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id           String        @id @default(cuid())
+  orderId      String
+  serviceId    String?
+  serviceName  String
+  garmentType  String
+  variant      String?
+  quantity     Int           @default(1)
+  unitPrice    Float
+  subtotal     Float
+  upcharges    String?
+  notes        String?
+  tagNumber    String?
+  createdAt    DateTime      @default(now())
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  service      Service?      @relation(fields: [serviceId], references: [id])
+  challanItems ChallanItem[]
+
+  @@index([orderId])
+}
+
+model OrderStage {
+  id          String   @id @default(cuid())
+  orderId     String
+  stage       String
+  notes       String?
+  changedById String?
+  createdAt   DateTime @default(now())
+  changedBy   Staff?   @relation(fields: [changedById], references: [id])
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model Service {
+  id        String      @id @default(cuid())
+  name      String
+  category  String
+  basePrice Float       @default(0)
+  isActive  Boolean     @default(true)
+  sortOrder Int         @default(0)
+  createdAt DateTime    @default(now())
+  items     OrderItem[]
+
+  @@index([category])
+}
+
+model Payment {
+  id                String   @id @default(cuid())
+  orderId           String
+  amount            Float
+  method            String
+  reference         String?
+  notes             String?
+  createdAt         DateTime @default(now())
+  collectedBy       String?
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  status            String   @default("PENDING")
+  customerId        String?
+  mode              String?
+  collectedByStaff  Staff?   @relation(fields: [collectedBy], references: [id])
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model CustomerAddress {
+  id         String   @id @default(cuid())
+  customerId String
+  label      String   @default("Home")
+  address    String
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  city       String?
+  landmark   String?
+  lat        Float?
+  line1      String?
+  lng        Float?
+  pincode    String?
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model Referral {
+  id            String   @id @default(cuid())
+  referrerId    String
+  referredId    String   @unique
+  creditAwarded Float    @default(100)
+  createdAt     DateTime @default(now())
+  referred      Customer @relation("ReferralReceived", fields: [referredId], references: [id])
+  referrer      Customer @relation("ReferralsMade", fields: [referrerId], references: [id])
+
+  @@map("referrals")
+}
+
+model WalletTransaction {
+  id         String   @id @default(cuid())
+  customerId String
+  amount     Float
+  type       String
+  reason     String
+  orderId    String?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id])
+  order      Order?   @relation(fields: [orderId], references: [id])
+
+  @@index([customerId])
+  @@map("wallet_transactions")
+}
+
+model CashBook {
+  id          String   @id @default(cuid())
+  date        DateTime @default(now())
+  type        String
+  amount      Float
+  description String?
+  staffId     String?
+  createdAt   DateTime @default(now())
+
+  @@map("cash_book")
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  date        DateTime @default(now())
+  category    String
+  description String
+  amount      Float
+  paidBy      String?
+  receipt     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("expenses")
+}
+
+model Coupon {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  type          String
+  value         Float
+  minOrderValue Float     @default(0)
+  maxDiscount   Float?
+  usageLimit    Int?
+  usedCount     Int       @default(0)
+  validFrom     DateTime  @default(now())
+  validUntil    DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+
+  @@map("coupons")
+}
+
+model LoyaltyRule {
+  id              String   @id @default(cuid())
+  earnPerRupee    Float    @default(1)
+  redeemPerPoint  Float    @default(0.5)
+  minRedeemPoints Int      @default(100)
+  isActive        Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+
+  @@map("loyalty_rules")
+}
+
+model LoyaltyTransaction {
+  id         String   @id @default(cuid())
+  customerId String
+  type       String
+  points     Int
+  orderId    String?
+  note       String?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  @@map("loyalty_transactions")
+}
+
+model Upcharge {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  value     Float
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("upcharges")
+}
+
+model Attendance {
+  id          String    @id @default(cuid())
+  staffId     String
+  date        DateTime  @default(now())
+  clockIn     DateTime?
+  clockOut    DateTime?
+  hoursWorked Float?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  staff       Staff     @relation(fields: [staffId], references: [id])
+
+  @@map("attendance")
+}
+
+model RecurringPickup {
+  id         String    @id @default(cuid())
+  customerId String
+  frequency  String
+  dayOfWeek  Int?
+  dayOfMonth Int?
+  address    String
+  notes      String?
+  isActive   Boolean   @default(true)
+  lastPickup DateTime?
+  nextPickup DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  customer   Customer  @relation(fields: [customerId], references: [id])
+
+  @@map("recurring_pickups")
+}
+
+model TransferOrder {
+  id            String   @id @default(cuid())
+  fromPlant     String
+  toPlant       String
+  orderId       String?
+  bagCount      Int      @default(1)
+  notes         String?
+  status        String   @default("PENDING")
+  transferredBy String?
+  receivedBy    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("transfer_orders")
+}
+
+model DeliveryChallan {
+  id            String         @id @default(cuid())
+  challanNo     String         @unique
+  plant         String
+  driverName    String?
+  vehicleNo     String?
+  status        String         @default("DISPATCHED")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  customerValue Float          @default(0)
+  notes         String?
+  vendorBillId  String?
+  vendorCost    Float          @default(0)
+  challanItems  ChallanItem[]
+  challanOrders ChallanOrder[]
+  vendorBill    VendorBill?    @relation(fields: [vendorBillId], references: [id])
+
+  @@map("delivery_challans")
+}
+
+model ChallanOrder {
+  id        String          @id @default(cuid())
+  challanId String
+  orderId   String
+  createdAt DateTime        @default(now())
+  challan   DeliveryChallan @relation(fields: [challanId], references: [id], onDelete: Cascade)
+  order     Order           @relation(fields: [orderId], references: [id])
+
+  @@unique([challanId, orderId])
+  @@map("challan_orders")
+}
+
+model ChallanItem {
+  id            String          @id @default(cuid())
+  challanId     String
+  orderItemId   String
+  serviceName   String
+  quantity      Int             @default(1)
+  customerPrice Float           @default(0)
+  vendorCost    Float           @default(0)
+  isReceived    Boolean         @default(false)
+  receivedAt    DateTime?
+  createdAt     DateTime        @default(now())
+  receivedQty   Int             @default(0)
+  challan       DeliveryChallan @relation(fields: [challanId], references: [id], onDelete: Cascade)
+  orderItem     OrderItem       @relation(fields: [orderItemId], references: [id])
+
+  @@map("challan_items")
+}
+
+model VendorPriceList {
+  id          String   @id @default(cuid())
+  plant       String
+  serviceId   String
+  serviceName String
+  costPrice   Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([plant, serviceId])
+  @@map("vendor_price_list")
+}
+
+model VendorBill {
+  id          String            @id @default(cuid())
+  billNo      String            @unique
+  plant       String
+  status      String            @default("PENDING")
+  totalAmount Float             @default(0)
+  paidAt      DateTime?
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  challans    DeliveryChallan[]
+
+  @@map("vendor_bills")
+}
+
+model Campaign {
+  id          String    @id @default(cuid())
+  name        String
+  message     String
+  audience    String
+  channel     String    @default("WHATSAPP")
+  status      String    @default("DRAFT")
+  sentCount   Int       @default(0)
+  failedCount Int       @default(0)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@map("campaigns")
+}
+
+model Automation {
+  id         String   @id @default(cuid())
+  name       String
+  trigger    String
+  channel    String   @default("WHATSAPP")
+  message    String
+  delayHours Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("automations")
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("settings")
+}
+
+enum StaffRole {
+  SUPER_ADMIN
+  MANAGER
+  COUNTER_STAFF
+  ACCOUNTS
+  DELIVERY_MANAGER
+  DELIVERY_RIDER
+  PLANT_MANAGER
+  PLANT_STAFF
+  PLANT_QC
+}
+
+enum OtpPurpose {
+  LOGIN
+  REGISTER
+  RESET
+  DELIVERY
+}
+
+enum OrderStatus {
+  PENDING
+  PICKED_UP
+  PROCESSING
+  WASHING
+  DRYING
+  IRONING
+  QC
+  READY_FOR_DELIVERY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  RETURNED
+  SENT_TO_PLANT
+}

@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+
+# Next.js
+.next/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+
+# Prisma migrations (local only)
+hangers-backend/prisma/migrations/
+
+# Claude session data
+.claude/
+chat-export.json
