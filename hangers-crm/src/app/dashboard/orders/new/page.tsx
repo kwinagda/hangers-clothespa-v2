@@ -334,6 +334,31 @@ export default function NewOrderPage() {
         <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
           {catalogLoading ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8' }}>Loading catalog...</div>
+          ) : categories.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center' }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+              <div style={{ fontSize: 15, color: '#991b1b', fontWeight: 600, marginBottom: 8 }}>Failed to load catalog</div>
+              <div style={{ fontSize: 13, color: '#9dafc8', marginBottom: 20 }}>Check your connection and try again.</div>
+              <button
+                onClick={() => {
+                  setCatalogLoading(true)
+                  servicesAPI.getCatalog().then((items: Item[]) => {
+                    const map: Record<string, Item[]> = {}
+                    items.forEach((item: Item) => {
+                      if (!map[item.category]) map[item.category] = []
+                      if (item.basePrice > 0) map[item.category].push(item)
+                    })
+                    const cats = Object.keys(map)
+                    setCatalog(map)
+                    setCategories(cats)
+                    if (cats.length) setActiveCategory(cats[0])
+                  }).catch(() => toast.error('Still unavailable'))
+                  .finally(() => setCatalogLoading(false))
+                }}
+                style={{ background: '#023c62', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                Retry
+              </button>
+            </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
               {Object.entries(groupedItems()).map(([baseName, variants]) => {
