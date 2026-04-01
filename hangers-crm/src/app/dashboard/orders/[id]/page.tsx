@@ -18,6 +18,8 @@ const STATUSES = [
   'PENDING','PICKED_UP','PROCESSING','WASHING','DRYING',
   'IRONING','QC','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED',
 ]
+const PLANT_STATUSES = ['PROCESSING','WASHING','DRYING','IRONING','QC','READY_FOR_DELIVERY','SENT_TO_PLANT']
+const CRM_STATUSES   = ['PENDING','PICKED_UP','OUT_FOR_DELIVERY','DELIVERED','CANCELLED']
 const STATUS_LABEL: Record<string,string> = {
   PENDING:'Pending', PICKED_UP:'Picked Up', PROCESSING:'Processing',
   WASHING:'Washing', DRYING:'Drying', IRONING:'Ironing', QC:'QC Check',
@@ -478,13 +480,23 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             })()}
             <div style={{marginTop:20,paddingTop:16,borderTop:'1px solid #e8f0f7'}}>
               <div style={{fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Update Status</div>
-              {noItems && (
-                <div style={{fontSize:12,color:'#b45309',background:'#fff8e6',borderRadius:8,padding:'7px 12px',marginBottom:10,lineHeight:1.5}}>
-                  ⚠️ Processing statuses are locked — add items first
+              {PLANT_STATUSES.includes(order.status) ? (
+                <div style={{fontSize:13,color:'#1e40af',background:'#dbeafe',borderRadius:10,padding:'12px 16px',lineHeight:1.6,display:'flex',alignItems:'center',gap:10}}>
+                  <span style={{fontSize:18}}>🔒</span>
+                  <div>
+                    <div style={{fontWeight:700,marginBottom:2}}>Order is at the Plant</div>
+                    <div style={{fontSize:12,color:'#3b82f6'}}>Status can only be updated by the plant team via the Staff App.</div>
+                  </div>
                 </div>
-              )}
-              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                {STATUSES.map(s => {
+              ) : (
+                <>
+                {noItems && (
+                  <div style={{fontSize:12,color:'#b45309',background:'#fff8e6',borderRadius:8,padding:'7px 12px',marginBottom:10,lineHeight:1.5}}>
+                    ⚠️ Processing statuses are locked — add items first
+                  </div>
+                )}
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                {CRM_STATUSES.map(s => {
                   const isCurrent = s === order.status
                   const isBlocked = !isCurrent && !canProgress(s)
                   return (
@@ -496,6 +508,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                   )
                 })}
               </div>
+              </>
+            )}
             </div>
           </div>}
 

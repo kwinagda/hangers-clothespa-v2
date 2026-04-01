@@ -7,6 +7,10 @@ import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 
 const STATUSES = ['','PENDING','PICKED_UP','PROCESSING','WASHING','DRYING','IRONING','QC','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED','SENT_TO_PLANT']
+
+const PLANT_STATUSES = ['SENT_TO_PLANT','PROCESSING','WASHING','DRYING','IRONING','QC']
+
+const CRM_EDITABLE_STATUSES = ['PENDING','PICKED_UP','OUT_FOR_DELIVERY','DELIVERED','CANCELLED']
 const STATUS_LABEL: Record<string,string> = {
   ''                  :'All Statuses',
   PENDING             :'Pending', PICKED_UP:'Picked Up', PROCESSING:'Processing',
@@ -191,12 +195,14 @@ export default function OrdersPage() {
                         </td>
                         <td style={{padding:'13px 16px',fontSize:13,color:'#6b7fa3'}}>{o.items?.length||0} item{o.items?.length!==1?'s':''}</td>
                         <td style={{padding:'13px 16px'}}>
-                          {isSentToPlant
-                            ? <span style={{fontSize:11,fontWeight:600,color:'#854d0e',background:'#fef9c3',padding:'4px 10px',borderRadius:6}}>🏭 Sent to Plant</span>
+                          {PLANT_STATUSES.includes(o.status)
+                            ? <span style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:6,...(o.status==='SENT_TO_PLANT'?{color:'#854d0e',background:'#fef9c3'}:o.status==='READY_FOR_DELIVERY'?{color:'#166534',background:'#dcfce7'}:{color:'#1e40af',background:'#dbeafe'})}}>
+                                🔒 {getStatusLabel(o.status, o.source)}
+                              </span>
                             : <select value={o.status} onChange={e=>updateStatus(o.id,e.target.value)}
                                 className={`status-badge status-${o.status}`}
                                 style={{border:'none',cursor:'pointer',fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:11,letterSpacing:'0.03em',outline:'none'}}>
-                                {STATUSES.filter(Boolean).map(s=><option key={s} value={s}>{getStatusLabel(s, o.source)}</option>)}
+                                {CRM_EDITABLE_STATUSES.map(s=><option key={s} value={s}>{getStatusLabel(s, o.source)}</option>)}
                               </select>
                           }
                         </td>
