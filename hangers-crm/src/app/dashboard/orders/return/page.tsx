@@ -1,9 +1,9 @@
 'use client'
-import { useState } from 'react'
+import { ChangeEvent, Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { returnOrderAPI } from '@/lib/api'
 const REASONS = ['Stain not removed','Colour faded','Item damaged','Wrong item returned','Item shrunk','Customer not satisfied','Other']
-export default function ReturnOrderPage() {
+function ReturnOrderPageContent() {
   const router = useRouter()
   const sp = useSearchParams()
   const [orderId,setOrderId] = useState(sp.get('orderId')||'')
@@ -39,18 +39,26 @@ export default function ReturnOrderPage() {
       <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:24}}>
         <div style={{display:'flex',flexDirection:'column' as const,gap:16}}>
           <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Original Order ID *</label>
-            <input type="text" value={orderId} onChange={e=>setOrderId(e.target.value)} placeholder="Paste order ID" readOnly={!!sp.get('orderId')} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,fontFamily:'monospace',boxSizing:'border-box' as const}}/></div>
+            <input type="text" value={orderId} onChange={(e: ChangeEvent<HTMLInputElement>)=>setOrderId(e.target.value)} placeholder="Paste order ID" readOnly={!!sp.get('orderId')} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,fontFamily:'monospace',boxSizing:'border-box' as const}}/></div>
           <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Reason *</label>
-            <select value={reason} onChange={e=>setReason(e.target.value)} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
+            <select value={reason} onChange={(e: ChangeEvent<HTMLSelectElement>)=>setReason(e.target.value)} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
               {REASONS.map(r=><option key={r} value={r}>{r}</option>)}
             </select></div>
           {reason==='Other'&&<div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Specify</label>
-            <input type="text" value={custom} onChange={e=>setCustom(e.target.value)} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/></div>}
+            <input type="text" value={custom} onChange={(e: ChangeEvent<HTMLInputElement>)=>setCustom(e.target.value)} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/></div>}
           {error&&<div style={{background:'#fef2f2',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#991b1b'}}>{error}</div>}
           <div style={{background:'#fefce8',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#854d0e'}}>A new order will be created for re-cleaning at no charge, linked to the original.</div>
           <button onClick={submit} disabled={loading} style={{padding:'12px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Creating...':'Create Return Order'}</button>
         </div>
       </div>
     </div>
+  )
+}
+
+export default function ReturnOrderPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '32px 36px', color: '#6b7fa3' }}>Loading return order form...</div>}>
+      <ReturnOrderPageContent />
+    </Suspense>
   )
 }

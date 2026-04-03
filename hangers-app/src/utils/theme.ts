@@ -12,11 +12,13 @@ export const Colors = {
   // UI
   white:       '#FFFFFF',
   offWhite:    '#F7F9FC',
+  background:  '#F7F9FC',
   border:      '#DCE8F0',
   borderLight: '#EEF4F9',
 
   // Text
   textDark:    '#1A2332',
+  text:        '#1A2332',
   textMid:     '#3D5470',
   textMuted:   '#6B7FA3',
   textLight:   '#9DAFC8',

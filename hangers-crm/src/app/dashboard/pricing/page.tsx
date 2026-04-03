@@ -3,6 +3,16 @@ import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { servicesAPI } from '@/lib/api'
 
+interface CatalogItem {
+  name: string
+  price: number
+}
+
+interface CatalogSection {
+  category: string
+  items: CatalogItem[]
+}
+
 // ── Full Hangers price catalog (matches new order form) ───────────────────────
 const DEFAULT_CATALOG = [
   { category: 'Dry Clean — Men', items: [
@@ -51,7 +61,7 @@ const DEFAULT_CATALOG = [
 ]
 
 export default function PricingPage() {
-  const [catalog, setCatalog] = useState<any[]>([])
+  const [catalog, setCatalog] = useState<CatalogSection[]>([])
   const [editing, setEditing] = useState<{catIdx:number,itemIdx:number}|null>(null)
   const [editVal, setEditVal] = useState('')
   const [saving, setSaving] = useState(false)
@@ -62,19 +72,19 @@ export default function PricingPage() {
   useEffect(() => {
     servicesAPI.getPriceList().then((res: any) => {
       if (!res?.data?.catalog?.length) return
-      setCatalog(res.data.catalog.map((cat: any) => ({
+      setCatalog(res.data.catalog.map((cat: any): CatalogSection => ({
         category: cat.category,
-        items: cat.items.map((i: any) => ({ name: i.name, price: i.price })),
+        items: cat.items.map((i: any): CatalogItem => ({ name: i.name, price: i.price })),
       })))
     }).catch(() => {})
   }, [])
 
   const filteredCatalog = search
-    ? catalog.map(cat => ({
+    ? catalog.map((cat: CatalogSection): CatalogSection => ({
         ...cat,
-        items: cat.items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
-      })).filter(cat => cat.items.length > 0)
-    : catalog.filter(cat => cat.category === activeCategory)
+        items: cat.items.filter((i: CatalogItem) => i.name.toLowerCase().includes(search.toLowerCase()))
+      })).filter((cat: CatalogSection) => cat.items.length > 0)
+    : catalog.filter((cat: CatalogSection) => cat.category === activeCategory)
 
   const startEdit = (catIdx: number, itemIdx: number, currentPrice: number) => {
     setEditing({catIdx, itemIdx})
@@ -87,9 +97,9 @@ export default function PricingPage() {
     if (isNaN(newPrice) || newPrice < 0) { toast.error('Enter a valid price'); return }
 
     setSaving(true)
-    const updated = catalog.map((cat, ci) =>
+    const updated = catalog.map((cat: CatalogSection, ci: number) =>
       ci === editing.catIdx
-        ? { ...cat, items: cat.items.map((item, ii) => ii === editing.itemIdx ? { ...item, price: newPrice } : item) }
+        ? { ...cat, items: cat.items.map((item: CatalogItem, ii: number) => ii === editing.itemIdx ? { ...item, price: newPrice } : item) }
         : cat
     )
     setCatalog(updated)
@@ -104,7 +114,7 @@ export default function PricingPage() {
     setSaving(false)
   }
 
-  const totalItems = catalog.reduce((s, c) => s + c.items.length, 0)
+  const totalItems = catalog.reduce((s: number, c: CatalogSection) => s + c.items.length, 0)
 
   return (
     <div style={{padding:'32px 36px',maxWidth:1300,margin:'0 auto',fontFamily:"'DM Sans',sans-serif"}}>

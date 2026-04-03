@@ -8,6 +8,7 @@ export const Colors = {
   border:       '#DCE8F0',
   textDark:     '#1A2332',
   textMuted:    '#6B7FA3',
+  textLight:    '#9DAFC8',
   success:      '#16a34a',
   successBg:    '#e6f7ef',
   warning:      '#f59e0b',

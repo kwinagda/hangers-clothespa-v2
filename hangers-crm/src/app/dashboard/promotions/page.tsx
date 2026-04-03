@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { ChangeEvent, useEffect, useState } from 'react'
 import { couponsAPI, loyaltyAPI, upchargesAPI } from '@/lib/api'
 type Tab = 'coupons'|'loyalty'|'upcharges'
 export default function PromotionsPage() {
@@ -14,6 +14,8 @@ export default function PromotionsPage() {
   const [cf,setCf] = useState({code:'',type:'PERCENT',value:'',minOrderValue:'',maxDiscount:'',usageLimit:'',validUntil:''})
   const [uf,setUf] = useState({name:'',type:'PERCENT',value:''})
   const [lf,setLf] = useState({earnPerRupee:1,redeemPerPoint:0.5,minRedeemPoints:100})
+  const onInput = (setter: (value: string) => void) => (e: ChangeEvent<HTMLInputElement>) => setter(e.target.value)
+  const onSelect = (setter: (value: string) => void) => (e: ChangeEvent<HTMLSelectElement>) => setter(e.target.value)
   useEffect(()=>{
     couponsAPI.getAll().then((r:any)=>setCoupons(r.data||[]))
     loyaltyAPI.getRules().then((r:any)=>{setLoyalty(r.data);if(r.data)setLf({earnPerRupee:r.data.earnPerRupee,redeemPerPoint:r.data.redeemPerPoint,minRedeemPoints:r.data.minRedeemPoints})})
@@ -55,7 +57,7 @@ export default function PromotionsPage() {
           {[{label:'Points earned per ₹1 spent',key:'earnPerRupee',step:'0.1'},{label:'₹ value per point redeemed',key:'redeemPerPoint',step:'0.1'},{label:'Minimum points to redeem',key:'minRedeemPoints',step:'1'}].map((f:any)=>(
             <div key={f.key}>
               <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>{f.label}</label>
-              <input type="number" step={f.step} value={(lf as any)[f.key]} onChange={e=>setLf({...lf,[f.key]:parseFloat(e.target.value)})} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/>
+              <input type="number" step={f.step} value={(lf as any)[f.key]} onChange={(e: ChangeEvent<HTMLInputElement>)=>setLf({...lf,[f.key]:parseFloat(e.target.value)})} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/>
             </div>
           ))}
           <div style={{background:'#eff6ff',borderRadius:8,padding:12,fontSize:13,color:'#1d4ed8'}}>
@@ -82,16 +84,16 @@ export default function PromotionsPage() {
         <div style={{background:'#fff',borderRadius:16,padding:24,width:'100%',maxWidth:400,boxShadow:'0 20px 60px rgba(0,0,0,0.15)',maxHeight:'90vh',overflowY:'auto' as const}}>
           <h2 style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:18,marginBottom:20}}>Create Coupon</h2>
           <div style={{display:'flex',flexDirection:'column' as const,gap:14}}>
-            {inp('Code *',cf.code,e=>setCf({...cf,code:e.target.value}),'text','e.g. SAVE20')}
+            {inp('Code *',cf.code,onInput((value) => setCf({...cf,code:value})),'text','e.g. SAVE20')}
             <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Type</label>
-              <select value={cf.type} onChange={e=>setCf({...cf,type:e.target.value})} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
+              <select value={cf.type} onChange={onSelect((value) => setCf({...cf,type:value}))} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
                 <option value="PERCENT">Percentage (%)</option><option value="FLAT">Flat Amount (₹)</option>
               </select></div>
-            {inp('Value *',cf.value,e=>setCf({...cf,value:e.target.value}),'number')}
-            {inp('Min Order (₹)',cf.minOrderValue,e=>setCf({...cf,minOrderValue:e.target.value}),'number','0')}
-            {inp('Max Discount (₹)',cf.maxDiscount,e=>setCf({...cf,maxDiscount:e.target.value}),'number','No cap')}
-            {inp('Usage Limit',cf.usageLimit,e=>setCf({...cf,usageLimit:e.target.value}),'number','Unlimited')}
-            {inp('Valid Until',cf.validUntil,e=>setCf({...cf,validUntil:e.target.value}),'date')}
+            {inp('Value *',cf.value,onInput((value) => setCf({...cf,value})),'number')}
+            {inp('Min Order (₹)',cf.minOrderValue,onInput((value) => setCf({...cf,minOrderValue:value})),'number','0')}
+            {inp('Max Discount (₹)',cf.maxDiscount,onInput((value) => setCf({...cf,maxDiscount:value})),'number','No cap')}
+            {inp('Usage Limit',cf.usageLimit,onInput((value) => setCf({...cf,usageLimit:value})),'number','Unlimited')}
+            {inp('Valid Until',cf.validUntil,onInput((value) => setCf({...cf,validUntil:value})),'date')}
           </div>
           <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:20}}>
             <button onClick={()=>setShowCoupon(false)} style={{padding:'8px 16px',fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer'}}>Cancel</button>
@@ -103,12 +105,12 @@ export default function PromotionsPage() {
         <div style={{background:'#fff',borderRadius:16,padding:24,width:'100%',maxWidth:380,boxShadow:'0 20px 60px rgba(0,0,0,0.15)'}}>
           <h2 style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:18,marginBottom:20}}>Add Upcharge</h2>
           <div style={{display:'flex',flexDirection:'column' as const,gap:14}}>
-            {inp('Name *',uf.name,e=>setUf({...uf,name:e.target.value}),'text','e.g. Express, Starch')}
+            {inp('Name *',uf.name,onInput((value) => setUf({...uf,name:value})),'text','e.g. Express, Starch')}
             <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Type</label>
-              <select value={uf.type} onChange={e=>setUf({...uf,type:e.target.value})} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
+              <select value={uf.type} onChange={onSelect((value) => setUf({...uf,type:value}))} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
                 <option value="PERCENT">Percentage (%)</option><option value="FLAT">Flat Amount (₹)</option>
               </select></div>
-            {inp('Value *',uf.value,e=>setUf({...uf,value:e.target.value}),'number')}
+            {inp('Value *',uf.value,onInput((value) => setUf({...uf,value})),'number')}
           </div>
           <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:20}}>
             <button onClick={()=>setShowUp(false)} style={{padding:'8px 16px',fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer'}}>Cancel</button>

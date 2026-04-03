@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ordersAPI, customersAPI, servicesAPI, statsAPI } from '@/lib/api'
+import api, { ordersAPI, customersAPI, servicesAPI, statsAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -362,7 +362,7 @@ export default function NewOrderPage() {
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
               {Object.entries(groupedItems()).map(([baseName, variants]) => {
-                const inCart = cart.filter(i => variants.some(v => v.serviceId === i.serviceId || v.id === i.serviceId))
+                const inCart = cart.filter(i => variants.some(v => v.id === i.serviceId))
                 const cartQty = inCart.reduce((s, i) => s + i.quantity, 0)
                 const minPrice = Math.min(...variants.map(v => v.basePrice))
                 const hasVariants = variants.length > 1

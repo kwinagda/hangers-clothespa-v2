@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { Suspense, useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { ordersAPI, challanAPI } from '@/lib/api'
@@ -24,7 +24,7 @@ const getStatusLabel = (status: string, source: string) => {
   return STATUS_LABEL[status] || status
 }
 
-export default function OrdersPage() {
+function OrdersPageContent() {
   const sp                      = useSearchParams()
   const [orders, setOrders]     = useState<any[]>([])
   const [total,  setTotal]      = useState(0)
@@ -297,5 +297,13 @@ export default function OrdersPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '32px 36px', color: '#6b7fa3' }}>Loading orders...</div>}>
+      <OrdersPageContent />
+    </Suspense>
   )
 }

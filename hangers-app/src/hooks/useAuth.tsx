@@ -50,6 +50,7 @@ interface Customer {
 
 interface AuthContextType {
   customer:       Customer | null;
+  user:           Customer | null;
   isLoading:      boolean;
   isAuthenticated: boolean;
   login:          (customer: Customer, token: string) => Promise<void>;
@@ -104,6 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider value={{
       customer,
+      user: customer,
       isLoading,
       isAuthenticated: !!customer,
       login,

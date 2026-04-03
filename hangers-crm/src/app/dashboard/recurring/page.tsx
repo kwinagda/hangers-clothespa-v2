@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { ChangeEvent, useEffect, useState } from 'react'
 import { recurringAPI, customersAPI } from '@/lib/api'
 const FREQ = ['WEEKLY','BIWEEKLY','MONTHLY']
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -20,6 +20,8 @@ export default function RecurringPage() {
     setPickups([r.data,...pickups]); setShowAdd(false); setLoading(false)
   }
   const s = {fontFamily:"'DM Sans',sans-serif"}
+  const onInput = (setter: (value: string) => void) => (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setter(e.target.value)
+  const onSelect = (setter: (value: string) => void) => (e: ChangeEvent<HTMLSelectElement>) => setter(e.target.value)
   const inp = (label:string,value:any,onChange:any,type='text',placeholder='') => <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>{label}</label><input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/></div>
   return (
     <div style={{padding:'32px 36px',maxWidth:1000,margin:'0 auto',...s}}>
@@ -47,21 +49,21 @@ export default function RecurringPage() {
           <h2 style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:18,marginBottom:20}}>Schedule Recurring Pickup</h2>
           <div style={{display:'flex',flexDirection:'column' as const,gap:14}}>
             <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Customer *</label>
-              <select value={form.customerId} onChange={e=>setForm({...form,customerId:e.target.value})} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
+              <select value={form.customerId} onChange={onSelect((value) => setForm({...form,customerId:value}))} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
                 <option value="">Select customer</option>
                 {customers.map((c:any)=><option key={c.id} value={c.id}>{c.name} — {c.phone}</option>)}
               </select></div>
             <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Frequency</label>
-              <select value={form.frequency} onChange={e=>setForm({...form,frequency:e.target.value})} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
+              <select value={form.frequency} onChange={onSelect((value) => setForm({...form,frequency:value}))} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
                 {FREQ.map(f=><option key={f} value={f}>{f}</option>)}
               </select></div>
             <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Day of Week</label>
-              <select value={form.dayOfWeek} onChange={e=>setForm({...form,dayOfWeek:parseInt(e.target.value)})} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
+              <select value={form.dayOfWeek} onChange={(e: ChangeEvent<HTMLSelectElement>)=>setForm({...form,dayOfWeek:parseInt(e.target.value)})} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
                 {DAYS.map((d,i)=><option key={i} value={i}>{d}</option>)}
               </select></div>
             <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Pickup Address *</label>
-              <textarea value={form.address} onChange={e=>setForm({...form,address:e.target.value})} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,height:80,resize:'none',boxSizing:'border-box' as const}} placeholder="Full address"/></div>
-            {inp('Notes',form.notes,e=>setForm({...form,notes:e.target.value}),'text','Optional')}
+              <textarea value={form.address} onChange={onInput((value) => setForm({...form,address:value}))} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,height:80,resize:'none',boxSizing:'border-box' as const}} placeholder="Full address"/></div>
+            {inp('Notes',form.notes,onInput((value) => setForm({...form,notes:value})),'text','Optional')}
           </div>
           <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:20}}>
             <button onClick={()=>setShowAdd(false)} style={{padding:'8px 16px',fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer'}}>Cancel</button>

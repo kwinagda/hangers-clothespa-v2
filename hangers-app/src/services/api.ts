@@ -84,13 +84,19 @@ export const ordersAPI = {
 
   /** Book a pickup from the app */
   bookPickup: (data: {
+    customerId?: string;
     pickupDate:   string;
+    pickupTimeSlot?: string;
     timeSlot?:    string;
-    serviceTypes: string[];
-    address:      string;
+    serviceTypes?: string[];
+    pickupAddress?: string;
+    savedAddressId?: string;
+    address?:      string;
     notes?:       string;
     items?:       any[];
     subtotal?:    number;
+    estimatedAmount?: number;
+    source?: string;
     totalAmount?: number;
   }) => api.post('/customer/orders/pickup-request', data),
 };
@@ -116,6 +122,7 @@ export const paymentsAPI = {
 
 // ── ADDRESSES ─────────────────────────────────────────────────────────────────
 export const addressAPI = {
+  list:       ()                       => api.get('/addresses'),
   getAll:     ()                       => api.get('/addresses'),
   create:     (data: any)              => api.post('/addresses', data),
   update:     (id: string, data: any)  => api.put(`/addresses/${id}`, data),
