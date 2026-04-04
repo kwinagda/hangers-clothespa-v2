@@ -1,95 +1,141 @@
 # Hangers Clothes Spa v2
 
-Operational workspace for the Hangers Clothes Spa platform.
+Hangers Clothes Spa v2 is a full-stack operational workspace for a laundry and garment-care business.
 
-## Repository Layout
+This repository contains the complete product surface:
 
-This repository contains the full working stack:
+- customer mobile app
+- staff mobile app
+- CRM / operations dashboard
+- backend API and database layer
+
+## Workspace
 
 - `hangers-app`
-  Customer mobile app built with Expo / React Native
+  Expo / React Native customer app
 - `hangers-staff-app`
-  Staff mobile app for plant and delivery flows
+  Expo / React Native staff app for plant and delivery teams
 - `hangers-crm`
-  CRM and operations dashboard built with Next.js
+  Next.js CRM and operations dashboard
 - `hangers-backend`
-  Node.js / Express backend with Prisma and PostgreSQL
+  Express + Prisma backend
 
-## What Is Included
+## Product Areas
 
-- master-data and metadata consolidation across apps
-- customer, CRM, staff, and backend payment consistency fixes
-- customer-app branding, typography, UX redesign, and navigation polish
-- Daily Iron customer and CRM flows
-- backend response-shape hardening and referral / payment-history fixes
+- OTP-based customer login
+- pickup booking and address management
+- order tracking and delivery flows
+- wallet, referrals, and payment history
+- Daily Iron subscriptions, logs, and billing
+- staff roles, plant operations, and delivery assignment
+- CRM finance, search, pricing, reports, and customer management
 
-## Prerequisites
+## Important Repo Context
 
-- Node.js 18+ recommended
-- npm
-- PostgreSQL for the backend Prisma database
-- Expo tooling for the mobile apps
+For future AI prompting, project memory, coding conventions, source-of-truth rules, risky areas, and product direction, read:
 
-## Environment Setup
+- [`PROJECT_AI_CONTEXT.md`](./PROJECT_AI_CONTEXT.md)
 
-Create these local env files before running the workspace:
+For the strict master-data migration audit context, read:
 
-- `hangers-backend/.env`
-- `hangers-app/.env`
-- `hangers-staff-app/.env`
-- `hangers-crm/.env.local`
+- [`MASTER_DATA_AUDIT.md`](./MASTER_DATA_AUDIT.md)
 
-Example env templates are included here:
+## Tech Stack
 
-- [hangers-backend/.env.example](/Users/kevin/Documents/Hangers%20App%20Daily%20Iron/hangers-backend/.env.example)
-- [hangers-app/.env.example](/Users/kevin/Documents/Hangers%20App%20Daily%20Iron/hangers-app/.env.example)
-- [hangers-staff-app/.env.example](/Users/kevin/Documents/Hangers%20App%20Daily%20Iron/hangers-staff-app/.env.example)
-- [hangers-crm/.env.example](/Users/kevin/Documents/Hangers%20App%20Daily%20Iron/hangers-crm/.env.example)
+- React Native + Expo
+- Next.js
+- Node.js + Express
+- Prisma
+- PostgreSQL
+- Axios
 
-## Local Development
+## Quick Start
 
-### Backend
+### 1. Install dependencies
+
+```bash
+cd hangers-backend && npm install
+cd ../hangers-app && npm install
+cd ../hangers-staff-app && npm install
+cd ../hangers-crm && npm install
+```
+
+### 2. Create env files
+
+Copy from:
+
+- `hangers-backend/.env.example`
+- `hangers-app/.env.example`
+- `hangers-staff-app/.env.example`
+- `hangers-crm/.env.example`
+
+### 3. Start the backend
 
 ```bash
 cd hangers-backend
-npm install
 npx prisma generate
 npx prisma db push
 npm run dev
 ```
 
-### Customer App
+### 4. Start the apps
+
+Customer app:
 
 ```bash
 cd hangers-app
-npm install
 npm start
 ```
 
-### Staff App
+Staff app:
 
 ```bash
 cd hangers-staff-app
-npm install
 npm start
 ```
 
-### CRM
+CRM:
 
 ```bash
 cd hangers-crm
-npm install
 npm run dev
 ```
 
-## Typical Local Ports
+## Default Local URLs
 
 - backend API: `http://localhost:3000/api/v1`
 - CRM: `http://localhost:3001`
-- Expo apps use `EXPO_PUBLIC_API_URL` when set, otherwise they try to resolve the local backend automatically
+- customer/staff apps use `EXPO_PUBLIC_API_URL` when set
 
-## Notes
+## Current Direction
 
-- Root `.gitignore` now ignores generated caches, backup artifacts, and local env files across all subprojects.
-- `MASTER_DATA_AUDIT.md` contains the audit context for the master-data migration work.
-- This repository intentionally contains all four apps in one workspace because the flows and master data are tightly coupled across customer, staff, CRM, and backend.
+Recent work in this repository focused on:
+
+- centralizing master data and metadata usage
+- reducing cross-app status / payment mismatches
+- hardening API response handling
+- redesigning the customer app with stronger branding and better UX density
+- expanding Daily Iron flows across backend, customer app, and CRM
+
+## Development Notes
+
+- This is a mono-workspace style repo, not four disconnected projects.
+- Many features span all four codebases, so changes often require checking backend + customer app + staff app + CRM together.
+- Canonical values matter. Labels should come from metadata, but behavior and persistence should use canonical keys.
+- Order-level payment truth is important. Do not casually replace it with raw transaction-only logic.
+
+## Repository Hygiene
+
+The root `.gitignore` is configured to ignore:
+
+- `node_modules`
+- Expo / Next build output
+- `.env` files
+- logs
+- `.DS_Store`
+- `*.tsbuildinfo`
+- backup artifacts
+
+## Maintainer
+
+- Kevin Nagda
