@@ -4,15 +4,17 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Image,
   KeyboardAvoidingView, Platform, ActivityIndicator,
   StatusBar, Animated, Dimensions
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { authAPI } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
-import { Colors, Spacing, Radius, FontSize, Shadow } from '../utils/theme';
+import { Colors, Spacing, Radius, FontSize, Shadow, Fonts } from '../utils/theme';
+import { LOGO_WHITE_URL } from '../lib/branding';
 
 const OTP_LENGTH = 6;
 const { height } = Dimensions.get('window');
@@ -136,17 +138,20 @@ export default function OTPVerifyScreen({ route, navigation }: any) {
       <LinearGradient colors={[Colors.primary, '#012a4a']} style={styles.gradient}>
 
         <View style={styles.header}>
-          <Text style={styles.brandName}>Hangers</Text>
-          <Text style={styles.brandTagline}>Clothes Spa</Text>
+          <Image source={{ uri: LOGO_WHITE_URL }} style={styles.brandLogo} resizeMode="contain" />
+          <Text style={styles.brandTagline}>Care in Every Clean</Text>
         </View>
 
         <Animated.View style={[styles.card, { transform: [{ translateY: cardAnim }, { translateX: shakeAnim }], opacity: cardOpacity }]}>
 
           {/* Badge */}
           <View style={[styles.badge, isDevMode ? styles.badgeDev : styles.badgeWa]}>
-            <Text style={styles.badgeText}>
-              {isDevMode ? '🔧 DEV MODE — OTP is 123456' : '💬 OTP sent via WhatsApp'}
-            </Text>
+            <View style={styles.badgeInner}>
+              <Feather name={isDevMode ? 'tool' : 'message-circle'} size={12} color={Colors.text} />
+              <Text style={styles.badgeText}>
+                {isDevMode ? 'DEV MODE — OTP is 123456' : 'OTP sent via WhatsApp'}
+              </Text>
+            </View>
           </View>
 
           <Text style={styles.title}>Enter OTP</Text>
@@ -157,7 +162,7 @@ export default function OTPVerifyScreen({ route, navigation }: any) {
           {isDevMode && (
             <View style={styles.devBanner}>
               <Text style={styles.devBannerText}>
-                🔧 Dev Mode — OTP auto-filled as <Text style={styles.devBannerCode}>123456</Text>. Just tap Verify.
+                Dev Mode — OTP auto-filled as <Text style={styles.devBannerCode}>123456</Text>. Just tap Verify.
               </Text>
             </View>
           )}
@@ -221,30 +226,31 @@ const styles = StyleSheet.create({
   container:       { flex: 1 },
   gradient:        { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.lg },
   header:          { alignItems: 'center', marginBottom: 32 },
-  brandName:       { fontSize: 36, fontWeight: '800', color: '#fff', letterSpacing: 1 },
-  brandTagline:    { fontSize: 16, color: 'rgba(255,255,255,0.7)', marginTop: 4 },
+  brandLogo:       { width: 240, height: 86, marginBottom: 6 },
+  brandTagline:    { fontFamily: Fonts.body, fontSize: 16, color: 'rgba(255,255,255,0.7)', marginTop: 2 },
   card:            { backgroundColor: '#fff', borderRadius: Radius.xl, padding: Spacing.xl, ...Shadow.lg },
   badge:           { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, alignSelf: 'flex-start', marginBottom: Spacing.md },
+  badgeInner:      { flexDirection: 'row', alignItems: 'center', gap: 6 },
   badgeWa:         { backgroundColor: '#e8f5e9' },
   badgeDev:        { backgroundColor: '#fff3e0' },
-  badgeText:       { fontSize: FontSize.xs, fontWeight: '600', color: Colors.text },
-  title:           { fontSize: FontSize.xl, fontWeight: '700', color: Colors.primary, marginBottom: 4 },
-  subtitle:        { fontSize: FontSize.sm, color: Colors.textLight, marginBottom: Spacing.lg },
-  phoneHighlight:  { fontWeight: '700', color: Colors.primary },
+  badgeText:       { fontFamily: Fonts.medium, fontSize: FontSize.xs, color: Colors.text },
+  title:           { fontFamily: Fonts.display, fontSize: FontSize.xl, color: Colors.primary, marginBottom: 4 },
+  subtitle:        { fontFamily: Fonts.body, fontSize: FontSize.sm, color: Colors.textLight, marginBottom: Spacing.lg },
+  phoneHighlight:  { fontFamily: Fonts.bold, color: Colors.primary },
   devBanner:       { backgroundColor: '#fff8e1', borderRadius: Radius.sm, padding: Spacing.sm, marginBottom: Spacing.md },
-  devBannerText:   { fontSize: FontSize.xs, color: '#e65100' },
-  devBannerCode:   { fontWeight: '800' },
+  devBannerText:   { fontFamily: Fonts.body, fontSize: FontSize.xs, color: '#e65100' },
+  devBannerCode:   { fontFamily: Fonts.display },
   otpRow:          { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing.md },
-  otpBox:          { width: 44, height: 52, borderWidth: 1.5, borderColor: Colors.border, borderRadius: Radius.md, fontSize: 22, fontWeight: '700', color: Colors.primary, backgroundColor: Colors.background },
+  otpBox:          { width: 44, height: 52, borderWidth: 1.5, borderColor: Colors.border, borderRadius: Radius.md, fontFamily: Fonts.display, fontSize: 22, color: Colors.primary, backgroundColor: Colors.background },
   otpBoxFilled:    { borderColor: Colors.primary, backgroundColor: '#e8f0ff' },
-  errorText:       { color: Colors.error, fontSize: FontSize.sm, marginBottom: Spacing.sm, textAlign: 'center' },
+  errorText:       { fontFamily: Fonts.body, color: Colors.error, fontSize: FontSize.sm, marginBottom: Spacing.sm, textAlign: 'center' },
   button:          { backgroundColor: Colors.primary, borderRadius: Radius.md, paddingVertical: 16, alignItems: 'center', marginTop: Spacing.sm },
   buttonDisabled:  { opacity: 0.5 },
-  buttonText:      { color: '#fff', fontSize: FontSize.md, fontWeight: '700' },
+  buttonText:      { fontFamily: Fonts.display, color: '#fff', fontSize: FontSize.md },
   resendRow:       { flexDirection: 'row', justifyContent: 'center', marginTop: Spacing.md },
-  resendText:      { fontSize: FontSize.sm, color: Colors.textLight },
-  resendLink:      { fontSize: FontSize.sm, fontWeight: '700', color: Colors.primary },
+  resendText:      { fontFamily: Fonts.body, fontSize: FontSize.sm, color: Colors.textLight },
+  resendLink:      { fontFamily: Fonts.medium, fontSize: FontSize.sm, color: Colors.primary },
   resendDisabled:  { color: Colors.textLight },
   changeNumber:    { alignItems: 'center', marginTop: Spacing.md },
-  changeNumberText:{ fontSize: FontSize.sm, color: Colors.textLight },
+  changeNumberText:{ fontFamily: Fonts.body, fontSize: FontSize.sm, color: Colors.textLight },
 });

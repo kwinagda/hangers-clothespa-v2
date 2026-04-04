@@ -11,6 +11,9 @@ model Customer {
   id                  String               @id @default(uuid())
   phone               String               @unique
   name                String?
+  ironRateOverride    Float?
+  preferredLanguage   String               @default("ENGLISH")
+  ironSubStatus       String?
   isActive            Boolean              @default(true)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
@@ -26,7 +29,6 @@ model Customer {
   notes               String?
   tag                 String?              @default("REGULAR")
   mapLocation         String?
-  savedAddresses      CustomerAddress[]
   orders              Order[]
   addresses           Address[]
   sessions            CustomerSession[]
@@ -38,6 +40,9 @@ model Customer {
   referralReceived    Referral?            @relation("ReferralReceived")
   referralsMade       Referral[]           @relation("ReferralsMade")
   walletTxns          WalletTransaction[]
+  ironSubscription    IronSubscription?
+  ironLogs            IronLog[]
+  ironBills           IronBill[]
 
   @@map("customers")
 }
@@ -79,6 +84,8 @@ model Staff {
   attendance        Attendance[]
   permissions       StaffPermission[]
   sessions          StaffSession[]
+  ironSubscriptionsConfirmed IronSubscription[] @relation("IronSubscriptionConfirmedBy")
+  ironLogsEntered   IronLog[]         @relation("IronLogEnteredBy")
 
   @@map("staff")
 }
@@ -240,8 +247,84 @@ model Service {
   sortOrder Int         @default(0)
   createdAt DateTime    @default(now())
   items     OrderItem[]
+  ironLogs   IronLog[]
 
   @@index([category])
+}
+
+model IronSubscription {
+  id                String    @id @default(cuid())
+  customerId        String    @unique
+  applicationStatus String    @default("PENDING_REVIEW")
+  notes             String?
+  appliedAt         DateTime  @default(now())
+  confirmedAt       DateTime?
+  confirmedById     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  customer          Customer  @relation(fields: [customerId], references: [id])
+  confirmedBy       Staff?    @relation("IronSubscriptionConfirmedBy", fields: [confirmedById], references: [id])
+  logs              IronLog[]
+  bills             IronBill[]
+
+  @@index([applicationStatus])
+  @@map("iron_subscriptions")
+}
+
+model IronLog {
+  id             String           @id @default(cuid())
+  subscriptionId String
+  customerId     String
+  serviceId      String
+  serviceName    String
+  date           DateTime
+  pieces         Int
+  ratePerPiece   Float
+  amount         Float
+  notes          String?
+  whatsappSent   Boolean          @default(false)
+  loggedById     String
+  billId         String?
+  createdAt      DateTime         @default(now())
+
+  subscription   IronSubscription @relation(fields: [subscriptionId], references: [id])
+  customer       Customer         @relation(fields: [customerId], references: [id])
+  service        Service          @relation(fields: [serviceId], references: [id])
+  loggedBy       Staff            @relation("IronLogEnteredBy", fields: [loggedById], references: [id])
+  bill           IronBill?        @relation(fields: [billId], references: [id])
+
+  @@index([customerId])
+  @@index([date])
+  @@index([billId])
+  @@map("iron_logs")
+}
+
+model IronBill {
+  id                 String           @id @default(cuid())
+  billNumber         String           @unique
+  customerId         String
+  subscriptionId     String
+  billingPeriodStart DateTime
+  billingPeriodEnd   DateTime
+  totalPieces        Int
+  totalAmount        Float
+  status             String           @default("DRAFT")
+  paidAt             DateTime?
+  paidAmount         Float            @default(0)
+  paymentMethod      String?
+  carryForwardNotes  String?
+  notes              String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  customer           Customer         @relation(fields: [customerId], references: [id])
+  subscription       IronSubscription @relation(fields: [subscriptionId], references: [id])
+  logs               IronLog[]
+
+  @@unique([customerId, billingPeriodStart])
+  @@index([customerId])
+  @@map("iron_bills")
 }
 
 model Payment {
@@ -263,25 +346,6 @@ model Payment {
   order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
-}
-
-model CustomerAddress {
-  id         String   @id @default(cuid())
-  customerId String
-  label      String   @default("Home")
-  address    String
-  isDefault  Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  city       String?
-  landmark   String?
-  lat        Float?
-  line1      String?
-  lng        Float?
-  pincode    String?
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-
-  @@index([customerId])
 }
 
 model Referral {

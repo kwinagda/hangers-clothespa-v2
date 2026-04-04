@@ -3,18 +3,9 @@ import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   Platform, TextInput, ActivityIndicator, RefreshControl,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../utils/theme';
-import { plantAPI } from '../../services/api';
-
-const STATUS_FILTERS = [
-  { key: '',                   label: 'All'     },
-  { key: 'PROCESSING',         label: 'At Plant' },
-  { key: 'WASHING',            label: 'Cleaning' },
-  { key: 'DRYING',             label: 'Drying'   },
-  { key: 'IRONING',            label: 'Ironing'  },
-  { key: 'QC',                 label: 'QC'       },
-  { key: 'READY_FOR_DELIVERY', label: 'Ready'    },
-];
+import { metadataAPI, plantAPI } from '../../services/api';
 
 const STATUS_COLOR: Record<string, string> = {
   PROCESSING: '#7c3aed', WASHING: '#0891b2', DRYING: '#f59e0b',
@@ -22,14 +13,10 @@ const STATUS_COLOR: Record<string, string> = {
   PICKED_UP: '#0284c7', PENDING: '#6b7fa3',
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  PROCESSING: 'At Plant', WASHING: 'Cleaning', DRYING: 'Drying',
-  IRONING: 'Ironing', QC: 'Quality Check', READY_FOR_DELIVERY: 'Ready',
-  PICKED_UP: 'Picked Up', PENDING: 'Pending',
-};
-
 export default function PlantOrdersList({ route, navigation }: any) {
   const initialFilter = route.params?.filterStatus || '';
+  const [statusFilters, setStatusFilters] = useState<Array<{ key: string; label: string }>>([{ key: '', label: 'All' }]);
+  const [statusLabels, setStatusLabels] = useState<Record<string, string>>({});
   const [orders,     setOrders]     = useState<any[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -44,6 +31,18 @@ export default function PlantOrdersList({ route, navigation }: any) {
   }, [filter]);
 
   useEffect(() => { load(filter); }, [filter]);
+  useEffect(() => {
+    metadataAPI.getAll()
+      .then((r: any) => {
+        const metadata = r?.metadata || r?.data?.metadata || {};
+        const filters = (metadata.orderStatuses || [])
+          .filter((item: any) => item.plantQueue)
+          .map((item: any) => ({ key: item.key, label: item.plantLabel || item.label }));
+        setStatusFilters([{ key: '', label: 'All' }, ...filters]);
+        setStatusLabels(Object.fromEntries((metadata.orderStatuses || []).map((item: any) => [item.key, item.plantLabel || item.label])));
+      })
+      .catch(() => {});
+  }, []);
 
   const handleFilterChange = (key: string) => {
     setFilter(key);
@@ -77,7 +76,7 @@ export default function PlantOrdersList({ route, navigation }: any) {
 
       {/* Search */}
       <View style={styles.searchBar}>
-        <Text style={{ fontSize: 16, marginRight: 8 }}>🔍</Text>
+        <Feather name="search" size={16} color={Colors.textMuted} style={{ marginRight: 8 }} />
         <TextInput
           style={styles.searchInput}
           value={search}
@@ -87,14 +86,14 @@ export default function PlantOrdersList({ route, navigation }: any) {
         />
         {search ? (
           <TouchableOpacity onPress={() => setSearch('')}>
-            <Text style={{ color: Colors.textMuted, fontSize: 18 }}>✕</Text>
+            <Feather name="x" size={18} color={Colors.textMuted} />
           </TouchableOpacity>
         ) : null}
       </View>
 
       {/* Filter chips */}
       <View style={styles.filterRow}>
-        {STATUS_FILTERS.map(f => (
+        {statusFilters.map(f => (
           <TouchableOpacity
             key={f.key}
             style={[styles.chip, filter === f.key && styles.chipActive]}
@@ -115,7 +114,7 @@ export default function PlantOrdersList({ route, navigation }: any) {
         }
         ListEmptyComponent={
           <View style={styles.emptyBox}>
-            <Text style={{ fontSize: 40 }}>📭</Text>
+            <Feather name="inbox" size={40} color={Colors.textMuted} />
             <Text style={styles.emptyText}>No orders found</Text>
           </View>
         }
@@ -128,14 +127,14 @@ export default function PlantOrdersList({ route, navigation }: any) {
               <Text style={styles.orderNum}>{item.orderNumber}</Text>
               <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLOR[item.status] || '#6b7fa3') + '20' }]}>
                 <Text style={[styles.statusText, { color: STATUS_COLOR[item.status] || '#6b7fa3' }]}>
-                  {STATUS_LABEL[item.status] || item.status}
+                  {statusLabels[item.status] || item.status}
                 </Text>
               </View>
             </View>
             <Text style={styles.custName}>{item.customer?.name || 'Unknown'}</Text>
             <View style={styles.cardBottom}>
               <Text style={styles.itemCount}>{item.totalItems} garment{item.totalItems !== 1 ? 's' : ''}</Text>
-              {item.notes ? <Text style={styles.hasNotes}>📝 Notes</Text> : null}
+              {item.notes ? <Text style={styles.hasNotes}>Notes</Text> : null}
               <Text style={styles.timestamp}>
                 {new Date(item.updatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
               </Text>

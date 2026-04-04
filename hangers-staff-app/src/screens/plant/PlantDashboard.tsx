@@ -3,22 +3,25 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   RefreshControl, Platform, ActivityIndicator,
 } from 'react-native';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
-import { plantAPI } from '../../services/api';
+import { metadataAPI, plantAPI } from '../../services/api';
 import { Colors, Spacing } from '../../utils/theme';
-
-const STAGE_CARDS = [
-  { key: 'processing', label: 'At Plant',   icon: '🏭', color: '#7c3aed' },
-  { key: 'washing',    label: 'Cleaning',   icon: '🫧', color: '#0891b2' },
-  { key: 'drying',     label: 'Drying',     icon: '☀️', color: '#f59e0b' },
-  { key: 'ironing',    label: 'Ironing',    icon: '♨️', color: '#d97706' },
-  { key: 'qc',         label: 'QC',         icon: '🔍', color: '#059669' },
-  { key: 'ready',      label: 'Ready',      icon: '📦', color: '#16a34a' },
-];
+const STAGE_COLORS: Record<string, string> = {
+  PROCESSING: '#7c3aed',
+  WASHING: '#0891b2',
+  DRYING: '#f59e0b',
+  IRONING: '#d97706',
+  QC: '#059669',
+  READY_FOR_DELIVERY: '#16a34a',
+};
 
 export default function PlantDashboard({ navigation }: any) {
   const { staff, logout } = useAuth();
   const [dash,      setDash]      = useState<any>(null);
+  const [stageCards, setStageCards] = useState<Array<{ key: string; dashKey: string; label: string; icon: string; color: string }>>([]);
+  const [defaultPlantStage, setDefaultPlantStage] = useState('PROCESSING');
+  const [readyStageKey, setReadyStageKey] = useState('READY_FOR_DELIVERY');
   const [loading,   setLoading]   = useState(true);
   const [refreshing,setRefreshing]= useState(false);
 
@@ -30,6 +33,23 @@ export default function PlantDashboard({ navigation }: any) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    metadataAPI.getAll().then((response: any) => {
+      const metadata = response?.metadata || response?.data?.metadata || {};
+      const nextCards = (metadata.orderStatuses || [])
+        .filter((item: any) => item.plantQueue)
+        .map((item: any) => ({
+          key: item.key,
+          dashKey: item.plantDashKey || item.key.toLowerCase(),
+          label: item.plantLabel || item.label || item.key,
+          icon: item.icon || 'package-variant-closed',
+          color: STAGE_COLORS[item.key] || Colors.plant,
+        }));
+      setStageCards(nextCards);
+      setDefaultPlantStage(nextCards[0]?.key || 'PROCESSING');
+      setReadyStageKey(nextCards.find((item: any) => item.dashKey === 'ready')?.key || 'READY_FOR_DELIVERY');
+    }).catch(() => {});
+  }, []);
 
   if (loading) return (
     <View style={{ flex:1, backgroundColor: Colors.primary, justifyContent:'center', alignItems:'center' }}>
@@ -42,7 +62,7 @@ export default function PlantDashboard({ navigation }: any) {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>Good {getTimeGreeting()}, {staff?.name?.split(' ')[0]} 👋</Text>
+          <Text style={styles.greeting}>Good {getTimeGreeting()}, {staff?.name?.split(' ')[0]}</Text>
           <Text style={styles.role}>{staff?.role?.replace('_',' ')} · Plant</Text>
         </View>
         <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
@@ -56,13 +76,26 @@ export default function PlantDashboard({ navigation }: any) {
       >
         {/* Scan CTA */}
         <TouchableOpacity style={styles.scanBtn} onPress={() => navigation.navigate('PlantScan')}>
-          <Text style={styles.scanIcon}>📷</Text>
+          <Feather name="camera" size={32} color="#fff" style={styles.scanIcon} />
           <View style={{ flex: 1 }}>
             <Text style={styles.scanTitle}>Scan Garment Tag</Text>
             <Text style={styles.scanSub}>Point camera at QR code to pull up order</Text>
           </View>
           <Text style={{ color: '#fff', fontSize: 20 }}>→</Text>
         </TouchableOpacity>
+
+        <View style={styles.primaryActions}>
+          <TouchableOpacity style={styles.primaryActionCard} onPress={() => navigation.navigate('PlantOrders', { filterStatus: defaultPlantStage })}>
+            <Text style={styles.primaryActionEyebrow}>Focus Queue</Text>
+            <Text style={styles.primaryActionTitle}>Open At-Plant Orders</Text>
+            <Text style={styles.primaryActionMeta}>{dash?.processing ?? 0} active garments waiting for progress</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.primaryActionCard, styles.primaryActionSecondary]} onPress={() => navigation.navigate('PlantOrders', { filterStatus: readyStageKey })}>
+            <Text style={styles.primaryActionEyebrow}>Dispatch</Text>
+            <Text style={styles.primaryActionTitle}>Ready Queue</Text>
+            <Text style={styles.primaryActionMeta}>{dash?.ready ?? 0} orders ready to hand back</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Summary */}
         <View style={styles.summaryRow}>
@@ -87,14 +120,14 @@ export default function PlantDashboard({ navigation }: any) {
         {/* Stage cards — tap to filter orders */}
         <Text style={styles.sectionTitle}>Orders by Stage</Text>
         <View style={styles.stageGrid}>
-          {STAGE_CARDS.map(s => (
+          {stageCards.map(s => (
             <TouchableOpacity
               key={s.key}
               style={[styles.stageCard, { borderColor: s.color + '40' }]}
-              onPress={() => navigation.navigate('PlantOrders', { filterStatus: s.key.toUpperCase() })}
+              onPress={() => navigation.navigate('PlantOrders', { filterStatus: s.key })}
             >
-              <Text style={{ fontSize: 26 }}>{s.icon}</Text>
-              <Text style={[styles.stageNum, { color: s.color }]}>{dash?.[s.key] ?? 0}</Text>
+              <MaterialCommunityIcons name={s.icon as any} size={26} color={s.color} />
+              <Text style={[styles.stageNum, { color: s.color }]}>{dash?.[s.dashKey] ?? 0}</Text>
               <Text style={styles.stageLbl}>{s.label}</Text>
             </TouchableOpacity>
           ))}
@@ -104,12 +137,12 @@ export default function PlantDashboard({ navigation }: any) {
         <Text style={styles.sectionTitle}>Quick Actions</Text>
         <View style={styles.actionsGrid}>
           {[
-            { label: 'All Orders',   icon: '📋', screen: 'PlantOrders', params: {} },
-            { label: 'Ready Queue',  icon: '✅', screen: 'PlantOrders', params: { filterStatus: 'READY_FOR_DELIVERY' } },
+            { label: 'All Orders',   icon: 'clipboard-text-outline', screen: 'PlantOrders', params: {} },
+            { label: 'Ready Queue',  icon: 'check-decagram-outline', screen: 'PlantOrders', params: { filterStatus: readyStageKey } },
           ].map(a => (
             <TouchableOpacity key={a.label} style={styles.actionCard}
               onPress={() => navigation.navigate(a.screen, a.params)}>
-              <Text style={{ fontSize: 28 }}>{a.icon}</Text>
+              <MaterialCommunityIcons name={a.icon as any} size={28} color={Colors.primary} />
               <Text style={styles.actionLabel}>{a.label}</Text>
             </TouchableOpacity>
           ))}
@@ -134,9 +167,15 @@ const styles = StyleSheet.create({
   logoutBtn:   { backgroundColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20 },
   logoutText:  { color: '#fff', fontSize: 13 },
   scanBtn:     { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.plant, borderRadius: 18, padding: 20, marginBottom: 20, gap: 14 },
-  scanIcon:    { fontSize: 32 },
+  scanIcon:    {},
   scanTitle:   { color: '#fff', fontWeight: '800', fontSize: 16 },
   scanSub:     { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2 },
+  primaryActions: { flexDirection: 'row', gap: 12, marginBottom: 20 },
+  primaryActionCard: { flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: Colors.border, shadowColor: 'rgba(2,60,98,0.1)', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
+  primaryActionSecondary: { backgroundColor: Colors.plantLight, borderColor: '#dcc7ff' },
+  primaryActionEyebrow: { fontSize: 10, fontWeight: '700', color: Colors.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 },
+  primaryActionTitle: { fontSize: 15, fontWeight: '800', color: Colors.textDark, marginBottom: 4 },
+  primaryActionMeta: { fontSize: 12, color: Colors.textMuted, lineHeight: 18 },
   summaryRow:  { flexDirection: 'row', gap: 10, marginBottom: 24 },
   summaryCard: { flex: 1, backgroundColor: '#fff', borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1.5 },
   summaryNum:  { fontSize: 24, fontWeight: '800' },

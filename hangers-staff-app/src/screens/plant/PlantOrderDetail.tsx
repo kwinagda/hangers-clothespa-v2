@@ -3,35 +3,20 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Platform, ActivityIndicator, Modal, TextInput, Alert, RefreshControl,
 } from 'react-native';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../utils/theme';
-import { plantAPI } from '../../services/api';
+import { metadataAPI, plantAPI } from '../../services/api';
 
 // QR code rendering (install: npx expo install react-native-qrcode-svg react-native-svg)
 let QRCode: any = null;
 try { QRCode = require('react-native-qrcode-svg').default; } catch { /* not installed yet */ }
 
-const STAGE_FLOW = [
-  { key: 'PICKED_UP',          label: 'Picked Up',      icon: '🚗' },
-  { key: 'PROCESSING',         label: 'At Plant',        icon: '🏭' },
-  { key: 'WASHING',            label: 'Cleaning',        icon: '🫧' },
-  { key: 'DRYING',             label: 'Drying',          icon: '☀️' },
-  { key: 'IRONING',            label: 'Ironing',         icon: '♨️' },
-  { key: 'QC',                 label: 'Quality Check',   icon: '🔍' },
-  { key: 'READY_FOR_DELIVERY', label: 'Ready for Pickup',icon: '📦' },
-];
-
-const PLANT_STAGES = ['PROCESSING','WASHING','DRYING','IRONING','QC','READY_FOR_DELIVERY'];
-const ISSUE_TYPES  = [
-  { key: 'MISSING_ITEM',       label: 'Missing Item',         icon: '❓' },
-  { key: 'DAMAGE',             label: 'Damage Found',         icon: '⚠️' },
-  { key: 'STAIN_NOT_REMOVED',  label: 'Stain Not Removed',    icon: '👕' },
-  { key: 'WRONG_ITEM',         label: 'Wrong Item',           icon: '🔀' },
-  { key: 'OTHER',              label: 'Other',                icon: '📝' },
-];
-
 export default function PlantOrderDetail({ route, navigation }: any) {
   const { orderId } = route.params || {};
   const [order,     setOrder]     = useState<any>(null);
+  const [stageFlow, setStageFlow] = useState<any[]>([]);
+  const [plantStages, setPlantStages] = useState<string[]>([]);
+  const [issueTypes, setIssueTypes] = useState<any[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [refreshing,setRefreshing]= useState(false);
   const [stageModal,setStageModal]= useState(false);
@@ -52,6 +37,29 @@ export default function PlantOrderDetail({ route, navigation }: any) {
   }, [orderId]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    metadataAPI.getAll().then((response: any) => {
+      const metadata = response?.metadata || response?.data?.metadata || {};
+      const nextFlow = (metadata.orderStatuses || [])
+        .filter((item: any) => item.plantTimeline)
+        .map((item: any) => ({
+          key: item.key,
+          label: item.plantLabel || item.label || item.key,
+          icon: item.icon || 'package-variant-closed',
+        }));
+      if (nextFlow.length) {
+        setStageFlow(nextFlow);
+        setPlantStages((metadata.orderStatuses || []).filter((item: any) => item.plantSelectable).map((item: any) => item.key));
+      }
+      if (metadata.plantIssueTypes?.length) {
+        setIssueTypes(metadata.plantIssueTypes.map((item: any) => ({
+          key: item.value,
+          label: item.label,
+          icon: item.icon || 'note-text-outline',
+        })));
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleSetStage = async () => {
     if (!selectedStage) return;
@@ -87,7 +95,10 @@ export default function PlantOrderDetail({ route, navigation }: any) {
     </View>
   );
 
-  const currentIdx = STAGE_FLOW.findIndex(s => s.key === order?.status);
+  const computedStageFlow = stageFlow.length
+    ? stageFlow
+    : (order?.status ? [{ key: order.status, label: order.status, icon: 'package-variant-closed' }] : []);
+  const currentIdx = computedStageFlow.findIndex(s => s.key === order?.status);
 
   return (
     <View style={styles.container}>
@@ -117,7 +128,7 @@ export default function PlantOrderDetail({ route, navigation }: any) {
           </View>
           {order?.notes ? (
             <View style={styles.notesBox}>
-              <Text style={styles.notesText}>📝  {order.notes}</Text>
+              <Text style={styles.notesText}>Notes: {order.notes}</Text>
             </View>
           ) : null}
         </View>
@@ -127,7 +138,7 @@ export default function PlantOrderDetail({ route, navigation }: any) {
         <View style={styles.itemsCard}>
           {order?.items?.map((item: any, i: number) => (
             <View key={i} style={[styles.itemRow, i > 0 && { borderTopWidth: 1, borderTopColor: Colors.border }]}>
-              <Text style={styles.itemIcon}>👔</Text>
+              <MaterialCommunityIcons name="tshirt-crew-outline" size={18} color={Colors.plant} style={styles.itemIcon} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.itemName}>{item.serviceName}</Text>
                 {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
@@ -140,13 +151,17 @@ export default function PlantOrderDetail({ route, navigation }: any) {
         {/* Stage progress */}
         <Text style={styles.sectionTitle}>Stage Progress</Text>
         <View style={styles.stageCard}>
-          {STAGE_FLOW.map((s, idx) => {
+          {computedStageFlow.map((s, idx) => {
             const done    = idx < currentIdx;
             const current = idx === currentIdx;
             return (
               <View key={s.key} style={[styles.stageRow, idx > 0 && { borderTopWidth: 1, borderTopColor: Colors.border }]}>
                 <View style={[styles.stageDot, done && styles.stageDotDone, current && styles.stageDotCurrent]}>
-                  <Text style={{ fontSize: 12 }}>{done ? '✓' : s.icon}</Text>
+                  {done ? (
+                    <Feather name="check" size={12} color="#fff" />
+                  ) : (
+                    <MaterialCommunityIcons name={s.icon as any} size={12} color={current ? Colors.plant : '#6b7fa3'} />
+                  )}
                 </View>
                 <Text style={[styles.stageLabel, { color: current ? Colors.plant : done ? Colors.textDark : '#b8c8d8' }]}>
                   {s.label}
@@ -184,7 +199,10 @@ export default function PlantOrderDetail({ route, navigation }: any) {
               <TouchableOpacity
                 style={{ margin: 12, padding: 12, backgroundColor: Colors.plant, borderRadius: 10, alignItems: 'center' }}
                 onPress={() => setTagsVisible(true)}>
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>🖨  View All Tags</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Feather name="printer" size={14} color="#fff" />
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>View All Tags</Text>
+                </View>
               </TouchableOpacity>
             </>
           ) : (
@@ -202,7 +220,10 @@ export default function PlantOrderDetail({ route, navigation }: any) {
               }}>
               {generatingTags
                 ? <ActivityIndicator color={Colors.plant} />
-                : <Text style={{ color: Colors.plant, fontWeight: '700', fontSize: 14 }}>🏷  Generate Garment Tags</Text>
+                : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Feather name="tag" size={14} color={Colors.plant} />
+                    <Text style={{ color: Colors.plant, fontWeight: '700', fontSize: 14 }}>Generate Garment Tags</Text>
+                  </View>
               }
             </TouchableOpacity>
           )}
@@ -212,11 +233,17 @@ export default function PlantOrderDetail({ route, navigation }: any) {
         <View style={styles.actionRow}>
           <TouchableOpacity style={[styles.actionBtn, { backgroundColor: Colors.plant }]}
             onPress={() => setStageModal(true)}>
-            <Text style={styles.actionBtnText}>⬆  Update Stage</Text>
+            <View style={styles.actionBtnInner}>
+              <Feather name="arrow-up" size={14} color="#fff" />
+              <Text style={styles.actionBtnText}>Update Stage</Text>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionBtn, { backgroundColor: Colors.error }]}
             onPress={() => setIssueModal(true)}>
-            <Text style={styles.actionBtnText}>⚠  Flag Issue</Text>
+            <View style={styles.actionBtnInner}>
+              <Feather name="alert-triangle" size={14} color="#fff" />
+              <Text style={styles.actionBtnText}>Flag Issue</Text>
+            </View>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -226,11 +253,11 @@ export default function PlantOrderDetail({ route, navigation }: any) {
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
             <Text style={styles.modalTitle}>Update Stage</Text>
-            {PLANT_STAGES.map(s => (
+            {plantStages.map(s => (
               <TouchableOpacity key={s} style={[styles.modalOption, selectedStage === s && styles.modalOptionSelected]}
                 onPress={() => setSelectedStage(s)}>
                 <Text style={[styles.modalOptionText, selectedStage === s && { color: Colors.plant, fontWeight: '700' }]}>
-                  {STAGE_FLOW.find(f => f.key === s)?.icon}  {STAGE_FLOW.find(f => f.key === s)?.label}
+                  {stageFlow.find(f => f.key === s)?.label}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -286,12 +313,15 @@ export default function PlantOrderDetail({ route, navigation }: any) {
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
             <Text style={styles.modalTitle}>Flag an Issue</Text>
-            {ISSUE_TYPES.map(it => (
+            {issueTypes.map(it => (
               <TouchableOpacity key={it.key} style={[styles.modalOption, selectedIssue === it.key && styles.modalOptionErrSelected]}
                 onPress={() => setSelectedIssue(it.key)}>
-                <Text style={[styles.modalOptionText, selectedIssue === it.key && { color: Colors.error, fontWeight: '700' }]}>
-                  {it.icon}  {it.label}
-                </Text>
+                <View style={styles.modalOptionInner}>
+                  <MaterialCommunityIcons name={it.icon as any} size={16} color={selectedIssue === it.key ? Colors.error : Colors.textDark} />
+                  <Text style={[styles.modalOptionText, selectedIssue === it.key && { color: Colors.error, fontWeight: '700' }]}>
+                    {it.label}
+                  </Text>
+                </View>
               </TouchableOpacity>
             ))}
             <TextInput style={styles.notesInput} value={notes} onChangeText={setNotes}
@@ -328,7 +358,7 @@ const styles = StyleSheet.create({
   sectionTitle:      { fontSize:14, fontWeight:'700', color:Colors.primary, marginBottom:10, marginTop:4 },
   itemsCard:         { backgroundColor:'#fff', borderRadius:16, borderWidth:1, borderColor:Colors.border, overflow:'hidden', marginBottom:20 },
   itemRow:           { flexDirection:'row', alignItems:'center', padding:14, gap:12 },
-  itemIcon:          { fontSize:20 },
+  itemIcon:          {},
   itemName:          { fontSize:14, fontWeight:'600', color:Colors.textDark },
   itemNotes:         { fontSize:12, color:Colors.textMuted, marginTop:2 },
   itemQty:           { fontSize:14, color:Colors.textMuted },
@@ -342,6 +372,7 @@ const styles = StyleSheet.create({
   currentBadgeText:  { color:Colors.plant, fontSize:11, fontWeight:'700' },
   actionRow:         { flexDirection:'row', gap:12 },
   actionBtn:         { flex:1, borderRadius:14, padding:16, alignItems:'center' },
+  actionBtnInner:    { flexDirection:'row', alignItems:'center', gap:8 },
   actionBtnText:     { color:'#fff', fontWeight:'800', fontSize:15 },
   modalOverlay:      { flex:1, backgroundColor:'rgba(0,0,0,0.5)', justifyContent:'flex-end' },
   modal:             { backgroundColor:'#fff', borderRadius:24, borderBottomLeftRadius:0, borderBottomRightRadius:0, padding:24, paddingBottom:40 },
@@ -349,6 +380,7 @@ const styles = StyleSheet.create({
   modalOption:       { padding:14, borderRadius:12, borderWidth:1.5, borderColor:Colors.border, marginBottom:8 },
   modalOptionSelected:  { borderColor:Colors.plant, backgroundColor:Colors.plantLight },
   modalOptionErrSelected:{ borderColor:Colors.error, backgroundColor:Colors.errorBg },
+  modalOptionInner:  { flexDirection:'row', alignItems:'center', gap:10 },
   modalOptionText:   { fontSize:15, color:Colors.textDark },
   notesInput:        { backgroundColor:Colors.offWhite, borderRadius:12, padding:12, fontSize:14, color:Colors.textDark, borderWidth:1, borderColor:Colors.border, minHeight:70, marginTop:4, marginBottom:16 },
   modalBtns:         { flexDirection:'row', gap:12 },

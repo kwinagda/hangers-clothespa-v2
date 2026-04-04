@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   Platform, ActivityIndicator, Vibration,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Colors, Spacing } from '../../utils/theme';
 import { plantAPI } from '../../services/api';
@@ -47,7 +48,10 @@ export default function PlantScanScreen({ navigation }: any) {
 
   if (!permission.granted) return (
     <View style={styles.center}>
-      <Text style={styles.permText}>📷 Camera permission needed to scan garment tags</Text>
+      <View style={styles.permRow}>
+        <Feather name="camera" size={16} color={Colors.textDark} />
+        <Text style={styles.permText}>Camera permission needed to scan garment tags</Text>
+      </View>
       <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
         <Text style={styles.permBtnText}>Allow Camera</Text>
       </TouchableOpacity>
@@ -94,7 +98,7 @@ export default function PlantScanScreen({ navigation }: any) {
             <ActivityIndicator size="large" color="#fff" style={{ marginBottom: 16 }} />
           ) : error ? (
             <View style={styles.errorBadge}>
-              <Text style={styles.errorText}>⚠️  {error}</Text>
+              <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : (
             <Text style={styles.hint}>Align the QR code inside the frame</Text>
@@ -125,7 +129,8 @@ const styles = StyleSheet.create({
   hint:       { color: 'rgba(255,255,255,0.75)', fontSize: 14, textAlign: 'center', paddingHorizontal: 32 },
   errorBadge: { backgroundColor: 'rgba(220,38,38,0.85)', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 },
   errorText:  { color: '#fff', fontWeight: '700', fontSize: 14 },
-  permText:   { fontSize: 16, textAlign: 'center', color: Colors.textDark, marginBottom: 20 },
+  permRow:    { flexDirection:'row', alignItems:'center', gap:8, marginBottom:20 },
+  permText:   { fontSize: 16, textAlign: 'center', color: Colors.textDark },
   permBtn:    { backgroundColor: Colors.plant, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 },
   permBtnText:{ color: '#fff', fontWeight: '700', fontSize: 15 },
 });

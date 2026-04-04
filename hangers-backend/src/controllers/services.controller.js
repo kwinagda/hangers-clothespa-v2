@@ -10,8 +10,12 @@ const { success, badRequest, error } = require('../utils/response');
 // ── GET /api/v1/services ──────────────────────────────────────────────────────
 const getServices = async (req, res) => {
   try {
+    const { category } = req.query;
+    const where = { isActive: true };
+    if (category) where.category = String(category).trim();
+
     const services = await prisma.service.findMany({
-      where:   { isActive: true },
+      where,
       orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
       select:  { id: true, name: true, category: true, basePrice: true },
     });

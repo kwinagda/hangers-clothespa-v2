@@ -5,78 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { forbidden } = require('../utils/response');
-
-// ── Default permissions per role ──────────────────────────────────────────────
-const ROLE_PERMISSIONS = {
-  SUPER_ADMIN: ['*'],   // All permissions
-
-  MANAGER: [
-    'dashboard.view',
-    'orders.view', 'orders.create', 'orders.edit', 'orders.update_status',
-    'orders.delete',
-    'customers.view', 'customers.edit',
-    'pricing.view', 'pricing.edit', 'pricing.import',
-    'finance.view',
-    'reports.view',
-    'staff.view',
-    'plant.view', 'plant.create_challan',
-    'delivery.view', 'delivery.assign',
-    'whatsapp.send',
-    'print.all',
-  ],
-
-  COUNTER_STAFF: [
-    'dashboard.view',
-    'orders.view', 'orders.create', 'orders.update_status',
-    'customers.view', 'customers.edit',
-    'pricing.view',
-    'print.all',
-    'plant.create_challan',
-  ],
-
-  ACCOUNTS: [
-    'dashboard.view',
-    'orders.view',
-    'customers.view',
-    'pricing.view',
-    'finance.view', 'finance.edit',
-    'reports.view',
-  ],
-
-  DELIVERY_MANAGER: [
-    'dashboard.view',
-    'orders.view', 'orders.update_status',
-    'customers.view',
-    'delivery.view', 'delivery.assign', 'delivery.edit',
-    'reports.delivery',
-  ],
-
-  DELIVERY_RIDER: [
-    'delivery.own_orders',
-    'orders.update_status',
-  ],
-
-  PLANT_MANAGER: [
-    'plant.view', 'plant.edit', 'plant.update_stage', 'plant.create_challan',
-    'plant.reports',
-    'orders.view', 'orders.update_status',
-    'staff.plant_view',
-  ],
-
-  PLANT_STAFF: [
-    'plant.view',
-    'plant.scan',
-    'plant.update_own_stage',
-  ],
-
-  PLANT_QC: [
-    'plant.view',
-    'plant.scan',
-    'plant.quality_check',
-    'plant.update_stage',
-    'plant.reports_limited',
-  ],
-};
+const { ROLE_PERMISSIONS } = require('../config/master-data');
 
 /**
  * Check if a staff member has a specific permission

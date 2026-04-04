@@ -2,7 +2,7 @@
 // HANGERS CLOTHES SPA — DATABASE SEED
 // Single source of truth for all pricing
 // Source: exportProducts.csv (official rate chart)
-// Total: 233 items across 7 catalogs
+// Total: 242 items across 8 catalogs
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { PrismaClient } = require('@prisma/client');
@@ -233,6 +233,17 @@ const CATALOG = [
   // ── NORMAL IRONING ─────────────────────────────────────────────────────────
   { name: 'Normal Ironing',                         category: 'NORMAL IRONING',           basePrice: 15,   isActive: true },
 
+  // ── DAILY IRON ─────────────────────────────────────────────────────────────
+  { name: 'Shirt',                                  category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 1 },
+  { name: 'T-Shirt',                                category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 2 },
+  { name: 'Trouser / Pant',                         category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 3 },
+  { name: 'Salwar / Kurta',                         category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 4 },
+  { name: 'Saree',                                  category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 5 },
+  { name: 'Long Dress',                             category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 6 },
+  { name: 'Bedsheet (Single)',                      category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 7 },
+  { name: 'Bedsheet (Double)',                      category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 8 },
+  { name: 'General Ironing',                        category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 9 },
+
   // ── ROLL PRESS ─────────────────────────────────────────────────────────────
   { name: 'Saree',                                  category: 'ROLL PRESS',               basePrice: 100,  isActive: true },
 
@@ -276,17 +287,20 @@ async function main() {
     console.log('⚠️  Super Admin already exists — skipping');
   }
 
-  // ── Pricing catalog — delete all and re-seed fresh ─────────────────────────
-  const deleted = await prisma.service.deleteMany({});
-  console.log(`🗑️  Deleted ${deleted.count} old service records`);
+  // ── Pricing catalog — bootstrap once, then CRM owns all further changes ───
+  const existingServices = await prisma.service.count();
+  if (existingServices === 0) {
+    let created = 0;
+    for (const item of CATALOG) {
+      await prisma.service.create({ data: item });
+      created++;
+    }
 
-  let created = 0;
-  for (const item of CATALOG) {
-    await prisma.service.create({ data: item });
-    created++;
+    const totalCatalogs = new Set(CATALOG.map((item) => item.category)).size;
+    console.log(`✅ Pricing catalog bootstrapped: ${created} items seeded across ${totalCatalogs} catalogs`);
+  } else {
+    console.log(`⚠️  Service catalog already exists (${existingServices} items) — skipping bootstrap so CRM remains the source of truth`);
   }
-
-  console.log(`✅ Pricing catalog: ${created} items seeded across 7 catalogs`);
   console.log('🎉 Seed complete!');
   console.log('─────────────────────────────────────────');
   console.log('Next steps:');

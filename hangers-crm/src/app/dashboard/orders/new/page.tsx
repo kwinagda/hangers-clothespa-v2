@@ -1,27 +1,71 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
-import api, { ordersAPI, customersAPI, servicesAPI, statsAPI } from '@/lib/api'
+import { useRouter, useSearchParams } from 'next/navigation'
+import api, { ordersAPI, customersAPI, servicesAPI, statsAPI, ironAPI, metadataAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
+import { AlertTriangle, Check, Shirt, User } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Item { id: string; name: string; basePrice: number; category: string; catalogName: string }
 interface CartItem { serviceId: string; name: string; unitPrice: number; quantity: number; category: string }
-interface Customer { id: string; name: string; phone: string; email?: string; walletBalance?: number; loyaltyPoints?: number; ordersDue?: number }
+interface Customer { id: string; name: string; phone: string; walletBalance?: number; loyaltyPoints?: number; ordersDue?: number; ironSubStatus?: string | null; preferredLanguage?: string }
 interface CustomerStats { totalOrders: number; totalSpend: number; outstanding: number; loyaltyPoints: number; lastOrderDate: string | null; lastOrderStatus: string | null }
 
-const PAYMENT_METHODS = ['Cash', 'UPI / GPay', 'Card', 'Wallet', 'Pay Later']
+const ORDER_DRAFT_KEY = 'crm:new-order-draft:v1'
+
+type OrderDraft = {
+  customer: Customer | null
+  customerStats: CustomerStats | null
+  cart: CartItem[]
+  activeCategory: string
+  customerSearch: string
+  newCustomerName: string
+  newCustomerPhone: string
+  newCustomerLanguage: string
+  newCustomerEnrollIron: boolean
+  paymentMethod: string
+  paidAmount: string
+  discountType: 'flat'|'percent'
+  discountValue: string
+  couponCode: string
+  couponDiscount: number
+  couponApplied: boolean
+  loyaltyPoints: string
+  loyaltyDiscount: number
+  loyaltyApplied: boolean
+  writeOff: boolean
+  writeOffAmount: number
+  walletSplit: string
+  notes: string
+  dailyIronDate: string
+}
+
+const LEGACY_PAYMENT_METHOD_MAP: Record<string, string> = {
+  Cash: 'CASH',
+  'UPI / GPay': 'UPI',
+  Card: 'CARD',
+  Wallet: 'WALLET',
+  'Pay Later': 'Pay Later',
+  'Split (Cash+Wallet)': 'SPLIT',
+}
 
 export default function NewOrderPage() {
   const router = useRouter()
-  const searchParamsNew = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
-  const preloadCustomerId = searchParamsNew?.get('customerId')
+  const searchParams = useSearchParams()
+  const [draftReady, setDraftReady] = useState(false)
 
   // Customer
   const [showCustomerModal, setShowCustomerModal] = useState(false)
   const [customerSearch, setCustomerSearch] = useState('')
   const [customerResults, setCustomerResults] = useState<Customer[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
+  const [showQuickCreate, setShowQuickCreate] = useState(false)
+  const [newCustomerName, setNewCustomerName] = useState('')
+  const [newCustomerPhone, setNewCustomerPhone] = useState('')
+  const [newCustomerLanguage, setNewCustomerLanguage] = useState('ENGLISH')
+  const [languageOptions, setLanguageOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [newCustomerEnrollIron, setNewCustomerEnrollIron] = useState(false)
+  const [creatingCustomer, setCreatingCustomer] = useState(false)
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [customerStats, setCustomerStats] = useState<CustomerStats | null>(null)
   const searchTimeout = useRef<any>(null)
@@ -41,7 +85,8 @@ export default function NewOrderPage() {
 
   // Payment
   const [showPayment, setShowPayment] = useState(false)
-  const [paymentMethod, setPaymentMethod] = useState('Cash')
+  const [paymentMethod, setPaymentMethod] = useState('CASH')
+  const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([])
   const [paidAmount, setPaidAmount] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [discountType, setDiscountType] = useState<'flat'|'percent'>('flat')
@@ -60,20 +105,121 @@ export default function NewOrderPage() {
   const [walletSplit, setWalletSplit] = useState('')
   const [posSettings, setPosSettings] = useState<any>({})
   const [notes, setNotes] = useState('')
+  const [dailyIronDate, setDailyIronDate] = useState(new Date().toISOString().slice(0, 10))
+
+  const clearDraft = useCallback(() => {
+    if (typeof window !== 'undefined') window.localStorage.removeItem(ORDER_DRAFT_KEY)
+  }, [])
+
+  const hasDraftContent = useCallback((draft: OrderDraft) => (
+    Boolean(
+      draft.customer ||
+      draft.cart.length ||
+      draft.notes.trim() ||
+      draft.customerSearch.trim() ||
+      draft.discountValue.trim() ||
+      draft.couponCode.trim() ||
+      draft.loyaltyPoints.trim() ||
+      draft.paidAmount.trim() ||
+      draft.walletSplit.trim()
+    )
+  ), [])
+
+  useEffect(() => {
+    metadataAPI.getAll().then((r: any) => {
+      const metadata = r?.metadata || r?.data?.metadata || {}
+      setLanguageOptions(metadata.languages || [])
+      const mappedMethods = (metadata.paymentMethods || []).map((item: any) => ({
+        value: item.value,
+        label:
+          item.value === 'CASH' ? 'Cash' :
+          item.value === 'UPI' ? 'UPI / GPay' :
+          item.value === 'CARD' ? 'Card' :
+          item.value === 'WALLET' ? 'Wallet' :
+          item.value === 'Pay Later' ? 'Pay Later' :
+          item.label,
+      })).filter((item: any) => ['CASH','UPI','CARD','WALLET','Pay Later'].includes(item.value))
+      setPaymentMethods(mappedMethods)
+      setPaymentMethod((current) => {
+        if (current === 'SPLIT') return current
+        const normalized = LEGACY_PAYMENT_METHOD_MAP[current] || current
+        return mappedMethods.some((item: any) => item.value === normalized) ? normalized : (mappedMethods[0]?.value || 'CASH')
+      })
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = window.localStorage.getItem(ORDER_DRAFT_KEY)
+      if (!raw) {
+        setDraftReady(true)
+        return
+      }
+      const draft = JSON.parse(raw) as Partial<OrderDraft>
+      if (draft.customer !== undefined) setCustomer(draft.customer as Customer | null)
+      if (draft.customerStats !== undefined) setCustomerStats(draft.customerStats as CustomerStats | null)
+      if (Array.isArray(draft.cart)) setCart(draft.cart)
+      if (typeof draft.activeCategory === 'string') setActiveCategory(draft.activeCategory)
+      if (typeof draft.customerSearch === 'string') setCustomerSearch(draft.customerSearch)
+      if (typeof draft.newCustomerName === 'string') setNewCustomerName(draft.newCustomerName)
+      if (typeof draft.newCustomerPhone === 'string') setNewCustomerPhone(draft.newCustomerPhone)
+      if (typeof draft.newCustomerLanguage === 'string') setNewCustomerLanguage(draft.newCustomerLanguage)
+      if (typeof draft.newCustomerEnrollIron === 'boolean') setNewCustomerEnrollIron(draft.newCustomerEnrollIron)
+      if (typeof draft.paymentMethod === 'string') setPaymentMethod(LEGACY_PAYMENT_METHOD_MAP[draft.paymentMethod] || draft.paymentMethod)
+      if (typeof draft.paidAmount === 'string') setPaidAmount(draft.paidAmount)
+      if (draft.discountType === 'flat' || draft.discountType === 'percent') setDiscountType(draft.discountType)
+      if (typeof draft.discountValue === 'string') setDiscountValue(draft.discountValue)
+      if (typeof draft.couponCode === 'string') setCouponCode(draft.couponCode)
+      if (typeof draft.couponDiscount === 'number') setCouponDiscount(draft.couponDiscount)
+      if (typeof draft.couponApplied === 'boolean') setCouponApplied(draft.couponApplied)
+      if (typeof draft.loyaltyPoints === 'string') setLoyaltyPoints(draft.loyaltyPoints)
+      if (typeof draft.loyaltyDiscount === 'number') setLoyaltyDiscount(draft.loyaltyDiscount)
+      if (typeof draft.loyaltyApplied === 'boolean') setLoyaltyApplied(draft.loyaltyApplied)
+      if (typeof draft.writeOff === 'boolean') setWriteOff(draft.writeOff)
+      if (typeof draft.writeOffAmount === 'number') setWriteOffAmount(draft.writeOffAmount)
+      if (typeof draft.walletSplit === 'string') setWalletSplit(draft.walletSplit)
+      if (typeof draft.notes === 'string') setNotes(draft.notes)
+      if (typeof draft.dailyIronDate === 'string') setDailyIronDate(draft.dailyIronDate)
+    } catch {
+      window.localStorage.removeItem(ORDER_DRAFT_KEY)
+    } finally {
+      setDraftReady(true)
+    }
+  }, [])
 
   // Auto-load customer from URL
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const cid = params.get('customerId')
+    if (!draftReady) return
+    const cid = searchParams.get('customerId')
     if (cid) {
       customersAPI.get(cid).then((r: any) => {
         const cust = r.data?.customer || r.data
         if (cust) selectCustomer(cust)
       }).catch(() => setShowCustomerModal(true))
-    } else {
+    } else if (!customer) {
       setShowCustomerModal(true)
     }
-  }, [])
+  }, [draftReady, searchParams])
+
+  useEffect(() => {
+    const digits = customerSearch.replace(/\D/g, '').slice(-10)
+    if (showCustomerModal && digits.length && newCustomerPhone !== digits) setNewCustomerPhone(digits)
+    if (showCustomerModal && customerSearch.trim() && !digits.length && !newCustomerName) setNewCustomerName(customerSearch.trim())
+  }, [customerSearch, showCustomerModal, newCustomerPhone, newCustomerName])
+
+  useEffect(() => {
+    const digits = customerSearch.replace(/\D/g, '').slice(-10)
+    const shouldSearchSuggestCreate = customerSearch.trim().length >= 3
+    const shouldPhoneSuggestCreate = digits.length === 10
+
+    if (!showCustomerModal || (!shouldSearchSuggestCreate && !shouldPhoneSuggestCreate)) {
+      setShowQuickCreate(false)
+      return
+    }
+    if (searchLoading) return
+    setShowQuickCreate(customerResults.length === 0)
+  }, [customerResults.length, customerSearch, searchLoading, showCustomerModal])
 
   // Load catalog
   useEffect(() => {
@@ -81,7 +227,7 @@ export default function NewOrderPage() {
       const map: Record<string, Item[]> = {}
       items.forEach((item: Item) => {
         if (!map[item.category]) map[item.category] = []
-        if (item.basePrice > 0) map[item.category].push(item)
+        if (item.basePrice > 0 || item.category === 'DAILY_IRON') map[item.category].push(item)
       })
       const cats = Object.keys(map)
       setCatalog(map)
@@ -93,7 +239,13 @@ export default function NewOrderPage() {
 
   // Customer search with debounce
   const searchCustomers = useCallback(async (q: string) => {
-    if (q.length < 3) { setCustomerResults([]); return }
+    const digits = q.replace(/\D/g, '').slice(-10)
+    const shouldSearch = q.trim().length >= 3 || digits.length === 10
+    if (!shouldSearch) {
+      setCustomerResults([])
+      setSearchLoading(false)
+      return
+    }
     setSearchLoading(true)
     try {
       const r = await customersAPI.list({ search: q, limit: 8 })
@@ -104,18 +256,67 @@ export default function NewOrderPage() {
 
   const handleSearchInput = (val: string) => {
     setCustomerSearch(val)
+    setShowQuickCreate(false)
     clearTimeout(searchTimeout.current)
+    const digits = val.replace(/\D/g, '').slice(-10)
+    const shouldSearch = val.trim().length >= 3 || digits.length === 10
+    if (!shouldSearch) {
+      setSearchLoading(false)
+      setCustomerResults([])
+      return
+    }
+    setSearchLoading(true)
     searchTimeout.current = setTimeout(() => searchCustomers(val), 300)
   }
 
   const selectCustomer = async (c: Customer) => {
-    setCustomer(c)
-    setCustomerResults([])
-    setShowCustomerModal(false)
     try {
+      const detail = await customersAPI.get(c.id)
+      const customerData = detail.data?.customer || detail.data || c
+      setCustomer(customerData)
       const r = await statsAPI.customer(c.id)
       setCustomerStats(r.data)
-    } catch { }
+      setCustomerResults([])
+      setShowCustomerModal(false)
+      setShowQuickCreate(false)
+    } catch {
+      setCustomer(c)
+      setShowCustomerModal(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!draftReady || !customer?.id) return
+    statsAPI.customer(customer.id).then((r: any) => setCustomerStats(r.data)).catch(() => {})
+  }, [draftReady, customer?.id])
+
+  const createCustomerInline = async () => {
+    const normalizedPhone = newCustomerPhone.replace(/\D/g, '').slice(-10)
+    if (normalizedPhone.length !== 10) { toast.error('Enter a valid 10-digit phone number'); return }
+
+    setCreatingCustomer(true)
+    try {
+      const response = await customersAPI.create({
+        phone: normalizedPhone,
+        name: newCustomerName.trim() || undefined,
+        preferredLanguage: newCustomerLanguage,
+      })
+      const createdCustomer = response.data?.customer || response.data
+      if (newCustomerEnrollIron) {
+        await ironAPI.createSubscription({ customerId: createdCustomer.id, applicationStatus: 'ACTIVE' })
+      }
+      toast.success('Customer created')
+      setNewCustomerName('')
+      setNewCustomerPhone('')
+      setNewCustomerLanguage('ENGLISH')
+      setNewCustomerEnrollIron(false)
+      setCustomerSearch('')
+      setShowQuickCreate(false)
+      await selectCustomer(createdCustomer)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to create customer')
+    }
+    setCreatingCustomer(false)
   }
 
   // Group items by base name (e.g. "Sweater-full sleeves -plain" and "Sweater-full sleeves -heavy" → "Sweater-full sleeves")
@@ -161,19 +362,99 @@ export default function NewOrderPage() {
     })
   }
 
-  const subtotal       = cart.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
+  const regularCart    = cart.filter(i => i.category !== 'DAILY_IRON')
+  const dailyIronCart  = cart.filter(i => i.category === 'DAILY_IRON')
+  const regularSubtotal = regularCart.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
+  const dailyIronEstimatedValue = dailyIronCart.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
   const totalQty       = cart.reduce((s, i) => s + i.quantity, 0)
+  const hasDailyIronItems = cart.some(i => i.category === 'DAILY_IRON')
+  const hasRegularItems   = cart.some(i => i.category !== 'DAILY_IRON')
+  const isPureDailyIron   = hasDailyIronItems && !hasRegularItems
+  const isMixedCart       = hasDailyIronItems && hasRegularItems
   const manualDiscount = discountType === 'flat'
     ? (parseFloat(discountValue) || 0)
-    : Math.round(subtotal * (parseFloat(discountValue) || 0) / 100)
+    : Math.round(regularSubtotal * (parseFloat(discountValue) || 0) / 100)
   const totalDiscount  = manualDiscount + couponDiscount + loyaltyDiscount
-  const total          = Math.max(0, subtotal - totalDiscount)
+  const total          = isPureDailyIron ? dailyIronEstimatedValue : Math.max(0, regularSubtotal - totalDiscount)
+
+  const ensureActiveIronSubscription = async () => {
+    if (!customer) return null
+
+    try {
+      const response = await ironAPI.getSubscription(customer.id)
+      let subscription = response?.data?.subscription || null
+
+      if (!subscription) {
+        const shouldEnroll = window.confirm('This customer is not enrolled in Daily Iron. Enroll now and continue logging?')
+        if (!shouldEnroll) return null
+        const created = await ironAPI.createSubscription({ customerId: customer.id, applicationStatus: 'ACTIVE' })
+        subscription = created?.data?.subscription || null
+      }
+
+      if (subscription?.applicationStatus === 'PENDING_REVIEW') {
+        const shouldConfirm = window.confirm('This customer has a pending Daily Iron application. Confirm it and continue logging?')
+        if (!shouldConfirm) return null
+        const confirmed = await ironAPI.confirmSubscription(subscription.id)
+        subscription = confirmed?.data?.subscription || subscription
+      }
+
+      if (subscription?.applicationStatus === 'PAUSED' || subscription?.applicationStatus === 'CANCELLED') {
+        const shouldReactivate = window.confirm(`This Daily Iron subscription is ${subscription.applicationStatus}. Reactivate it and continue logging?`)
+        if (!shouldReactivate) return null
+        const updated = await ironAPI.updateSubscriptionStatus(subscription.id, 'ACTIVE')
+        subscription = updated?.data?.subscription || subscription
+      }
+
+      if (subscription?.applicationStatus !== 'ACTIVE') {
+        toast.error('Daily Iron subscription must be active before logging items')
+        return null
+      }
+
+      return subscription
+    } catch (e: any) {
+      toast.error(e.message || 'Could not verify Daily Iron subscription')
+      return null
+    }
+  }
+
+  const handleConfirmDailyIron = async () => {
+    if (!customer) { toast.error('Select a customer first'); return }
+    if (!dailyIronCart.length) { toast.error('Add at least one Daily Iron item'); return }
+    if (hasRegularItems) { toast.error('Daily Iron items must be logged separately from regular orders'); return }
+
+    const subscription = await ensureActiveIronSubscription()
+    if (!subscription) return
+
+    setSubmitting(true)
+    try {
+      await Promise.all(
+        dailyIronCart.map(item =>
+          ironAPI.createLog({
+            customerId: customer.id,
+            serviceId: item.serviceId,
+            date: dailyIronDate,
+            pieces: item.quantity,
+            notes: notes || undefined,
+          })
+        )
+      )
+      toast.success(`${cart.length} Daily Iron log${cart.length === 1 ? '' : 's'} created`)
+      clearDraft()
+      setCart([])
+      setNotes('')
+      setShowPayment(false)
+      router.push(`/dashboard/customers/${customer.id}?tab=iron`)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to create Daily Iron logs')
+    }
+    setSubmitting(false)
+  }
 
   const applyCoupon = async () => {
     if (!couponCode) { toast.error('Enter a coupon code'); return }
     setCouponLoading(true)
     try {
-      const r = await (api as any).post('/checkout/validate-coupon', { code: couponCode, orderTotal: subtotal, customerId: customer?.id })
+      const r = await (api as any).post('/checkout/validate-coupon', { code: couponCode, orderTotal: regularSubtotal, customerId: customer?.id })
       setCouponDiscount(r.data?.discount || 0)
       setCouponApplied(true)
       toast.success(r.message || 'Coupon applied')
@@ -184,9 +465,10 @@ export default function NewOrderPage() {
   const applyLoyalty = async () => {
     if (!loyaltyPoints) { toast.error('Enter points to redeem'); return }
     if (!customer) { toast.error('Select a customer first'); return }
+    if (!hasRegularItems) { toast.error('Loyalty points apply only to regular order items'); return }
     setLoyaltyLoading(true)
     try {
-      const r = await (api as any).post('/checkout/validate-loyalty', { customerId: customer.id, pointsToRedeem: parseInt(loyaltyPoints), orderTotal: subtotal })
+      const r = await (api as any).post('/checkout/validate-loyalty', { customerId: customer.id, pointsToRedeem: parseInt(loyaltyPoints), orderTotal: regularSubtotal })
       setLoyaltyDiscount(r.data?.discount || 0)
       setLoyaltyApplied(true)
       toast.success(r.message || 'Loyalty points applied')
@@ -197,31 +479,65 @@ export default function NewOrderPage() {
   const handleConfirmOrder = async () => {
     if (!customer) { toast.error('Select a customer first'); return }
     if (!cart.length) { toast.error('Add at least one item'); return }
+    if (!hasRegularItems) {
+      await handleConfirmDailyIron()
+      return
+    }
 
     const paid = parseFloat(paidAmount) || (paymentMethod === 'Pay Later' ? 0 : total)
     const walletPortion = parseFloat(walletSplit) || 0
     const writeOffAmt = writeOff ? writeOffAmount : 0
     setSubmitting(true)
     try {
-      await ordersAPI.create({
+      const subscription = hasDailyIronItems ? await ensureActiveIronSubscription() : null
+      if (hasDailyIronItems && !subscription) {
+        setSubmitting(false)
+        return
+      }
+
+      const orderResponse = await ordersAPI.create({
         customerId: customer.id,
-        items: cart.map(i => ({ serviceId: i.serviceId, serviceName: i.name, garmentType: i.category, quantity: i.quantity, unitPrice: i.unitPrice })),
+        items: regularCart.map(i => ({ serviceId: i.serviceId, serviceName: i.name, garmentType: i.category, quantity: i.quantity, unitPrice: i.unitPrice })),
         totalAmount: total,
-        subtotal,
+        subtotal: regularSubtotal,
         discount: totalDiscount,
         couponCode: couponApplied ? couponCode : undefined,
         couponDiscount: couponDiscount || undefined,
         loyaltyPointsRedeemed: loyaltyApplied ? parseInt(loyaltyPoints) : undefined,
         loyaltyDiscount: loyaltyDiscount || undefined,
         writeOffAmount: writeOffAmt || undefined,
-        paymentMethod: paymentMethod === 'Split' ? 'SPLIT' : paymentMethod,
+        paymentMethod,
         walletAmount: walletPortion > 0 ? walletPortion : undefined,
         paidAmount: paid,
         paymentStatus: (paid + writeOffAmt) >= total ? 'PAID' : paid > 0 ? 'PARTIAL' : 'UNPAID',
         notes,
         source: 'counter',
       })
-      toast.success('Order created!')
+      const createdOrder = orderResponse?.data?.order || orderResponse?.order || null
+
+      if (hasDailyIronItems) {
+        try {
+          await Promise.all(
+            dailyIronCart.map(item =>
+              ironAPI.createLog({
+                customerId: customer.id,
+                serviceId: item.serviceId,
+                date: dailyIronDate,
+                pieces: item.quantity,
+                notes: notes || undefined,
+              })
+            )
+          )
+        } catch (e: any) {
+          toast.error(`Order ${createdOrder?.orderNumber || ''} created, but Daily Iron logs failed. Please retry from the customer Daily Iron tab.`.trim())
+          router.push('/dashboard/orders')
+          setSubmitting(false)
+          return
+        }
+      }
+
+      toast.success(hasDailyIronItems ? `Order ${createdOrder?.orderNumber || ''} and Daily Iron logs created`.trim() : 'Order created!')
+      clearDraft()
       router.push('/dashboard/orders')
     } catch (e: any) {
       console.error('POS CREATE ERROR:', e, JSON.stringify(e))
@@ -231,16 +547,63 @@ export default function NewOrderPage() {
   }
 
   const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+  const searchDigits = customerSearch.replace(/\D/g, '').slice(-10)
+  const canOfferQuickCreate = showCustomerModal
+    && showQuickCreate
+    && !searchLoading
+    && (customerSearch.trim().length >= 3 || searchDigits.length === 10)
+    && customerResults.length === 0
+
+  useEffect(() => {
+    if (!draftReady || typeof window === 'undefined') return
+    const draft: OrderDraft = {
+      customer,
+      customerStats,
+      cart,
+      activeCategory,
+      customerSearch,
+      newCustomerName,
+      newCustomerPhone,
+      newCustomerLanguage,
+      newCustomerEnrollIron,
+      paymentMethod,
+      paidAmount,
+      discountType,
+      discountValue,
+      couponCode,
+      couponDiscount,
+      couponApplied,
+      loyaltyPoints,
+      loyaltyDiscount,
+      loyaltyApplied,
+      writeOff,
+      writeOffAmount,
+      walletSplit,
+      notes,
+      dailyIronDate,
+    }
+    if (hasDraftContent(draft)) {
+      window.localStorage.setItem(ORDER_DRAFT_KEY, JSON.stringify(draft))
+    } else {
+      window.localStorage.removeItem(ORDER_DRAFT_KEY)
+    }
+  }, [
+    draftReady, customer, customerStats, cart, activeCategory, customerSearch,
+    newCustomerName, newCustomerPhone, newCustomerLanguage, newCustomerEnrollIron,
+    paymentMethod, paidAmount, discountType, discountValue, couponCode, couponDiscount,
+    couponApplied, loyaltyPoints, loyaltyDiscount, loyaltyApplied, writeOff,
+    writeOffAmount, walletSplit, notes, dailyIronDate, hasDraftContent,
+  ])
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 0px)', fontFamily: "'DM Sans', sans-serif", background: '#f0f4f8' }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 0px)', fontFamily: "var(--crm-font-ui)", background: '#f0f4f8' }}>
 
       {/* ── Customer Search Modal ──────────────────────────────────────────── */}
       {showCustomerModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,28,60,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 32, width: '100%', maxWidth: 520, boxShadow: '0 32px 80px rgba(0,0,0,0.25)' }}>
-            <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#023c62', marginBottom: 6 }}>New Order</div>
-            <p style={{ fontSize: 14, color: '#6b7fa3', marginBottom: 24 }}>Search for an existing customer or create a walk-in order</p>
+            <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 22, color: '#023c62', marginBottom: 6 }}>New Order</div>
+            <p style={{ fontSize: 14, color: '#6b7fa3', marginBottom: 24 }}>Search for an existing customer or create a new customer without leaving this page</p>
 
             <div style={{ position: 'relative' }}>
               <input
@@ -248,7 +611,7 @@ export default function NewOrderPage() {
                 type="text"
                 value={customerSearch}
                 onChange={e => handleSearchInput(e.target.value)}
-                placeholder="Type name, phone or email..."
+                placeholder="Type customer name or phone..."
                 style={{ width: '100%', border: '2px solid #023c62', borderRadius: 12, padding: '12px 16px', fontSize: 15, outline: 'none', boxSizing: 'border-box' }}
               />
               {searchLoading && <div style={{ position: 'absolute', right: 12, top: 14, fontSize: 12, color: '#9dafc8' }}>Searching...</div>}
@@ -278,7 +641,50 @@ export default function NewOrderPage() {
 
             {customerSearch.length >= 3 && customerResults.length === 0 && !searchLoading && (
               <div style={{ marginTop: 8, padding: 12, background: '#f8fafc', borderRadius: 10, fontSize: 13, color: '#6b7fa3', textAlign: 'center' }}>
-                No customer found — order will be created as walk-in
+                No customer found with that search. You can create the customer below without leaving this page.
+              </div>
+            )}
+
+            {canOfferQuickCreate && (
+              <div style={{ marginTop: 16, border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, background: '#fafbfd' }}>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#023c62' }}>Create New Customer</div>
+                  <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>No customer matched this search. Create one here and continue the order without leaving this page.</div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 0.9fr auto', gap: 10, alignItems: 'end' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7fa3', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 5 }}>Mobile *</label>
+                    <input value={newCustomerPhone} onChange={e => setNewCustomerPhone(e.target.value)} placeholder="9876543210" type="tel"
+                      style={{ width: '100%', border: '1.5px solid #dce8f0', borderRadius: 10, padding: '11px 14px', fontSize: 14, outline: 'none', boxSizing: 'border-box' as const }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7fa3', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 5 }}>Name</label>
+                    <input value={newCustomerName} onChange={e => setNewCustomerName(e.target.value)} placeholder="Customer name"
+                      style={{ width: '100%', border: '1.5px solid #dce8f0', borderRadius: 10, padding: '11px 14px', fontSize: 14, outline: 'none', boxSizing: 'border-box' as const }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7fa3', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 5 }}>Language</label>
+                    <select value={newCustomerLanguage} onChange={e => setNewCustomerLanguage(e.target.value)}
+                      style={{ width: '100%', border: '1.5px solid #dce8f0', borderRadius: 10, padding: '11px 14px', fontSize: 14, outline: 'none', background: '#fff', boxSizing: 'border-box' as const }}>
+                      {languageOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={createCustomerInline} disabled={creatingCustomer}
+                    style={{ background: '#023c62', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontWeight: 700, cursor: 'pointer', fontSize: 14, opacity: creatingCustomer ? 0.6 : 1 }}>
+                    {creatingCustomer ? 'Creating...' : 'Create'}
+                  </button>
+                  <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 12px', background: '#eefbf3', border: '1px solid #bbf7d0', borderRadius: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#166534' }}>Enroll in Daily Iron</div>
+                      <div style={{ fontSize: 12, color: '#15803d', marginTop: 2 }}>If enabled, the customer will be enrolled immediately after creation using the Daily Iron API.</div>
+                    </div>
+                    <button onClick={() => setNewCustomerEnrollIron(v => !v)}
+                      style={{ padding: '6px 14px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: newCustomerEnrollIron ? '#166534' : '#d1fae5', color: newCustomerEnrollIron ? '#fff' : '#166534', minWidth: 88 }}>
+                      {newCustomerEnrollIron ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -289,7 +695,7 @@ export default function NewOrderPage() {
               </button>
               <button onClick={() => setShowCustomerModal(false)}
                 style={{ flex: 2, padding: 12, background: '#023c62', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-                {customer ? `Continue with ${customer.name}` : 'Continue as Walk-in'}
+                {customer ? `Continue with ${customer.name}` : 'Continue without Customer'}
               </button>
             </div>
           </div>
@@ -305,11 +711,45 @@ export default function NewOrderPage() {
             style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
             ← Back
           </button>
-          <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 18, color: '#fff', flex: 1 }}>New Order</div>
+          <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 18, color: '#fff', flex: 1 }}>New Order</div>
+          {(customer || cart.length > 0 || notes.trim()) && (
+            <button onClick={() => {
+              clearDraft()
+              setCustomer(null)
+              setCustomerStats(null)
+              setCart([])
+              setCustomerSearch('')
+              setCustomerResults([])
+              setNewCustomerName('')
+              setNewCustomerPhone('')
+              setNewCustomerLanguage('ENGLISH')
+              setNewCustomerEnrollIron(false)
+              setPaymentMethod('CASH')
+              setPaidAmount('')
+              setDiscountType('flat')
+              setDiscountValue('')
+              setCouponCode('')
+              setCouponDiscount(0)
+              setCouponApplied(false)
+              setLoyaltyPoints('')
+              setLoyaltyDiscount(0)
+              setLoyaltyApplied(false)
+              setWriteOff(false)
+              setWriteOffAmount(0)
+              setWalletSplit('')
+              setNotes('')
+              setDailyIronDate(new Date().toISOString().slice(0, 10))
+              setShowPayment(false)
+              setShowCustomerModal(true)
+            }}
+              style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.16)', color: '#fff', padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+              Reset Draft
+            </button>
+          )}
           {customer && (
             <button onClick={() => setShowCustomerModal(true)}
               style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-              👤 {customer.name || customer.phone}
+              <span style={{display:'inline-flex',alignItems:'center',gap:6}}><User size={14} />{customer.name || customer.phone}</span>
             </button>
           )}
           {!customer && (
@@ -336,7 +776,7 @@ export default function NewOrderPage() {
             <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8' }}>Loading catalog...</div>
           ) : categories.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center' }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+              <div style={{ marginBottom: 12, display:'flex', justifyContent:'center', color:'#991b1b' }}><AlertTriangle size={32} /></div>
               <div style={{ fontSize: 15, color: '#991b1b', fontWeight: 600, marginBottom: 8 }}>Failed to load catalog</div>
               <div style={{ fontSize: 13, color: '#9dafc8', marginBottom: 20 }}>Check your connection and try again.</div>
               <button
@@ -346,7 +786,7 @@ export default function NewOrderPage() {
                     const map: Record<string, Item[]> = {}
                     items.forEach((item: Item) => {
                       if (!map[item.category]) map[item.category] = []
-                      if (item.basePrice > 0) map[item.category].push(item)
+                      if (item.basePrice > 0 || item.category === 'DAILY_IRON') map[item.category].push(item)
                     })
                     const cats = Object.keys(map)
                     setCatalog(map)
@@ -437,7 +877,7 @@ export default function NewOrderPage() {
         <div style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
           {cart.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8', fontSize: 13 }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>🧺</div>
+              <div style={{ marginBottom: 8, display:'flex', justifyContent:'center' }}><Shirt size={32} /></div>
               No items added yet<br/>
               <span style={{ fontSize: 11 }}>Click items from the catalog</span>
             </div>
@@ -462,7 +902,7 @@ export default function NewOrderPage() {
         </div>
 
         {/* Discount / Coupon / Loyalty */}
-        {cart.length > 0 && (
+        {hasRegularItems && (
           <div style={{ padding: '10px 14px', borderTop: '1px solid #f1f5f9', background: '#fafbfd' }}>
             {/* Manual discount */}
             <div style={{ display: 'flex', gap: 5, marginBottom: 7 }}>
@@ -485,7 +925,7 @@ export default function NewOrderPage() {
                 if (!couponCode) return
                 setCouponLoading(true)
                 try {
-                  const r = await (api as any).post('/checkout/validate-coupon', { code: couponCode, orderTotal: subtotal, customerId: customer?.id })
+                  const r = await (api as any).post('/checkout/validate-coupon', { code: couponCode, orderTotal: regularSubtotal, customerId: customer?.id })
                   setCouponDiscount(r.data?.discount || r.discount || 0)
                   setCouponApplied(true)
                   toast.success('Coupon applied')
@@ -493,7 +933,7 @@ export default function NewOrderPage() {
                 setCouponLoading(false)
               }} disabled={couponLoading || !couponCode}
                 style={{ padding: '4px 10px', background: couponApplied ? '#166534' : '#023c62', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer', opacity: couponLoading ? 0.5 : 1 }}>
-                {couponApplied ? '✓' : couponLoading ? '...' : 'Apply'}
+                {couponApplied ? 'Applied' : couponLoading ? '...' : 'Apply'}
               </button>
             </div>
             {/* Loyalty */}
@@ -507,7 +947,7 @@ export default function NewOrderPage() {
                   if (!loyaltyPoints || !customer) return
                   setLoyaltyLoading(true)
                   try {
-                    const r = await (api as any).post('/checkout/validate-loyalty', { customerId: customer.id, pointsToRedeem: parseInt(loyaltyPoints), orderTotal: subtotal })
+                    const r = await (api as any).post('/checkout/validate-loyalty', { customerId: customer.id, pointsToRedeem: parseInt(loyaltyPoints), orderTotal: regularSubtotal })
                     setLoyaltyDiscount(r.data?.discount || r.discount || 0)
                     setLoyaltyApplied(true)
                     toast.success(r.message || 'Points applied')
@@ -515,7 +955,7 @@ export default function NewOrderPage() {
                   setLoyaltyLoading(false)
                 }} disabled={loyaltyLoading || !loyaltyPoints}
                   style={{ padding: '4px 10px', background: loyaltyApplied ? '#166534' : '#7c3aed', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer', opacity: loyaltyLoading ? 0.5 : 1 }}>
-                  {loyaltyApplied ? '✓' : loyaltyLoading ? '...' : 'Redeem'}
+                  {loyaltyApplied ? 'Applied' : loyaltyLoading ? '...' : 'Redeem'}
                 </button>
               </div>
             )}
@@ -525,8 +965,30 @@ export default function NewOrderPage() {
         {/* Notes */}
         {cart.length > 0 && (
           <div style={{ padding: '8px 14px', borderTop: '1px solid #f1f5f9' }}>
+            {isMixedCart && (
+              <div style={{ marginBottom: 10, padding: '10px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, fontSize: 12, color: '#9a3412', lineHeight: 1.45 }}>
+                This submit will create a regular order for dry clean items and Daily Iron logs for ironing items. Counter payment below applies only to the regular-order portion.
+              </div>
+            )}
+
+            {(isPureDailyIron || isMixedCart) && (
+              <div style={{ marginBottom: 10, padding: '10px 12px', background: '#eefbf3', border: '1px solid #bbf7d0', borderRadius: 10 }}>
+                <div style={{ fontSize: 12, color: '#166534', fontWeight: 700, marginBottom: 6 }}>Daily Iron Flow</div>
+                <div style={{ fontSize: 12, color: '#166534', marginBottom: 10 }}>
+                  {isMixedCart
+                    ? 'Daily Iron items in this cart will be logged for month-end billing alongside the regular order.'
+                    : 'These items will create Daily Iron logs and will be billed at month-end, so no counter payment is collected here.'}
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#15803d', marginBottom: 4, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Log Date</div>
+                  <input type="date" value={dailyIronDate} onChange={e => setDailyIronDate(e.target.value)}
+                    style={{ width: '100%', border: '1px solid #86efac', borderRadius: 8, padding: '8px 10px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+              </div>
+            )}
+
             <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
-              placeholder="Order notes (optional)..."
+              placeholder={isPureDailyIron ? 'Log notes (optional)...' : 'Order notes (optional)...'}
               style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 10px', fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
           </div>
         )}
@@ -537,20 +999,47 @@ export default function NewOrderPage() {
             <span style={{ color: '#6b7fa3' }}>Items</span>
             <span style={{ color: '#6b7fa3' }}>{totalQty} pcs</span>
           </div>
-          {totalDiscount > 0 && (
+          {isMixedCart && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12 }}>
+                <span style={{ color: '#6b7fa3' }}>Regular Order Value</span>
+                <span style={{ color: '#023c62', fontWeight: 600 }}>{fmt(regularSubtotal)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12 }}>
+                <span style={{ color: '#15803d' }}>Daily Iron Estimated Value</span>
+                <span style={{ color: '#15803d', fontWeight: 600 }}>{fmt(dailyIronEstimatedValue)}</span>
+              </div>
+            </>
+          )}
+          {hasRegularItems && totalDiscount > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12 }}>
               <span style={{ color: '#166534' }}>Discount</span>
               <span style={{ color: '#166534', fontWeight: 600 }}>-{fmt(totalDiscount)}</span>
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 18, color: '#023c62' }}>Total</span>
-            <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#023c62' }}>{fmt(total)}</span>
+            <span style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 18, color: '#023c62' }}>{isPureDailyIron ? 'Estimated Value' : isMixedCart ? 'Payable Now' : 'Total'}</span>
+            <span style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 22, color: '#023c62' }}>{fmt(total)}</span>
           </div>
-          <button onClick={() => cart.length > 0 && customer && setShowPayment(true)}
-            disabled={!cart.length || !customer}
-            style={{ width: '100%', padding: '14px', background: cart.length && customer ? '#023c62' : '#e2e8f0', color: cart.length && customer ? '#fff' : '#9dafc8', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: cart.length && customer ? 'pointer' : 'not-allowed', fontFamily: "'Syne', sans-serif" }}>
-            {!customer ? 'Select Customer First' : !cart.length ? 'Add Items' : `Confirm Order — ${fmt(total)}`}
+          <button onClick={() => {
+            if (!cart.length || !customer) return
+            if (isPureDailyIron) {
+              handleConfirmDailyIron()
+              return
+            }
+            setShowPayment(true)
+          }}
+            disabled={!cart.length || !customer || submitting}
+            style={{ width: '100%', padding: '14px', background: cart.length && customer ? '#023c62' : '#e2e8f0', color: cart.length && customer ? '#fff' : '#9dafc8', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: cart.length && customer ? 'pointer' : 'not-allowed', fontFamily: "var(--crm-font-ui)", opacity: submitting ? 0.6 : 1 }}>
+            {!customer
+              ? 'Select Customer First'
+              : !cart.length
+              ? 'Add Items'
+              : isPureDailyIron
+              ? (submitting ? 'Creating Daily Iron Logs...' : 'Create Daily Iron Logs')
+              : isMixedCart
+              ? `Confirm Order + Daily Iron Logs — ${fmt(total)}`
+              : `Confirm Order — ${fmt(total)}`}
           </button>
         </div>
       </div>
@@ -561,7 +1050,7 @@ export default function NewOrderPage() {
           onClick={() => setVariantItem(null)}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 4 }}>{variantParent}</div>
+            <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, marginBottom: 4 }}>{variantParent}</div>
             <p style={{ fontSize: 13, color: '#6b7fa3', marginBottom: 16 }}>Select a variant</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {variantItem.map(v => {
@@ -601,21 +1090,22 @@ export default function NewOrderPage() {
       {showPayment && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 90 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 28, width: '100%', maxWidth: 420, boxShadow: '0 32px 80px rgba(0,0,0,0.25)' }}>
-            <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 22, color: '#023c62', marginBottom: 4 }}>Payment</div>
+            <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 22, color: '#023c62', marginBottom: 4 }}>Payment</div>
             <p style={{ fontSize: 13, color: '#6b7fa3', marginBottom: 20 }}>Customer: <strong>{customer?.name}</strong></p>
 
             {/* Order summary */}
             <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16, marginBottom: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}>
-                <span style={{ color: '#6b7fa3' }}>Subtotal ({totalQty} items)</span>
-                <span style={{ fontWeight: 600 }}>{fmt(subtotal)}</span>
+                <span style={{ color: '#6b7fa3' }}>Regular Order Subtotal ({regularCart.reduce((s, i) => s + i.quantity, 0)} items)</span>
+                <span style={{ fontWeight: 600 }}>{fmt(regularSubtotal)}</span>
               </div>
+              {isMixedCart && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#15803d' }}><span>Daily Iron Estimated Value</span><span>{fmt(dailyIronEstimatedValue)}</span></div>}
               {manualDiscount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#166534' }}><span>Manual Discount</span><span>-{fmt(manualDiscount)}</span></div>}
               {couponDiscount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#166534' }}><span>Coupon ({couponCode})</span><span>-{fmt(couponDiscount)}</span></div>}
               {loyaltyDiscount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#7c3aed' }}><span>Loyalty Points</span><span>-{fmt(loyaltyDiscount)}</span></div>}
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid #e2e8f0', marginTop: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 15 }}>Total</span>
-                <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, color: '#023c62' }}>{fmt(total)}</span>
+                <span style={{ fontWeight: 700, fontSize: 15 }}>{isMixedCart ? 'Payable Now' : 'Total'}</span>
+                <span style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 20, color: '#023c62' }}>{fmt(total)}</span>
               </div>
             </div>
 
@@ -623,14 +1113,14 @@ export default function NewOrderPage() {
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, color: '#6b7fa3', marginBottom: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Payment Method</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {[...PAYMENT_METHODS, ...(customer?.walletBalance && customer.walletBalance > 0 ? ['Split (Cash+Wallet)'] : [])].map(m => (
-                  <button key={m} onClick={() => { setPaymentMethod(m as any); if (m === 'Pay Later') setPaidAmount('0') }}
-                    style={{ padding: '8px 14px', border: `2px solid ${paymentMethod === m ? '#023c62' : '#e2e8f0'}`, borderRadius: 8, background: paymentMethod === m ? '#023c62' : '#fff', color: paymentMethod === m ? '#fff' : '#374151', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                    {m}
+                {[...paymentMethods, ...(customer?.walletBalance && customer.walletBalance > 0 ? [{ value: 'SPLIT', label: 'Split (Cash+Wallet)' }] : [])].map((m) => (
+                  <button key={m.value} onClick={() => { setPaymentMethod(m.value as any); if (m.value === 'Pay Later') setPaidAmount('0') }}
+                    style={{ padding: '8px 14px', border: `2px solid ${paymentMethod === m.value ? '#023c62' : '#e2e8f0'}`, borderRadius: 8, background: paymentMethod === m.value ? '#023c62' : '#fff', color: paymentMethod === m.value ? '#fff' : '#374151', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    {m.label}
                   </button>
                 ))}
                 {/* Split payment inputs */}
-                {paymentMethod === 'Split (Cash+Wallet)' && customer?.walletBalance && (
+                {paymentMethod === 'SPLIT' && customer?.walletBalance && (
                   <div style={{ width: '100%', marginTop: 8, background: '#f8fafc', borderRadius: 8, padding: 12 }}>
                     <div style={{ fontSize: 12, color: '#6b7fa3', marginBottom: 6 }}>Wallet balance: <strong>{fmt(customer.walletBalance)}</strong></div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -687,7 +1177,7 @@ export default function NewOrderPage() {
                           <span style={{ fontSize: 12, color: '#713f12' }}>Write off ₹{writeOffAmount}?</span>
                           <button onClick={() => setWriteOff(!writeOff)}
                             style={{ padding: '3px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: writeOff ? '#166534' : '#e2e8f0', color: writeOff ? '#fff' : '#374151' }}>
-                            {writeOff ? '✓ Write Off' : 'Keep as Due'}
+                            {writeOff ? 'Write Off Applied' : 'Keep as Due'}
                           </button>
                         </div>
                       )}
@@ -703,7 +1193,7 @@ export default function NewOrderPage() {
                 Back
               </button>
               <button onClick={handleConfirmOrder} disabled={submitting}
-                style={{ flex: 2, padding: 12, background: '#023c62', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: submitting ? 0.5 : 1, fontFamily: "'Syne', sans-serif" }}>
+                style={{ flex: 2, padding: 12, background: '#023c62', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: submitting ? 0.5 : 1, fontFamily: "var(--crm-font-ui)" }}>
                 {submitting ? 'Creating...' : `Confirm & Create Order ${writeOff ? '(+WriteOff ₹'+writeOffAmount+')' : ''}`}
               </button>
             </div>

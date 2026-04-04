@@ -4,6 +4,34 @@
 
 const prisma                                   = require('../config/database');
 const { success, error, notFound, badRequest } = require('../utils/response');
+const { DEFAULT_LANGUAGE, LANGUAGE_VALUES }     = require('../config/master-data');
+
+const normalizeLanguage = (value) => {
+  if (!value) return DEFAULT_LANGUAGE;
+  const normalized = String(value).trim().toUpperCase();
+  return LANGUAGE_VALUES.includes(normalized) ? normalized : null;
+};
+
+const normalizeCustomerAddressInput = (body) => {
+  const line1 = body.line1?.trim() || body.addressLine1?.trim() || body.address?.trim() || '';
+  const line2 = body.line2?.trim() || body.addressLine2?.trim() || null;
+  const landmark = body.landmark?.trim() || null;
+  const city = body.city?.trim() || '';
+  const pincode = body.pincode?.trim() || '';
+  const latitude = body.lat !== undefined ? Number(body.lat) : body.latitude !== undefined ? Number(body.latitude) : null;
+  const longitude = body.lng !== undefined ? Number(body.lng) : body.longitude !== undefined ? Number(body.longitude) : null;
+
+  return {
+    label: body.label?.trim() || 'Home',
+    addressLine1: line1,
+    addressLine2: line2,
+    landmark,
+    city,
+    pincode,
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null,
+  };
+};
 
 // ── GET /api/v1/customers ─────────────────────────────────────────────────────
 const listCustomers = async (req, res) => {
@@ -76,8 +104,13 @@ const getCustomer = async (req, res) => {
 
 // ── POST /api/v1/customers ────────────────────────────────────────────────────
 const createCustomer = async (req, res) => {
-  const { phone, name } = req.body;
+  const { phone, name, preferredLanguage } = req.body;
   if (!phone) return badRequest(res, 'Phone is required');
+
+  const language = preferredLanguage !== undefined ? normalizeLanguage(preferredLanguage) : DEFAULT_LANGUAGE;
+  if (preferredLanguage !== undefined && !language) {
+    return badRequest(res, 'preferredLanguage must be ENGLISH, HINDI, or MARATHI');
+  }
 
   try {
     const normalized = phone.replace(/\D/g, '').slice(-10);
@@ -85,7 +118,11 @@ const createCustomer = async (req, res) => {
     if (existing) return badRequest(res, 'Customer with this phone already exists');
 
     const customer = await prisma.customer.create({
-      data: { phone: normalized, name: name || null },
+      data: {
+        phone: normalized,
+        name: name || null,
+        preferredLanguage: language,
+      },
     });
     return success(res, { customer }, 'Customer created', 201);
   } catch (err) {
@@ -95,11 +132,24 @@ const createCustomer = async (req, res) => {
 
 // ── PATCH /api/v1/customers/:id ───────────────────────────────────────────────
 const updateCustomer = async (req, res) => {
-  const { name, dob, mapLocation, tag, notes, notifWhatsApp } = req.body;
+  const { name, dob, mapLocation, tag, notes, notifWhatsApp, preferredLanguage } = req.body;
+  const language = preferredLanguage !== undefined ? normalizeLanguage(preferredLanguage) : undefined;
+  if (preferredLanguage !== undefined && !language) {
+    return badRequest(res, 'preferredLanguage must be ENGLISH, HINDI, or MARATHI');
+  }
+
   try {
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
-      data:  { name, dob: dob ? new Date(dob) : undefined, mapLocation, tag, notes, notifWhatsApp },
+      data:  {
+        name,
+        dob: dob ? new Date(dob) : undefined,
+        mapLocation,
+        tag,
+        notes,
+        notifWhatsApp,
+        ...(language !== undefined && { preferredLanguage: language }),
+      },
     });
     return success(res, { customer });
   } catch (err) {
@@ -107,4 +157,41 @@ const updateCustomer = async (req, res) => {
   }
 };
 
-module.exports = { listCustomers, getCustomer, createCustomer, updateCustomer };
+// ── POST /api/v1/customers/:id/addresses ─────────────────────────────────────
+const addCustomerAddress = async (req, res) => {
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    });
+
+    if (!customer) return notFound(res, 'Customer not found');
+
+    const payload = normalizeCustomerAddressInput(req.body);
+    if (!payload.addressLine1) return badRequest(res, 'Address is required');
+
+    const existingCount = await prisma.address.count({ where: { customerId: customer.id } });
+    const makeDefault = Boolean(req.body.setAsDefault) || existingCount === 0;
+
+    if (makeDefault) {
+      await prisma.address.updateMany({
+        where: { customerId: customer.id, isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
+    const address = await prisma.address.create({
+      data: {
+        customerId: customer.id,
+        ...payload,
+        isDefault: makeDefault,
+      },
+    });
+
+    return success(res, { address }, 'Address saved', 201);
+  } catch (err) {
+    return error(res, 'Failed to save address');
+  }
+};
+
+module.exports = { listCustomers, getCustomer, createCustomer, updateCustomer, addCustomerAddress };

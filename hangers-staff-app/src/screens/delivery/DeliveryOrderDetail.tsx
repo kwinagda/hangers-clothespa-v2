@@ -3,16 +3,9 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Platform, ActivityIndicator, Modal, TextInput, Alert, Linking, RefreshControl,
 } from 'react-native';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../utils/theme';
-import { deliveryAPI } from '../../services/api';
-
-const FAIL_REASONS = [
-  { key:'NOT_HOME',          label:'Customer not home'   },
-  { key:'REFUSED',           label:'Customer refused'    },
-  { key:'WRONG_ADDRESS',     label:'Wrong address'       },
-  { key:'CUSTOMER_CANCELLED',label:'Customer cancelled'  },
-  { key:'OTHER',             label:'Other reason'        },
-];
+import { deliveryAPI, metadataAPI } from '../../services/api';
 
 export default function DeliveryOrderDetail({ route, navigation }: any) {
   const { orderId } = route.params || {};
@@ -28,6 +21,7 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
   const [otpCode,   setOtpCode]   = useState('');
   const [sentTo,    setSentTo]    = useState('');
   const [notes,     setNotes]     = useState('');
+  const [failReasons, setFailReasons] = useState<Array<{ key: string; label: string }>>([]);
 
   const load = useCallback(async () => {
     try {
@@ -37,6 +31,12 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
   }, [orderId]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    metadataAPI.getAll().then((response: any) => {
+      const metadata = response?.metadata || response?.data?.metadata || {};
+      setFailReasons((metadata.deliveryFailReasons || []).map((item: any) => ({ key: item.value, label: item.label })));
+    }).catch(() => {});
+  }, []);
 
   const handlePickup = async () => {
     Alert.alert('Confirm Pickup', `Mark ${order?.orderNumber} as Picked Up?`, [
@@ -115,6 +115,12 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
   const isDone     = order?.status === 'DELIVERED';
   const canDeliver = isOut || isReady;
   const balanceDue = Math.max(0, (order?.totalAmount || 0) - (order?.paidAmount || 0));
+  const paymentStatusColor =
+    order?.paymentStatus === 'PAID'
+      ? Colors.success
+      : order?.paymentStatus === 'PARTIAL'
+        ? Colors.warning
+        : Colors.error;
 
   return (
     <View style={styles.container}>
@@ -136,10 +142,10 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
             <View style={{ flex: 1 }}>
               <Text style={styles.custName}>{order?.customer?.name}</Text>
               <Text style={styles.custPhone}>{order?.customer?.phone}</Text>
-              {order?.pickupAddress ? <Text style={styles.custAddr}>📍 {order.pickupAddress}</Text> : null}
+              {order?.pickupAddress ? <Text style={styles.custAddr}>Address: {order.pickupAddress}</Text> : null}
             </View>
             <TouchableOpacity style={styles.callBig} onPress={() => Linking.openURL(`tel:${order?.customer?.phone}`)}>
-              <Text style={{ fontSize: 22 }}>📞</Text>
+              <Feather name="phone-call" size={22} color={Colors.delivery} />
               <Text style={{ color: Colors.delivery, fontSize: 11, fontWeight:'700' }}>Call</Text>
             </TouchableOpacity>
           </View>
@@ -159,11 +165,11 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
             <View>
               <Text style={[styles.payLabel, { textAlign:'right' }]}>Due</Text>
               <Text style={[styles.payAmount, { color: balanceDue > 0 ? Colors.error : Colors.success }]}>
-                {balanceDue > 0 ? `₹${balanceDue.toLocaleString('en-IN')}` : '✓ Clear'}
+                {balanceDue > 0 ? `₹${balanceDue.toLocaleString('en-IN')}` : 'Clear'}
               </Text>
             </View>
           </View>
-          <Text style={[styles.payStatus, { color: order?.paymentStatus === 'PAID' ? Colors.success : Colors.error }]}>
+          <Text style={[styles.payStatus, { color: paymentStatusColor }]}>
             {order?.paymentStatus}
           </Text>
         </View>
@@ -182,13 +188,13 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
         {/* Notes */}
         {order?.notes ? (
           <View style={styles.notesBox}>
-            <Text style={styles.notesText}>📝  {order.notes}</Text>
+            <Text style={styles.notesText}>Notes: {order.notes}</Text>
           </View>
         ) : null}
 
         {isDone ? (
           <View style={styles.doneBox}>
-            <Text style={{ fontSize:36, marginBottom:8 }}>✅</Text>
+            <MaterialCommunityIcons name="check-circle-outline" size={36} color={Colors.success} style={{ marginBottom:8 }} />
             <Text style={styles.doneTitle}>Order Delivered</Text>
           </View>
         ) : null}
@@ -199,22 +205,22 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
         <View style={styles.bottomBar}>
           {isPending && (
             <TouchableOpacity style={[styles.mainBtn, { backgroundColor: Colors.delivery }]} onPress={handlePickup} disabled={saving}>
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.mainBtnText}>📦  Mark Picked Up</Text>}
+              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.mainBtnText}>Mark Picked Up</Text>}
             </TouchableOpacity>
           )}
           {canDeliver && (
             <>
               {balanceDue > 0 && (
                 <TouchableOpacity style={[styles.secBtn, { borderColor: Colors.success }]} onPress={() => setCashModal(true)}>
-                  <Text style={[styles.secBtnText, { color: Colors.success }]}>💵  Collect ₹{balanceDue.toLocaleString('en-IN')}</Text>
+                  <Text style={[styles.secBtnText, { color: Colors.success }]}>Collect ₹{balanceDue.toLocaleString('en-IN')}</Text>
                 </TouchableOpacity>
               )}
               <View style={{ flexDirection:'row', gap: 10 }}>
                 <TouchableOpacity style={[styles.failBtn]} onPress={() => setFailModal(true)}>
-                  <Text style={styles.failBtnText}>✗ Failed</Text>
+                  <Text style={styles.failBtnText}>Failed</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.mainBtn, { flex: 1, backgroundColor: Colors.success }]} onPress={handleDeliver} disabled={saving}>
-                  {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.mainBtnText}>✓  Mark Delivered</Text>}
+                  {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.mainBtnText}>Mark Delivered</Text>}
                 </TouchableOpacity>
               </View>
             </>
@@ -230,7 +236,7 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
             <Text style={styles.modalSub}>{order?.orderNumber} · {order?.customer?.name}</Text>
 
             <View style={{ backgroundColor: '#e7f8ef', borderRadius: 12, padding: 14, marginBottom: 18, flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-              <Text style={{ fontSize: 22 }}>💬</Text>
+              <Feather name="message-circle" size={22} color="#16a34a" />
               <View style={{ flex: 1 }}>
                 <Text style={{ color: '#16a34a', fontSize: 13, fontWeight: '700', marginBottom: 4 }}>
                   OTP sent via WhatsApp
@@ -266,7 +272,7 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
               >
                 {saving
                   ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={styles.modalConfirmText}>✓ Verify & Deliver</Text>
+                  : <Text style={styles.modalConfirmText}>Verify & Deliver</Text>
                 }
               </TouchableOpacity>
             </View>
@@ -308,7 +314,7 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
           <View style={styles.modal}>
             <Text style={styles.modalTitle}>Delivery Failed</Text>
             <Text style={styles.modalSub}>Select the reason:</Text>
-            {FAIL_REASONS.map(r => (
+            {failReasons.map(r => (
               <TouchableOpacity key={r.key} style={[styles.modalOption, failReason === r.key && styles.modalOptionErr]}
                 onPress={() => setFailReason(r.key)}>
                 <Text style={[styles.modalOptionText, failReason === r.key && { color: Colors.error, fontWeight:'700' }]}>{r.label}</Text>

@@ -3,7 +3,6 @@ const express   = require('express');
 const cors      = require('cors');
 const helmet    = require('helmet');
 const morgan    = require('morgan');
-const rateLimit = require('express-rate-limit');
 
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const authRoutes          = require('./routes/auth.routes');
@@ -22,6 +21,8 @@ const challanRoutes       = require('./routes/challan.routes');
 const staffWalletRoutes   = require('./routes/staff.wallet.routes');
 const settingsRoutes      = require('./routes/settings.routes');
 const checkoutRoutes      = require('./routes/checkout.routes');
+const ironRoutes          = require('./routes/iron.routes');
+const metadataRoutes      = require('./routes/metadata.routes');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
@@ -36,20 +37,12 @@ app.use(cors({
   credentials: true,
 }));
 
-const globalLimiter = rateLimit({ windowMs: 15*60*1000, max: 500,
-  message: { success: false, message: 'Too many requests' } });
-const otpLimiter    = rateLimit({ windowMs: 10*60*1000, max: 5,
-  message: { success: false, message: 'Too many OTP requests' } });
-app.use(globalLimiter);
-
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
-app.get('/health', (req, res) => res.json({ success: true, message: '🧺 Hangers API is running', version: '4.0.0' }));
+app.get('/health', (req, res) => res.json({ success: true, message: 'Hangers API is running', version: '4.0.0' }));
 
-// Customer auth — OTP limiter applies only to the send-otp endpoint
-app.use('/api/v1/auth/send-otp',   otpLimiter);
 app.use('/api/v1/auth',            authRoutes);
 // Staff (CRM + apps)
 app.use('/api/v1/staff',                       staffRoutes);
@@ -70,6 +63,8 @@ app.use('/api/v1/plant',                       plantRoutes);
 app.use('/api/v1/delivery',                    deliveryRoutes);
 // Pricing catalog (public read, staff write)
 app.use('/api/v1/services',                    servicesRoutes);
+app.use('/api/v1/iron',                        ironRoutes);
+app.use('/api/v1/metadata',                    metadataRoutes);
 app.use('/api/v1',                             phaseARoutes);
 // Refer & Earn
 const referralRoutes = require('./routes/referral.routes');
@@ -82,10 +77,10 @@ app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log('\n─────────────────────────────────────────');
-  console.log(`🧺  Hangers Clothes Spa — Phase 4`);
-  console.log(`✅  Server running on port ${PORT}`);
-  console.log(`🏭  /api/v1/plant  — Plant App`);
-  console.log(`🛵  /api/v1/delivery — Delivery App`);
+  console.log(`Hangers Clothes Spa - Phase 4`);
+  console.log(`Server running on port ${PORT}`);
+  console.log(`/api/v1/plant - Plant App`);
+  console.log(`/api/v1/delivery - Delivery App`);
   console.log('─────────────────────────────────────────\n');
 });
 

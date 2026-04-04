@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { cashBookAPI } from '@/lib/api'
+import { PaginationControls } from '@/components/ui/PaginationControls'
 
 const TYPE_STYLE: Record<string, { bg: string, color: string }> = {
   IN:    { bg: '#dcfce7', color: '#166534' },
@@ -16,6 +17,8 @@ export default function CashBookPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm]       = useState({ type: 'IN', amount: '', description: '' })
   const [loading, setLoading] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
   const load = () => {
     cashBookAPI.get(date).then((r: any) => {
@@ -37,12 +40,13 @@ export default function CashBookPage() {
   }
 
   const fmt = (n: number) => `₹${(n||0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
-  const s = { fontFamily: "'DM Sans',sans-serif" }
+  const s = { fontFamily: "var(--crm-font-ui)" }
+  const pagedEntries = entries.slice((page - 1) * pageSize, page * pageSize)
 
   return (
     <div style={{ padding: '32px 36px', maxWidth: 800, margin: '0 auto', ...s }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 26, color: '#023c62', margin: 0 }}>Cash Book</h1>
+        <h1 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 26, color: '#023c62', margin: 0 }}>Cash Book</h1>
         <button onClick={() => setShowAdd(true)}
           style={{ padding: '10px 20px', background: '#023c62', color: '#fff', borderRadius: 10, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer' }}>
           + Add Entry
@@ -63,7 +67,7 @@ export default function CashBookPage() {
         ].map(c => (
           <div key={c.label} style={{ background: c.bg, borderRadius: 12, padding: 20 }}>
             <div style={{ fontSize: 11, color: c.color, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{c.label}</div>
-            <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 24, color: c.color }}>{c.value}</div>
+            <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 24, color: c.color }}>{c.value}</div>
           </div>
         ))}
       </div>
@@ -81,7 +85,7 @@ export default function CashBookPage() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((e: any) => (
+              {pagedEntries.map((e: any) => (
                 <tr key={e.id} style={{ borderBottom: '1px solid #f8fafc' }}>
                   <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>
                     {new Date(e.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
@@ -102,10 +106,20 @@ export default function CashBookPage() {
         )}
       </div>
 
+      <PaginationControls
+        page={page}
+        pageSize={pageSize}
+        totalItems={entries.length}
+        itemLabel="entries"
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1) }}
+        pageSizeOptions={[10, 20, 30, 50]}
+      />
+
       {showAdd && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 20 }}>Add Cash Entry</h2>
+            <h2 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, marginBottom: 20 }}>Add Cash Entry</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {[
                 { label: 'Type', key: 'type', type: 'select', options: [['IN','Cash In'],['OUT','Cash Out'],['OPEN','Open Register'],['CLOSE','Close Register']] },

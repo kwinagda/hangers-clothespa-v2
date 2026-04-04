@@ -7,15 +7,22 @@ const bcrypt = require('bcryptjs');
 
 const isDevMode = () => {
   const k = process.env.MSG91_AUTH_KEY || '';
-  return process.env.DEV_MODE === 'true' || !k || k.length < 10;
+  return process.env.DEV_MODE === 'true'
+    || process.env.WA_DELIVERY_OTP_DEV === 'true'
+    || !k
+    || k.length < 10;
 };
 
 // ── OTP generation & hashing ──────────────────────────────────────────────────
 const generateOtp = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
+  isDevMode()
+    ? '123456'
+    : Math.floor(100000 + Math.random() * 900000).toString();
 
 const generateOtp4 = () =>
-  Math.floor(1000 + Math.random() * 9000).toString();
+  isDevMode()
+    ? '1234'
+    : Math.floor(1000 + Math.random() * 9000).toString();
 
 const hashOtp = async (otp) => bcrypt.hash(otp, 10);
 
@@ -24,7 +31,7 @@ const verifyOtpHash = async (otp, hash) => bcrypt.compare(otp, hash);
 // ── Send OTP via MSG91 ────────────────────────────────────────────────────────
 const sendOtp = async (phone, otp) => {
   if (isDevMode()) {
-    console.log(`\n🔐 DEV MODE OTP for ${phone}: ${otp}\n`);
+    console.log(`\nDEV MODE OTP for ${phone}: ${otp}\n`);
     return { success: true, devMode: true };
   }
 

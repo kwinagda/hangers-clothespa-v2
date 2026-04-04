@@ -10,13 +10,15 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing } from '../utils/theme';
-import { addressAPI } from '../services/api';
+import { addressAPI, metadataAPI } from '../services/api';
+import PageMotion from '../components/PageMotion';
+import AnimatedButton from '../components/AnimatedButton';
 
 interface SavedAddress { id: string; label: string; address: string; isDefault: boolean; }
 
-const LABELS     = ['Home', 'Work', 'Other'];
-const LABEL_ICON: Record<string, string> = { Home: '🏠', Work: '🏢', Other: '📍' };
+const LABEL_ICON: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> = { Home: 'home-outline', Work: 'office-building-outline', Other: 'map-marker-outline' };
 
 export default function SavedAddressesScreen({ navigation }: any) {
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
@@ -32,6 +34,7 @@ export default function SavedAddressesScreen({ navigation }: any) {
   // Edit form state (inline)
   const [editText,  setEditText]  = useState('');
   const [editLabel, setEditLabel] = useState('Home');
+  const [labelOptions, setLabelOptions] = useState<Array<{ value: string; label: string }>>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,13 +47,26 @@ export default function SavedAddressesScreen({ navigation }: any) {
 
   useEffect(() => { load(); }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  useEffect(() => {
+    metadataAPI.getAll()
+      .then((response: any) => {
+        const metadata = response?.metadata || response?.data?.metadata || {};
+        const labels = metadata.addressLabels || [];
+        setLabelOptions(labels);
+        if (labels.length) {
+          setNewLabel((prev) => labels.some((item: any) => item.value === prev) ? prev : labels[0].value);
+          setEditLabel((prev) => labels.some((item: any) => item.value === prev) ? prev : labels[0].value);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const saveNew = async () => {
     if (!newText.trim()) { Alert.alert('Enter an address'); return; }
     setSaving(true);
     try {
       await addressAPI.create({ label: newLabel, address: newText.trim(), setAsDefault: addresses.length === 0 });
-      setNewText(''); setNewLabel('Home'); setAdding(false);
+      setNewText(''); setNewLabel(labelOptions[0]?.value || 'Home'); setAdding(false);
       await load();
     } catch (e: any) { Alert.alert('Error', e?.message || 'Failed to save'); }
     finally { setSaving(false); }
@@ -100,15 +116,19 @@ export default function SavedAddressesScreen({ navigation }: any) {
 
       {/* Header */}
       <LinearGradient colors={['#023c62', '#035a8f']} style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backText}>←</Text>
-        </TouchableOpacity>
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Text style={styles.backText}>←</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setAdding(true); setEditId(null); }} style={styles.addBtn}>
+            <Text style={styles.addBtnText}>＋ Add</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.headerTitle}>Saved Addresses</Text>
-        <TouchableOpacity onPress={() => { setAdding(true); setEditId(null); }} style={styles.addBtn}>
-          <Text style={styles.addBtnText}>＋ Add</Text>
-        </TouchableOpacity>
+        <Text style={styles.headerSub}>Keep your pickup places ready so booking stays one-tap fast.</Text>
       </LinearGradient>
 
+      <PageMotion style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ padding: Spacing.lg, paddingBottom: 60 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {/* ── Add new address form ──────────────────────────────────────── */}
@@ -119,10 +139,10 @@ export default function SavedAddressesScreen({ navigation }: any) {
             {/* Label picker */}
             <Text style={styles.fieldLabel}>Label</Text>
             <View style={styles.labelRow}>
-              {LABELS.map(lbl => (
-                <TouchableOpacity key={lbl} onPress={() => setNewLabel(lbl)} style={[styles.labelChip, newLabel === lbl && styles.labelChipSel]}>
-                  <Text style={styles.labelChipIcon}>{LABEL_ICON[lbl]}</Text>
-                  <Text style={[styles.labelChipText, newLabel === lbl && { color: Colors.primary, fontWeight: '700' }]}>{lbl}</Text>
+              {labelOptions.map((label) => (
+                <TouchableOpacity key={label.value} onPress={() => setNewLabel(label.value)} style={[styles.labelChip, newLabel === label.value && styles.labelChipSel]}>
+                  <MaterialCommunityIcons name={LABEL_ICON[label.value] || 'map-marker-outline'} size={15} color={newLabel === label.value ? Colors.primary : '#6b7fa3'} style={styles.labelChipIcon} />
+                  <Text style={[styles.labelChipText, newLabel === label.value && { color: Colors.primary, fontWeight: '700' }]}>{label.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -141,12 +161,12 @@ export default function SavedAddressesScreen({ navigation }: any) {
             />
 
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-              <TouchableOpacity onPress={() => { setAdding(false); setNewText(''); }} style={styles.cancelBtn}>
+              <AnimatedButton onPress={() => { setAdding(false); setNewText(''); }} style={styles.cancelBtn}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={saveNew} disabled={saving || !newText.trim()} style={[styles.saveBtn, (!newText.trim() || saving) && { opacity: 0.5 }]}>
+              </AnimatedButton>
+              <AnimatedButton onPress={saveNew} disabled={saving || !newText.trim()} style={[styles.saveBtn, (!newText.trim() || saving) && { opacity: 0.5 }]}>
                 {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveBtnText}>Save Address</Text>}
-              </TouchableOpacity>
+              </AnimatedButton>
             </View>
           </View>
         )}
@@ -161,12 +181,12 @@ export default function SavedAddressesScreen({ navigation }: any) {
         {/* ── Empty state ───────────────────────────────────────────────── */}
         {!loading && addresses.length === 0 && !adding && (
           <View style={styles.emptyBox}>
-            <Text style={styles.emptyIcon}>📍</Text>
+            <MaterialCommunityIcons name="map-marker-outline" size={56} color={Colors.primary} style={styles.emptyIcon} />
             <Text style={styles.emptyTitle}>No saved addresses yet</Text>
             <Text style={styles.emptySub}>Save your home or work address so you don't have to type it every time you book a pickup.</Text>
-            <TouchableOpacity onPress={() => setAdding(true)} style={styles.emptyBtn}>
+            <AnimatedButton onPress={() => setAdding(true)} style={styles.emptyBtn}>
               <Text style={styles.emptyBtnText}>＋ Add Your First Address</Text>
-            </TouchableOpacity>
+            </AnimatedButton>
           </View>
         )}
 
@@ -181,10 +201,15 @@ export default function SavedAddressesScreen({ navigation }: any) {
                 <>
                   <View style={styles.addrTop}>
                     <View style={styles.addrLabelRow}>
-                      <Text style={styles.addrLabelIcon}>{LABEL_ICON[addr.label] || '📍'}</Text>
-                      <Text style={styles.addrLabel}>{addr.label}</Text>
+                      <MaterialCommunityIcons name={LABEL_ICON[addr.label] || 'map-marker-outline'} size={18} color={Colors.primary} style={styles.addrLabelIcon} />
+                      <Text style={styles.addrLabel}>{labelOptions.find((label) => label.value === addr.label)?.label || addr.label}</Text>
                       {addr.isDefault && (
-                        <View style={styles.defaultBadge}><Text style={styles.defaultBadgeText}>✓ Default</Text></View>
+                        <View style={styles.defaultBadge}>
+                          <View style={styles.defaultBadgeInner}>
+                            <Feather name="check" size={11} color={Colors.primary} />
+                            <Text style={styles.defaultBadgeText}>Default</Text>
+                          </View>
+                        </View>
                       )}
                     </View>
                     <View style={{ flexDirection: 'row', gap: 14 }}>
@@ -212,22 +237,22 @@ export default function SavedAddressesScreen({ navigation }: any) {
                   <Text style={styles.formTitle}>Edit Address</Text>
                   <Text style={styles.fieldLabel}>Label</Text>
                   <View style={styles.labelRow}>
-                    {LABELS.map(lbl => (
-                      <TouchableOpacity key={lbl} onPress={() => setEditLabel(lbl)} style={[styles.labelChip, editLabel === lbl && styles.labelChipSel]}>
-                        <Text style={styles.labelChipIcon}>{LABEL_ICON[lbl]}</Text>
-                        <Text style={[styles.labelChipText, editLabel === lbl && { color: Colors.primary, fontWeight: '700' }]}>{lbl}</Text>
+                    {labelOptions.map((label) => (
+                      <TouchableOpacity key={label.value} onPress={() => setEditLabel(label.value)} style={[styles.labelChip, editLabel === label.value && styles.labelChipSel]}>
+                        <MaterialCommunityIcons name={LABEL_ICON[label.value] || 'map-marker-outline'} size={15} color={editLabel === label.value ? Colors.primary : '#6b7fa3'} style={styles.labelChipIcon} />
+                        <Text style={[styles.labelChipText, editLabel === label.value && { color: Colors.primary, fontWeight: '700' }]}>{label.label}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
                   <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Address</Text>
                   <TextInput value={editText} onChangeText={setEditText} multiline numberOfLines={4} autoFocus style={styles.textArea} />
                   <View style={{ flexDirection:'row', gap:10, marginTop:12 }}>
-                    <TouchableOpacity onPress={() => setEditId(null)} style={styles.cancelBtn}>
+                    <AnimatedButton onPress={() => setEditId(null)} style={styles.cancelBtn}>
                       <Text style={styles.cancelBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => saveEdit(addr.id)} disabled={saving} style={[styles.saveBtn, saving && { opacity: 0.6 }]}>
+                    </AnimatedButton>
+                    <AnimatedButton onPress={() => saveEdit(addr.id)} disabled={saving} style={[styles.saveBtn, saving && { opacity: 0.6 }]}>
                       {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveBtnText}>Save Changes</Text>}
-                    </TouchableOpacity>
+                    </AnimatedButton>
                   </View>
                 </>
               )}
@@ -238,25 +263,31 @@ export default function SavedAddressesScreen({ navigation }: any) {
         {/* ── Tip ───────────────────────────────────────────────────────── */}
         {!loading && addresses.length > 0 && (
           <View style={styles.tip}>
-            <Text style={styles.tipText}>💡 Your default address is pre-selected every time you book a pickup.</Text>
+            <View style={styles.tipInner}>
+              <Feather name="info" size={14} color={Colors.primary} />
+              <Text style={styles.tipText}>Your default address is pre-selected every time you book a pickup.</Text>
+            </View>
           </View>
         )}
       </ScrollView>
+      </PageMotion>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container:       { flex:1, backgroundColor:'#f4f7fb' },
-  header:          { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingTop: Platform.OS === 'ios' ? 56 : 20, paddingBottom:18, paddingHorizontal: Spacing.lg },
+  header:          { paddingTop: Platform.OS === 'ios' ? 48 : 24, paddingBottom:16, paddingHorizontal: Spacing.lg },
+  headerTop:       { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:12 },
   backBtn:         { width:38, height:38, borderRadius:19, backgroundColor:'rgba(255,255,255,0.15)', alignItems:'center', justifyContent:'center' },
   backText:        { color:'#fff', fontSize:20 },
-  headerTitle:     { color:'#fff', fontSize:18, fontWeight:'700' },
+  headerTitle:     { color:'#fff', fontSize:24, fontWeight:'700' },
+  headerSub:       { color:'rgba(255,255,255,0.76)', fontSize:12, lineHeight:18, marginTop:6, maxWidth:'82%' },
   addBtn:          { backgroundColor:'rgba(255,255,255,0.15)', borderRadius:20, paddingHorizontal:14, paddingVertical:7, borderWidth:1, borderColor:'rgba(255,255,255,0.25)' },
   addBtnText:      { color:'#fff', fontSize:13, fontWeight:'700' },
   centerBox:       { paddingTop:60, alignItems:'center' },
   emptyBox:        { paddingTop:48, alignItems:'center', paddingHorizontal:20 },
-  emptyIcon:       { fontSize:56, marginBottom:16 },
+  emptyIcon:       { marginBottom:16 },
   emptyTitle:      { fontSize:18, fontWeight:'700', color:'#1a2332', marginBottom:8, textAlign:'center' },
   emptySub:        { fontSize:14, color:'#6b7fa3', textAlign:'center', lineHeight:22, marginBottom:28 },
   emptyBtn:        { backgroundColor: Colors.primary, borderRadius:12, paddingHorizontal:24, paddingVertical:14 },
@@ -269,7 +300,7 @@ const styles = StyleSheet.create({
   labelRow:        { flexDirection:'row', gap:8 },
   labelChip:       { flexDirection:'row', alignItems:'center', gap:5, paddingHorizontal:12, paddingVertical:8, borderRadius:20, borderWidth:1.5, borderColor:'#dce8f0', backgroundColor:'#f7f9fc' },
   labelChipSel:    { borderColor: Colors.primary, backgroundColor:'#f0f5fa' },
-  labelChipIcon:   { fontSize:15 },
+  labelChipIcon:   {},
   labelChipText:   { fontSize:13, color:'#6b7fa3' },
   textArea:        { backgroundColor:'#f7f9fc', borderRadius:12, padding:14, fontSize:14, color:'#1a2332', borderWidth:1.5, borderColor:'#dce8f0', minHeight:100, textAlignVertical:'top', marginTop:4 },
   cancelBtn:       { flex:1, backgroundColor:'#f0f4f8', borderRadius:10, paddingVertical:12, alignItems:'center' },
@@ -282,9 +313,10 @@ const styles = StyleSheet.create({
   addrCardDefault: { borderColor: Colors.primary },
   addrTop:         { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 },
   addrLabelRow:    { flexDirection:'row', alignItems:'center', gap:8 },
-  addrLabelIcon:   { fontSize:18 },
+  addrLabelIcon:   {},
   addrLabel:       { fontSize:15, fontWeight:'700', color:'#1a2332' },
   defaultBadge:    { backgroundColor:'#e8f0f7', borderRadius:20, paddingHorizontal:10, paddingVertical:3 },
+  defaultBadgeInner:{ flexDirection:'row', alignItems:'center', gap:4 },
   defaultBadgeText:{ fontSize:11, fontWeight:'700', color: Colors.primary },
   addrText:        { fontSize:14, color:'#6b7fa3', lineHeight:22 },
   actionText:      { fontSize:13, fontWeight:'600', color: Colors.primaryMid },
@@ -293,5 +325,6 @@ const styles = StyleSheet.create({
 
   // Tip
   tip:             { backgroundColor:'#e8f0f7', borderRadius:12, padding:14, marginTop:4 },
+  tipInner:        { flexDirection:'row', alignItems:'flex-start', gap:8 },
   tipText:         { fontSize:13, color: Colors.primary, lineHeight:20 },
 });

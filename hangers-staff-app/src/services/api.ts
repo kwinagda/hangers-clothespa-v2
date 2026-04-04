@@ -4,18 +4,60 @@
 
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
-// ── Change this to your WiFi IP when testing on a real phone ─────────────────
-// Kevin's network: 'http://192.168.29.246:3000/api/v1'
-// Android emulator: 'http://10.0.2.2:3000/api/v1'
-const BASE_URL   = 'http://192.168.29.246:3000/api/v1';
+const resolveBaseUrl = () => {
+  const explicit = process.env.EXPO_PUBLIC_API_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+
+  const expoHost =
+    Constants.expoConfig?.hostUri ||
+    (Constants as any).manifest2?.extra?.expoClient?.hostUri ||
+    (Constants as any).manifest?.debuggerHost;
+
+  if (expoHost) {
+    const host = expoHost.split(':')[0];
+    if (host) return `http://${host}:3000/api/v1`;
+  }
+
+  if (Platform.OS === 'android') return 'http://10.0.2.2:3000/api/v1';
+  return 'http://localhost:3000/api/v1';
+};
+
+const BASE_URL   = resolveBaseUrl();
 const TOKEN_KEY  = 'hangers_staff_token';
+const authInvalidationListeners = new Set<() => void>();
+
+const normalizeApiResponse = (payload: any) => {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'data') &&
+    payload.data &&
+    typeof payload.data === 'object' &&
+    !Array.isArray(payload.data)
+  ) {
+    return { ...payload, ...payload.data };
+  }
+
+  const { success, message, errors, ...rest } = payload;
+  return { ...payload, data: rest };
+};
 
 const api = axios.create({
   baseURL: BASE_URL,
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
 });
+
+const notifyAuthInvalidated = () => {
+  authInvalidationListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {}
+  });
+};
 
 api.interceptors.request.use(async (config) => {
   try {
@@ -26,10 +68,19 @@ api.interceptors.request.use(async (config) => {
 });
 
 api.interceptors.response.use(
-  (res) => res.data,
+  (res) => normalizeApiResponse(res.data),
   async (err) => {
-    if (err.response?.status === 401) await SecureStore.deleteItemAsync(TOKEN_KEY);
+    if (err.code === 'ECONNABORTED' || err.message === 'Network Error') {
+      throw new Error(`Cannot reach server at ${BASE_URL}. Start backend or set EXPO_PUBLIC_API_URL.`);
+    }
     const msg = err.response?.data?.message || err.response?.data?.error || 'Something went wrong.';
+    if (
+      err.response?.status === 401 &&
+      /session expired|invalid token|account not found|deactivated/i.test(msg)
+    ) {
+      await SecureStore.deleteItemAsync(TOKEN_KEY);
+      notifyAuthInvalidated();
+    }
     throw new Error(msg);
   }
 );
@@ -37,6 +88,12 @@ api.interceptors.response.use(
 export const saveToken  = (t: string) => SecureStore.setItemAsync(TOKEN_KEY, t);
 export const getToken   = ()           => SecureStore.getItemAsync(TOKEN_KEY);
 export const clearToken = ()           => SecureStore.deleteItemAsync(TOKEN_KEY);
+export const onAuthInvalidated = (listener: () => void) => {
+  authInvalidationListeners.add(listener);
+  return () => {
+    authInvalidationListeners.delete(listener);
+  };
+};
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export const authAPI = {
@@ -59,6 +116,10 @@ export const plantAPI = {
     api.post(`/plant/orders/${id}/flag`, { issueType, description, itemIndex }) as any,
   generateTags:  (id: string) =>
     api.post(`/plant/orders/${id}/generate-tags`) as any,
+};
+
+export const metadataAPI = {
+  getAll: () => api.get('/metadata') as any,
 };
 
 // ── Delivery ──────────────────────────────────────────────────────────────────

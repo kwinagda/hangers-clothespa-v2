@@ -15,13 +15,7 @@ const { log, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error, notFound, unauthorized } = require('../utils/response');
 const { generateOtp, hashOtp, verifyOtpHash, sendDeliveryOtp } = require('../services/whatsapp-otp.service');
 const { sendStatusNotification } = require('../services/whatsapp-notifications.service');
-
-const STATUS_LABEL = {
-  PENDING:'Order Placed', PICKED_UP:'Picked Up', PROCESSING:'At Plant',
-  WASHING:'Being Cleaned', DRYING:'Drying', IRONING:'Ironing',
-  QC:'Quality Check', READY_FOR_DELIVERY:'Ready', OUT_FOR_DELIVERY:'Out for Delivery',
-  DELIVERED:'Delivered', CANCELLED:'Cancelled',
-};
+const { DELIVERY_MANAGER_ROLES, ORDER_STATUS_LABELS } = require('../config/master-data');
 
 // ── Dashboard — tasks today ───────────────────────────────────────────────────
 const getDeliveryDashboard = async (req, res) => {
@@ -31,7 +25,7 @@ const getDeliveryDashboard = async (req, res) => {
   try {
     // Delivery riders see orders assigned to them
     // Delivery managers see all delivery orders
-    const isManager = ['DELIVERY_MANAGER','MANAGER','SUPER_ADMIN'].includes(req.staff.role);
+    const isManager = DELIVERY_MANAGER_ROLES.includes(req.staff.role);
 
     const baseWhere = isManager
       ? {}
@@ -75,7 +69,7 @@ const getDeliveryDashboard = async (req, res) => {
 const getMyOrders = async (req, res) => {
   const { type = 'active' } = req.query;
   const riderId = req.staff.id;
-  const isManager = ['DELIVERY_MANAGER','MANAGER','SUPER_ADMIN'].includes(req.staff.role);
+  const isManager = DELIVERY_MANAGER_ROLES.includes(req.staff.role);
 
   const statusMap = {
     pickups:  ['PENDING'],
@@ -103,7 +97,7 @@ const getMyOrders = async (req, res) => {
     return success(res, {
       orders: orders.map(o => ({
         id: o.id, orderNumber: o.orderNumber, status: o.status,
-        statusLabel:  STATUS_LABEL[o.status] || o.status,
+        statusLabel:  ORDER_STATUS_LABELS[o.status] || o.status,
         customer:     { name: o.customer?.name, phone: o.customer?.phone },
         pickupAddress: o.pickupAddress,
         totalAmount:  o.totalAmount,
@@ -138,7 +132,7 @@ const getDeliveryOrder = async (req, res) => {
     return success(res, {
       order: {
         ...order,
-        statusLabel: STATUS_LABEL[order.status] || order.status,
+        statusLabel: ORDER_STATUS_LABELS[order.status] || order.status,
         balanceDue: Math.max(0, (order.totalAmount || 0) - (order.paidAmount || 0)),
         itemCount:  order.items.reduce((s, i) => s + i.quantity, 0),
       },
@@ -157,7 +151,7 @@ const markPickedUp = async (req, res) => {
     const order = await prisma.order.findUnique({ where: { id } });
     if (!order) return notFound(res, 'Order not found');
     if (order.status !== 'PENDING') {
-      return badRequest(res, `Cannot mark picked up — current status: ${STATUS_LABEL[order.status]}`);
+      return badRequest(res, `Cannot mark picked up — current status: ${ORDER_STATUS_LABELS[order.status] || order.status}`);
     }
 
     await prisma.$transaction([
@@ -208,7 +202,7 @@ const markDelivered = async (req, res) => {
     });
     if (!order) return notFound(res, 'Order not found');
     if (!['OUT_FOR_DELIVERY', 'READY_FOR_DELIVERY'].includes(order.status)) {
-      return badRequest(res, `Cannot mark delivered — current status: ${STATUS_LABEL[order.status]}`);
+      return badRequest(res, `Cannot mark delivered — current status: ${ORDER_STATUS_LABELS[order.status] || order.status}`);
     }
 
     await prisma.$transaction([
@@ -277,7 +271,7 @@ const markFailed = async (req, res) => {
         data: {
           orderId:     id,
           stage:       'READY_FOR_DELIVERY',
-          notes:       `❌ Delivery failed: ${reasonLabel}. Reported by ${req.staff.name}`,
+          notes:       `Delivery failed: ${reasonLabel}. Reported by ${req.staff.name}`,
           changedById: req.staff.id,
         },
       }),

@@ -8,6 +8,8 @@ const { log, getRequestMeta }                      = require('../services/activi
 const { success, badRequest, error, notFound }     = require('../utils/response');
 const { sendStatusNotification }                   = require('../services/whatsapp-notifications.service');
 const { sendPushNotification }                     = require('../services/push.service');
+const { generateOrderNumber }                      = require('../utils/order-number');
+const { CORE_PAYMENT_METHODS, ORDER_STATUS_KEYS }  = require('../config/master-data');
 
 const WA_NOTIFY_STATUSES = new Set(['PICKED_UP','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED']);
 
@@ -16,12 +18,6 @@ const PUSH_MESSAGES = {
   READY_FOR_DELIVERY: { title: 'Ready for Delivery!',      body: 'Your order is cleaned and ready. Delivery will be scheduled soon.' },
   OUT_FOR_DELIVERY:   { title: 'Out for Delivery!',        body: 'Your order is on its way. Expect delivery soon.' },
   DELIVERED:          { title: 'Delivered!',               body: 'Your order has been delivered. Thank you for choosing Hangers!' },
-};
-
-// ── Helper: generate order number ─────────────────────────────────────────────
-const generateOrderNumber = async () => {
-  const count = await prisma.order.count({ where: { isReturn: false } });
-  return `HCS-${String(count + 1).padStart(3, '0')}`;
 };
 
 // ── GET /api/v1/orders ────────────────────────────────────────────────────────
@@ -187,6 +183,22 @@ const createOrder = async (req, res) => {
       return badRequest(res, 'customerId or customerPhone is required');
     }
 
+    const serviceIds = items.map((item) => item.serviceId).filter(Boolean);
+    if (serviceIds.length) {
+      const services = await prisma.service.findMany({
+        where: { id: { in: serviceIds } },
+        select: { id: true, category: true, name: true },
+      });
+
+      const dailyIronServiceIds = new Set(
+        services.filter((service) => service.category === 'DAILY_IRON').map((service) => service.id)
+      );
+
+      if (items.some((item) => item.serviceId && dailyIronServiceIds.has(item.serviceId))) {
+        return badRequest(res, 'DAILY_IRON items must be logged through the Daily Iron flow, not a regular order');
+      }
+    }
+
     // Calculate totals
     const subtotal    = items.reduce((sum, item) => {
       const upchargeTotal = (item.upcharges || []).reduce((s, u) => s + (u.amount || 0), 0);
@@ -328,11 +340,7 @@ const updateOrderStatus = async (req, res) => {
   } catch(e) {}
   const { status, notes } = req.body;
 
-  const validStatuses = [
-    'PENDING','PICKED_UP','PROCESSING','WASHING','DRYING',
-    'IRONING','QC','READY_FOR_DELIVERY','OUT_FOR_DELIVERY',
-    'DELIVERED','CANCELLED','SENT_TO_PLANT','RETURNED',
-  ];
+  const validStatuses = ORDER_STATUS_KEYS;
 
   if (!status || !validStatuses.includes(status)) {
     return badRequest(res, `Invalid status. Must be one of: ${validStatuses.join(', ')}`);
@@ -511,6 +519,9 @@ const recordPayment = async (req, res) => {
 
     if (!amount || parseFloat(amount) <= 0) {
       return res.status(400).json({ success: false, message: 'Valid amount is required' });
+    }
+    if (!CORE_PAYMENT_METHODS.includes(method)) {
+      return res.status(400).json({ success: false, message: `Payment method must be one of: ${CORE_PAYMENT_METHODS.join(', ')}` });
     }
 
     const order = await prisma.order.findUnique({ where: { id } });

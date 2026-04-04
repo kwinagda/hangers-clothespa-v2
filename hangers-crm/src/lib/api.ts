@@ -4,13 +4,29 @@ import Cookies from 'js-cookie'
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1'
 const api  = axios.create({ baseURL: BASE, timeout: 15000 })
 
+const normalizeApiResponse = (payload: any) => {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'data') &&
+    payload.data &&
+    typeof payload.data === 'object' &&
+    !Array.isArray(payload.data)
+  ) {
+    return { ...payload, ...payload.data }
+  }
+
+  const { success, message, errors, ...rest } = payload
+  return { ...payload, data: rest }
+}
+
 api.interceptors.request.use((config) => {
   const token = Cookies.get('crm_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 api.interceptors.response.use(
-  (r) => r.data,
+  (r) => normalizeApiResponse(r.data),
   (err) => {
     if (err.response?.status === 401 && typeof window !== 'undefined') {
       Cookies.remove('crm_token')
@@ -39,6 +55,7 @@ export const customersAPI = {
   get:    (id: string)            => api.get(`/customers/${id}`) as any,
   create: (data: any)             => api.post('/customers', data) as any,
   update: (id: string, data: any) => api.patch(`/customers/${id}`, data) as any,
+  addAddress: (id: string, data: any) => api.post(`/customers/${id}/addresses`, data) as any,
   findByPhone: (phone: string) => api.get(`/customers?search=${phone}`) as any,
 }
 export const staffAPI = {
@@ -58,6 +75,33 @@ export const servicesAPI = {
   getPriceList: ()           => api.get('/services') as any,
   getCatalog:   ()           => api.get('/services').then((r: any) => { const cat = r.data?.catalog || r.data || []; return cat.flatMap((g: any) => (g.items||[]).map((item: any) => ({id: item.id, name: item.name, basePrice: item.price, category: g.category, catalogName: g.category.replace(/\u2014/g, "—")}))); }) as any,
   saveCatalog:  (catalog: any) => api.put('/services', { catalog }) as any,
+  getDailyIronRates: ()      => api.get('/services', { params: { category: 'DAILY_IRON' } }) as any,
+}
+
+export const metadataAPI = {
+  getAll: () => api.get('/metadata') as any,
+}
+
+export const ironAPI = {
+  listSubscriptions: (status?: string) => api.get('/iron/subscriptions', { params: status ? { status } : undefined }) as any,
+  getSubscription: (customerId: string) => api.get(`/iron/subscriptions/${customerId}`) as any,
+  createSubscription: (data: any) => api.post('/iron/subscriptions', data) as any,
+  confirmSubscription: (id: string) => api.put(`/iron/subscriptions/${id}/confirm`) as any,
+  updateSubscriptionStatus: (id: string, status: string, notes?: string) =>
+    api.put(`/iron/subscriptions/${id}/status`, { status, notes }) as any,
+  listLogs: (params?: { date?: string; start?: string; end?: string; customerId?: string }) =>
+    api.get('/iron/logs', { params }) as any,
+  getLogs: (customerId: string) => api.get(`/iron/logs/${customerId}`) as any,
+  getLogsByPeriod: (customerId: string, start: string, end: string) =>
+    api.get(`/iron/logs/${customerId}/period`, { params: { start, end } }) as any,
+  createLog: (data: any) => api.post('/iron/logs', data) as any,
+  deleteLog: (id: string) => api.delete(`/iron/logs/${id}`) as any,
+  generateBill: (data: any) => api.post('/iron/bills/generate', data) as any,
+  getBills: (customerId: string) => api.get(`/iron/bills/customer/${customerId}`) as any,
+  getBill: (billId: string) => api.get(`/iron/bills/${billId}`) as any,
+  sendBill: (billId: string) => api.put(`/iron/bills/${billId}/send`) as any,
+  recordPayment: (billId: string, data: { amount: number; paymentMethod?: string }) =>
+    api.put(`/iron/bills/${billId}/pay`, data) as any,
 }
 export default api;
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,8 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { expensesAPI } from '@/lib/api'
+import { expensesAPI, metadataAPI } from '@/lib/api'
+import { PaginationControls } from '@/components/ui/PaginationControls'
 
-const CATEGORIES = ['SALARY','RENT','SUPPLIES','UTILITIES','TRANSPORT','OTHER']
 const CAT_STYLE: Record<string,{bg:string,color:string}> = {
   SALARY:    {bg:'#f3e8ff',color:'#6b21a8'},
   RENT:      {bg:'#fff7ed',color:'#c2410c'},
@@ -14,6 +14,7 @@ const CAT_STYLE: Record<string,{bg:string,color:string}> = {
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 export default function ExpensesPage() {
+  const [categoryOptions, setCategoryOptions] = useState<Array<{ value: string; label: string }>>([])
   const [expenses, setExpenses]   = useState<any[]>([])
   const [total, setTotal]         = useState(0)
   const [byCategory, setByCategory] = useState<Record<string,number>>({})
@@ -22,6 +23,8 @@ export default function ExpensesPage() {
   const [showAdd, setShowAdd]     = useState(false)
   const [form, setForm]           = useState({ category: 'SUPPLIES', description: '', amount: '', date: new Date().toISOString().split('T')[0], paidBy: '' })
   const [loading, setLoading]     = useState(false)
+  const [page, setPage]           = useState(1)
+  const [pageSize, setPageSize]   = useState(20)
 
   const load = () => {
     expensesAPI.get(month, year).then((r: any) => {
@@ -32,6 +35,19 @@ export default function ExpensesPage() {
   }
 
   useEffect(() => { load() }, [month, year])
+  useEffect(() => {
+    metadataAPI.getAll().then((r:any) => {
+      const metadata = r?.metadata || r?.data?.metadata || {}
+      const nextCategories = metadata.expenseCategories || []
+      setCategoryOptions(nextCategories)
+      if (nextCategories.length) {
+        setForm((prev) => ({
+          ...prev,
+          category: nextCategories.some((item:any) => item.value === prev.category) ? prev.category : nextCategories[0].value,
+        }))
+      }
+    }).catch(() => {})
+  }, [])
 
   const add = async () => {
     if (!form.description || !form.amount) return
@@ -50,12 +66,13 @@ export default function ExpensesPage() {
   }
 
   const fmt = (n: number) => `₹${(n||0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
-  const s = { fontFamily: "'DM Sans',sans-serif" }
+  const s = { fontFamily: "var(--crm-font-ui)" }
+  const pagedExpenses = expenses.slice((page - 1) * pageSize, page * pageSize)
 
   return (
     <div style={{ padding: '32px 36px', maxWidth: 1000, margin: '0 auto', ...s }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 26, color: '#023c62', margin: 0 }}>Expenses</h1>
+        <h1 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 26, color: '#023c62', margin: 0 }}>Expenses</h1>
         <button onClick={() => setShowAdd(true)}
           style={{ padding: '10px 20px', background: '#023c62', color: '#fff', borderRadius: 10, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer' }}>
           + Add Expense
@@ -76,12 +93,12 @@ export default function ExpensesPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
         <div style={{ background: '#fef2f2', borderRadius: 12, padding: 16, gridColumn: 'span 1' }}>
           <div style={{ fontSize: 11, color: '#991b1b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total Expenses</div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 24, color: '#991b1b' }}>{fmt(total)}</div>
+          <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 24, color: '#991b1b' }}>{fmt(total)}</div>
         </div>
         {Object.entries(byCategory).slice(0,3).map(([cat, amt]) => (
           <div key={cat} style={{ background: CAT_STYLE[cat]?.bg || '#f9fafb', borderRadius: 12, padding: 16 }}>
             <div style={{ fontSize: 11, color: CAT_STYLE[cat]?.color || '#374151', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{cat}</div>
-            <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color: CAT_STYLE[cat]?.color || '#374151' }}>{fmt(amt as number)}</div>
+            <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 20, color: CAT_STYLE[cat]?.color || '#374151' }}>{fmt(amt as number)}</div>
           </div>
         ))}
       </div>
@@ -99,7 +116,7 @@ export default function ExpensesPage() {
               </tr>
             </thead>
             <tbody>
-              {expenses.map((e: any) => (
+              {pagedExpenses.map((e: any) => (
                 <tr key={e.id} style={{ borderBottom: '1px solid #f8fafc' }}>
                   <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{new Date(e.date).toLocaleDateString('en-IN')}</td>
                   <td style={{ padding: '10px 16px' }}>
@@ -120,13 +137,23 @@ export default function ExpensesPage() {
         )}
       </div>
 
+      <PaginationControls
+        page={page}
+        pageSize={pageSize}
+        totalItems={expenses.length}
+        itemLabel="expenses"
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1) }}
+        pageSizeOptions={[10, 20, 30, 50]}
+      />
+
       {showAdd && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 20 }}>Add Expense</h2>
+            <h2 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, marginBottom: 20 }}>Add Expense</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {[
-                { label: 'Category', key: 'category', type: 'select', options: CATEGORIES },
+                { label: 'Category', key: 'category', type: 'select', options: categoryOptions },
                 { label: 'Description *', key: 'description', type: 'text', placeholder: 'What was this expense for?' },
                 { label: 'Amount (₹) *', key: 'amount', type: 'number' },
                 { label: 'Date', key: 'date', type: 'date' },
@@ -137,7 +164,7 @@ export default function ExpensesPage() {
                   {f.type === 'select' ? (
                     <select value={(form as any)[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })}
                       style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
-                      {f.options.map((o: string) => <option key={o} value={o}>{o}</option>)}
+                      {f.options.map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   ) : (
                     <input type={f.type} value={(form as any)[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })}

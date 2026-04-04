@@ -6,7 +6,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import { authAPI, saveToken, getToken, clearToken } from '../services/api';
+import { authAPI, saveToken, getToken, clearToken, onAuthInvalidated } from '../services/api';
 
 // ── Push notification setup (item 13) ─────────────────────────────────────────
 async function registerForPushNotificationsAsync(): Promise<void> {
@@ -41,7 +41,27 @@ interface Customer {
   id:            string;
   phone:         string;
   name:          string | null;
-  email:         string | null;
+  referralCode?: string | null;
+  walletBalance?: number;
+  preferredLanguage?: 'ENGLISH' | 'HINDI' | 'MARATHI';
+  ironSubStatus?: string | null;
+  ironSubscription?: {
+    id: string;
+    applicationStatus: string;
+    appliedAt?: string;
+    confirmedAt?: string | null;
+    updatedAt?: string;
+  } | null;
+  addresses?: Array<{
+    id: string;
+    label: string;
+    addressLine1: string;
+    addressLine2?: string | null;
+    landmark?: string | null;
+    city: string;
+    pincode: string;
+    isDefault: boolean;
+  }>;
   isNewUser?:    boolean;
   notifWhatsApp?: boolean;
   notifPush?:    boolean;
@@ -71,7 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const token = await getToken();
         if (token) {
           const response: any = await authAPI.getMe();
-          setCustomer(response.data.customer);
+          setCustomer(response?.customer || response?.data?.customer || null);
         }
       } catch {
         await clearToken();
@@ -80,6 +100,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
     bootstrap();
+  }, []);
+
+  useEffect(() => {
+    return onAuthInvalidated(() => {
+      setCustomer(null);
+    });
   }, []);
 
   const login = async (customerData: Customer, token: string) => {
@@ -98,7 +124,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshProfile = async () => {
     try {
       const response: any = await authAPI.getMe();
-      setCustomer(response.data.customer);
+      setCustomer(response?.customer || response?.data?.customer || null);
     } catch {}
   };
 

@@ -1,12 +1,14 @@
 import React, { useState, useRef } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Image,
   Platform, ActivityIndicator, KeyboardAvoidingView, Vibration,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, Spacing } from '../utils/theme';
+import { Feather } from '@expo/vector-icons';
+import { Colors, Spacing, Fonts } from '../utils/theme';
 import { authAPI } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { LOGO_WHITE_URL } from '../lib/branding';
 
 export default function PinLoginScreen() {
   const { login } = useAuth();
@@ -38,9 +40,11 @@ export default function PinLoginScreen() {
 
         {/* Logo block */}
         <View style={styles.logoBlock}>
-          <Text style={styles.logo}>🧺</Text>
-          <Text style={styles.appName}>HANGERS</Text>
-          <Text style={styles.appSub}>Staff App</Text>
+          <View style={styles.logoBadge}>
+            <Image source={{ uri: LOGO_WHITE_URL }} style={styles.logoMark} resizeMode="contain" />
+          </View>
+          <Image source={{ uri: LOGO_WHITE_URL }} style={styles.wordmark} resizeMode="contain" />
+          <Text style={styles.appSub}>Staff Workspace</Text>
         </View>
 
         {/* Card */}
@@ -50,7 +54,10 @@ export default function PinLoginScreen() {
 
           {error ? (
             <View style={styles.errBox}>
-              <Text style={styles.errText}>⚠️  {error}</Text>
+              <View style={styles.errRow}>
+                <Feather name="alert-triangle" size={14} color={Colors.error} />
+                <Text style={styles.errText}>{error}</Text>
+              </View>
             </View>
           ) : null}
 
@@ -101,18 +108,20 @@ const styles = StyleSheet.create({
   bg:         { flex: 1 },
   center:     { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
   logoBlock:  { alignItems: 'center', marginBottom: 36 },
-  logo:       { fontSize: 52, marginBottom: 10 },
-  appName:    { fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: 4 },
-  appSub:     { fontSize: 13, color: 'rgba(184,208,232,0.7)', marginTop: 4, letterSpacing: 2 },
+  logoBadge:  { width: 78, height: 78, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  logoMark:   { width: 40, height: 40 },
+  wordmark:   { width: 156, height: 28 },
+  appSub:     { fontFamily: Fonts.body, fontSize: 13, color: 'rgba(184,208,232,0.7)', marginTop: 4, letterSpacing: 2 },
   card:       { backgroundColor: '#fff', borderRadius: 22, padding: 28 },
-  cardTitle:  { fontSize: 22, fontWeight: '800', color: Colors.primary, marginBottom: 4 },
-  cardSub:    { fontSize: 13, color: Colors.textMuted, marginBottom: 22 },
+  cardTitle:  { fontFamily: Fonts.display, fontSize: 22, color: Colors.primary, marginBottom: 4 },
+  cardSub:    { fontFamily: Fonts.body, fontSize: 13, color: Colors.textMuted, marginBottom: 22 },
   errBox:     { backgroundColor: Colors.errorBg, borderRadius: 10, padding: 12, marginBottom: 16 },
-  errText:    { color: Colors.error, fontSize: 13 },
-  label:      { fontSize: 12, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1, marginBottom: 6, textTransform: 'uppercase' },
-  input:      { backgroundColor: Colors.offWhite, borderRadius: 12, padding: 14, fontSize: 16, color: Colors.textDark, marginBottom: 18, borderWidth: 1.5, borderColor: Colors.border },
-  pinInput:   { fontSize: 22, letterSpacing: 8, textAlign: 'center' },
+  errRow:     { flexDirection:'row', alignItems:'center', gap:8 },
+  errText:    { fontFamily: Fonts.body, color: Colors.error, fontSize: 13 },
+  label:      { fontFamily: Fonts.medium, fontSize: 12, color: Colors.textMuted, letterSpacing: 1, marginBottom: 6, textTransform: 'uppercase' },
+  input:      { backgroundColor: Colors.offWhite, borderRadius: 12, padding: 14, fontFamily: Fonts.body, fontSize: 16, color: Colors.textDark, marginBottom: 18, borderWidth: 1.5, borderColor: Colors.border },
+  pinInput:   { fontFamily: Fonts.display, fontSize: 22, letterSpacing: 8, textAlign: 'center' },
   btn:        { backgroundColor: Colors.primary, borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 4 },
-  btnText:    { color: '#fff', fontSize: 16, fontWeight: '800' },
-  hint:       { textAlign: 'center', color: Colors.textMuted, fontSize: 12, marginTop: 18, lineHeight: 18 },
+  btnText:    { fontFamily: Fonts.display, color: '#fff', fontSize: 16 },
+  hint:       { fontFamily: Fonts.body, textAlign: 'center', color: Colors.textMuted, fontSize: 12, marginTop: 18, lineHeight: 18 },
 });

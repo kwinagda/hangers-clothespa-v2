@@ -22,3 +22,12 @@ export const Colors = {
 };
 
 export const Spacing = { xs: 6, sm: 10, md: 16, lg: 20, xl: 28 };
+
+export const Fonts = {
+  body: 'DMSans_400Regular',
+  medium: 'DMSans_500Medium',
+  bold: 'DMSans_700Bold',
+  display: 'Syne_700Bold',
+  displayBold: 'Syne_800ExtraBold',
+  mono: 'SpaceMono_400Regular',
+};

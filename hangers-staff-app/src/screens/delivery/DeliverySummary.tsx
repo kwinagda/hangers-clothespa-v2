@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Platform, ActivityIndicator,
 } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../utils/theme';
 import { deliveryAPI } from '../../services/api';
 
@@ -43,12 +44,12 @@ export default function DeliverySummary({ navigation }: any) {
         {/* Top stats */}
         <View style={styles.statsGrid}>
           {[
-            { icon: '✅', label: 'Delivered',   value: summary?.deliveriesCompleted ?? 0, color: Colors.success },
-            { icon: '📦', label: 'Picked Up',   value: summary?.pickupsCompleted   ?? 0, color: Colors.delivery },
-            { icon: '💵', label: 'Cash Collected', value: `₹${(summary?.cashCollected || 0).toLocaleString('en-IN')}`, color: Colors.success, wide: true },
+            { icon: 'check-decagram-outline', label: 'Delivered',   value: summary?.deliveriesCompleted ?? 0, color: Colors.success },
+            { icon: 'package-variant-closed', label: 'Picked Up',   value: summary?.pickupsCompleted   ?? 0, color: Colors.delivery },
+            { icon: 'cash-multiple', label: 'Cash Collected', value: `₹${(summary?.cashCollected || 0).toLocaleString('en-IN')}`, color: Colors.success, wide: true },
           ].map(s => (
             <View key={s.label} style={[styles.statCard, s.wide && styles.statCardWide, { borderColor: s.color + '40' }]}>
-              <Text style={{ fontSize: 28 }}>{s.icon}</Text>
+              <MaterialCommunityIcons name={s.icon as any} size={28} color={s.color} />
               <Text style={[styles.statNum, { color: s.color }]}>{s.value}</Text>
               <Text style={styles.statLbl}>{s.label}</Text>
             </View>
@@ -60,6 +61,14 @@ export default function DeliverySummary({ navigation }: any) {
           <>
             <Text style={styles.sectionTitle}>Deliveries Completed</Text>
             {summary.delivered.map((o: any) => (
+              (() => {
+                const paymentStatusColor =
+                  o.paymentStatus === 'PAID'
+                    ? Colors.success
+                    : o.paymentStatus === 'PARTIAL'
+                      ? Colors.warning
+                      : Colors.error;
+                return (
               <View key={o.id} style={styles.row}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowOrder}>{o.orderNumber}</Text>
@@ -67,11 +76,13 @@ export default function DeliverySummary({ navigation }: any) {
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.rowAmount}>₹{o.totalAmount?.toLocaleString('en-IN')}</Text>
-                  <Text style={[styles.rowStatus, { color: o.paymentStatus === 'PAID' ? Colors.success : Colors.error }]}>
+                  <Text style={[styles.rowStatus, { color: paymentStatusColor }]}>
                     {o.paymentStatus}
                   </Text>
                 </View>
               </View>
+                )
+              })()
             ))}
           </>
         )}
@@ -91,7 +102,7 @@ export default function DeliverySummary({ navigation }: any) {
 
         {(!summary?.delivered?.length && !summary?.pickups?.length) && (
           <View style={styles.emptyBox}>
-            <Text style={{ fontSize: 44 }}>🛵</Text>
+            <MaterialCommunityIcons name="motorbike" size={44} color={Colors.delivery} />
             <Text style={styles.emptyTitle}>No activity yet today</Text>
             <Text style={styles.emptySub}>Completed deliveries will appear here.</Text>
           </View>

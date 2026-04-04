@@ -11,6 +11,7 @@ const { generateStaffToken, getTokenExpiry } = require('../services/jwt.service'
 const { hasPermission, ROLE_PERMISSIONS }    = require('../middleware/rbac');
 const { log, getRequestMeta }                = require('../services/activity.service');
 const { success, badRequest, error, unauthorized } = require('../utils/response');
+const { PLANT_PIN_ROLES, STAFF_ROLE_VALUES } = require('../config/master-data');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/staff/auth/login
@@ -90,6 +91,7 @@ const staffLoginController = async (req, res) => {
 
     return success(res, {
       token,
+      appType: PLANT_PIN_ROLES.includes(staff.role) ? 'plant' : 'delivery',
       staff: {
         id:          staff.id,
         name:        staff.name,
@@ -131,6 +133,7 @@ const staffMeController = async (req, res) => {
     }
 
     return success(res, {
+      appType: PLANT_PIN_ROLES.includes(staff.role) ? 'plant' : 'delivery',
       staff: {
         id:                  staff.id,
         name:                staff.name,
@@ -184,10 +187,7 @@ const staffLogoutController = async (req, res) => {
 const createStaffController = async (req, res) => {
   const { name, phone, email, password, role } = req.body;
 
-  const validRoles = [
-    'SUPER_ADMIN','MANAGER','COUNTER_STAFF','ACCOUNTS',
-    'DELIVERY_MANAGER','DELIVERY_RIDER','PLANT_MANAGER','PLANT_STAFF','PLANT_QC'
-  ];
+  const validRoles = STAFF_ROLE_VALUES;
 
   if (!name || !phone || !password || !role) {
     return badRequest(res, 'Name, phone, password and role are required');

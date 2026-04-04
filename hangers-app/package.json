@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@expo-google-fonts/dm-sans": "^0.2.3",
+    "@expo-google-fonts/inter": "^0.4.2",
+    "@expo-google-fonts/space-grotesk": "^0.4.1",
+    "@expo-google-fonts/space-mono": "^0.4.2",
     "@expo-google-fonts/syne": "^0.2.3",
     "@msg91comm/sendotp-react-native": "^2.1.0",
     "@react-navigation/bottom-tabs": "^6.6.1",

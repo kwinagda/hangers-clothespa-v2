@@ -4,11 +4,12 @@
 
 const prisma = require('../config/database');
 const {
-  generateOtp, hashOtp, verifyOtpHash, sendOtp
+  generateOtp, hashOtp, verifyOtpHash, sendOtp, isDevMode
 }                                                  = require('../services/msg91.service');
 const { generateCustomerToken, getTokenExpiry }    = require('../services/jwt.service');
 const { log, getRequestMeta }                      = require('../services/activity.service');
 const { success, badRequest, error, unauthorized } = require('../utils/response');
+const { LANGUAGE_VALUES }                          = require('../config/master-data');
 
 const isValidPhone = (phone) => {
   const cleaned = phone.replace(/[\s\-\(\)]/g, '');
@@ -35,7 +36,11 @@ const normalizePhone = (phone) => {
   return cleaned;
 };
 
-const isDevMode = () => { const k = process.env.MSG91_AUTH_KEY || ''; return !k || k.length < 10; };
+const normalizeLanguage = (language) => {
+  if (!language) return null;
+  const normalized = String(language).trim().toUpperCase();
+  return LANGUAGE_VALUES.includes(normalized) ? normalized : null;
+};
 
 // ── POST /api/v1/auth/send-otp ────────────────────────────────────────────────
 const sendOtpController = async (req, res) => {
@@ -71,7 +76,7 @@ const sendOtpController = async (req, res) => {
       },
     });
 
-    if (!isDevMode()) { await sendOtp(normalizedPhone, otp); } else { console.log(`\n🔐 DEV MODE OTP for ${normalizedPhone}: ${otp}\n`); }
+    if (!isDevMode()) { await sendOtp(normalizedPhone, otp); } else { console.log(`\nDEV MODE OTP for ${normalizedPhone}: ${otp}\n`); }
 
     await log({
       actorType:   'customer',
@@ -94,7 +99,7 @@ const sendOtpController = async (req, res) => {
         : `OTP sent to your WhatsApp (+91 ${normalizedPhone})`,
       // In dev mode, send the OTP in the response so app can auto-fill
       ...(devMode && { devOtp: otp }),
-    }, devMode ? 'OTP ready — use 123456' : 'OTP sent via WhatsApp');
+    }, devMode ? 'OTP ready - use 123456' : 'OTP sent via WhatsApp');
 
   } catch (err) {
     console.error('sendOtp error:', err.message);
@@ -104,7 +109,7 @@ const sendOtpController = async (req, res) => {
 
 // ── POST /api/v1/auth/verify-otp ──────────────────────────────────────────────
 const verifyOtpController = async (req, res) => {
-  const { phone, otp, name, email, referredByCode } = req.body;
+  const { phone, otp, name, referredByCode } = req.body;
 
   if (!phone) return badRequest(res, 'Phone number is required');
   if (!otp)   return badRequest(res, 'OTP is required');
@@ -171,7 +176,6 @@ const verifyOtpController = async (req, res) => {
         data: {
           phone:        normalizedPhone,
           name:         name || null,
-          email:        email || null,
           referralCode: referralCode || null,
           referredById: referrerId,
         },
@@ -205,7 +209,7 @@ const verifyOtpController = async (req, res) => {
     } else if (name && !customer.name) {
       customer = await prisma.customer.update({
         where: { id: customer.id },
-        data:  { name, email: email || customer.email },
+        data:  { name },
       });
     }
 
@@ -245,12 +249,11 @@ const verifyOtpController = async (req, res) => {
         id:            customer.id,
         phone:         customer.phone,
         name:          customer.name,
-        email:         customer.email,
         isNewUser:     isNewCustomer,
         referralCode:  latest?.referralCode,
         walletBalance: latest?.walletBalance || 0,
       },
-    }, isNewCustomer ? 'Welcome to Hangers! 🧺' : 'Login successful');
+    }, isNewCustomer ? 'Welcome to Hangers!' : 'Login successful');
 
   } catch (err) {
     console.error('verifyOtp error:', err);
@@ -264,8 +267,17 @@ const getMeController = async (req, res) => {
     const customer = await prisma.customer.findUnique({
       where: { id: req.customer.id },
       select: {
-        id: true, phone: true, name: true, email: true, createdAt: true,
-        referralCode: true, walletBalance: true,
+        id: true, phone: true, name: true, createdAt: true,
+        referralCode: true, walletBalance: true, preferredLanguage: true, ironSubStatus: true,
+        ironSubscription: {
+          select: {
+            id: true,
+            applicationStatus: true,
+            appliedAt: true,
+            confirmedAt: true,
+            updatedAt: true,
+          },
+        },
         addresses: {
           select: {
             id: true, label: true, addressLine1: true, addressLine2: true,
@@ -276,7 +288,13 @@ const getMeController = async (req, res) => {
       },
     });
     if (!customer) return unauthorized(res, 'Account not found');
-    return success(res, { customer });
+    const derivedStatus = customer.ironSubscription?.applicationStatus || customer.ironSubStatus || null;
+    return success(res, {
+      customer: {
+        ...customer,
+        ironSubStatus: derivedStatus,
+      },
+    });
   } catch (err) {
     return error(res, 'Failed to fetch profile');
   }
@@ -295,21 +313,24 @@ const logoutController = async (req, res) => {
 
 // ── PATCH /api/v1/auth/profile ────────────────────────────────────────────────
 const updateProfileController = async (req, res) => {
-  const { name, email } = req.body;
+  const { name, preferredLanguage } = req.body;
   const customerId = req.customer.id;
+  const language = preferredLanguage !== undefined ? normalizeLanguage(preferredLanguage) : undefined;
 
-  if (!name && !email) return badRequest(res, 'Provide name or email to update');
+  if (!name && preferredLanguage === undefined) return badRequest(res, 'Provide name or preferredLanguage to update');
   if (name && name.trim().length < 2) return badRequest(res, 'Name must be at least 2 characters');
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return badRequest(res, 'Invalid email address');
+  if (preferredLanguage !== undefined && !language) {
+    return badRequest(res, 'preferredLanguage must be ENGLISH, HINDI, or MARATHI');
+  }
 
   try {
     const updated = await prisma.customer.update({
       where: { id: customerId },
       data: {
         ...(name  && { name:  name.trim() }),
-        ...(email && { email: email.toLowerCase().trim() }),
+        ...(language !== undefined && { preferredLanguage: language }),
       },
-      select: { id: true, phone: true, name: true, email: true, updatedAt: true },
+      select: { id: true, phone: true, name: true, preferredLanguage: true, updatedAt: true },
     });
 
     await log({
@@ -319,7 +340,7 @@ const updateProfileController = async (req, res) => {
       action:      'PROFILE_UPDATED',
       resource:    'customer',
       resourceId:  customerId,
-      description: `Profile updated: ${Object.keys({ name, email }).filter(k => req.body[k]).join(', ')}`,
+      description: `Profile updated: ${Object.keys({ name, preferredLanguage }).filter(k => req.body[k] !== undefined && req.body[k] !== '').join(', ')}`,
       ...getRequestMeta(req),
     });
 

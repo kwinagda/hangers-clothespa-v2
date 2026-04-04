@@ -1,6 +1,7 @@
 'use client'
 import { ChangeEvent, useEffect, useState } from 'react'
-import { couponsAPI, loyaltyAPI, upchargesAPI } from '@/lib/api'
+import { couponsAPI, loyaltyAPI, metadataAPI, upchargesAPI } from '@/lib/api'
+import { PaginationControls } from '@/components/ui/PaginationControls'
 type Tab = 'coupons'|'loyalty'|'upcharges'
 export default function PromotionsPage() {
   const [tab,setTab] = useState<Tab>('coupons')
@@ -11,22 +12,32 @@ export default function PromotionsPage() {
   const [showUp,setShowUp] = useState(false)
   const [saving,setSaving] = useState(false)
   const [loading,setLoading] = useState(false)
+  const [discountTypes,setDiscountTypes] = useState<Array<{ value: string; label: string }>>([])
+  const [couponPage,setCouponPage] = useState(1)
+  const [upchargePage,setUpchargePage] = useState(1)
+  const [pageSize,setPageSize] = useState(20)
   const [cf,setCf] = useState({code:'',type:'PERCENT',value:'',minOrderValue:'',maxDiscount:'',usageLimit:'',validUntil:''})
   const [uf,setUf] = useState({name:'',type:'PERCENT',value:''})
   const [lf,setLf] = useState({earnPerRupee:1,redeemPerPoint:0.5,minRedeemPoints:100})
   const onInput = (setter: (value: string) => void) => (e: ChangeEvent<HTMLInputElement>) => setter(e.target.value)
   const onSelect = (setter: (value: string) => void) => (e: ChangeEvent<HTMLSelectElement>) => setter(e.target.value)
   useEffect(()=>{
+    metadataAPI.getAll().then((r:any) => {
+      const metadata = r?.metadata || r?.data?.metadata || {}
+      setDiscountTypes(metadata.discountValueTypes || [])
+    }).catch(() => {})
     couponsAPI.getAll().then((r:any)=>setCoupons(r.data||[]))
     loyaltyAPI.getRules().then((r:any)=>{setLoyalty(r.data);if(r.data)setLf({earnPerRupee:r.data.earnPerRupee,redeemPerPoint:r.data.redeemPerPoint,minRedeemPoints:r.data.minRedeemPoints})})
     upchargesAPI.getAll().then((r:any)=>setUpcharges(r.data||[]))
   },[])
-  const s = {fontFamily:"'DM Sans',sans-serif"}
+  const s = {fontFamily:"var(--crm-font-ui)"}
+  const pagedCoupons = coupons.slice((couponPage - 1) * pageSize, couponPage * pageSize)
+  const pagedUpcharges = upcharges.slice((upchargePage - 1) * pageSize, upchargePage * pageSize)
   const tabBtn = (t:Tab,l:string) => <button onClick={()=>setTab(t)} style={{padding:'8px 18px',borderRadius:8,fontSize:13,fontWeight:600,border:'none',cursor:'pointer',background:tab===t?'#fff':'transparent',color:tab===t?'#023c62':'#6b7fa3',boxShadow:tab===t?'0 1px 4px rgba(0,0,0,0.08)':'none'}}>{l}</button>
   const inp = (label:string,value:string,onChange:any,type='text',placeholder='') => <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>{label}</label><input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/></div>
   return (
     <div style={{padding:'32px 36px',maxWidth:1000,margin:'0 auto',...s}}>
-      <h1 style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:26,color:'#023c62',marginBottom:24}}>Promotions & Pricing</h1>
+      <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:26,color:'#023c62',marginBottom:24}}>Promotions & Pricing</h1>
       <div style={{display:'flex',gap:4,marginBottom:24,background:'#f1f5f9',borderRadius:12,padding:4,width:'fit-content'}}>
         {tabBtn('coupons','Coupons')}{tabBtn('loyalty','Loyalty Points')}{tabBtn('upcharges','Upcharges')}
       </div>
@@ -38,7 +49,7 @@ export default function PromotionsPage() {
           {coupons.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No coupons yet</div>:
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
             <thead><tr style={{background:'#f8fafc'}}>{['Code','Type','Value','Min Order','Used','Valid Until','Status',''].map(h=><th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:11,color:'#9dafc8',textTransform:'uppercase' as const,letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>)}</tr></thead>
-            <tbody>{coupons.map((c:any)=><tr key={c.id} style={{borderBottom:'1px solid #f8fafc'}}>
+            <tbody>{pagedCoupons.map((c:any)=><tr key={c.id} style={{borderBottom:'1px solid #f8fafc'}}>
               <td style={{padding:'10px 16px',fontFamily:'monospace',fontWeight:700,color:'#023c62'}}>{c.code}</td>
               <td style={{padding:'10px 16px'}}><span style={{padding:'3px 8px',background:'#f3f4f6',borderRadius:4,fontSize:11}}>{c.type}</span></td>
               <td style={{padding:'10px 16px'}}>{c.type==='PERCENT'?`${c.value}%`:`₹${c.value}`}</td>
@@ -50,6 +61,15 @@ export default function PromotionsPage() {
             </tr>)}</tbody>
           </table>}
         </div>
+        <PaginationControls
+          page={couponPage}
+          pageSize={pageSize}
+          totalItems={coupons.length}
+          itemLabel="coupons"
+          onPageChange={setCouponPage}
+          onPageSizeChange={(size)=>{setPageSize(size); setCouponPage(1)}}
+          pageSizeOptions={[10,20,30,50,100]}
+        />
       </div>}
       {tab==='loyalty'&&<div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:24,maxWidth:480}}>
         <div style={{fontWeight:700,fontSize:14,color:'#023c62',marginBottom:20}}>Loyalty Points Configuration</div>
@@ -74,20 +94,29 @@ export default function PromotionsPage() {
         </div>
         <div style={{display:'flex',flexDirection:'column' as const,gap:10}}>
           {upcharges.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:12,border:'1px solid #e8f0f7'}}>No upcharges configured</div>:
-          upcharges.map((u:any)=><div key={u.id} style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          pagedUpcharges.map((u:any)=><div key={u.id} style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
             <div><div style={{fontWeight:600}}>{u.name}</div><div style={{fontSize:12,color:'#6b7fa3'}}>{u.type==='PERCENT'?`+${u.value}%`:`+₹${u.value}`}</div></div>
             <span style={{padding:'4px 12px',background:'#fff7ed',color:'#c2410c',borderRadius:20,fontSize:12,fontWeight:600}}>{u.type}</span>
           </div>)}
         </div>
+        <PaginationControls
+          page={upchargePage}
+          pageSize={pageSize}
+          totalItems={upcharges.length}
+          itemLabel="upcharges"
+          onPageChange={setUpchargePage}
+          onPageSizeChange={(size)=>{setPageSize(size); setUpchargePage(1)}}
+          pageSizeOptions={[10,20,30,50,100]}
+        />
       </div>}
       {showCoupon&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50}}>
         <div style={{background:'#fff',borderRadius:16,padding:24,width:'100%',maxWidth:400,boxShadow:'0 20px 60px rgba(0,0,0,0.15)',maxHeight:'90vh',overflowY:'auto' as const}}>
-          <h2 style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:18,marginBottom:20}}>Create Coupon</h2>
+          <h2 style={{fontFamily:"var(--crm-font-display)",fontWeight:700,fontSize:18,marginBottom:20}}>Create Coupon</h2>
           <div style={{display:'flex',flexDirection:'column' as const,gap:14}}>
             {inp('Code *',cf.code,onInput((value) => setCf({...cf,code:value})),'text','e.g. SAVE20')}
             <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Type</label>
               <select value={cf.type} onChange={onSelect((value) => setCf({...cf,type:value}))} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
-                <option value="PERCENT">Percentage (%)</option><option value="FLAT">Flat Amount (₹)</option>
+                {discountTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
               </select></div>
             {inp('Value *',cf.value,onInput((value) => setCf({...cf,value})),'number')}
             {inp('Min Order (₹)',cf.minOrderValue,onInput((value) => setCf({...cf,minOrderValue:value})),'number','0')}
@@ -103,12 +132,12 @@ export default function PromotionsPage() {
       </div>}
       {showUp&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50}}>
         <div style={{background:'#fff',borderRadius:16,padding:24,width:'100%',maxWidth:380,boxShadow:'0 20px 60px rgba(0,0,0,0.15)'}}>
-          <h2 style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:18,marginBottom:20}}>Add Upcharge</h2>
+          <h2 style={{fontFamily:"var(--crm-font-display)",fontWeight:700,fontSize:18,marginBottom:20}}>Add Upcharge</h2>
           <div style={{display:'flex',flexDirection:'column' as const,gap:14}}>
             {inp('Name *',uf.name,onInput((value) => setUf({...uf,name:value})),'text','e.g. Express, Starch')}
             <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Type</label>
               <select value={uf.type} onChange={onSelect((value) => setUf({...uf,type:value}))} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
-                <option value="PERCENT">Percentage (%)</option><option value="FLAT">Flat Amount (₹)</option>
+                {discountTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
               </select></div>
             {inp('Value *',uf.value,onInput((value) => setUf({...uf,value})),'number')}
           </div>

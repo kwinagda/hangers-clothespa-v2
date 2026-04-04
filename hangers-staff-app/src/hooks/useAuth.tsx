@@ -2,7 +2,7 @@
 // STAFF APP — AUTH CONTEXT  (.tsx — contains JSX)
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authAPI, saveToken, getToken, clearToken } from '../services/api';
+import { authAPI, saveToken, getToken, clearToken, onAuthInvalidated } from '../services/api';
 
 interface StaffUser {
   id: string;
@@ -24,8 +24,6 @@ interface AuthCtx {
 
 const AuthContext = createContext<AuthCtx>({} as AuthCtx);
 
-const PLANT_ROLES    = ['PLANT_MANAGER', 'PLANT_STAFF', 'PLANT_QC'];
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [staff,     setStaff]     = useState<StaffUser | null>(null);
   const [appType,   setAppType]   = useState<'plant' | 'delivery' | null>(null);
@@ -40,7 +38,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const s = r.data?.staff;
           if (s) {
             setStaff(s);
-            setAppType(PLANT_ROLES.includes(s.role) ? 'plant' : 'delivery');
+            setAppType(r.data?.appType || 'delivery');
           }
         }
       } catch {
@@ -49,6 +47,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoading(false);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    return onAuthInvalidated(() => {
+      setStaff(null);
+      setAppType(null);
+    });
   }, []);
 
   const login = async (

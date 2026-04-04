@@ -9,6 +9,7 @@ const prisma  = require('../config/database');
 const { generateStaffToken, getTokenExpiry } = require('../services/jwt.service');
 const { log, getRequestMeta }                = require('../services/activity.service');
 const { success, badRequest, error, unauthorized } = require('../utils/response');
+const { DELIVERY_PIN_ROLES, PLANT_PIN_ROLES } = require('../config/master-data');
 
 // ── PIN login — used by Plant App and Delivery App ───────────────────────────
 const pinLoginController = async (req, res) => {
@@ -17,9 +18,6 @@ const pinLoginController = async (req, res) => {
   if (!phone || !pin) {
     return badRequest(res, 'Phone and PIN are required');
   }
-
-  const PLANT_ROLES    = ['PLANT_MANAGER','PLANT_STAFF','PLANT_QC'];
-  const DELIVERY_ROLES = ['DELIVERY_MANAGER','DELIVERY_RIDER'];
 
   try {
     const normalised = phone.replace(/[\s\-\(\)\+]/g, '');
@@ -46,7 +44,7 @@ const pinLoginController = async (req, res) => {
     }
 
     // Only plant and delivery roles can use PIN login
-    if (![...PLANT_ROLES, ...DELIVERY_ROLES].includes(staff.role)) {
+    if (![...PLANT_PIN_ROLES, ...DELIVERY_PIN_ROLES].includes(staff.role)) {
       return unauthorized(res, 'PIN login is only available for Plant and Delivery staff. Use email + password.');
     }
 
@@ -75,7 +73,7 @@ const pinLoginController = async (req, res) => {
       ...getRequestMeta(req),
     });
 
-    const appType = PLANT_ROLES.includes(staff.role) ? 'plant' : 'delivery';
+    const appType = PLANT_PIN_ROLES.includes(staff.role) ? 'plant' : 'delivery';
 
     return success(res, {
       token,

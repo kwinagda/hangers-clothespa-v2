@@ -11,14 +11,7 @@
 const prisma = require('../config/database');
 const { log, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error, notFound } = require('../utils/response');
-
-const PLANT_STATUSES = ['PROCESSING','WASHING','DRYING','IRONING','QC','READY_FOR_DELIVERY'];
-const STATUS_LABEL = {
-  PENDING:'Order Placed', PICKED_UP:'Picked Up', PROCESSING:'At Plant',
-  WASHING:'Being Cleaned', DRYING:'Drying', IRONING:'Ironing',
-  QC:'Quality Check', READY_FOR_DELIVERY:'Ready', OUT_FOR_DELIVERY:'Out for Delivery',
-  DELIVERED:'Delivered', CANCELLED:'Cancelled',
-};
+const { ORDER_STATUS_LABELS, PLANT_STATUS_KEYS } = require('../config/master-data');
 
 const getPlantDashboard = async (req, res) => {
   try {
@@ -59,7 +52,7 @@ const getPlantOrders = async (req, res) => {
 
   const where = status
     ? { status }
-    : { status: { in: PLANT_STATUSES } };
+    : { status: { in: PLANT_STATUS_KEYS } };
 
   try {
     const [orders, total] = await Promise.all([
@@ -79,7 +72,7 @@ const getPlantOrders = async (req, res) => {
     return success(res, {
       orders: orders.map(o => ({
         id: o.id, orderNumber: o.orderNumber, status: o.status,
-        statusLabel: STATUS_LABEL[o.status] || o.status,
+        statusLabel: ORDER_STATUS_LABELS[o.status] || o.status,
         customer:    { name: o.customer?.name, phone: o.customer?.phone },
         items:       o.items,
         totalItems:  o.items.reduce((s, i) => s + i.quantity, 0),
@@ -125,7 +118,7 @@ const scanQRCode = async (req, res) => {
     return success(res, {
       order: {
         id: order.id, orderNumber: order.orderNumber, status: order.status,
-        statusLabel: STATUS_LABEL[order.status] || order.status,
+        statusLabel: ORDER_STATUS_LABELS[order.status] || order.status,
         customer:   { name: order.customer?.name, phone: order.customer?.phone },
         items:       order.items,
         stages:      order.stages,
@@ -157,7 +150,7 @@ const getPlantOrder = async (req, res) => {
     return success(res, {
       order: {
         ...order,
-        statusLabel: STATUS_LABEL[order.status] || order.status,
+        statusLabel: ORDER_STATUS_LABELS[order.status] || order.status,
         totalItems:  order.items.reduce((s, i) => s + i.quantity, 0),
       },
     });
@@ -172,7 +165,7 @@ const updatePlantStage = async (req, res) => {
 
   if (!status) return badRequest(res, 'Status is required');
 
-  const ALLOWED = ['PROCESSING','WASHING','DRYING','IRONING','QC','READY_FOR_DELIVERY'];
+  const ALLOWED = PLANT_STATUS_KEYS.filter((status) => status !== 'SENT_TO_PLANT');
   if (!ALLOWED.includes(status)) {
     return badRequest(res, `Plant can only set: ${ALLOWED.join(', ')}`);
   }
@@ -217,15 +210,15 @@ const updatePlantStage = async (req, res) => {
     await log({
       actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
       action: 'PLANT_STAGE_UPDATED', resource: 'order', resourceId: id,
-      description: `${req.staff.name} moved ${order.orderNumber} to ${STATUS_LABEL[status]}`,
+      description: `${req.staff.name} moved ${order.orderNumber} to ${ORDER_STATUS_LABELS[status] || status}`,
       metadata: { fromStatus: order.status, toStatus: status },
       ...getRequestMeta(req),
     });
 
     return success(res, {
       orderId: id, orderNumber: order.orderNumber,
-      status, statusLabel: STATUS_LABEL[status],
-    }, `Order moved to: ${STATUS_LABEL[status]}`);
+      status, statusLabel: ORDER_STATUS_LABELS[status] || status,
+    }, `Order moved to: ${ORDER_STATUS_LABELS[status] || status}`);
   } catch (err) {
     return error(res, 'Failed to update stage');
   }
@@ -248,7 +241,7 @@ const flagIssue = async (req, res) => {
     });
     if (!order) return notFound(res, 'Order not found');
 
-    const flagNote = `⚠️ ISSUE FLAGGED: ${issueType.replace(/_/g, ' ')}${
+    const flagNote = `ISSUE FLAGGED: ${issueType.replace(/_/g, ' ')}${
       description ? ` — ${description}` : ''
     }${itemIndex !== undefined ? ` (Item ${parseInt(itemIndex) + 1})` : ''}. Reported by ${req.staff.name}`;
 

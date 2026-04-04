@@ -7,12 +7,15 @@
 //   ✅ QR codes offline via qrcode npm package
 //   ✅ window.open() isolated — sidebar never prints
 // ─────────────────────────────────────────────────────────────────────────────
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import QRCode from 'qrcode'
 import { ordersAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
+import { Check, FileText, Printer, Receipt, ScrollText, Tag } from 'lucide-react'
+import { LOGO_BLUE_URL } from '@/lib/branding'
 
-type PrintType = 'garment' | 'bag' | 'receipt'
+type PrintType = 'garment' | 'bag' | 'receipt' | 'thermal'
 
 interface LabelSize { w: number; h: number }   // in mm
 interface TagFields {
@@ -52,7 +55,7 @@ const DEFAULT_FIELDS: TagFields = {
 }
 
 const FIELD_LABELS: Record<keyof TagFields, string> = {
-  shopName:     'Shop name (HANGERS CLOTHES SPA)',
+  shopName:     'Brand logo',
   orderNumber:  'Order number',
   itemName:     'Item / service name',
   category:     'Category (Dry Clean, Ironing…)',
@@ -98,8 +101,9 @@ async function buildPrintHTML(
   const padding    = Math.max(3,  Math.min(8,  Math.floor(size.w / 10)))
 
   const css = `
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: Arial, sans-serif; }
-    body { background: #fff; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;500;600&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #fff; font-family: 'Inter', sans-serif; }
 
     /* Each tag fills one page exactly */
     @page {
@@ -126,10 +130,20 @@ async function buildPrintHTML(
       overflow: hidden;
     }
     .tag-header {
-      background: #023c62; color: #fff;
-      text-align: center; padding: 2px 4px;
-      font-weight: 700; font-size: ${fShopName}px;
-      letter-spacing: 0.5px; flex-shrink: 0;
+      background: #023c62;
+      text-align: center;
+      padding: 4px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: ${Math.max(18, fShopName * 2)}px;
+    }
+    .tag-header img {
+      max-width: 72%;
+      max-height: ${Math.max(12, fShopName * 2)}px;
+      object-fit: contain;
+      display: block;
     }
     .tag-body {
       flex: 1; display: flex;
@@ -140,8 +154,8 @@ async function buildPrintHTML(
       overflow: hidden;
     }
     .tag-info  { flex: 1; overflow: hidden; }
-    .f-num     { font-family: monospace; font-weight: 700; font-size: ${fOrderNum}px; color: #023c62; }
-    .f-item    { font-size: ${fItemName}px; font-weight: 700; color: #000; margin: 2px 0 1px; line-height: 1.2; }
+    .f-num     { font-family: 'Space Mono', monospace; font-weight: 700; font-size: ${fOrderNum}px; color: #023c62; }
+    .f-item    { font-family: 'Space Grotesk', sans-serif; font-size: ${fItemName}px; font-weight: 700; color: #000; margin: 2px 0 1px; line-height: 1.2; letter-spacing: -0.02em; }
     .f-small   { font-size: ${fSmall}px; color: #444; line-height: 1.5; }
     .f-note    { font-size: ${fSmall}px; color: #777; font-style: italic; margin-top: 2px; }
     .tag-qr    { width: ${qrPx}px; height: ${qrPx}px; flex-shrink: 0; }
@@ -151,7 +165,7 @@ async function buildPrintHTML(
       padding: 2px ${padding}px ${padding}px;
       border-top: 1px dashed #ccc; flex-shrink: 0;
     }
-    .bag-big   { font-size: ${fItemName + 2}px; font-weight: 800; color: #023c62; margin: 3px 0 1px; }
+    .bag-big   { font-family: 'Space Grotesk', sans-serif; font-size: ${fItemName + 2}px; font-weight: 800; color: #023c62; margin: 3px 0 1px; letter-spacing: -0.02em; }
 
     /* Receipt uses A4 */
     .receipt-page { padding: 12mm; }
@@ -159,18 +173,106 @@ async function buildPrintHTML(
       .receipt-page { padding: 8mm; }
     }
     .r-header   { text-align: center; border-bottom: 2px solid #023c62; padding-bottom: 10px; margin-bottom: 12px; }
-    .r-title    { font-size: 20px; font-weight: 800; color: #023c62; }
+    .r-logo-wrap { display:flex; justify-content:center; margin-bottom:8px; }
+    .r-logo { max-width: 240px; max-height: 74px; object-fit: contain; display:block; }
+    .r-title    { font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 800; color: #023c62; letter-spacing: -0.02em; }
     .r-sub      { font-size: 11px; color: #666; margin-top: 3px; }
     table       { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th          { background: #f0f4f8; padding: 6px 10px; text-align: left; font-weight: 700; font-size: 11px; }
+    th          { background: #f0f4f8; padding: 6px 10px; text-align: left; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 11px; letter-spacing: 0.01em; }
     td          { padding: 6px 10px; border-bottom: 1px dashed #e0e0e0; }
     .t-row      { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 13px; }
-    .grand      { font-weight: 800; font-size: 16px; color: #023c62; }
+    .grand      { font-family: 'Space Grotesk', sans-serif; font-weight: 800; font-size: 16px; color: #023c62; letter-spacing: -0.02em; }
     .pay-badge  { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
     .PAID       { background: #d1fae5; color: #065f46; }
     .UNPAID     { background: #fee2e2; color: #991b1b; }
     .PARTIAL    { background: #fef3c7; color: #92400e; }
     .r-footer   { border-top: 1px dashed #ccc; margin-top: 14px; padding-top: 8px; font-size: 10px; color: #888; text-align: center; }
+
+    /* 80mm thermal receipt */
+    @page thermal {
+      size: 80mm auto;
+      margin: 0;
+    }
+    .thermal-page {
+      width: 80mm;
+      padding: 7mm 5mm 8mm;
+      font-family: 'Manrope', sans-serif;
+      color: #111827;
+      page: thermal;
+    }
+    .thermal-logo-wrap {
+      display:flex;
+      justify-content:center;
+      margin-bottom: 5mm;
+    }
+    .thermal-logo {
+      max-width: 42mm;
+      max-height: 14mm;
+      object-fit: contain;
+      display:block;
+    }
+    .thermal-center { text-align:center; }
+    .thermal-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 2mm;
+    }
+    .thermal-meta, .thermal-muted {
+      font-size: 10px;
+      color: #4b5563;
+      line-height: 1.45;
+    }
+    .thermal-divider {
+      border-top: 1px dashed #9ca3af;
+      margin: 4mm 0 3mm;
+    }
+    .thermal-row {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:8px;
+      font-size: 11px;
+      line-height: 1.45;
+      margin-bottom: 2mm;
+    }
+    .thermal-item-row {
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:8px;
+      padding: 2.5mm 0;
+      border-bottom: 1px dashed #e5e7eb;
+    }
+    .thermal-item-name {
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 1mm;
+    }
+    .thermal-item-meta {
+      font-size: 10px;
+      color:#6b7280;
+    }
+    .thermal-amount {
+      font-family: 'Space Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .thermal-total {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      font-weight: 800;
+      color: #023c62;
+    }
+    .thermal-status {
+      display:inline-block;
+      padding: 1.5mm 3mm;
+      border-radius: 99px;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
   `
 
   let body = ''
@@ -183,7 +285,7 @@ async function buildPrintHTML(
         return `
         <div class="tag-page">
           <div class="tag-border">
-            ${fields.shopName ? `<div class="tag-header">HANGERS CLOTHES SPA</div>` : ''}
+        ${fields.shopName ? `<div class="tag-header"><img src="${LOGO_BLUE_URL}" alt="Hangers logo" /></div>` : ''}
             <div class="tag-body">
               <div class="tag-info">
                 ${fields.orderNumber  ? `<div class="f-num">${order.orderNumber}</div>`                          : ''}
@@ -217,7 +319,7 @@ async function buildPrintHTML(
         return `
         <div class="tag-page">
           <div class="tag-border">
-            ${fields.shopName ? `<div class="tag-header">HANGERS CLOTHES SPA</div>` : ''}
+            ${fields.shopName ? `<div class="tag-header"><img src="${LOGO_BLUE_URL}" alt="Hangers logo" /></div>` : ''}
             <div class="tag-body">
               <div class="tag-info">
                 ${fields.orderNumber  ? `<div class="f-num">${order.orderNumber}</div>`                          : ''}
@@ -248,13 +350,13 @@ async function buildPrintHTML(
     body = `
     <div class="receipt-page">
       <div class="r-header">
-        <div class="r-title">HANGERS CLOTHES SPA</div>
+        <div class="r-logo-wrap"><img class="r-logo" src="${LOGO_BLUE_URL}" alt="Hangers logo" /></div>
         <div class="r-sub">Care in Every Clean &nbsp;·&nbsp; +91 7977417014</div>
       </div>
       <table style="margin-bottom:12px">
         <tr>
           <td style="color:#888;width:75px;font-size:11px">Order No.</td>
-          <td><strong style="font-family:monospace;font-size:13px">${order.orderNumber}</strong></td>
+          <td><strong style="font-family:'Space Mono',monospace;font-size:13px">${order.orderNumber}</strong></td>
           <td style="color:#888;width:50px;font-size:11px">Date</td>
           <td style="font-size:12px">${fmtDate(order.createdAt)}</td>
         </tr>
@@ -297,7 +399,48 @@ async function buildPrintHTML(
         <div style="font-size:10px;color:#888;margin-top:3px">Scan to track your order</div>
       </div>
       <div class="r-footer">
-        Thank you for choosing Hangers Clothes Spa! &nbsp; Ready in 48–72 hrs &nbsp;·&nbsp; Retain this receipt.
+        Thank you for choosing us! &nbsp; Ready in 48–72 hrs &nbsp;·&nbsp; Retain this receipt.
+      </div>
+    </div>`
+  }
+
+  if (type === 'thermal') {
+    const items = order.items || []
+    const payStatus = order.paymentStatus || 'UNPAID'
+    const balance = (order.totalAmount || 0) - (order.paidAmount || 0)
+    body = `
+    <div class="thermal-page">
+      <div class="thermal-logo-wrap"><img class="thermal-logo" src="${LOGO_BLUE_URL}" alt="Hangers logo" /></div>
+      <div class="thermal-center">
+        <div class="thermal-title">Customer Copy</div>
+        <div class="thermal-meta">Care in Every Clean</div>
+        <div class="thermal-meta">+91 7977417014</div>
+      </div>
+      <div class="thermal-divider"></div>
+      <div class="thermal-row"><span>Order No.</span><strong style="font-family:'Space Mono',monospace">${order.orderNumber}</strong></div>
+      <div class="thermal-row"><span>Date</span><span>${fmtDate(order.createdAt)}</span></div>
+      <div class="thermal-row"><span>Customer</span><span style="text-align:right">${custName || '—'}${custPhone ? `<br/>${custPhone}` : ''}</span></div>
+      <div class="thermal-divider"></div>
+      ${items.map((it: any) => `
+        <div class="thermal-item-row">
+          <div>
+            <div class="thermal-item-name">${it.serviceName}</div>
+            <div class="thermal-item-meta">${it.quantity} × ${rupee(it.unitPrice)}</div>
+          </div>
+          <div class="thermal-amount">${rupee(it.subtotal ?? it.unitPrice * it.quantity)}</div>
+        </div>
+      `).join('')}
+      <div class="thermal-divider"></div>
+      <div class="thermal-row"><span>Subtotal</span><span>${rupee(order.subtotal || order.totalAmount || 0)}</span></div>
+      ${order.discount > 0 ? `<div class="thermal-row" style="color:#166534"><span>Discount</span><span>- ${rupee(order.discount)}</span></div>` : ''}
+      <div class="thermal-row thermal-total"><span>Total</span><span>${rupee(order.totalAmount || 0)}</span></div>
+      <div class="thermal-row"><span>Status</span><span class="thermal-status ${payStatus}" style="background:${payStatus === 'PAID' ? '#dcfce7' : payStatus === 'PARTIAL' ? '#fef3c7' : '#fee2e2'};color:${payStatus === 'PAID' ? '#166534' : payStatus === 'PARTIAL' ? '#92400e' : '#991b1b'}">${payStatus}</span></div>
+      ${order.paidAmount > 0 ? `<div class="thermal-row"><span>Paid</span><span>${rupee(order.paidAmount)}</span></div>` : ''}
+      ${balance > 0 && payStatus !== 'PAID' ? `<div class="thermal-row"><span>Balance</span><span>${rupee(balance)}</span></div>` : ''}
+      ${order.notes ? `<div class="thermal-divider"></div><div class="thermal-muted"><strong>Notes:</strong> ${order.notes}</div>` : ''}
+      <div class="thermal-divider"></div>
+      <div class="thermal-center thermal-muted">
+        Retain this slip for pickup and delivery queries.
       </div>
     </div>`
   }
@@ -315,6 +458,7 @@ async function buildPrintHTML(
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PrintCenterPage() {
+  const searchParams = useSearchParams()
   const [orderNum,    setOrderNum]    = useState('')
   const [order,       setOrder]       = useState<any>(null)
   const [loading,     setLoading]     = useState(false)
@@ -325,6 +469,24 @@ export default function PrintCenterPage() {
   const [customSize,  setCustomSize]  = useState<LabelSize>({ w: 40, h: 60 })
   const [fields,      setFields]      = useState<TagFields>({ ...DEFAULT_FIELDS })
   const [fieldsOpen,  setFieldsOpen]  = useState(false)
+
+  useEffect(() => {
+    const orderId = searchParams.get('orderId')
+    const queryType = searchParams.get('type')
+    if (queryType === 'garment' || queryType === 'bag' || queryType === 'receipt' || queryType === 'thermal') {
+      setType(queryType)
+    }
+    if (!orderId) return
+    setLoading(true)
+    ordersAPI.get(orderId)
+      .then((detail: any) => {
+        const loaded = detail.data?.order || detail.data
+        setOrder(loaded)
+        setOrderNum(loaded?.orderNumber || '')
+      })
+      .catch(() => toast.error('Could not load print order'))
+      .finally(() => setLoading(false))
+  }, [searchParams])
 
   const labelSize: LabelSize = sizePreset === SIZE_PRESETS.length - 1
     ? customSize
@@ -373,11 +535,11 @@ export default function PrintCenterPage() {
   const card = (extra?: any) => ({ background: '#fff', borderRadius: 16, padding: 22, border: '1px solid #e8f0f7', marginBottom: 20, ...extra })
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 920, margin: '0 auto', fontFamily: "'DM Sans',sans-serif" }}>
+    <div style={{ padding: '32px 36px', maxWidth: 920, margin: '0 auto', fontFamily: "var(--crm-font-ui)" }}>
 
       {/* Title */}
       <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 28, color: '#023c62', margin: '0 0 4px' }}>🖨️ Print Center</h1>
+        <h1 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 28, color: '#023c62', margin: '0 0 4px', display:'flex', alignItems:'center', gap:10 }}><Printer size={28} />Print Center</h1>
         <p style={{ fontSize: 14, color: '#6b7fa3', margin: 0 }}>Portrait labels · Custom taffeta size · Choose exactly what prints on each tag</p>
       </div>
 
@@ -406,7 +568,7 @@ export default function PrintCenterPage() {
             <span style={{ color: '#9dafc8' }}>·</span>
             <span style={{ color: '#6b7fa3' }}>{order.items?.length || 0} items · {S(order.totalAmount)}</span>
           </div>
-          <span style={{ color: '#22c55e', fontWeight: 700 }}>✓ Loaded</span>
+          <span style={{ color: '#22c55e', fontWeight: 700, display:'inline-flex', alignItems:'center', gap:6 }}><Check size={14} />Loaded</span>
         </div>
 
         {/* Print type */}
@@ -414,13 +576,14 @@ export default function PrintCenterPage() {
           <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7fa3', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 14 }}>What to Print</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
             {[
-              { k: 'garment', icon: '🏷️', label: 'Garment Tags',    desc: `${order.items?.length || 0} tags · 1 per page` },
-              { k: 'bag',     icon: '🧳', label: 'Bag Tags',         desc: 'One per bag · 1 per page'                      },
-              { k: 'receipt', icon: '🧾', label: 'Customer Receipt', desc: 'Full A4 receipt with totals'                    },
+              { k: 'garment', icon: <Tag size={26} />, label: 'Garment Tags',    desc: `${order.items?.length || 0} tags · 1 per page` },
+              { k: 'bag',     icon: <FileText size={26} />, label: 'Bag Tags',         desc: 'One per bag · 1 per page'                      },
+              { k: 'receipt', icon: <Receipt size={26} />, label: 'Customer Receipt', desc: 'Full A4 receipt with totals'                    },
+              { k: 'thermal', icon: <ScrollText size={26} />, label: '80mm Thermal', desc: 'Counter thermal receipt format'                 },
             ].map(t => (
               <button key={t.k} onClick={() => setType(t.k as PrintType)}
                 style={{ padding: 18, borderRadius: 14, border: `2px solid ${type === t.k ? '#023c62' : '#dce8f0'}`, background: type === t.k ? '#f0f5fa' : '#fff', textAlign: 'left' as const, cursor: 'pointer' }}>
-                <div style={{ fontSize: 26, marginBottom: 8 }}>{t.icon}</div>
+                <div style={{ marginBottom: 8, color:'#023c62' }}>{t.icon}</div>
                 <div style={{ fontWeight: 700, color: '#023c62', fontSize: 14, marginBottom: 3 }}>{t.label}</div>
                 <div style={{ fontSize: 12, color: '#6b7fa3' }}>{t.desc}</div>
               </button>
@@ -490,7 +653,7 @@ export default function PrintCenterPage() {
                   <label key={key} onClick={() => toggleField(key)}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 10, border: `1.5px solid ${fields[key] ? '#023c62' : '#e8f0f7'}`, background: fields[key] ? '#f0f5fa' : '#fafbfc', cursor: 'pointer', userSelect: 'none' as const }}>
                     <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${fields[key] ? '#023c62' : '#dce8f0'}`, background: fields[key] ? '#023c62' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {fields[key] && <span style={{ color: '#fff', fontSize: 11, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+                      {fields[key] && <span style={{ color: '#fff', fontSize: 11, fontWeight: 700, lineHeight: 1, display:'inline-flex' }}><Check size={11} /></span>}
                     </div>
                     <span style={{ fontSize: 12, color: fields[key] ? '#023c62' : '#6b7fa3', fontWeight: fields[key] ? 600 : 400 }}>
                       {FIELD_LABELS[key]}
@@ -523,15 +686,15 @@ export default function PrintCenterPage() {
         </div>
 
         <button onClick={doPrint} disabled={printing}
-          style={{ background: printing ? '#6b7fa3' : '#023c62', color: '#fff', border: 'none', borderRadius: 12, padding: '14px 40px', fontWeight: 700, cursor: printing ? 'wait' : 'pointer', fontSize: 16, fontFamily: "'Syne',sans-serif" }}>
-          {printing ? '⏳ Generating…' : '🖨️ Open Print Window'}
+          style={{ background: printing ? '#6b7fa3' : '#023c62', color: '#fff', border: 'none', borderRadius: 12, padding: '14px 40px', fontWeight: 700, cursor: printing ? 'wait' : 'pointer', fontSize: 16, fontFamily: "var(--crm-font-ui)" }}>
+          {printing ? 'Generating…' : 'Open Print Window'}
         </button>
 
       </>)}
 
       {!order && !loading && (
         <div style={{ background: '#fff', borderRadius: 16, padding: 52, border: '1px solid #e8f0f7', textAlign: 'center' as const, color: '#9dafc8' }}>
-          <div style={{ fontSize: 52, marginBottom: 14 }}>🖨️</div>
+          <div style={{ marginBottom: 14, display:'flex', justifyContent:'center', color:'#9dafc8' }}><Printer size={52} /></div>
           <div style={{ fontSize: 15, color: '#6b7fa3', fontWeight: 600, marginBottom: 6 }}>Enter an order number above</div>
           <div style={{ fontSize: 13 }}>e.g. HNG2403001 — press Enter or click Find</div>
         </div>

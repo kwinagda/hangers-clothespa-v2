@@ -2,6 +2,8 @@
 // THEME — Hangers Brand Colors, Typography, Spacing
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { Platform } from 'react-native';
+
 export const Colors = {
   // Brand
   primary:     '#023c62',
@@ -62,6 +64,15 @@ export const FontSize = {
   xl:    24,
   xxl:   30,
   xxxl:  38,
+};
+
+export const Fonts = {
+  body:       'DMSans_400Regular',
+  medium:     'DMSans_500Medium',
+  bold:       'DMSans_700Bold',
+  display:    'Syne_700Bold',
+  displayBold:'Syne_800ExtraBold',
+  mono:       'SpaceMono_400Regular',
 };
 
 // ── Shadow presets ────────────────────────────────────────────────────────────

@@ -8,32 +8,15 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ordersAPI, staffAPI, servicesAPI } from '@/lib/api'
+import { metadataAPI, ordersAPI, staffAPI, servicesAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import PaymentPanel from '@/components/PaymentPanel'
+import { AlertTriangle, Bike, ClipboardList, Clock3, Lock, MessageSquareText, Printer, Receipt, ScrollText, Shirt, Smartphone, Tag, User } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const STATUSES = [
-  'PENDING','PICKED_UP','PROCESSING','WASHING','DRYING',
-  'IRONING','QC','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED',
-]
-const PLANT_STATUSES = ['PROCESSING','WASHING','DRYING','IRONING','QC','READY_FOR_DELIVERY','SENT_TO_PLANT']
-const CRM_STATUSES   = ['PENDING','PICKED_UP','OUT_FOR_DELIVERY','DELIVERED','CANCELLED']
-const STATUS_LABEL: Record<string,string> = {
-  PENDING:'Pending', PICKED_UP:'Picked Up', PROCESSING:'Processing',
-  WASHING:'Washing', DRYING:'Drying', IRONING:'Ironing', QC:'QC Check',
-  READY_FOR_DELIVERY:'Ready', OUT_FOR_DELIVERY:'Out for Delivery',
-  DELIVERED:'Delivered', CANCELLED:'Cancelled', RETURNED:'Returned', SENT_TO_PLANT:'Sent to Plant',
-}
-
-const getStatusLabel = (status: string, source?: string) => {
+const getStatusLabel = (status: string, source?: string, labels: Record<string, string> = {}) => {
   if (status === 'PICKED_UP' && (source === 'counter' || source === 'COUNTER' || source === 'walk-in')) return 'Received'
-  const labels = STATUS_LABEL
-  const dummy = {WASHING:'Washing', DRYING:'Drying', IRONING:'Ironing', QC:'QC Check',
-  READY_FOR_DELIVERY:'Ready for Delivery', OUT_FOR_DELIVERY:'Out for Delivery',
-  DELIVERED:'Delivered', CANCELLED:'Cancelled', RETURNED:'Returned', SENT_TO_PLANT:'Sent to Plant',
-  }
   return labels[status] || status
 }
 const NEXT_STATUS: Record<string,string> = {
@@ -121,7 +104,7 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
     <div style={{background:'#fff',borderRadius:20,border:'1.5px solid #023c62',overflow:'hidden',boxShadow:'0 4px 20px rgba(2,60,98,0.12)'}}>
       <div style={{background:'linear-gradient(135deg,#023c62,#035a8f)',padding:'16px 24px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
         <div>
-          <div style={{color:'#fff',fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:16}}>＋ Add Garment Items</div>
+          <div style={{color:'#fff',fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:16}}>＋ Add Garment Items</div>
           <div style={{color:'rgba(184,208,232,0.7)',fontSize:12,marginTop:2}}>Select garments collected during pickup</div>
         </div>
         {cart.length > 0 && (
@@ -141,7 +124,7 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
           ))}
         </div>
 
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search item..."
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search item..."
           style={{width:'100%',border:'1.5px solid #dce8f0',borderRadius:10,padding:'9px 13px',fontSize:13,outline:'none',marginBottom:10,boxSizing:'border-box'}}/>
 
         <div style={{maxHeight:260,overflowY:'auto',marginBottom:16}}>
@@ -197,8 +180,8 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
               <span>₹{(currentTotal + cartTotal).toLocaleString('en-IN')}</span>
             </div>
             <button onClick={save} disabled={saving}
-              style={{width:'100%',marginTop:12,background:'#023c62',color:'#fff',border:'none',borderRadius:12,padding:'13px',fontWeight:700,cursor:'pointer',fontSize:14,fontFamily:"'Syne',sans-serif"}}>
-              {saving ? 'Saving…' : `✓ Save ${totalItems} Item${totalItems!==1?'s':''} to Order`}
+              style={{width:'100%',marginTop:12,background:'#023c62',color:'#fff',border:'none',borderRadius:12,padding:'13px',fontWeight:700,cursor:'pointer',fontSize:14,fontFamily:"var(--crm-font-ui)"}}>
+              {saving ? 'Saving…' : `Save ${totalItems} Item${totalItems!==1?'s':''} to Order`}
             </button>
           </div>
         )}
@@ -213,6 +196,10 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
 export default function OrderDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const [order,            setOrder]            = useState<any>(null)
+  const [statusLabels, setStatusLabels] = useState<Record<string, string>>({})
+  const [plantStatuses, setPlantStatuses] = useState<string[]>([])
+  const [crmStatuses, setCrmStatuses] = useState<string[]>([])
+  const [deliveryRoles, setDeliveryRoles] = useState<string[]>([])
   const [loading,          setLoading]          = useState(true)
   const [updating,         setUpdating]         = useState(false)
   const [timelineExpanded, setTimelineExpanded] = useState(false)
@@ -228,33 +215,47 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       setOrder(orderR.data?.order || orderR.data)
       const allStaff = staffR.data?.staff || []
       setRiders(allStaff.filter((s: any) =>
-        ['DELIVERY_RIDER', 'DELIVERY_MANAGER'].includes(s.role) && s.isActive
+        deliveryRoles.includes(s.role) && s.isActive
       ))
     } catch {
       toast.error('Order not found')
       router.push('/dashboard/orders')
     } finally { setLoading(false) }
-  }, [params.id])
+  }, [deliveryRoles, params.id])
 
   useEffect(() => { loadOrder() }, [loadOrder])
+  useEffect(() => {
+    metadataAPI.getAll().then((r:any) => {
+      const metadata = r?.metadata || r?.data?.metadata || {}
+      const orderStatuses = metadata.orderStatuses || []
+      setStatusLabels(orderStatuses.reduce((acc: Record<string, string>, item: any) => {
+        acc[item.key] = item.label || item.key
+        return acc
+      }, {}))
+      setPlantStatuses(orderStatuses.filter((item: any) => item.plantManaged).map((item: any) => item.key))
+      setCrmStatuses(orderStatuses.filter((item: any) => item.crmEditable && item.key !== 'RETURNED' && item.key !== 'SENT_TO_PLANT').map((item: any) => item.key))
+      setDeliveryRoles((metadata.staffRoles || []).filter((item: any) => String(item.value || '').startsWith('DELIVERY_')).map((item: any) => item.value))
+    }).catch(() => {})
+  }, [])
 
   const noItems     = !order?.items?.length
   const isAppOrder  = order?.source === 'APP'
   const canProgress = (targetStatus: string) => !(REQUIRES_ITEMS.includes(targetStatus) && noItems)
+  const statusLabel = (status: string) => getStatusLabel(status, order?.source, statusLabels)
 
   const updateStatus = async (status: string) => {
     if (!canProgress(status)) {
-      toast.error('Add garment items first — cannot move to processing without items', { duration: 4000, icon: '⚠️' })
+      toast.error('Add garment items first — cannot move to processing without items', { duration: 4000 })
       return
     }
     setUpdating(true)
     try {
       const r: any = await ordersAPI.updateStatus(params.id, status)
       setOrder(r.data?.order || r.data)
-      toast.success(`Status updated → ${STATUS_LABEL[status]}`)
+      toast.success(`Status updated → ${statusLabel(status)}`)
     } catch (e: any) {
       if (e?.message?.includes('items') || e?.message?.includes('ITEMS_REQUIRED')) {
-        toast.error('Add garment items before moving to processing', { icon: '⚠️', duration: 4000 })
+        toast.error('Add garment items before moving to processing', { duration: 4000 })
       } else {
         toast.error(e?.message || 'Failed to update status')
       }
@@ -278,7 +279,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     } finally { setAssigning(false) }
   }
 
-  if (loading) return <div style={{padding:64,textAlign:'center',color:'#9dafc8',fontFamily:"'DM Sans',sans-serif",fontSize:16}}>Loading order…</div>
+  if (loading) return <div style={{padding:64,textAlign:'center',color:'#9dafc8',fontFamily:"var(--crm-font-ui)",fontSize:16}}>Loading order…</div>
   if (!order)  return null
 
   const isReturnedOriginal = order.status === 'CANCELLED' && order.notes?.includes('[RETURNED')
@@ -288,7 +289,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const showItemsPanel = !order.isReturn && ['PENDING','PICKED_UP','PROCESSING'].includes(order.status) && noItems
 
   return (
-    <div style={{padding:'32px 36px',maxWidth:1100,margin:'0 auto',fontFamily:"'DM Sans',sans-serif"}}>
+    <div style={{padding:'32px 36px',maxWidth:1100,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
 
       {/* Returned banner */}
 
@@ -296,7 +297,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
         <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:10,padding:'12px 16px',marginBottom:16,fontSize:13,color:'#991b1b'}}>
 
-          ⚠️ This order has been returned. {order.notes?.includes('[RETURNED') && <span>{order.notes.match(/[RETURNED[^]]+]/)?.[0]?.replace(/[[]]/g,'')}</span>}
+          This order has been returned. {order.notes?.includes('[RETURNED') && <span>{order.notes.match(/[RETURNED[^]]+]/)?.[0]?.replace(/[[]]/g,'')}</span>}
 
         </div>
 
@@ -319,9 +320,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             ← Orders
           </Link>
           <div>
-            <h1 style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:24,color:'#023c62',margin:'0 0 4px'}}>
+            <h1 style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:24,color:'#023c62',margin:'0 0 4px'}}>
               {order.orderNumber}
-              {isAppOrder && <span style={{fontSize:11,background:'#dbeafe',color:'#1d4ed8',borderRadius:20,padding:'2px 10px',fontWeight:700,marginLeft:10,verticalAlign:'middle'}}>📱 App Pickup</span>}
+              {isAppOrder && <span style={{fontSize:11,background:'#dbeafe',color:'#1d4ed8',borderRadius:20,padding:'2px 10px',fontWeight:700,marginLeft:10,verticalAlign:'middle',display:'inline-flex',alignItems:'center',gap:6}}><Smartphone size={11} />App Pickup</span>}
             </h1>
             <p style={{fontSize:13,color:'#6b7fa3',margin:0}}>
               Created {format(new Date(order.createdAt),'dd MMM yyyy, h:mm a')}
@@ -330,14 +331,14 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         </div>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <span style={{fontSize:13,padding:'6px 14px',borderRadius:20,background:'#e8f0f7',color:'#023c62',fontWeight:700}}>
-            {STATUS_LABEL[order.status]}
+            {statusLabel(order.status)}
           </span>
           {nextSt && !isLocked && !order.isReturn && (
             <button onClick={() => updateStatus(nextSt)} disabled={updating}
               title={nextBlocked ? 'Add items first before moving to processing' : ''}
-              style={{background:nextBlocked?'#f0f4f8':'#023c62',color:nextBlocked?'#9dafc8':'#fff',border:nextBlocked?'1.5px dashed #dce8f0':'none',borderRadius:10,padding:'10px 18px',fontSize:13,fontWeight:700,cursor:nextBlocked?'not-allowed':'pointer',fontFamily:"'DM Sans',sans-serif",display:'flex',alignItems:'center',gap:8}}>
-              {nextBlocked && <span>⚠️</span>}
-              {updating ? 'Updating…' : `→ Mark as ${STATUS_LABEL[nextSt]}`}
+              style={{background:nextBlocked?'#f0f4f8':'#023c62',color:nextBlocked?'#9dafc8':'#fff',border:nextBlocked?'1.5px dashed #dce8f0':'none',borderRadius:10,padding:'10px 18px',fontSize:13,fontWeight:700,cursor:nextBlocked?'not-allowed':'pointer',fontFamily:"var(--crm-font-ui)",display:'flex',alignItems:'center',gap:8}}>
+              {nextBlocked && <AlertTriangle size={14} color="#f59e0b" />}
+              {updating ? 'Updating…' : `→ Mark as ${statusLabel(nextSt)}`}
             </button>
           )}
         </div>
@@ -346,7 +347,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       {/* Warning banner */}
       {noItems && !['DELIVERED','CANCELLED'].includes(order.status) && (
         <div style={{background:'#fff8e6',border:'1.5px solid #f59e0b',borderRadius:14,padding:'14px 20px',marginBottom:20,display:'flex',alignItems:'flex-start',gap:14}}>
-          <span style={{fontSize:22,flexShrink:0}}>⚠️</span>
+          <AlertTriangle size={22} color="#f59e0b" style={{flexShrink:0}} />
           <div>
             <div style={{fontWeight:700,color:'#92400e',fontSize:15,marginBottom:4}}>No garments logged — add items before processing</div>
             <div style={{fontSize:13,color:'#b45309',lineHeight:1.7}}>
@@ -355,7 +356,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 : 'This order has no garment items. Please add items using the panel below before advancing the status.'}
             </div>
             <div style={{marginTop:8,fontSize:12,color:'#b45309',background:'rgba(245,158,11,0.1)',borderRadius:8,padding:'6px 12px',display:'inline-block'}}>
-              🔒 Status cannot advance past "Picked Up" until items are added
+              Status cannot advance past "Picked Up" until items are added
             </div>
           </div>
         </div>
@@ -370,7 +371,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
           {/* Customer */}
           <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
-            <h3 style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:15,color:'#023c62',margin:'0 0 14px'}}>👤 Customer</h3>
+            <h3 style={{fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:15,color:'#023c62',margin:'0 0 14px',display:'flex',alignItems:'center',gap:8}}><User size={16} />Customer</h3>
             <div style={{display:'flex',gap:24,flexWrap:'wrap'}}>
               <div style={{flex:1,minWidth:120}}>
                 <div style={{fontSize:12,color:'#6b7fa3',marginBottom:3}}>Name</div>
@@ -402,14 +403,14 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           {/* Garments */}
           <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-              <h3 style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:15,color:'#023c62',margin:0}}>
-                👔 Garments {order.items?.length > 0 ? `(${order.items.length})` : ''}
+              <h3 style={{fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:15,color:'#023c62',margin:0}}>
+                <span style={{display:'inline-flex',alignItems:'center',gap:8}}><Shirt size={16} />Garments {order.items?.length > 0 ? `(${order.items.length})` : ''}</span>
               </h3>
-              {noItems && <span style={{fontSize:12,color:'#b45309',background:'#fff8e6',border:'1px solid #f59e0b',borderRadius:20,padding:'3px 12px',fontWeight:600}}>⚠️ No items yet</span>}
+              {noItems && <span style={{fontSize:12,color:'#b45309',background:'#fff8e6',border:'1px solid #f59e0b',borderRadius:20,padding:'3px 12px',fontWeight:600}}>No items yet</span>}
             </div>
             {noItems ? (
               <div style={{textAlign:'center',padding:'28px 0',color:'#9dafc8'}}>
-                <div style={{fontSize:36,marginBottom:10}}>📋</div>
+                <div style={{fontSize:36,marginBottom:10,display:'flex',justifyContent:'center'}}><ClipboardList size={36} color="#9dafc8" /></div>
                 <div style={{fontSize:14,fontWeight:500,color:'#6b7fa3',marginBottom:4}}>No garments logged yet</div>
                 <div style={{fontSize:13,color:'#9dafc8'}}>
                   {showItemsPanel ? 'Use the "Add Garment Items" panel above to log what was collected' : 'Items were not added to this order'}
@@ -443,7 +444,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           {/* Timeline */}
           {!order.isReturn && <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-              <h3 style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:15,color:'#023c62',margin:0}}>🕐 Status Timeline</h3>
+              <h3 style={{fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:15,color:'#023c62',margin:0,display:'flex',alignItems:'center',gap:8}}><Clock3 size={16} />Status Timeline</h3>
               {(order.stages?.length||0) > 3 && (
                 <button onClick={()=>setTimelineExpanded(v=>!v)}
                   style={{fontSize:12,color:'#035a8f',fontWeight:600,background:'#f0f5fa',border:'1px solid #dce8f0',borderRadius:20,padding:'4px 12px',cursor:'pointer'}}>
@@ -470,7 +471,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                         {i<visible.length-1&&<div style={{width:2,flex:1,background:'#e8f0f7',margin:'3px 0'}}/>}
                       </div>
                       <div style={{paddingBottom:i<visible.length-1?14:0}}>
-                        <div style={{fontSize:13,fontWeight:i===visible.length-1?700:500,color:i===visible.length-1?'#023c62':'#1a2332'}}>{STATUS_LABEL[st.stage]||st.stage}</div>
+                        <div style={{fontSize:13,fontWeight:i===visible.length-1?700:500,color:i===visible.length-1?'#023c62':'#1a2332'}}>{statusLabel(st.stage)}</div>
                         <div style={{fontSize:11,color:'#9dafc8',marginTop:2}}>{format(new Date(st.createdAt),'dd MMM yyyy, h:mm a')}{st.notes&&<span style={{color:'#6b7fa3'}}> · {st.notes}</span>}</div>
                       </div>
                     </div>
@@ -480,9 +481,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             })()}
             <div style={{marginTop:20,paddingTop:16,borderTop:'1px solid #e8f0f7'}}>
               <div style={{fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Update Status</div>
-              {PLANT_STATUSES.includes(order.status) ? (
+              {plantStatuses.includes(order.status) ? (
                 <div style={{fontSize:13,color:'#1e40af',background:'#dbeafe',borderRadius:10,padding:'12px 16px',lineHeight:1.6,display:'flex',alignItems:'center',gap:10}}>
-                  <span style={{fontSize:18}}>🔒</span>
+                  <Lock size={18} color="#1e40af" />
                   <div>
                     <div style={{fontWeight:700,marginBottom:2}}>Order is at the Plant</div>
                     <div style={{fontSize:12,color:'#3b82f6'}}>Status can only be updated by the plant team via the Staff App.</div>
@@ -492,18 +493,18 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 <>
                 {noItems && (
                   <div style={{fontSize:12,color:'#b45309',background:'#fff8e6',borderRadius:8,padding:'7px 12px',marginBottom:10,lineHeight:1.5}}>
-                    ⚠️ Processing statuses are locked — add items first
+                    Processing statuses are locked — add items first
                   </div>
                 )}
                 <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                {CRM_STATUSES.map(s => {
+                {crmStatuses.map(s => {
                   const isCurrent = s === order.status
                   const isBlocked = !isCurrent && !canProgress(s)
                   return (
                     <button key={s} onClick={() => updateStatus(s)} disabled={isCurrent || updating}
                       title={isBlocked ? 'Add items first' : ''}
                       style={{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:isCurrent||updating?'default':isBlocked?'not-allowed':'pointer',border:`1px solid ${isCurrent?'#023c62':isBlocked?'#f59e0b':'#dce8f0'}`,background:isCurrent?'#023c62':isBlocked?'#fff8e6':'#fff',color:isCurrent?'#fff':isBlocked?'#b45309':'#6b7fa3',opacity:updating?0.6:1}}>
-                      {isBlocked ? '🔒 ' : ''}{STATUS_LABEL[s]}
+                      {isBlocked ? 'Locked: ' : ''}{statusLabel(s)}
                     </button>
                   )
                 })}
@@ -515,7 +516,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
           {order.notes && (
             <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
-              <h3 style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:15,color:'#023c62',margin:'0 0 10px'}}>📝 Notes</h3>
+              <h3 style={{fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:15,color:'#023c62',margin:'0 0 10px',display:'flex',alignItems:'center',gap:8}}><MessageSquareText size={16} />Notes</h3>
               <p style={{fontSize:14,color:'#6b7fa3',margin:0,lineHeight:1.6}}>{order.notes}</p>
             </div>
           )}
@@ -534,11 +535,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 <span>Discount</span><span>−₹{order.discount?.toLocaleString('en-IN')}</span>
               </div>
             )}
-            <div style={{borderTop:'1px solid rgba(184,208,232,0.2)',paddingTop:12,display:'flex',justifyContent:'space-between',fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:24}}>
+            <div style={{borderTop:'1px solid rgba(184,208,232,0.2)',paddingTop:12,display:'flex',justifyContent:'space-between',fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:24}}>
               <span>Total</span><span>₹{order.totalAmount?.toLocaleString('en-IN') || 0}</span>
             </div>
             <div style={{marginTop:12,fontSize:13,color:order.paidAmount>=(order.totalAmount||0)?'#4ade80':'#fbbf24'}}>
-              {((order.paidAmount||0) + (order.writeOffAmount||0)) >= (order.totalAmount||0) ? '✓ Fully Paid' : `Pending: ₹${Math.max(0,(order.totalAmount||0)-(order.paidAmount||0)-(order.writeOffAmount||0)).toLocaleString('en-IN')}`}
+              {((order.paidAmount||0) + (order.writeOffAmount||0)) >= (order.totalAmount||0) ? 'Fully Paid' : `Pending: ₹${Math.max(0,(order.totalAmount||0)-(order.paidAmount||0)-(order.writeOffAmount||0)).toLocaleString('en-IN')}`}
             </div>
             {noItems && order.totalAmount===0 && (
               <div style={{marginTop:10,fontSize:11,color:'rgba(184,208,232,0.5)',fontStyle:'italic'}}>Total will update once items are added</div>
@@ -549,7 +550,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
           {['READY_FOR_DELIVERY','OUT_FOR_DELIVERY','PENDING','PICKED_UP'].includes(order.status) && (
             <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
-              <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:14}}>🛵 Assign Delivery Rider</div>
+              <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:14,display:'flex',alignItems:'center',gap:6}}><Bike size={12} />Assign Delivery Rider</div>
               {order.assignedTo ? (
                 <div style={{background:'#e8f0f7',borderRadius:12,padding:'10px 14px',marginBottom:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                   <div>
@@ -559,7 +560,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                   <span style={{fontSize:11,background:'#d1fae5',color:'#065f46',fontWeight:700,padding:'3px 10px',borderRadius:20}}>Assigned</span>
                 </div>
               ) : (
-                <div style={{fontSize:12,color:'#f59e0b',background:'#fff8e6',borderRadius:8,padding:'7px 12px',marginBottom:12}}>⚠️ No rider assigned yet</div>
+                <div style={{fontSize:12,color:'#f59e0b',background:'#fff8e6',borderRadius:8,padding:'7px 12px',marginBottom:12}}>No rider assigned yet</div>
               )}
               {riders.length === 0 ? (
                 <div style={{fontSize:12,color:'#9dafc8'}}>No active delivery riders found. Add riders in Staff Management.</div>
@@ -577,8 +578,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:16}}>Order Info</div>
             {[
               {l:'Order #', v:order.orderNumber},
-              {l:'Source',  v:order.source==='APP'?'📱 App Pickup':order.source==='COUNTER'?'🏪 Walk-in':order.source},
-              {l:'Status',  v:STATUS_LABEL[order.status]},
+              {l:'Source',  v:order.source==='APP'?'App Pickup':order.source==='COUNTER'?'Walk-in':order.source},
+              {l:'Status',  v:statusLabel(order.status)},
               {l:'Created', v:format(new Date(order.createdAt),'dd MMM yyyy')},
               ...(order.pickupDate?[{l:'Pickup Date',v:format(new Date(order.pickupDate),'dd MMM yyyy')}]:[]),
               ...(order.pickupSlot?[{l:'Pickup Slot',v:order.pickupSlot}]:[]),
@@ -586,19 +587,37 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             ].map(row=>(
               <div key={row.l} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #f0f4f8',fontSize:13}}>
                 <span style={{color:'#6b7fa3'}}>{row.l}</span>
-                <span style={{fontWeight:500,color:'#1a2332',fontFamily:row.l==='Order #'?"'DM Mono',monospace":"'DM Sans',sans-serif",textAlign:'right',maxWidth:160}}>{row.v}</span>
+                <span style={{fontWeight:500,color:'#1a2332',fontFamily:row.l==='Order #'?"var(--crm-font-mono)":"var(--crm-font-ui)",textAlign:'right',maxWidth:160}}>{row.v}</span>
               </div>
             ))}
           </div>
 
+          <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
+            <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:16,display:'flex',alignItems:'center',gap:6}}><Printer size={12} />Print</div>
+            <div style={{display:'grid',gap:10}}>
+              <Link href={`/dashboard/print?orderId=${order.id}&type=receipt`} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
+                <Receipt size={15} /> A4 Receipt
+              </Link>
+              <Link href={`/dashboard/print?orderId=${order.id}&type=thermal`} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
+                <ScrollText size={15} /> 80mm Thermal Receipt
+              </Link>
+              <Link href={`/dashboard/print?orderId=${order.id}&type=garment`} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
+                <Tag size={15} /> Garment Tags
+              </Link>
+              <Link href={`/dashboard/print?orderId=${order.id}&type=bag`} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
+                <ClipboardList size={15} /> Bag Tags
+              </Link>
+            </div>
+          </div>
+
           {noItems && !['DELIVERED','CANCELLED'].includes(order.status) && (
             <div style={{background:'#fff8e6',borderRadius:16,padding:18,border:'1px solid #f59e0b'}}>
-              <div style={{fontWeight:700,color:'#92400e',fontSize:13,marginBottom:10}}>📋 Next Steps</div>
+              <div style={{fontWeight:700,color:'#92400e',fontSize:13,marginBottom:10,display:'flex',alignItems:'center',gap:6}}><ClipboardList size={14} />Next Steps</div>
               <div style={{fontSize:12,color:'#b45309',lineHeight:1.8}}>
-                <div>1. ✅ Pickup confirmed — status is "{STATUS_LABEL[order.status]}"</div>
-                <div>2. ⬆️ Use the panel to add garments</div>
-                <div>3. 🔓 Processing statuses unlock automatically</div>
-                <div>4. 💰 Payment amount updates with items</div>
+                <div>1. Pickup confirmed — status is "{statusLabel(order.status)}"</div>
+                <div>2. Use the panel to add garments</div>
+                <div>3. Processing statuses unlock automatically</div>
+                <div>4. Payment amount updates with items</div>
               </div>
             </div>
           )}

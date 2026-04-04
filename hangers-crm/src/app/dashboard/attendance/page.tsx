@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { attendanceAPI, staffListAPI } from '@/lib/api'
+import { PaginationControls } from '@/components/ui/PaginationControls'
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 export default function AttendancePage() {
   const [records,setRecords] = useState<any[]>([])
@@ -10,6 +11,8 @@ export default function AttendancePage() {
   const [year,setYear] = useState(new Date().getFullYear())
   const [msg,setMsg] = useState('')
   const [loading,setLoading] = useState(false)
+  const [page,setPage] = useState(1)
+  const [pageSize,setPageSize] = useState(20)
   useEffect(()=>{ staffListAPI.getAll().then((r:any)=>setStaff(r.data?.staff||r.data||[])) },[])
   const load = () => {
     const params:any = {month,year}
@@ -17,6 +20,7 @@ export default function AttendancePage() {
     attendanceAPI.get(params).then((r:any)=>setRecords(r.data||[]))
   }
   useEffect(()=>{ load() },[month,year,selectedStaff])
+  useEffect(()=>{ setPage(1) },[month,year,selectedStaff,pageSize])
   const clock = async (type:'in'|'out') => {
     if(!selectedStaff){setMsg('Select a staff member first');return}
     setLoading(true)
@@ -25,10 +29,11 @@ export default function AttendancePage() {
     load(); setLoading(false); setTimeout(()=>setMsg(''),3000)
   }
   const totalHours = records.reduce((s:number,r:any)=>s+(r.hoursWorked||0),0)
-  const s = {fontFamily:"'DM Sans',sans-serif"}
+  const pagedRecords = records.slice((page - 1) * pageSize, page * pageSize)
+  const s = {fontFamily:"var(--crm-font-ui)"}
   return (
     <div style={{padding:'32px 36px',maxWidth:1000,margin:'0 auto',...s}}>
-      <h1 style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:26,color:'#023c62',marginBottom:24}}>Staff Attendance</h1>
+      <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:26,color:'#023c62',marginBottom:24}}>Staff Attendance</h1>
       <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:20,marginBottom:20}}>
         <div style={{fontWeight:700,fontSize:13,color:'#6b7fa3',marginBottom:12,textTransform:'uppercase' as const,letterSpacing:'0.06em'}}>Quick Clock In/Out</div>
         <div style={{display:'flex',gap:10,flexWrap:'wrap' as const,alignItems:'center'}}>
@@ -50,14 +55,14 @@ export default function AttendancePage() {
         </select>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
-        <div style={{background:'#eff6ff',borderRadius:12,padding:16}}><div style={{fontSize:11,color:'#1d4ed8',marginBottom:4,textTransform:'uppercase' as const,letterSpacing:'0.06em'}}>Days Present</div><div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:24,color:'#1d4ed8'}}>{records.length}</div></div>
-        <div style={{background:'#f5f3ff',borderRadius:12,padding:16}}><div style={{fontSize:11,color:'#6d28d9',marginBottom:4,textTransform:'uppercase' as const,letterSpacing:'0.06em'}}>Total Hours</div><div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:24,color:'#6d28d9'}}>{totalHours.toFixed(1)}h</div></div>
+        <div style={{background:'#eff6ff',borderRadius:12,padding:16}}><div style={{fontSize:11,color:'#1d4ed8',marginBottom:4,textTransform:'uppercase' as const,letterSpacing:'0.06em'}}>Days Present</div><div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:24,color:'#1d4ed8'}}>{records.length}</div></div>
+        <div style={{background:'#f5f3ff',borderRadius:12,padding:16}}><div style={{fontSize:11,color:'#6d28d9',marginBottom:4,textTransform:'uppercase' as const,letterSpacing:'0.06em'}}>Total Hours</div><div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:24,color:'#6d28d9'}}>{totalHours.toFixed(1)}h</div></div>
       </div>
       <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',overflow:'hidden'}}>
         {records.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No records found</div>:
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
           <thead><tr style={{background:'#f8fafc'}}>{['Date','Staff','Clock In','Clock Out','Hours'].map(h=><th key={h} style={{padding:'10px 16px',textAlign:h==='Hours'?'right':'left',fontSize:11,color:'#9dafc8',textTransform:'uppercase' as const,letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>)}</tr></thead>
-          <tbody>{records.map((r:any)=><tr key={r.id} style={{borderBottom:'1px solid #f8fafc'}}>
+          <tbody>{pagedRecords.map((r:any)=><tr key={r.id} style={{borderBottom:'1px solid #f8fafc'}}>
             <td style={{padding:'10px 16px'}}>{new Date(r.date).toLocaleDateString('en-IN')}</td>
             <td style={{padding:'10px 16px'}}>{staff.find((s:any)=>s.id===r.staffId)?.name||r.staffId}</td>
             <td style={{padding:'10px 16px',color:'#166534'}}>{r.clockIn?new Date(r.clockIn).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'—'}</td>
@@ -66,6 +71,15 @@ export default function AttendancePage() {
           </tr>)}</tbody>
         </table>}
       </div>
+      <PaginationControls
+        page={page}
+        pageSize={pageSize}
+        totalItems={records.length}
+        itemLabel="attendance records"
+        onPageChange={setPage}
+        onPageSizeChange={(size)=>{setPageSize(size); setPage(1)}}
+        pageSizeOptions={[10,20,30,50,100]}
+      />
     </div>
   )
 }

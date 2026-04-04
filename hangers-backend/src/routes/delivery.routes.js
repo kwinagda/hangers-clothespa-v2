@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { staffAuth }   = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
+const { DELIVERY_MANAGER_ROLES, DELIVERY_PIN_ROLES } = require('../config/master-data');
 const {
   getDeliveryDashboard, getMyOrders, getDeliveryOrder,
   markPickedUp, markDelivered, markFailed, collectCash,
@@ -9,8 +10,8 @@ const {
   getDailySummary, assignOrder,
 } = require('../controllers/delivery.controller');
 
-const delivRoles = requireRole('DELIVERY_RIDER','DELIVERY_MANAGER','SUPER_ADMIN','MANAGER');
-const mgrRoles   = requireRole('DELIVERY_MANAGER','SUPER_ADMIN','MANAGER');
+const delivRoles = requireRole(...new Set([...DELIVERY_PIN_ROLES, 'SUPER_ADMIN', 'MANAGER']));
+const mgrRoles   = requireRole(...DELIVERY_MANAGER_ROLES);
 
 router.get('/dashboard',                  staffAuth, delivRoles, getDeliveryDashboard);
 router.get('/orders',                     staffAuth, delivRoles, getMyOrders);

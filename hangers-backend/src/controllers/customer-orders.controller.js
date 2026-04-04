@@ -6,16 +6,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-
-// ── Same helper as CRM orders.controller.js ───────────────────────────────────
-const generateOrderNumber = async () => {
-  const today  = new Date();
-  const prefix = `HNG${today.getFullYear().toString().slice(-2)}${String(today.getMonth() + 1).padStart(2, '0')}`;
-  const count  = await prisma.order.count({
-    where: { orderNumber: { startsWith: prefix } },
-  });
-  return `${prefix}${String(count + 1).padStart(4, '0')}`;
-};
+const { generateOrderNumber } = require('../utils/order-number');
+const { success, created, error, badRequest, notFound } = require('../utils/response');
 
 // ── GET /api/v1/customer/orders ───────────────────────────────────────────────
 const getMyOrders = async (req, res) => {
@@ -38,10 +30,10 @@ const getMyOrders = async (req, res) => {
       prisma.order.count({ where: { customerId } }),
     ]);
 
-    res.json({ success: true, orders, pagination: { total, page: +page, limit: +limit } });
+    return success(res, { orders, pagination: { total, page: +page, limit: +limit } });
   } catch (err) {
     console.error('getMyOrders:', err);
-    res.status(500).json({ error: 'Failed to fetch orders' });
+    return error(res, 'Failed to fetch orders');
   }
 };
 
@@ -59,10 +51,10 @@ const getMyOrder = async (req, res) => {
       },
     });
 
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-    res.json({ success: true, order });
+    if (!order) return notFound(res, 'Order not found');
+    return success(res, { order });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch order' });
+    return error(res, 'Failed to fetch order');
   }
 };
 
@@ -73,17 +65,23 @@ const requestPickup = async (req, res) => {
     const {
       pickupDate,
       timeSlot,
+      pickupTimeSlot,
       serviceTypes,      // array e.g. ['DRY_CLEAN', 'STEAM_IRON']
       address,
+      pickupAddress,
       notes,
+      savedAddressId,
       items = [],        // FIX 3: receive items from app
       subtotal      = 0,
       totalAmount   = 0,
       useWalletCredits = false,
     } = req.body;
 
-    if (!pickupDate || !address) {
-      return res.status(400).json({ error: 'pickupDate and address are required' });
+    const resolvedTimeSlot = timeSlot || pickupTimeSlot || null;
+    const resolvedAddress = address || pickupAddress || null;
+
+    if (!pickupDate || !resolvedAddress) {
+      return badRequest(res, 'pickupDate and address are required');
     }
 
     // FIX 2: Use same format as CRM — HNG2403XXXX
@@ -119,8 +117,8 @@ const requestPickup = async (req, res) => {
           paidAmount:    walletApplied,
           notes:         notes || null,
           pickupDate:    new Date(pickupDate),
-          pickupSlot:    timeSlot || null,
-          pickupAddress: address,
+          pickupSlot:    resolvedTimeSlot,
+          pickupAddress: resolvedAddress,
 
           // FIX 3: Create order items immediately if provided
           ...(items.length > 0 ? {
@@ -138,7 +136,7 @@ const requestPickup = async (req, res) => {
           stages: {
             create: [{
               stage: 'PENDING',
-              notes: `Pickup booked via app. Slot: ${timeSlot || 'TBD'}. Services: ${(serviceTypes || []).join(', ') || 'TBD'}. Address: ${address}`,
+              notes: `Pickup booked via app. Slot: ${resolvedTimeSlot || 'TBD'}. Services: ${(serviceTypes || []).join(', ') || 'TBD'}. Address: ${resolvedAddress}${savedAddressId ? ` (Saved address: ${savedAddressId})` : ''}`,
             }],
           },
         },
@@ -164,15 +162,14 @@ const requestPickup = async (req, res) => {
       return created;
     });
 
-    res.status(201).json({
-      success: true,
-      order,
-      walletApplied,
-      message: `Pickup booked! Order ${orderNumber}. Our team will contact you to confirm the slot.`,
-    });
+    return created(
+      res,
+      { order, walletApplied },
+      `Pickup booked! Order ${orderNumber}. Our team will contact you to confirm the slot.`
+    );
   } catch (err) {
     console.error('requestPickup:', err);
-    res.status(500).json({ error: 'Failed to book pickup' });
+    return error(res, 'Failed to book pickup');
   }
 };
 

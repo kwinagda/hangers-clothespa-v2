@@ -10,6 +10,7 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../config/database');
 const { log, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error, notFound } = require('../utils/response');
+const { STAFF_ROLE_VALUES } = require('../config/master-data');
 
 const listStaff = async (req, res) => {
   try {
@@ -39,10 +40,7 @@ const updateStaff = async (req, res) => {
   const { id } = req.params;
   const { name, phone, email, role } = req.body;
 
-  const VALID_ROLES = [
-    'SUPER_ADMIN','MANAGER','COUNTER_STAFF','ACCOUNTS',
-    'DELIVERY_MANAGER','DELIVERY_RIDER','PLANT_MANAGER','PLANT_STAFF','PLANT_QC',
-  ];
+  const VALID_ROLES = STAFF_ROLE_VALUES;
 
   if (role && !VALID_ROLES.includes(role)) {
     return badRequest(res, `Invalid role: ${role}`);

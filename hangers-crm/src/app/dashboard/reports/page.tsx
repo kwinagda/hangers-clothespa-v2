@@ -1,26 +1,32 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { reportsAPI } from '@/lib/api'
-const TYPES = [{id:'sales',label:'Sales'},{id:'orders',label:'Orders'},{id:'customers',label:'Customers'},{id:'payments',label:'Payments'},{id:'expenses',label:'Expenses'},{id:'staff',label:'Staff'},{id:'garments',label:'Garments'}]
+import { metadataAPI, reportsAPI } from '@/lib/api'
 const fmt = (n:number) => `₹${(n||0).toLocaleString('en-IN',{maximumFractionDigits:0})}`
 export default function ReportsPage() {
   const [type,setType] = useState('sales')
+  const [reportTypes,setReportTypes] = useState<Array<{ value: string; label: string }>>([])
   const [from,setFrom] = useState(()=>{const d=new Date();d.setDate(1);return d.toISOString().split('T')[0]})
   const [to,setTo] = useState(new Date().toISOString().split('T')[0])
   const [data,setData] = useState<any>(null)
   const [loading,setLoading] = useState(false)
   const load = async () => { setLoading(true); const r=await reportsAPI.get(type,from,to); setData(r.data); setLoading(false) }
+  useEffect(() => {
+    metadataAPI.getAll().then((r:any) => {
+      const metadata = r?.metadata || r?.data?.metadata || {}
+      setReportTypes(metadata.reportTypes || [])
+    }).catch(() => {})
+  }, [])
   useEffect(()=>{ load() },[type,from,to])
-  const s = {fontFamily:"'DM Sans',sans-serif"}
-  const card = (label:string,value:any,color='#023c62',bg='#f8fafc') => <div style={{background:bg,borderRadius:12,padding:16}}><div style={{fontSize:11,color,marginBottom:4,textTransform:'uppercase' as const,letterSpacing:'0.06em',opacity:0.7}}>{label}</div><div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:22,color}}>{value}</div></div>
+  const s = {fontFamily:"var(--crm-font-ui)"}
+  const card = (label:string,value:any,color='#023c62',bg='#f8fafc') => <div style={{background:bg,borderRadius:12,padding:16}}><div style={{fontSize:11,color,marginBottom:4,textTransform:'uppercase' as const,letterSpacing:'0.06em',opacity:0.7}}>{label}</div><div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:22,color}}>{value}</div></div>
   return (
     <div style={{padding:'32px 36px',maxWidth:1100,margin:'0 auto',...s}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:24}}>
-        <h1 style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:26,color:'#023c62',margin:0}}>Business Reports</h1>
+        <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:26,color:'#023c62',margin:0}}>Business Reports</h1>
         <button onClick={()=>{if(!data)return;const rows:string[][]=[];if(type==='sales'){rows.push(['Metric','Value']);rows.push(['Orders',data.orders],['Revenue',data.revenue],['Paid',data.paid],['Outstanding',data.outstanding])}const csv=rows.map(r=>r.join(',')).join('\n');const b=new Blob([csv],{type:'text/csv'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=`hangers_${type}_${from}_${to}.csv`;a.click()}} style={{padding:'10px 20px',border:'1px solid #e2e8f0',borderRadius:10,fontSize:13,background:'#fff',cursor:'pointer'}}>Export CSV</button>
       </div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap' as const,marginBottom:20}}>
-        {TYPES.map(t=><button key={t.id} onClick={()=>setType(t.id)} style={{padding:'8px 16px',borderRadius:8,fontSize:13,fontWeight:600,border:type===t.id?'2px solid #023c62':'1px solid #e2e8f0',background:type===t.id?'#023c62':'#fff',color:type===t.id?'#fff':'#374151',cursor:'pointer'}}>{t.label}</button>)}
+        {reportTypes.map(t=><button key={t.value} onClick={()=>setType(t.value)} style={{padding:'8px 16px',borderRadius:8,fontSize:13,fontWeight:600,border:type===t.value?'2px solid #023c62':'1px solid #e2e8f0',background:type===t.value?'#023c62':'#fff',color:type===t.value?'#fff':'#374151',cursor:'pointer'}}>{t.label}</button>)}
       </div>
       <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:12,flexWrap:'wrap' as const}}>
         <span style={{fontSize:13,color:'#6b7fa3'}}>From</span>

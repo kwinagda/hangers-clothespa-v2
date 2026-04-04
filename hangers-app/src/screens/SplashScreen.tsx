@@ -4,10 +4,11 @@
 
 import React, { useEffect, useRef } from 'react';
 import {
-  View, Text, StyleSheet, Animated, Dimensions, StatusBar
+  View, Text, StyleSheet, Animated, Dimensions, StatusBar, Image
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, FontSize } from '../utils/theme';
+import { Colors, FontSize, Fonts } from '../utils/theme';
+import { LOGO_WHITE_URL } from '../lib/branding';
 
 const { width, height } = Dimensions.get('window');
 
@@ -97,28 +98,15 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
         { transform: [{ scale: ringScale }], opacity: ringOpacity }
       ]} />
 
-      {/* Logo placeholder — replace with actual Hangers logo Image */}
       <Animated.View style={[
         styles.logoWrap,
         { transform: [{ scale: logoScale }], opacity: logoOpacity }
       ]}>
-        {/* 
-          TO ADD YOUR LOGO:
-          Replace this View with:
-          <Image source={require('../assets/hangers_logo.png')} style={styles.logo} resizeMode="contain" />
-        */}
-        <View style={styles.logoBox}>
-          <Text style={styles.logoEmoji}>🧺</Text>
-        </View>
+        <Image source={{ uri: LOGO_WHITE_URL }} style={styles.logo} resizeMode="contain" />
       </Animated.View>
 
-      {/* Shop Name */}
-      <Animated.Text style={[styles.shopName, { opacity: textOpacity }]}>
-        HANGERS
-      </Animated.Text>
-
       {/* Tagline */}
-      <Animated.Text style={[styles.tagline, { opacity: tagOpacity }]}>
+      <Animated.Text style={[styles.tagline, { opacity: Animated.multiply(textOpacity, tagOpacity) }]}>
         Care in Every Clean
       </Animated.Text>
 
@@ -166,34 +154,19 @@ const styles = StyleSheet.create({
     borderColor:   'rgba(184, 208, 232, 0.35)',
   },
   logoWrap: {
-    marginBottom: 28,
+    marginBottom: 20,
   },
-  logoBox: {
-    width:          110,
-    height:         110,
-    borderRadius:   28,
-    backgroundColor:'rgba(255,255,255,0.1)',
-    borderWidth:    1,
-    borderColor:    'rgba(184,208,232,0.2)',
-    alignItems:     'center',
-    justifyContent: 'center',
-  },
-  logoEmoji: {
-    fontSize: 52,
-  },
-  shopName: {
-    fontFamily:    'Syne_800ExtraBold',
-    fontSize:      32,
-    color:         Colors.white,
-    letterSpacing: 8,
-    marginBottom:  10,
+  logo: {
+    width: 280,
+    height: 110,
   },
   tagline: {
-    fontFamily: 'DMSans_400Regular',
+    fontFamily: Fonts.body,
     fontSize:   FontSize.base,
     color:      Colors.primaryLight,
     letterSpacing: 1,
     marginBottom: 60,
+    marginTop: 6,
   },
   dotsRow: {
     position:  'absolute',

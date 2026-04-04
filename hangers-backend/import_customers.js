@@ -57,7 +57,6 @@ async function main() {
     const countryCode  = (row['Country Code*'] || '').trim();
     const mobile       = (row['Mobile Number*'] || '').trim();
     const name         = (row['Name*'] || '').trim();
-    const email        = (row['Email Address'] || '').trim() || null;
     const dob          = parseDate(row['Dob']);
     const walletAmount = RESET_BALANCES ? 0 : parseFloat2(row['Wallet Amount']);
     const ordersDue    = RESET_BALANCES ? 0 : parseFloat2(row['Orders Due']);
@@ -81,7 +80,6 @@ async function main() {
         where:  { phone },
         update: {
           name:          name || undefined,
-          email:         email || undefined,
           dob:           dob || undefined,
           walletBalance: walletAmount,
           ordersDue:     ordersDue,
@@ -89,7 +87,6 @@ async function main() {
         create: {
           phone,
           name:          name || null,
-          email:         email || null,
           dob:           dob || null,
           walletBalance: walletAmount,
           ordersDue:     ordersDue,

@@ -1,14 +1,191 @@
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;500&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 * { box-sizing: border-box; }
-body { font-family: 'DM Sans', sans-serif; background: #f4f7fb; color: #1a2332; -webkit-font-smoothing: antialiased; }
+:root {
+  --crm-font-ui: 'Inter', 'Manrope', sans-serif;
+  --crm-font-display: 'Space Grotesk', 'Outfit', sans-serif;
+  --crm-font-mono: 'Space Mono', 'IBM Plex Mono', monospace;
+  --crm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --crm-shadow-soft: 0 12px 30px rgba(2, 60, 98, 0.08);
+  --crm-shadow-float: 0 18px 40px rgba(2, 60, 98, 0.12);
+}
+body {
+  font-family: var(--crm-font-ui);
+  background: #f4f7fb;
+  color: #1a2332;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--crm-font-display);
+  letter-spacing: -0.025em;
+}
+code, pre {
+  font-family: var(--crm-font-mono);
+}
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: #f0f4f8; }
 ::-webkit-scrollbar-thumb { background: #b8d0e8; border-radius: 99px; }
+
+a, button, input, select, textarea {
+  transition:
+    transform 180ms var(--crm-ease),
+    box-shadow 220ms var(--crm-ease),
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease,
+    opacity 180ms ease;
+}
+
+button:not(:disabled), a {
+  will-change: transform;
+}
+
+button:not(:disabled):hover,
+a:hover {
+  transform: translateY(-1px);
+}
+
+button:not(:disabled):active,
+a:active {
+  transform: translateY(0);
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #7aa8c8 !important;
+  box-shadow: 0 0 0 4px rgba(2, 60, 98, 0.08);
+}
+
+.crm-page-enter {
+  animation: crm-fade-up 320ms var(--crm-ease);
+}
+
+.crm-surface {
+  background: #fff;
+  border: 1px solid #e8f0f7;
+  box-shadow: 0 2px 12px rgba(2, 60, 98, 0.06);
+}
+
+.crm-card-hover {
+  transition: transform 220ms var(--crm-ease), box-shadow 220ms var(--crm-ease), border-color 180ms ease;
+}
+
+.crm-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--crm-shadow-soft);
+  border-color: #d6e6f3;
+}
+
+.crm-table-row {
+  transition: background-color 180ms ease, transform 180ms var(--crm-ease);
+}
+
+.crm-table-row:hover {
+  background: #fbfdff !important;
+}
+
+.crm-inline-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7fa3;
+}
+
+.crm-inline-loader-light {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.crm-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(2, 60, 98, 0.18);
+  border-top-color: #023c62;
+  animation: crm-spin 700ms linear infinite;
+  flex-shrink: 0;
+}
+
+.crm-inline-loader-light .crm-spinner {
+  border-color: rgba(255,255,255,0.22);
+  border-top-color: #fff;
+}
+
+.crm-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, #edf3f8 0%, #f6f9fc 40%, #edf3f8 100%);
+  background-size: 200% 100%;
+  animation: crm-shimmer 1.4s linear infinite;
+}
+
+.crm-skeleton-card {
+  border-radius: 16px;
+  padding: 18px 20px;
+}
+
+.crm-tab-shell {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  background: #f1f5f9;
+  border-radius: 12px;
+  padding: 4px;
+  width: fit-content;
+}
+
+.crm-tab-link {
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  color: #6b7fa3;
+}
+
+.crm-tab-link-active {
+  background: #fff;
+  color: #023c62;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+@keyframes crm-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes crm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes crm-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
 
 .nav-link { display:flex; align-items:center; gap:12px; padding:10px 16px; border-radius:12px; font-size:14px; font-weight:500; color:rgba(219,234,254,0.7); transition:all 0.15s; }
 .nav-link:hover { background:rgba(255,255,255,0.1); color:white; }

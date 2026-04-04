@@ -4,17 +4,18 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Image,
   KeyboardAvoidingView, Platform, ActivityIndicator,
   StatusBar, Animated, Dimensions
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { authAPI } from '../services/api';
-import { Colors, Spacing, Radius, FontSize, Shadow } from '../utils/theme';
+import { Colors, Spacing, Radius, FontSize, Shadow, Fonts } from '../utils/theme';
+import { LOGO_WHITE_URL } from '../lib/branding';
 
 const { height } = Dimensions.get('window');
-
 
 export default function PhoneEntryScreen({ navigation }: any) {
   const [phone,     setPhone]     = useState('');
@@ -96,8 +97,8 @@ export default function PhoneEntryScreen({ navigation }: any) {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.brandName}>Hangers</Text>
-          <Text style={styles.brandTagline}>Clothes Spa</Text>
+          <Image source={{ uri: LOGO_WHITE_URL }} style={styles.brandLogo} resizeMode="contain" />
+          <Text style={styles.brandTagline}>Care in Every Clean</Text>
         </View>
 
         {/* Card */}
@@ -140,7 +141,10 @@ export default function PhoneEntryScreen({ navigation }: any) {
 
           {/* Info */}
           <View style={styles.infoRow}>
-            <Text style={styles.infoText}>💬 You'll receive a 6-digit OTP on WhatsApp</Text>
+            <View style={styles.infoInline}>
+              <Feather name="message-circle" size={14} color={Colors.textLight} />
+              <Text style={styles.infoText}>You'll receive a 6-digit OTP on WhatsApp</Text>
+            </View>
           </View>
         </Animated.View>
       </LinearGradient>
@@ -152,19 +156,20 @@ const styles = StyleSheet.create({
   container:     { flex: 1 },
   gradient:      { flex: 1, justifyContent: 'center', paddingHorizontal: Spacing.lg },
   header:        { alignItems: 'center', marginBottom: 32 },
-  brandName:     { fontSize: 36, fontWeight: '800', color: '#fff', letterSpacing: 1 },
-  brandTagline:  { fontSize: 16, color: 'rgba(255,255,255,0.7)', marginTop: 4 },
+  brandLogo:     { width: 240, height: 86, marginBottom: 6 },
+  brandTagline:  { fontFamily: Fonts.body, fontSize: 16, color: 'rgba(255,255,255,0.7)', marginTop: 2 },
   card:          { backgroundColor: '#fff', borderRadius: Radius.xl, padding: Spacing.xl, ...Shadow.lg },
-  title:         { fontSize: FontSize.xl, fontWeight: '700', color: Colors.primary, marginBottom: 6 },
-  subtitle:      { fontSize: FontSize.sm, color: Colors.textLight, marginBottom: Spacing.xl },
+  title:         { fontFamily: Fonts.display, fontSize: FontSize.xl, color: Colors.primary, marginBottom: 6 },
+  subtitle:      { fontFamily: Fonts.body, fontSize: FontSize.sm, color: Colors.textLight, marginBottom: Spacing.xl },
   inputContainer:{ flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: Colors.border, borderRadius: Radius.md, marginBottom: Spacing.md, overflow: 'hidden' },
   countryCode:   { backgroundColor: Colors.background, paddingHorizontal: Spacing.md, paddingVertical: 14, borderRightWidth: 1, borderRightColor: Colors.border },
-  countryCodeText:{ fontSize: FontSize.md, fontWeight: '600', color: Colors.text },
-  phoneInput:    { flex: 1, paddingHorizontal: Spacing.md, paddingVertical: 14, fontSize: FontSize.lg, color: Colors.text, fontWeight: '600' },
-  errorText:     { color: Colors.error, fontSize: FontSize.sm, marginBottom: Spacing.sm },
+  countryCodeText:{ fontFamily: Fonts.medium, fontSize: FontSize.md, color: Colors.text },
+  phoneInput:    { flex: 1, paddingHorizontal: Spacing.md, paddingVertical: 14, fontFamily: Fonts.medium, fontSize: FontSize.lg, color: Colors.text },
+  errorText:     { fontFamily: Fonts.body, color: Colors.error, fontSize: FontSize.sm, marginBottom: Spacing.sm },
   button:        { backgroundColor: Colors.primary, borderRadius: Radius.md, paddingVertical: 16, alignItems: 'center', marginTop: Spacing.sm },
   buttonDisabled:{ opacity: 0.5 },
-  buttonText:    { color: '#fff', fontSize: FontSize.md, fontWeight: '700' },
+  buttonText:    { fontFamily: Fonts.display, color: '#fff', fontSize: FontSize.md },
   infoRow:       { marginTop: Spacing.md, alignItems: 'center' },
-  infoText:      { fontSize: FontSize.xs, color: Colors.textLight, textAlign: 'center' },
+  infoInline:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  infoText:      { fontFamily: Fonts.body, fontSize: FontSize.xs, color: Colors.textLight, textAlign: 'center' },
 });

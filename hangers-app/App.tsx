@@ -8,11 +8,12 @@ import { View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 import {
-  Syne_400Regular, Syne_600SemiBold, Syne_700Bold, Syne_800ExtraBold
-} from '@expo-google-fonts/syne';
-import {
-  DMSans_400Regular, DMSans_500Medium, DMSans_700Bold
-} from '@expo-google-fonts/dm-sans';
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter';
+import { SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
+import { SpaceMono_400Regular } from '@expo-google-fonts/space-mono';
 
 import { AuthProvider }  from './src/hooks/useAuth';
 import AppNavigator      from './src/navigation/AppNavigator';
@@ -26,13 +27,19 @@ export default function App() {
   const [showCustomSplash, setShowCustomSplash] = useState(true);
 
   const [fontsLoaded, fontError] = useFonts({
-    Syne_400Regular,
-    Syne_600SemiBold,
-    Syne_700Bold,
-    Syne_800ExtraBold,
-    DMSans_400Regular,
-    DMSans_500Medium,
-    DMSans_700Bold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_700Bold,
+    SpaceGrotesk_700Bold,
+    SpaceMono_400Regular,
+    DMSans_400Regular: Inter_400Regular,
+    DMSans_500Medium: Inter_500Medium,
+    DMSans_700Bold: Inter_700Bold,
+    Syne_400Regular: SpaceGrotesk_700Bold,
+    Syne_600SemiBold: SpaceGrotesk_700Bold,
+    Syne_700Bold: SpaceGrotesk_700Bold,
+    Syne_800ExtraBold: SpaceGrotesk_700Bold,
+    SpaceMono_700Bold: SpaceMono_400Regular,
   });
 
   useEffect(() => {

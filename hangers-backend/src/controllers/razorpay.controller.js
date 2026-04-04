@@ -151,7 +151,7 @@ const verifyRazorpayPayment = async (req, res) => {
       amount:      payment.amount,
       method:      'RAZORPAY',
       status:      'SUCCESS',
-    }, 'Payment successful! 🎉');
+    }, 'Payment successful!');
 
   } catch (err) {
     console.error('verifyRazorpayPayment error:', err.message);
@@ -164,33 +164,108 @@ const getPaymentHistory = async (req, res) => {
   const customerId = req.customer.id;
 
   try {
-    // Get all payments for all orders belonging to this customer
-    const payments = await prisma.payment.findMany({
-      where: {
-        order: { customerId },
-      },
-      include: {
-        order: {
+    const orders = await prisma.order.findMany({
+      where: { customerId },
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        totalAmount: true,
+        paymentStatus: true,
+        paidAmount: true,
+        createdAt: true,
+        updatedAt: true,
+        payments: {
+          orderBy: { createdAt: 'desc' },
           select: {
-            orderNumber: true,
-            status:      true,
-            totalAmount: true,
+            id: true,
+            amount: true,
+            method: true,
+            status: true,
+            reference: true,
+            createdAt: true,
+            razorpayPaymentId: true,
+          },
+        },
+        walletTxns: {
+          where: { type: 'DEBIT' },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            amount: true,
+            createdAt: true,
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
     });
 
-    const formatted = payments.map(p => ({
-      id:          p.id,
-      amount:      p.amount,
-      method:      p.method,
-      status:      p.status,
-      reference:   p.reference,
-      createdAt:   p.createdAt,
-      orderNumber: p.order?.orderNumber,
-      orderStatus: p.order?.status,
-    }));
+    const formatted = orders.flatMap((order) => {
+      const baseOrder = {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        totalAmount: order.totalAmount,
+        paymentStatus: order.paymentStatus,
+        paidAmount: order.paidAmount,
+      };
+
+      const paymentEntries = order.payments.map((payment) => ({
+        id: payment.id,
+        amount: payment.amount,
+        method: payment.method,
+        status: ['PAID', 'PARTIAL', 'UNPAID'].includes(order.paymentStatus) ? order.paymentStatus : payment.status,
+        reference: payment.reference,
+        createdAt: payment.createdAt,
+        razorpayPaymentId: payment.razorpayPaymentId,
+        order: baseOrder,
+      }));
+
+      const walletAmount = order.walletTxns.reduce((sum, txn) => sum + (txn.amount || 0), 0);
+      const paymentAmount = order.payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+      const adjustmentAmount = Math.max(0, Number(((order.paidAmount || 0) - walletAmount - paymentAmount).toFixed(2)));
+      const supplementalEntries = [];
+
+      if (walletAmount > 0) {
+        supplementalEntries.push({
+          id: `wallet-${order.id}`,
+          amount: walletAmount,
+          method: 'WALLET',
+          status: order.paymentStatus,
+          reference: null,
+          createdAt: order.walletTxns[0]?.createdAt || order.updatedAt || order.createdAt,
+          razorpayPaymentId: null,
+          order: baseOrder,
+        });
+      }
+
+      if (adjustmentAmount > 0) {
+        supplementalEntries.push({
+          id: `adjustment-${order.id}`,
+          amount: adjustmentAmount,
+          method: 'ADJUSTMENT',
+          status: order.paymentStatus,
+          reference: null,
+          createdAt: order.updatedAt || order.createdAt,
+          razorpayPaymentId: null,
+          order: baseOrder,
+        });
+      }
+
+      if (!paymentEntries.length && !supplementalEntries.length && (order.paidAmount || 0) > 0) {
+        supplementalEntries.push({
+          id: `settled-${order.id}`,
+          amount: order.paidAmount,
+          method: 'SETTLEMENT',
+          status: order.paymentStatus,
+          reference: null,
+          createdAt: order.updatedAt || order.createdAt,
+          razorpayPaymentId: null,
+          order: baseOrder,
+        });
+      }
+
+      return [...paymentEntries, ...supplementalEntries];
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     return success(res, { payments: formatted });
   } catch (err) {

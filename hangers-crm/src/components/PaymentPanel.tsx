@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { paymentsAPI } from '@/lib/api'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
+import { CheckCircle2, CreditCard, IndianRupee, Wallet } from 'lucide-react'
 
 interface Props {
   orderId:          string
@@ -77,7 +78,10 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
 
   return (
     <div style={{ background:'#fff', borderRadius:20, padding:24, border:'1px solid #e8f0f7', boxShadow:'0 2px 12px rgba(2,60,98,0.06)', marginBottom:16 }}>
-      <div style={{ fontSize:11, color:'#6b7fa3', fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:16 }}>💰 Payment</div>
+      <div style={{ fontSize:11, color:'#6b7fa3', fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:16, display:'flex', alignItems:'center', gap:6 }}>
+        <IndianRupee size={14} />
+        <span>Payment</span>
+      </div>
 
       {/* Summary */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:16 }}>
@@ -160,16 +164,17 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
           <button
             onClick={handleSubmit}
             disabled={loading}
-            style={{ width:'100%', padding:'10px', background:'#023c62', color:'#fff', border:'none', borderRadius:8, fontWeight:700, fontSize:13, cursor:'pointer', opacity: loading ? 0.7 : 1 }}
+            style={{ width:'100%', padding:'10px', background:'#023c62', color:'#fff', border:'none', borderRadius:8, fontWeight:700, fontSize:13, cursor:'pointer', opacity: loading ? 0.7 : 1, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:8 }}
           >
-            {loading ? 'Recording...' : writeOff ? `✅ Pay ₹${paid} + Write Off ₹${remaining.toFixed(0)}` : '✅ Record Payment'}
+            {loading ? 'Recording...' : writeOff ? <><Wallet size={15} /> {`Pay ₹${paid} + Write Off ₹${remaining.toFixed(0)}`}</> : <><CreditCard size={15} /> Record Payment</>}
           </button>
         </div>
       )}
 
       {paymentStatus === 'PAID' && (
-        <div style={{ background:'#e6f7f0', borderRadius:10, padding:12, textAlign:'center', color:'#0d7a4e', fontSize:13, fontWeight:600 }}>
-          ✅ Fully Paid
+        <div style={{ background:'#e6f7f0', borderRadius:10, padding:12, textAlign:'center', color:'#0d7a4e', fontSize:13, fontWeight:600, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+          <CheckCircle2 size={16} />
+          <span>Fully Paid</span>
         </div>
       )}
     </div>
