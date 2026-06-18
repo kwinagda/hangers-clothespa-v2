@@ -155,10 +155,7 @@ const verifyRazorpayPayment = async (req, res) => {
       }
     }
 
-    const requestedAmount = Number.parseFloat(amount);
-    const appliedAmount = Number.isFinite(requestedAmount) && requestedAmount > 0
-      ? Math.min(requestedAmount, balanceDue)
-      : balanceDue;
+    const appliedAmount = balanceDue;
     if (appliedAmount <= 0) return badRequest(res, 'Nothing is due on this order');
 
     const payment = await prisma.$transaction(async (tx) => {

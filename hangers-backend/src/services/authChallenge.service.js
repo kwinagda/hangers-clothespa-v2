@@ -36,6 +36,25 @@ const createAuthChallenge = async ({
   cooldownMs = 0,
   metadata = null,
 }) => {
+  if (cooldownMs > 0) {
+    const blocked = await prisma.authChallenge.findFirst({
+      where: {
+        subjectType,
+        subjectKey,
+        purpose,
+        status: AUTH_CHALLENGE_STATUS.PENDING,
+        cooldownUntil: { gt: new Date() },
+      },
+    });
+    if (blocked) {
+      const secondsLeft = Math.ceil((new Date(blocked.cooldownUntil) - Date.now()) / 1000);
+      const err = new Error('Resend cooldown active');
+      err.code = 'OTP_COOLDOWN';
+      err.secondsLeft = secondsLeft;
+      throw err;
+    }
+  }
+
   await expirePreviousChallenges({ subjectType, subjectKey, purpose });
   const hashedCode = await hashOtp(code);
   const now = Date.now();

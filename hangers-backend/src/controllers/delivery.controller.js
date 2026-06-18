@@ -283,6 +283,9 @@ const markFailed = async (req, res) => {
   try {
     const order = await prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
     if (!order) return notFound(res, 'Order not found');
+    if (!['OUT_FOR_DELIVERY', 'READY_FOR_DELIVERY'].includes(order.status)) {
+      return badRequest(res, `Cannot mark delivery failed — order is currently: ${ORDER_STATUS_LABELS[order.status] || order.status}`);
+    }
     if (!canAccessDeliveryOrder(order, req.staff)) {
       return forbidden(res, 'You can only update delivery attempts for orders assigned to you');
     }
@@ -345,11 +348,8 @@ const collectCash = async (req, res) => {
       return badRequest(res, `Amount exceeds balance due of ₹${balanceDue.toLocaleString('en-IN')}`);
     }
 
-    const newPaid = (order.paidAmount || 0) + amt;
-    const newStatus = newPaid + (order.writeOffAmount || 0) >= (order.totalAmount || 0) ? 'PAID' : 'PARTIAL';
-
-    await prisma.$transaction([
-      prisma.payment.create({
+    const { newPaid, newStatus } = await prisma.$transaction(async (tx) => {
+      await tx.payment.create({
         data: {
           orderId:     id,
           amount:      amt,
@@ -357,12 +357,17 @@ const collectCash = async (req, res) => {
           notes:       notes || `Cash collected by ${req.staff.name} on delivery`,
           collectedBy: req.staff.id,
         },
-      }),
-      prisma.order.update({
-        where: { id },
-        data:  { paidAmount: newPaid, paymentStatus: newStatus },
-      }),
-    ]);
+      });
+      const updated = await tx.order.update({
+        where:  { id },
+        data:   { paidAmount: { increment: amt } },
+        select: { paidAmount: true, totalAmount: true, writeOffAmount: true },
+      });
+      const paid = Number(updated.paidAmount);
+      const status = paid + Number(updated.writeOffAmount || 0) >= Number(updated.totalAmount || 0) ? 'PAID' : 'PARTIAL';
+      await tx.order.update({ where: { id }, data: { paymentStatus: status } });
+      return { newPaid: paid, newStatus: status };
+    });
 
     return success(res, {
       orderId: id, orderNumber: order.orderNumber,
@@ -471,21 +476,6 @@ const verifyDeliveryOtpController = async (req, res) => {
 
     const customerPhone = order.customer?.phone;
 
-    // Find valid, unexpired OTP for this customer's delivery
-    const otpRecord = await prisma.otpVerification.findFirst({
-      where: {
-        phone:     customerPhone,
-        purpose:   'DELIVERY',
-        isUsed:    false,
-        expiresAt: { gt: new Date() },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (!otpRecord) {
-      return badRequest(res, 'OTP expired or not found. Ask customer to check WhatsApp and try again.');
-    }
-
     const verification = await verifyAuthChallenge({
       subjectType: 'delivery',
       subjectKey: `${id}:${customerPhone}`,
@@ -493,10 +483,13 @@ const verifyDeliveryOtpController = async (req, res) => {
       code: otp,
     });
     if (!verification.ok) {
+      if (verification.reason === 'NOT_FOUND') {
+        return badRequest(res, 'OTP expired or not found. Ask customer to check WhatsApp and try again.');
+      }
       if (verification.reason === 'LOCKED') {
-        await prisma.otpVerification.update({
-          where: { id: otpRecord.id },
-          data: { isUsed: true },
+        await prisma.otpVerification.updateMany({
+          where: { phone: customerPhone, purpose: 'DELIVERY', isUsed: false },
+          data:  { isUsed: true },
         });
         return badRequest(res, 'Too many wrong OTP attempts. Please send a new OTP.');
       }
@@ -504,8 +497,8 @@ const verifyDeliveryOtpController = async (req, res) => {
     }
 
     // Mark OTP used
-    await prisma.otpVerification.update({
-      where: { id: otpRecord.id },
+    await prisma.otpVerification.updateMany({
+      where: { phone: customerPhone, purpose: 'DELIVERY', isUsed: false },
       data:  { isUsed: true },
     });
 

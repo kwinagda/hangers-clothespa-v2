@@ -133,19 +133,18 @@ const requestPickup = async (req, res) => {
       ? normalizedItems.reduce((sum, item) => sum + item.subtotal, 0)
       : parseFloat(subtotal) || 0;
 
-    // ── Wallet deduction ───────────────────────────────────────────────────
-    let walletApplied = 0;
-    if (useWalletCredits && calcSubtotal > 0) {
-      const customer = await prisma.customer.findUnique({
-        where: { id: customerId },
-        select: { walletBalance: true },
-      });
-      walletApplied = Math.min(customer?.walletBalance || 0, calcSubtotal);
-    }
-    const calcTotal = calcSubtotal - walletApplied;
+    // ── Create order (+ wallet deduction) in one atomic transaction ───────
+    const { order, walletApplied } = await prisma.$transaction(async (tx) => {
+      let appliedWallet = 0;
+      if (useWalletCredits && calcSubtotal > 0) {
+        const customerData = await tx.customer.findUnique({
+          where: { id: customerId },
+          select: { walletBalance: true },
+        });
+        appliedWallet = Math.min(Number(customerData?.walletBalance) || 0, calcSubtotal);
+      }
+      const calcTotal = calcSubtotal - appliedWallet;
 
-    // ── Create order (+ wallet deduction) in a transaction ────────────────
-    const order = await prisma.$transaction(async (tx) => {
       const created = await tx.order.create({
         data: {
           orderNumber,
@@ -155,9 +154,9 @@ const requestPickup = async (req, res) => {
           status:        'PENDING',
           paymentStatus: calcTotal <= 0 ? 'PAID' : 'UNPAID',
           subtotal:      calcSubtotal,
-          discount:      walletApplied,
+          discount:      appliedWallet,
           totalAmount:   calcTotal,
-          paidAmount:    walletApplied,
+          paidAmount:    appliedWallet,
           notes:         notes || null,
           pickupDate:    new Date(pickupDate),
           pickupSlot:    resolvedTimeSlot,
@@ -189,15 +188,15 @@ const requestPickup = async (req, res) => {
         include: { items: true, stages: true },
       });
 
-      if (walletApplied > 0) {
+      if (appliedWallet > 0) {
         await tx.customer.update({
           where: { id: customerId },
-          data:  { walletBalance: { decrement: walletApplied } },
+          data:  { walletBalance: { decrement: appliedWallet } },
         });
         await tx.walletTransaction.create({
           data: {
             customerId,
-            amount:  walletApplied,
+            amount:  appliedWallet,
             type:    'DEBIT',
             reason:  'ORDER_PAYMENT',
             orderId: created.id,
@@ -205,7 +204,7 @@ const requestPickup = async (req, res) => {
         });
       }
 
-      return created;
+      return { order: created, walletApplied: appliedWallet };
     });
 
     return created(

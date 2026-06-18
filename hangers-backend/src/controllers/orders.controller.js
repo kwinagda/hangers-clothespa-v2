@@ -16,13 +16,14 @@ const { orderStatusUpdateSchema }                  = require('../validation/orde
 const { normalizeOrderItem }                       = require('../utils/line-pricing');
 
 const WA_NOTIFY_STATUSES = new Set(['PICKED_UP','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED']);
-const ORDER_STATUS_SEQUENCE = ['PENDING', 'PICKED_UP', 'PROCESSING', 'WASHING', 'DRYING', 'IRONING', 'QC', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED'];
+const ORDER_STATUS_SEQUENCE = ['PENDING', 'PICKED_UP', 'SENT_TO_PLANT', 'PROCESSING', 'WASHING', 'DRYING', 'IRONING', 'QC', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'RETURNED'];
 const STATUS_CORRECTION_ROLES = ['SUPER_ADMIN', 'MANAGER'];
 const HIGH_RISK_STATUS_CORRECTION_ROLES = ['SUPER_ADMIN'];
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 const BACKWARD_TRANSITIONS = {
   PICKED_UP: ['PENDING'],
-  PROCESSING: ['PICKED_UP'],
+  SENT_TO_PLANT: ['PICKED_UP'],
+  PROCESSING: ['PICKED_UP', 'SENT_TO_PLANT'],
   WASHING: ['PROCESSING'],
   DRYING: ['WASHING'],
   IRONING: ['DRYING'],
@@ -651,6 +652,9 @@ const addItemsToOrder = async (req, res) => {
 
     const order = await prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
     if (!order) return notFound(res, 'Order not found');
+    if (['DELIVERED', 'CANCELLED', 'RETURNED'].includes(order.status)) {
+      return badRequest(res, `Cannot add items to a ${order.status.toLowerCase()} order`);
+    }
     const normalizedItems = items.map((item) => normalizeOrderItem(item, { defaultServiceName: '' }));
     if (normalizedItems.some((item) => !item.serviceName)) return badRequest(res, 'Each item must include a serviceName');
     if (normalizedItems.some((item) => item.unitPrice < 0)) return badRequest(res, 'Item unitPrice cannot be negative');
@@ -678,9 +682,13 @@ const addItemsToOrder = async (req, res) => {
     const newDiscount = discount !== undefined ? Math.max(0, parseFloat(discount)) : (order.discount || 0);
     const newTotal    = Math.max(0, newSubtotal - newDiscount);
 
+    const paidAmount = Number(order.paidAmount || 0);
+    const writeOff = Number(order.writeOffAmount || 0);
+    const effectivePaid = paidAmount + writeOff;
+    const newPaymentStatus = effectivePaid >= newTotal ? 'PAID' : effectivePaid > 0 ? 'PARTIAL' : 'UNPAID';
     const updatedOrder = await prisma.order.update({
       where:   { id },
-      data:    { subtotal: newSubtotal, discount: newDiscount, totalAmount: newTotal },
+      data:    { subtotal: newSubtotal, discount: newDiscount, totalAmount: newTotal, paymentStatus: newPaymentStatus },
       include: {
         items:    true,
         stages:   { orderBy: { createdAt: 'asc' } },

@@ -64,7 +64,7 @@ const getReferralInfo = async (req, res) => {
         name:         r.referred.name || 'Anonymous',
         joinedAt:     r.referred.createdAt,
         creditEarned: r.creditAwarded,
-        status:       r.status || REFERRAL_STATUS.REWARDED,
+        status:       r.status || REFERRAL_STATUS.PENDING,
       })),
     });
   } catch (err) {

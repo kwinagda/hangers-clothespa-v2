@@ -31,7 +31,7 @@ router.get('/',              staffAuth, crmAccess, requirePermission('orders.vie
 router.get('/:id',           staffAuth, crmAccess, requirePermission('orders.view'), getOrder);
 router.post('/',             staffAuth, crmAccess, requirePermission('orders.create'), createOrder);
 router.patch('/:id/status',  staffAuth, crmAccess, requirePermission('orders.update_status'), updateOrderStatus);
-router.post('/:id/payments', staffAuth, financeAccess, requireRole('SUPER_ADMIN', 'MANAGER', 'ACCOUNTS', 'COUNTER_STAFF'), recordPayment);
+router.post('/:id/payments', staffAuth, crmAccess, requireRole('SUPER_ADMIN', 'MANAGER', 'ACCOUNTS', 'COUNTER_STAFF'), recordPayment);
 router.patch('/:id/items',   staffAuth, crmAccess, requirePermission('orders.edit'), addItemsToOrder);
 router.delete('/:id',        staffAuth, crmAccess, requireRole('SUPER_ADMIN', 'MANAGER'), deleteOrder);
 

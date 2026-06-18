@@ -14,30 +14,44 @@ const validateCoupon = async (req, res) => {
     const normalizedCode = code.toUpperCase();
     const parsedOrderTotal = orderTotal;
 
-    const coupon = await prisma.coupon.findUnique({ where: { code: normalizedCode } });
-    if (!coupon)          return badRequest(res, 'Invalid coupon code');
-    if (!coupon.isActive) return badRequest(res, 'This coupon is no longer active');
+    const { coupon, discount } = await prisma.$transaction(async (tx) => {
+      const coupon = await tx.coupon.findUnique({ where: { code: normalizedCode } });
+      if (!coupon) throw Object.assign(new Error('INVALID_CODE'), { code: 'INVALID_CODE' });
+      if (!coupon.isActive) throw Object.assign(new Error('INACTIVE'), { code: 'INACTIVE' });
 
-    const now = new Date();
-    if (coupon.validFrom > now)                          return badRequest(res, 'Coupon not yet valid');
-    if (coupon.validUntil && coupon.validUntil < now)    return badRequest(res, 'Coupon has expired');
-    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) return badRequest(res, 'Coupon usage limit reached');
-    if (parsedOrderTotal < coupon.minOrderValue)         return badRequest(res, `Minimum order value ₹${coupon.minOrderValue} required`);
+      const now = new Date();
+      if (coupon.validFrom > now) throw Object.assign(new Error('NOT_YET_VALID'), { code: 'NOT_YET_VALID' });
+      if (coupon.validUntil && coupon.validUntil < now) throw Object.assign(new Error('EXPIRED'), { code: 'EXPIRED' });
+      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) throw Object.assign(new Error('LIMIT_REACHED'), { code: 'LIMIT_REACHED' });
+      if (parsedOrderTotal < coupon.minOrderValue) throw Object.assign(new Error('MIN_ORDER'), { code: 'MIN_ORDER', min: coupon.minOrderValue });
 
-    let discount = 0;
-    if (coupon.type === 'PERCENTAGE' || coupon.type === 'PERCENT') {
-      discount = (parsedOrderTotal * coupon.value) / 100;
-      if (coupon.maxDiscount) discount = Math.min(discount, coupon.maxDiscount);
-    } else {
-      discount = coupon.value;
-    }
-    discount = Math.min(discount, parsedOrderTotal);
+      if (coupon.usageLimit) {
+        await tx.coupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } });
+      }
+
+      let discount = 0;
+      if (coupon.type === 'PERCENTAGE' || coupon.type === 'PERCENT') {
+        discount = (parsedOrderTotal * coupon.value) / 100;
+        if (coupon.maxDiscount) discount = Math.min(discount, coupon.maxDiscount);
+      } else {
+        discount = coupon.value;
+      }
+      discount = Math.min(discount, parsedOrderTotal);
+
+      return { coupon, discount: Math.round(discount) };
+    });
 
     return success(res, {
       coupon:   { id: coupon.id, code: coupon.code, type: coupon.type, value: coupon.value },
-      discount: Math.round(discount),
-    }, `Coupon applied — ₹${Math.round(discount)} off`);
+      discount,
+    }, `Coupon applied — ₹${discount} off`);
   } catch (e) {
+    if (e.code === 'INVALID_CODE') return badRequest(res, 'Invalid coupon code');
+    if (e.code === 'INACTIVE') return badRequest(res, 'This coupon is no longer active');
+    if (e.code === 'NOT_YET_VALID') return badRequest(res, 'Coupon not yet valid');
+    if (e.code === 'EXPIRED') return badRequest(res, 'Coupon has expired');
+    if (e.code === 'LIMIT_REACHED') return badRequest(res, 'Coupon usage limit reached');
+    if (e.code === 'MIN_ORDER') return badRequest(res, `Minimum order value ₹${e.min} required`);
     return error(res, 'Failed to validate coupon');
   }
 };

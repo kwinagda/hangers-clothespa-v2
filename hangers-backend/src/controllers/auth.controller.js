@@ -176,6 +176,9 @@ const sendOtpController = async (req, res) => {
     }, devMode ? 'OTP ready - use 123456' : 'OTP sent via WhatsApp');
 
   } catch (err) {
+    if (err.code === 'OTP_COOLDOWN') {
+      return badRequest(res, `Please wait ${err.secondsLeft} second${err.secondsLeft === 1 ? '' : 's'} before requesting another OTP`);
+    }
     console.error('sendOtp error:', err.message);
     await Promise.allSettled([
       registerAuthThrottleFailure({ scope: 'customer-otp-send:phone', scopeKey: normalizedPhone, maxFailures: OTP_SEND_MAX_FAILURES, windowMs: OTP_SEND_WINDOW_MS }),

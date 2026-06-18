@@ -157,7 +157,7 @@ const processReferralQualification = async (orderId) => {
     });
 
     return { processed: true, rewardAmount, referralId: referral.id };
-  });
+  }, { isolationLevel: 'Serializable' });
 };
 
 module.exports = {

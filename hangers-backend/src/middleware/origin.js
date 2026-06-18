@@ -55,8 +55,7 @@ const hasValidSameOrigin = (req) => {
   const refererOrigin = getOriginFromReferer(req.headers.referer);
   if (refererOrigin) return trustedOrigins.has(refererOrigin);
 
-  if (fetchSiteAllowed === null) return true;
-  return fetchSiteAllowed;
+  return fetchSiteAllowed === true;
 };
 
 const requireSameOrigin = (req, res, next) => {

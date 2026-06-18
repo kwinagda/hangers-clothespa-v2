@@ -10,12 +10,14 @@ const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 const calculatePaymentState = (order, incomingAmount) => {
   const requestedAmount = Number.parseFloat(incomingAmount);
   const currentPaid = Number(order?.paidAmount || 0);
+  const currentWriteOff = Number(order?.writeOffAmount || 0);
   const totalAmount = Number(order?.totalAmount || 0);
-  const balanceDue = Math.max(0, Number((totalAmount - currentPaid).toFixed(2)));
+  const balanceDue = Math.max(0, Number((totalAmount - currentPaid - currentWriteOff).toFixed(2)));
   const appliedAmount = Math.min(requestedAmount, balanceDue);
   const overpayment = Math.max(0, Number((requestedAmount - appliedAmount).toFixed(2)));
   const nextPaidAmount = Number((currentPaid + appliedAmount).toFixed(2));
-  const paymentStatus = nextPaidAmount >= totalAmount ? 'PAID' : nextPaidAmount > 0 ? 'PARTIAL' : 'UNPAID';
+  const effectivePaid = Number((nextPaidAmount + currentWriteOff).toFixed(2));
+  const paymentStatus = effectivePaid >= totalAmount ? 'PAID' : effectivePaid > 0 ? 'PARTIAL' : 'UNPAID';
 
   return { requestedAmount, balanceDue, appliedAmount, overpayment, nextPaidAmount, paymentStatus };
 };
@@ -91,7 +93,7 @@ const recordPayment = async (req, res) => {
       payment,
       paidAmount:    updatedOrder.paidAmount,
       paymentStatus: updatedOrder.paymentStatus,
-      balance:       Math.max(0, updatedOrder.totalAmount - updatedOrder.paidAmount),
+      balance:       Math.max(0, Number(updatedOrder.totalAmount) - Number(updatedOrder.paidAmount) - Number(updatedOrder.writeOffAmount || 0)),
       overpayment,
     }, 'Payment recorded successfully');
     if (updatedOrder.paymentStatus === 'PAID') {
