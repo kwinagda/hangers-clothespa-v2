@@ -43,11 +43,14 @@ For the strict master-data migration audit context, read:
 ## Tech Stack
 
 - React Native + Expo
-- Next.js
+- Next.js 15 + React Query v5
 - Node.js + Express
-- Prisma
-- PostgreSQL
+- Prisma + PostgreSQL
+- TypeScript (CRM + apps)
+- BullMQ + Redis (notification and PDF queues)
 - Axios
+- Zod (validation)
+- GitHub Actions (CI)
 
 ## Quick Start
 
@@ -107,22 +110,67 @@ npm run dev
 - CRM: `http://localhost:5002`
 - customer/staff apps use `EXPO_PUBLIC_API_URL` when set
 
+## Backend API Domains
+
+The backend is now organized into focused domain modules (not a single god-controller):
+
+| Domain | Route prefix |
+|---|---|
+| Auth | `/api/v1/auth` |
+| Customers | `/api/v1/customers` |
+| Orders | `/api/v1/orders` |
+| Payments | `/api/v1/payments` |
+| Delivery | `/api/v1/delivery` |
+| Plant / Challan | `/api/v1/plant` |
+| Iron (Daily Iron) | `/api/v1/iron` |
+| Cashbook | `/api/v1/cashbook` |
+| Expenses | `/api/v1/expenses` |
+| AR Ledger | `/api/v1/ar-ledger` |
+| Transfers | `/api/v1/transfers` |
+| Attendance | `/api/v1/attendance` |
+| Coupons | `/api/v1/coupons` |
+| Loyalty | `/api/v1/loyalty` |
+| Upcharges | `/api/v1/upcharges` |
+| Recurring Pickups | `/api/v1/recurring` |
+| Campaigns | `/api/v1/campaigns` |
+| Reports | `/api/v1/reports` |
+| Search | `/api/v1/search` |
+| Automations | `/api/v1/automations` |
+| Wallet (staff) | `/api/v1/wallet` |
+| Checkout | `/api/v1/checkout` |
+| Razorpay | `/api/v1/customer/payments` |
+| Metadata | `/api/v1/metadata` |
+| Security / Audit | `/api/v1/security` |
+| Real-time (SSE) | `/api/v1/realtime` |
+
+## Running Tests
+
+```bash
+cd hangers-backend && npm test   # 24 tests
+```
+
 ## Current Direction
 
-Recent work in this repository focused on:
+The platform has completed a full CTO-level hardening and structural overhaul:
 
-- centralizing master data and metadata usage
-- reducing cross-app status / payment mismatches
-- hardening API response handling
-- redesigning the customer app with stronger branding and better UX density
-- expanding Daily Iron flows across backend, customer app, and CRM
+- **Security**: 15 confirmed race-condition, financial-fraud, and access-control bugs patched
+- **Architecture**: `phaseA.controller.js` (1,037 lines) split into 13 focused domain controllers
+- **Infrastructure**: BullMQ queues for notifications and PDFs, SSE real-time order board, centralized wallet service, idempotency keys on payments
+- **DB**: 12 composite indexes added; Serializable isolation on referral transactions
+- **CRM**: React Query v5, shared UI component library, TypeScript config, GitHub Actions CI
+- **Origin protection**: CSRF-style trusted-origin middleware enforced on all mutating staff routes
+- **OTP cooldown**: resend cooldowns now enforced at the `AuthChallenge` layer
+- **Coupon integrity**: usage limits now atomically checked and incremented
+
+Next focus: targeted feature work, delivery exception flows, and a pre-launch smoke-test pass.
 
 ## Development Notes
 
-- This is a mono-workspace style repo, not four disconnected projects.
-- Many features span all four codebases, so changes often require checking backend + customer app + staff app + CRM together.
-- Canonical values matter. Labels should come from metadata, but behavior and persistence should use canonical keys.
-- Order-level payment truth is important. Do not casually replace it with raw transaction-only logic.
+- This is a mono-workspace repo — changes often span backend + customer app + staff app + CRM together.
+- Canonical values matter. Labels come from metadata; behavior and persistence use canonical keys.
+- Order-level payment truth is the source of record — do not replace it with raw transaction-only logic.
+- Never add a second source of truth for master data; extend `master-data.js` and the `/metadata` surface.
+- `phaseA.controller.js` and `phaseA.routes.js` have been deleted. All their endpoints live in domain-specific controllers now.
 
 ## Repository Hygiene
 

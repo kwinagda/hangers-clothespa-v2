@@ -64,18 +64,28 @@ Main backend:
 - Prisma schema in `hangers-backend/prisma/schema.prisma`
 - shared master data in `hangers-backend/src/config/master-data.js`
 
-Important backend routing areas:
+Important backend routing areas (post-ultraplan refactor, commit `c4a5945`):
 
 - auth
-- customers
-- addresses
-- customer orders
-- orders
+- customers / addresses
+- customer orders (customer-facing)
+- orders (CRM-facing)
 - payments / Razorpay
 - metadata
-- iron
+- iron (Daily Iron)
 - delivery
-- plant
+- plant / challan
+- cashbook / expenses / AR ledger
+- transfers / attendance
+- coupons / loyalty / upcharges
+- recurring pickups
+- campaigns / automations
+- reports / search
+- wallet (staff-side)
+- security / audit log
+- realtime (SSE)
+
+**phaseA.controller.js was deleted.** All its endpoints now live in the 13 domain-specific controllers above. Do not refer to phaseA in new code or routes.
 
 ### Customer app
 
@@ -402,6 +412,16 @@ If future AI has limited time, start here:
 - `hangers-backend/src/controllers/razorpay.controller.js`
 - `hangers-backend/src/controllers/metadata.controller.js`
 - `hangers-backend/src/controllers/iron.controller.js`
+- `hangers-backend/src/services/wallet.service.js` (centralized wallet)
+- `hangers-backend/src/services/sse.service.js` (SSE real-time)
+- `hangers-backend/src/middleware/asyncHandler.js`
+- `hangers-backend/src/middleware/idempotency.js`
+- `hangers-backend/src/queues/index.js` (BullMQ)
+
+**Deleted** (do not reference or recreate):
+- `hangers-backend/src/controllers/phaseA.controller.js`
+- `hangers-backend/src/routes/phaseA.routes.js`
+- `hangers-backend/src/validation/phaseA.schemas.js`
 
 ### Customer app
 
@@ -1415,3 +1435,102 @@ Latest CRM page-design follow-up:
 Verification completed for this follow-up:
 
 - `npm run build` in `hangers-crm`
+
+## CTO-Level SaaS Hardening + Architecture Refactor
+
+Date: 2026-06-17
+
+Commit range: `1427689` (15 bug fixes) → `36a25ed` (Phase 0/1/2/3 hardening) → `c4a5945` (phaseA decomposition)
+
+### 15 Security / Race-Condition Bug Fixes
+
+All confirmed CONFIRMED-severity findings from the ultra code review were patched:
+
+- **Razorpay amount injection**: removed client-supplied `amount` field path; backend always uses server-computed `balanceDue`
+- **Referral race condition**: `processReferralQualification` now runs inside `{ isolationLevel: 'Serializable' }` transaction
+- **Staff wallet race condition**: balance reads in `deductWallet` and `applyWalletToOrder` moved inside transactions; typed error codes for every failure path
+- **Customer pickup wallet race**: `requestPickup` wallet-balance read moved inside the order-creation transaction
+- **Delivery `markFailed` missing guard**: status must be `OUT_FOR_DELIVERY` or `READY_FOR_DELIVERY` before accepting failure
+- **Delivery `collectCash` lost-update**: rewritten with `{ increment: amt }` inside an interactive transaction; paymentStatus re-derived from the new total
+- **Delivery OTP dead code removed**: dead `otpRecord` fetch removed; `updateMany` used to mark OTPs used; `verifyAuthChallenge` is now the single NOT_FOUND source
+- **Origin middleware null-check**: `fetchSiteAllowed` falsy check corrected — `return fetchSiteAllowed === true` instead of `return true` on null
+- **Coupon TOCTOU**: `validateCoupon` now atomically checks and increments `usedCount` inside a single transaction
+- **Payment write-off ignored in `calculatePaymentState`**: `currentWriteOff` is now added to `balanceDue` and `effectivePaid` computation
+- **Order status sequence gaps**: `SENT_TO_PLANT` and `RETURNED` added to `ORDER_STATUS_SEQUENCE`; backward transitions updated accordingly
+- **`addItemsToOrder` after terminal state**: DELIVERED/CANCELLED/RETURNED orders now blocked from item edits; `paymentStatus` recomputed after items change
+- **Wrong referral fallback**: `r.status || REFERRAL_STATUS.REWARDED` corrected to `r.status || REFERRAL_STATUS.PENDING`
+- **OTP cooldown missing**: `createAuthChallenge` now throws `OTP_COOLDOWN` with `secondsLeft` before expiring old challenges; `sendOtpController` catches and returns 400
+- **Counter staff can't record payments**: orders payment route changed from `financeAccess` to `crmAccess`
+
+### phaseA God-Object Decomposition
+
+`phaseA.controller.js` (1,037 lines) and its routes/validation files were **deleted**.
+
+13 focused domain controllers were created:
+
+| Controller | Route |
+|---|---|
+| `cashbook.controller.js` | `/api/v1/cashbook` |
+| `expenses.controller.js` | `/api/v1/expenses` |
+| `ar-ledger.controller.js` | `/api/v1/ar-ledger` |
+| `transfers.controller.js` | `/api/v1/transfers` |
+| `attendance.controller.js` | `/api/v1/attendance` |
+| `coupons.controller.js` | `/api/v1/coupons` |
+| `loyalty.controller.js` | `/api/v1/loyalty` |
+| `upcharges.controller.js` | `/api/v1/upcharges` |
+| `recurring.controller.js` | `/api/v1/recurring` |
+| `campaigns.controller.js` | `/api/v1/campaigns` |
+| `automations.controller.js` | `/api/v1/automations` |
+| `reports.controller.js` | `/api/v1/reports` |
+| `search.controller.js` | `/api/v1/search` |
+
+Each domain has a matching route file and Zod validation schema file. All 13 are registered in `src/index.js`.
+
+### New Infrastructure
+
+- **`src/middleware/asyncHandler.js`**: wraps async route handlers; eliminates try/catch boilerplate
+- **`src/middleware/idempotency.js`**: idempotency keys for payment mutation routes; prevents duplicate charges on retry
+- **`src/queues/connection.js`**: Redis connection factory with graceful fallback
+- **`src/queues/notifications.queue.js`**: BullMQ queue for async WhatsApp/push notifications
+- **`src/queues/pdf.queue.js`**: BullMQ queue for async PDF generation (challans, bills)
+- **`src/services/sse.service.js`**: Server-Sent Events for the real-time plant/order board
+- **`src/services/wallet.service.js`**: centralized wallet credit/debit logic; replaces scattered inline wallet mutations across controllers
+
+### DB Changes
+
+- **12 composite indexes** added to `prisma/schema.prisma` for high-traffic query paths
+- `Serializable` isolation now used on referral qualification
+
+### CRM Upgrades
+
+- Upgraded to **React Query v5** with a shared `QueryProvider` wrapper
+- Shared UI component library added under `hangers-crm/src/components/ui/`:
+  - `Badge.tsx`, `Button.tsx`, `EmptyState.tsx`, `ErrorState.tsx`, `PageHeader.tsx`, `StatCard.tsx`, `index.ts`
+- Shared query definitions in `hangers-crm/src/lib/queries.ts`
+
+### CI/CD + TypeScript
+
+- **`.github/workflows/ci.yml`**: GitHub Actions CI pipeline (lint, type-check, test, build)
+- **`hangers-backend/tsconfig.json`**: TypeScript configuration for the backend
+
+### Verification
+
+- All 13 new domain controllers load cleanly via `node -e require()`
+- `npm test` in `hangers-backend`: 24 passing tests
+- `npm run build` in `hangers-crm`: passes
+- `npx tsc --noEmit` in `hangers-app`: passes
+- `npx tsc --noEmit` in `hangers-staff-app`: passes
+- `npx prisma db push` applied 12 new indexes
+- Backend restarted cleanly on `5001`
+- `http://localhost:5001/api/v1/metadata` returned HTTP 200
+
+### Architecture State After This Batch
+
+- No `phaseA.controller.js` — it does not exist and must not be recreated
+- Backend is now organized into single-responsibility domain controllers
+- Wallet mutations go through `wallet.service.js`
+- Payment mutations must use idempotency keys
+- Async notifications and PDFs go through BullMQ queues
+- Real-time order-board updates go through SSE (`sse.service.js`)
+- CRM component library is in `hangers-crm/src/components/ui/`
+- React Query state is managed through the shared `QueryProvider`
