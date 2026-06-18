@@ -2,7 +2,15 @@
 import { ChangeEvent, useEffect, useState } from 'react'
 import { couponsAPI, loyaltyAPI, metadataAPI, upchargesAPI } from '@/lib/api'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import toast from 'react-hot-toast'
 type Tab = 'coupons'|'loyalty'|'upcharges'
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
 export default function PromotionsPage() {
   const [tab,setTab] = useState<Tab>('coupons')
   const [coupons,setCoupons] = useState<any[]>([])
@@ -12,6 +20,7 @@ export default function PromotionsPage() {
   const [showUp,setShowUp] = useState(false)
   const [saving,setSaving] = useState(false)
   const [loading,setLoading] = useState(false)
+  const [loadError,setLoadError] = useState('')
   const [discountTypes,setDiscountTypes] = useState<Array<{ value: string; label: string }>>([])
   const [couponPage,setCouponPage] = useState(1)
   const [upchargePage,setUpchargePage] = useState(1)
@@ -25,10 +34,13 @@ export default function PromotionsPage() {
     metadataAPI.getAll().then((r:any) => {
       const metadata = r?.metadata || r?.data?.metadata || {}
       setDiscountTypes(metadata.discountValueTypes || [])
-    }).catch(() => {})
-    couponsAPI.getAll().then((r:any)=>setCoupons(r.data||[]))
-    loyaltyAPI.getRules().then((r:any)=>{setLoyalty(r.data);if(r.data)setLf({earnPerRupee:r.data.earnPerRupee,redeemPerPoint:r.data.redeemPerPoint,minRedeemPoints:r.data.minRedeemPoints})})
-    upchargesAPI.getAll().then((r:any)=>setUpcharges(r.data||[]))
+    }).catch((e:any) => {
+      setDiscountTypes([])
+      toast.error(e.message || 'Failed to load metadata')
+    })
+    couponsAPI.getAll().then((r:any)=>{ setCoupons(asArray(r.data, ['coupons', 'items'])); setLoadError('') }).catch((e:any)=>{ setCoupons([]); setLoadError(e.message || 'Failed to load promotions data.'); toast.error(e.message || 'Failed to load coupons') })
+    loyaltyAPI.getRules().then((r:any)=>{setLoyalty(r.data);if(r.data)setLf({earnPerRupee:r.data.earnPerRupee,redeemPerPoint:r.data.redeemPerPoint,minRedeemPoints:r.data.minRedeemPoints})}).catch((e:any)=>{ toast.error(e.message || 'Failed to load loyalty rules') })
+    upchargesAPI.getAll().then((r:any)=>setUpcharges(asArray(r.data, ['upcharges', 'items']))).catch((e:any)=>{ setUpcharges([]); toast.error(e.message || 'Failed to load upcharges') })
   },[])
   const s = {fontFamily:"var(--crm-font-ui)"}
   const pagedCoupons = coupons.slice((couponPage - 1) * pageSize, couponPage * pageSize)
@@ -46,6 +58,7 @@ export default function PromotionsPage() {
           <button onClick={()=>setShowCoupon(true)} style={{padding:'10px 20px',background:'#023c62',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer'}}>+ Create Coupon</button>
         </div>
         <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',overflow:'hidden'}}>
+          {loadError?<div style={{padding:20,color:'#b91c1c',fontSize:13}}>{loadError}</div>:null}
           {coupons.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No coupons yet</div>:
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
             <thead><tr style={{background:'#f8fafc'}}>{['Code','Type','Value','Min Order','Used','Valid Until','Status',''].map(h=><th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:11,color:'#9dafc8',textTransform:'uppercase' as const,letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>)}</tr></thead>
@@ -57,7 +70,7 @@ export default function PromotionsPage() {
               <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{c.usedCount}{c.usageLimit?`/${c.usageLimit}`:''}</td>
               <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{c.validUntil?new Date(c.validUntil).toLocaleDateString('en-IN'):'∞'}</td>
               <td style={{padding:'10px 16px'}}><span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:c.isActive?'#dcfce7':'#f3f4f6',color:c.isActive?'#166534':'#6b7280'}}>{c.isActive?'Active':'Inactive'}</span></td>
-              <td style={{padding:'10px 16px'}}><button onClick={()=>couponsAPI.toggle(c.id).then(()=>setCoupons(coupons.map(x=>x.id===c.id?{...x,isActive:!x.isActive}:x)))} style={{fontSize:12,color:'#023c62',background:'none',border:'none',cursor:'pointer'}}>{c.isActive?'Disable':'Enable'}</button></td>
+              <td style={{padding:'10px 16px'}}><button onClick={async()=>{try{await couponsAPI.toggle(c.id);setCoupons(coupons.map(x=>x.id===c.id?{...x,isActive:!x.isActive}:x));toast.success(c.isActive?'Coupon disabled':'Coupon enabled')}catch(e:any){toast.error(e.message || 'Failed to update coupon')}}} style={{fontSize:12,color:'#023c62',background:'none',border:'none',cursor:'pointer'}}>{c.isActive?'Disable':'Enable'}</button></td>
             </tr>)}</tbody>
           </table>}
         </div>
@@ -83,7 +96,7 @@ export default function PromotionsPage() {
           <div style={{background:'#eff6ff',borderRadius:8,padding:12,fontSize:13,color:'#1d4ed8'}}>
             <strong>Example:</strong> Spend ₹500 → earn {Math.round(500*lf.earnPerRupee)} pts → worth ₹{(500*lf.earnPerRupee*lf.redeemPerPoint).toFixed(0)} discount
           </div>
-          <button onClick={async()=>{setSaving(true);await loyaltyAPI.updateRules(lf);setSaving(false)}} disabled={saving} style={{padding:'10px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',opacity:saving?0.5:1}}>
+          <button onClick={async()=>{setSaving(true);try{await loyaltyAPI.updateRules(lf);toast.success('Loyalty rules saved')}catch(e:any){toast.error(e.message || 'Failed to save loyalty rules')}finally{setSaving(false)}}} disabled={saving} style={{padding:'10px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',opacity:saving?0.5:1}}>
             {saving?'Saving...':'Save Rules'}
           </button>
         </div>
@@ -126,7 +139,7 @@ export default function PromotionsPage() {
           </div>
           <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:20}}>
             <button onClick={()=>setShowCoupon(false)} style={{padding:'8px 16px',fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer'}}>Cancel</button>
-            <button onClick={async()=>{setLoading(true);const r=await couponsAPI.create(cf);setCoupons([r.data,...coupons]);setShowCoupon(false);setLoading(false)}} disabled={loading} style={{padding:'8px 16px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Creating...':'Create'}</button>
+            <button onClick={async()=>{if(!cf.code.trim()||!cf.value){toast.error('Coupon code and value are required');return}setLoading(true);try{const r=await couponsAPI.create({...cf,code:cf.code.trim().toUpperCase()});setCoupons([r.data,...coupons]);setShowCoupon(false);setCf({code:'',type:discountTypes[0]?.value || 'PERCENT',value:'',minOrderValue:'',maxDiscount:'',usageLimit:'',validUntil:''});toast.success('Coupon created')}catch(e:any){toast.error(e.message || 'Failed to create coupon')}finally{setLoading(false)}}} disabled={loading} style={{padding:'8px 16px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Creating...':'Create'}</button>
           </div>
         </div>
       </div>}
@@ -143,7 +156,7 @@ export default function PromotionsPage() {
           </div>
           <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:20}}>
             <button onClick={()=>setShowUp(false)} style={{padding:'8px 16px',fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer'}}>Cancel</button>
-            <button onClick={async()=>{setLoading(true);const r=await upchargesAPI.create(uf);setUpcharges([...upcharges,r.data]);setShowUp(false);setLoading(false)}} disabled={loading} style={{padding:'8px 16px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Adding...':'Add'}</button>
+            <button onClick={async()=>{if(!uf.name.trim()||!uf.value){toast.error('Upcharge name and value are required');return}setLoading(true);try{const r=await upchargesAPI.create({...uf,name:uf.name.trim()});setUpcharges([...upcharges,r.data]);setShowUp(false);setUf({name:'',type:discountTypes[0]?.value || 'PERCENT',value:''});toast.success('Upcharge added')}catch(e:any){toast.error(e.message || 'Failed to add upcharge')}finally{setLoading(false)}}} disabled={loading} style={{padding:'8px 16px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Adding...':'Add'}</button>
           </div>
         </div>
       </div>}

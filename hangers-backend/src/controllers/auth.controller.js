@@ -4,12 +4,20 @@
 
 const prisma = require('../config/database');
 const {
-  generateOtp, hashOtp, verifyOtpHash, sendOtp, isDevMode
+  generateOtp, hashOtp, sendOtp, isDevMode
 }                                                  = require('../services/msg91.service');
+const { clearAuthThrottle, getAuthThrottleBlock, registerAuthThrottleFailure } = require('../services/authThrottle.service');
 const { generateCustomerToken, getTokenExpiry }    = require('../services/jwt.service');
 const { log, getRequestMeta }                      = require('../services/activity.service');
 const { success, badRequest, error, unauthorized } = require('../utils/response');
 const { LANGUAGE_VALUES }                          = require('../config/master-data');
+const { REFERRAL_STATUS }                          = require('../services/referral.service');
+const { sendOtpSchema, verifyOtpSchema }           = require('../validation/auth.schemas');
+const { AUTH_CHALLENGE_PURPOSE, createAuthChallenge, verifyAuthChallenge } = require('../services/authChallenge.service');
+const OTP_SEND_MAX_FAILURES = 5;
+const OTP_SEND_WINDOW_MS = 10 * 60 * 1000;
+const OTP_VERIFY_MAX_FAILURES = 10;
+const OTP_VERIFY_WINDOW_MS = 10 * 60 * 1000;
 
 const isValidPhone = (phone) => {
   const cleaned = phone.replace(/[\s\-\(\)]/g, '');
@@ -27,7 +35,7 @@ const generateReferralCode = async () => {
   return null; // fallback — shouldn't happen
 };
 
-const REFERRAL_CREDIT = 100; // ₹100 per successful referral
+const MAX_ACTIVE_CUSTOMER_SESSIONS = 5;
 
 const normalizePhone = (phone) => {
   const cleaned = phone.replace(/[\s\-\(\)]/g, '');
@@ -42,16 +50,68 @@ const normalizeLanguage = (language) => {
   return LANGUAGE_VALUES.includes(normalized) ? normalized : null;
 };
 
+const normalizeSignupAddress = (rawAddress) => {
+  if (!rawAddress || typeof rawAddress !== 'object') return null;
+
+  const label = String(rawAddress.label || 'Home').trim() || 'Home';
+  const addressLine1 = String(rawAddress.addressLine1 || rawAddress.address || '').trim();
+  const addressLine2 = rawAddress.addressLine2 ? String(rawAddress.addressLine2).trim() : null;
+  const landmark = rawAddress.landmark ? String(rawAddress.landmark).trim() : null;
+  const city = String(rawAddress.city || '').trim();
+  const pincode = String(rawAddress.pincode || '').trim();
+  const latitude = rawAddress.latitude !== undefined && rawAddress.latitude !== null ? Number(rawAddress.latitude) : null;
+  const longitude = rawAddress.longitude !== undefined && rawAddress.longitude !== null ? Number(rawAddress.longitude) : null;
+
+  return {
+    label,
+    addressLine1,
+    addressLine2: addressLine2 || null,
+    landmark: landmark || null,
+    city,
+    pincode,
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null,
+  };
+};
+
+const isValidSignupAddress = (address) => {
+  if (!address) return false;
+  if (!address.addressLine1 || !address.city || !/^\d{6}$/.test(address.pincode)) return false;
+  if (address.latitude !== null && (address.latitude < -90 || address.latitude > 90)) return false;
+  if (address.longitude !== null && (address.longitude < -180 || address.longitude > 180)) return false;
+  return true;
+};
+
+const trimCustomerSessions = async (customerId) => {
+  const sessions = await prisma.customerSession.findMany({
+    where: { customerId },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  const staleSessionIds = sessions.slice(MAX_ACTIVE_CUSTOMER_SESSIONS).map((session) => session.id);
+  if (staleSessionIds.length) {
+    await prisma.customerSession.deleteMany({ where: { id: { in: staleSessionIds } } });
+  }
+};
+
 // ── POST /api/v1/auth/send-otp ────────────────────────────────────────────────
 const sendOtpController = async (req, res) => {
-  const { phone } = req.body;
-
-  if (!phone) return badRequest(res, 'Phone number is required');
-  if (!isValidPhone(phone)) return badRequest(res, 'Please enter a valid 10-digit Indian mobile number');
+  const parsed = sendOtpSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Phone number is required');
+  const { phone } = parsed.data;
 
   const normalizedPhone = normalizePhone(phone);
 
   try {
+    const ipScopeKey = (req.ip || req.headers['x-forwarded-for'] || 'unknown').toString().slice(0, 64);
+    const [phoneBlockedUntil, ipBlockedUntil] = await Promise.all([
+      getAuthThrottleBlock({ scope: 'customer-otp-send:phone', scopeKey: normalizedPhone }),
+      getAuthThrottleBlock({ scope: 'customer-otp-send:ip', scopeKey: ipScopeKey }),
+    ]);
+    if (phoneBlockedUntil || ipBlockedUntil) {
+      return badRequest(res, 'Too many OTP requests. Please wait a few minutes and try again.');
+    }
+
     // Expire any old OTPs for this phone
     await prisma.otpVerification.updateMany({
       where: { phone: normalizedPhone, isUsed: false },
@@ -75,6 +135,16 @@ const sendOtpController = async (req, res) => {
         customerId: existingCustomer?.id || null,
       },
     });
+    await createAuthChallenge({
+      subjectType: 'customer',
+      subjectKey: normalizedPhone,
+      purpose: AUTH_CHALLENGE_PURPOSE.CUSTOMER_LOGIN,
+      code: otp,
+      ttlMs: 10 * 60 * 1000,
+      maxAttempts: 5,
+      cooldownMs: 60 * 1000,
+      metadata: { customerId: existingCustomer?.id || null },
+    });
 
     if (!isDevMode()) { await sendOtp(normalizedPhone, otp); } else { console.log(`\nDEV MODE OTP for ${normalizedPhone}: ${otp}\n`); }
 
@@ -88,6 +158,10 @@ const sendOtpController = async (req, res) => {
     });
 
     const devMode = isDevMode();
+    await Promise.all([
+      clearAuthThrottle({ scope: 'customer-otp-send:phone', scopeKey: normalizedPhone }),
+      clearAuthThrottle({ scope: 'customer-otp-send:ip', scopeKey: ipScopeKey }),
+    ]);
 
     return success(res, {
       phone:      normalizedPhone,
@@ -103,21 +177,32 @@ const sendOtpController = async (req, res) => {
 
   } catch (err) {
     console.error('sendOtp error:', err.message);
+    await Promise.allSettled([
+      registerAuthThrottleFailure({ scope: 'customer-otp-send:phone', scopeKey: normalizedPhone, maxFailures: OTP_SEND_MAX_FAILURES, windowMs: OTP_SEND_WINDOW_MS }),
+      registerAuthThrottleFailure({ scope: 'customer-otp-send:ip', scopeKey: (req.ip || req.headers['x-forwarded-for'] || 'unknown').toString().slice(0, 64), maxFailures: OTP_SEND_MAX_FAILURES, windowMs: OTP_SEND_WINDOW_MS }),
+    ]);
     return error(res, 'Failed to send OTP. Please try again.');
   }
 };
 
 // ── POST /api/v1/auth/verify-otp ──────────────────────────────────────────────
 const verifyOtpController = async (req, res) => {
-  const { phone, otp, name, referredByCode } = req.body;
-
-  if (!phone) return badRequest(res, 'Phone number is required');
-  if (!otp)   return badRequest(res, 'OTP is required');
-  if (!isValidPhone(phone)) return badRequest(res, 'Invalid phone number');
+  const parsed = verifyOtpSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid OTP payload');
+  const { phone, otp, name, referredByCode, address } = parsed.data;
 
   const normalizedPhone = normalizePhone(phone);
 
   try {
+    const ipScopeKey = (req.ip || req.headers['x-forwarded-for'] || 'unknown').toString().slice(0, 64);
+    const [phoneBlockedUntil, ipBlockedUntil] = await Promise.all([
+      getAuthThrottleBlock({ scope: 'customer-otp-verify:phone', scopeKey: normalizedPhone }),
+      getAuthThrottleBlock({ scope: 'customer-otp-verify:ip', scopeKey: ipScopeKey }),
+    ]);
+    if (phoneBlockedUntil || ipBlockedUntil) {
+      return badRequest(res, 'Too many OTP attempts. Please wait a few minutes and try again.');
+    }
+
     const otpRecord = await prisma.otpVerification.findFirst({
       where: {
         phone:     normalizedPhone,
@@ -129,6 +214,10 @@ const verifyOtpController = async (req, res) => {
     });
 
     if (!otpRecord) {
+      await Promise.all([
+        registerAuthThrottleFailure({ scope: 'customer-otp-verify:phone', scopeKey: normalizedPhone, maxFailures: OTP_VERIFY_MAX_FAILURES, windowMs: OTP_VERIFY_WINDOW_MS }),
+        registerAuthThrottleFailure({ scope: 'customer-otp-verify:ip', scopeKey: ipScopeKey, maxFailures: OTP_VERIFY_MAX_FAILURES, windowMs: OTP_VERIFY_WINDOW_MS }),
+      ]);
       return badRequest(res, 'OTP expired or not found. Please request a new one.');
     }
 
@@ -140,13 +229,28 @@ const verifyOtpController = async (req, res) => {
       return badRequest(res, 'Too many wrong attempts. Please request a new OTP.');
     }
 
-    const isValid = await verifyOtpHash(otp, otpRecord.otp);
-    if (!isValid) {
+    const verification = await verifyAuthChallenge({
+      subjectType: 'customer',
+      subjectKey: normalizedPhone,
+      purpose: AUTH_CHALLENGE_PURPOSE.CUSTOMER_LOGIN,
+      code: otp,
+    });
+    if (!verification.ok) {
       await prisma.otpVerification.update({
         where: { id: otpRecord.id },
-        data:  { attempts: { increment: 1 } },
+        data:  {
+          attempts: { increment: 1 },
+          ...(verification.reason === 'LOCKED' ? { isUsed: true } : {}),
+        },
       });
-      const remaining = otpRecord.maxAttempts - otpRecord.attempts - 1;
+      await Promise.all([
+        registerAuthThrottleFailure({ scope: 'customer-otp-verify:phone', scopeKey: normalizedPhone, maxFailures: OTP_VERIFY_MAX_FAILURES, windowMs: OTP_VERIFY_WINDOW_MS }),
+        registerAuthThrottleFailure({ scope: 'customer-otp-verify:ip', scopeKey: ipScopeKey, maxFailures: OTP_VERIFY_MAX_FAILURES, windowMs: OTP_VERIFY_WINDOW_MS }),
+      ]);
+      if (verification.reason === 'LOCKED') {
+        return badRequest(res, 'Too many wrong attempts. Please request a new OTP.');
+      }
+      const remaining = verification.remainingAttempts ?? (otpRecord.maxAttempts - otpRecord.attempts - 1);
       return badRequest(res, `Incorrect OTP. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`);
     }
 
@@ -159,6 +263,11 @@ const verifyOtpController = async (req, res) => {
     // Find or create customer
     let customer = await prisma.customer.findUnique({ where: { phone: normalizedPhone } });
     const isNewCustomer = !customer;
+    const signupAddress = normalizeSignupAddress(address);
+
+    if (isNewCustomer && address && !isValidSignupAddress(signupAddress)) {
+      return badRequest(res, 'Please enter a valid pickup address');
+    }
 
     if (!customer) {
       const referralCode = await generateReferralCode();
@@ -168,8 +277,15 @@ const verifyOtpController = async (req, res) => {
       if (referredByCode) {
         const referrer = await prisma.customer.findUnique({
           where: { referralCode: referredByCode.toUpperCase().trim() },
+          select: { id: true, isActive: true },
         });
-        if (referrer) referrerId = referrer.id;
+        if (!referrer) {
+          return badRequest(res, 'Invalid referral code');
+        }
+        if (!referrer.isActive) {
+          return badRequest(res, 'This referral code is no longer active');
+        }
+        referrerId = referrer.id;
       }
 
       customer = await prisma.customer.create({
@@ -181,30 +297,25 @@ const verifyOtpController = async (req, res) => {
         },
       });
 
-      // Award referral credits to both parties
+      if (signupAddress) {
+        await prisma.address.create({
+          data: {
+            customerId: customer.id,
+            ...signupAddress,
+            isDefault: true,
+          },
+        });
+      }
+
       if (referrerId) {
-        await prisma.$transaction([
-          // Credit referrer
-          prisma.customer.update({
-            where: { id: referrerId },
-            data:  { walletBalance: { increment: REFERRAL_CREDIT } },
-          }),
-          prisma.walletTransaction.create({
-            data: { customerId: referrerId, amount: REFERRAL_CREDIT, type: 'CREDIT', reason: 'REFERRAL' },
-          }),
-          // Credit new customer
-          prisma.customer.update({
-            where: { id: customer.id },
-            data:  { walletBalance: { increment: REFERRAL_CREDIT } },
-          }),
-          prisma.walletTransaction.create({
-            data: { customerId: customer.id, amount: REFERRAL_CREDIT, type: 'CREDIT', reason: 'REFERRAL' },
-          }),
-          // Record referral
-          prisma.referral.create({
-            data: { referrerId, referredId: customer.id, creditAwarded: REFERRAL_CREDIT },
-          }),
-        ]);
+        await prisma.referral.create({
+          data: {
+            referrerId,
+            referredId: customer.id,
+            creditAwarded: 0,
+            status: REFERRAL_STATUS.PENDING,
+          },
+        });
       }
     } else if (name && !customer.name) {
       customer = await prisma.customer.update({
@@ -212,6 +323,11 @@ const verifyOtpController = async (req, res) => {
         data:  { name },
       });
     }
+
+    await Promise.all([
+      clearAuthThrottle({ scope: 'customer-otp-verify:phone', scopeKey: normalizedPhone }),
+      clearAuthThrottle({ scope: 'customer-otp-verify:ip', scopeKey: ipScopeKey }),
+    ]);
 
     const token  = generateCustomerToken(customer);
     const expiry = getTokenExpiry(process.env.JWT_CUSTOMER_EXPIRES_IN || '30d');
@@ -225,6 +341,7 @@ const verifyOtpController = async (req, res) => {
         expiresAt:  expiry,
       },
     });
+    await trimCustomerSessions(customer.id);
 
     await log({
       actorType:   'customer',
@@ -303,8 +420,14 @@ const getMeController = async (req, res) => {
 // ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
 const logoutController = async (req, res) => {
   try {
-    const token = req.headers.authorization?.substring(7);
+    const token = req.authToken || req.headers.authorization?.substring(7);
     if (token) await prisma.customerSession.deleteMany({ where: { token } });
+    res.clearCookie('customer_token', {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    });
     return success(res, {}, 'Logged out successfully');
   } catch (err) {
     return error(res, 'Logout failed');

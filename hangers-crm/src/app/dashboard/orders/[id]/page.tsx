@@ -6,13 +6,13 @@
 //   ✅ TBD shown for items with price = 0
 // ─────────────────────────────────────────────────────────────────────────────
 import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { metadataAPI, ordersAPI, staffAPI, servicesAPI } from '@/lib/api'
+import { authAPI, deliveryAPI, metadataAPI, ordersAPI, staffAPI, servicesAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import PaymentPanel from '@/components/PaymentPanel'
-import { AlertTriangle, Bike, ClipboardList, Clock3, Lock, MessageSquareText, Printer, Receipt, ScrollText, Shirt, Smartphone, Tag, User } from 'lucide-react'
+import { AlertTriangle, Bike, CalendarRange, ClipboardList, Clock3, IndianRupee, Lock, MapPin, MessageSquareText, PackageCheck, Printer, Receipt, ScrollText, Shirt, Smartphone, Tag, User } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const getStatusLabel = (status: string, source?: string, labels: Record<string, string> = {}) => {
@@ -25,8 +25,187 @@ const NEXT_STATUS: Record<string,string> = {
   QC:'READY_FOR_DELIVERY', READY_FOR_DELIVERY:'OUT_FOR_DELIVERY', OUT_FOR_DELIVERY:'DELIVERED',
 }
 const REQUIRES_ITEMS = ['PROCESSING','WASHING','DRYING','IRONING','QC','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED']
+const BACKWARD_TRANSITIONS: Record<string, string[]> = {
+  PICKED_UP: ['PENDING'],
+  PROCESSING: ['PICKED_UP'],
+  WASHING: ['PROCESSING'],
+  DRYING: ['WASHING'],
+  IRONING: ['DRYING'],
+  QC: ['IRONING'],
+  READY_FOR_DELIVERY: ['QC'],
+  OUT_FOR_DELIVERY: ['READY_FOR_DELIVERY'],
+  CANCELLED: ['PENDING'],
+}
+const DELIVERED_CORRECTION_TARGETS = ['READY_FOR_DELIVERY']
+const CANCELLABLE_STATUSES = ['PENDING', 'PICKED_UP', 'PROCESSING', 'READY_FOR_DELIVERY']
+const formatCurrency = (value: number) => `₹${(value || 0).toLocaleString('en-IN')}`
+const getOutstandingAmount = (order: any) => Math.max(0, (order?.totalAmount || 0) - (order?.paidAmount || 0) - (order?.writeOffAmount || 0))
+const ORDER_TONE = {
+  blue: { color: '#023c62', soft: '#e8f0f7', border: '#d6e5f0' },
+  amber: { color: '#9a4d00', soft: '#fff4e5', border: '#f1dcc0' },
+  green: { color: '#0d7a4e', soft: '#e8f7f0', border: '#cdebdc' },
+  violet: { color: '#5b2fb0', soft: '#f0ebff', border: '#dfd3fb' },
+} as const
 
 interface CartItem { category: string; name: string; qty: number; price: number }
+
+function OrderShellCard({
+  title,
+  subtitle,
+  action,
+  children,
+}: {
+  title: string
+  subtitle?: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section
+      style={{
+        background: '#fff',
+        borderRadius: 24,
+        border: '1px solid #e4edf5',
+        boxShadow: '0 12px 28px rgba(2,60,98,0.06)',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          padding: '20px 24px 18px',
+          borderBottom: '1px solid #edf3f8',
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <div>
+          <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 800, color: '#023c62', fontFamily: 'var(--crm-font-display)' }}>{title}</h2>
+          {subtitle && <p style={{ margin: 0, fontSize: 13, color: '#6b7fa3', lineHeight: 1.45 }}>{subtitle}</p>}
+        </div>
+        {action}
+      </div>
+      <div style={{ padding: 24 }}>{children}</div>
+    </section>
+  )
+}
+
+function OrderMetric({
+  icon: Icon,
+  label,
+  value,
+  note,
+  tone = 'blue',
+}: {
+  icon: any
+  label: string
+  value: string
+  note: string
+  tone?: keyof typeof ORDER_TONE
+}) {
+  const palette = ORDER_TONE[tone]
+  return (
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 22,
+        border: `1px solid ${palette.border}`,
+        padding: '18px 18px 16px',
+        boxShadow: '0 10px 24px rgba(2,60,98,0.05)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div style={{ width: 42, height: 42, borderRadius: 14, background: palette.soft, color: palette.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon size={20} />
+        </div>
+        <span style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#6b7fa3', fontWeight: 700 }}>{label}</span>
+      </div>
+      <div style={{ fontSize: 30, lineHeight: 1, fontWeight: 800, color: '#142033' }}>{value}</div>
+      <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.45, color: '#8ba0bb' }}>{note}</div>
+    </div>
+  )
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, padding: '10px 0', borderBottom: '1px solid #edf3f8', fontSize: 13 }}>
+      <span style={{ color: '#6b7fa3' }}>{label}</span>
+      <span style={{ color: '#142033', fontWeight: 600, textAlign: 'right' }}>{value}</span>
+    </div>
+  )
+}
+
+const getTransitionKind = (currentStatus: string, nextStatus: string) => {
+  if (currentStatus === nextStatus) return 'noop'
+  if (currentStatus === 'DELIVERED') {
+    if (nextStatus === 'CANCELLED') return 'forbidden_delivered_cancel'
+    return DELIVERED_CORRECTION_TARGETS.includes(nextStatus) ? 'delivered_correction' : 'forbidden_delivered_change'
+  }
+  if (currentStatus === 'CANCELLED') return nextStatus === 'PENDING' ? 'restore' : 'forbidden_cancelled_change'
+  if (nextStatus === 'CANCELLED') return 'cancel'
+  if (BACKWARD_TRANSITIONS[currentStatus]?.includes(nextStatus)) return 'backward'
+  return 'forward'
+}
+
+const getCorrectionMeta = (kind: string) => {
+  if (kind === 'cancel') return { title: 'Cancel Order', hint: 'A cancellation reason will be saved to the order history.', tone: '#991b1b', bg: '#fff1f2' }
+  if (kind === 'restore') return { title: 'Restore Order', hint: 'Explain why this cancelled order is being restored to Pending.', tone: '#1d4ed8', bg: '#eff6ff' }
+  if (kind === 'delivered_correction') return { title: 'High-Risk Correction', hint: 'This delivered order is being moved back to Ready for Delivery. A clear reason is required.', tone: '#9a3412', bg: '#fff7ed' }
+  return { title: 'Workflow Correction', hint: 'Explain why this order needs to move backward in the workflow.', tone: '#5b21b6', bg: '#f5f3ff' }
+}
+
+const renderStageNote = (note?: string | null) => {
+  if (!note) return null
+  const match = note.match(/^\[(REVERSAL|CANCELLED|RESTORED|HIGH_RISK_CORRECTION)\]\s*(.*)$/)
+  if (!match) return <span style={{ color: '#6b7fa3' }}> · {note}</span>
+  const labels: Record<string, string> = {
+    REVERSAL: 'Reversal',
+    CANCELLED: 'Cancelled',
+    RESTORED: 'Restored',
+    HIGH_RISK_CORRECTION: 'High-risk correction',
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 6 }}>
+      <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '2px 7px', background: '#edf3f8', color: '#42556f', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        {labels[match[1]]}
+      </span>
+      {match[2] ? <span style={{ color: '#6b7fa3' }}>{match[2]}</span> : null}
+    </span>
+  )
+}
+
+const hasCorrectionAuthority = (staff: any) => {
+  const perms = staff?.effectivePermissions || staff?.permissions || []
+  return staff?.role === 'SUPER_ADMIN' || staff?.role === 'MANAGER' || perms.includes('*') || perms.includes('orders.edit')
+}
+
+const hasHighRiskCorrectionAuthority = (staff: any) => {
+  const perms = staff?.effectivePermissions || staff?.permissions || []
+  return staff?.role === 'SUPER_ADMIN' || perms.includes('*')
+}
+
+const getStatusChoices = (
+  currentStatus: string,
+  baseStatuses: string[],
+  staff: any
+) => {
+  const next = new Set<string>([currentStatus])
+  const forwardStatus = NEXT_STATUS[currentStatus]
+  if (forwardStatus && baseStatuses.includes(forwardStatus)) {
+    next.add(forwardStatus)
+  }
+  if (hasCorrectionAuthority(staff)) {
+    ;(BACKWARD_TRANSITIONS[currentStatus] || []).forEach((status) => next.add(status))
+    if (baseStatuses.includes('CANCELLED') && CANCELLABLE_STATUSES.includes(currentStatus)) {
+      next.add('CANCELLED')
+    }
+  }
+  if (currentStatus === 'DELIVERED' && hasHighRiskCorrectionAuthority(staff)) {
+    DELIVERED_CORRECTION_TARGETS.forEach((status) => next.add(status))
+  }
+  return Array.from(next)
+}
 
 // ── Inline Add Items Panel ────────────────────────────────────────────────────
 function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; currentTotal: number; onAdded: () => void }) {
@@ -186,6 +365,7 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
           </div>
         )}
       </div>
+
     </div>
   )
 }
@@ -193,23 +373,33 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Order Detail Page
 // ─────────────────────────────────────────────────────────────────────────────
-export default function OrderDetailPage({ params }: { params: { id: string } }) {
+export default function OrderDetailPage() {
   const router = useRouter()
+  const params = useParams<{ id: string }>()
+  const orderId = typeof params?.id === 'string' ? params.id : ''
   const [order,            setOrder]            = useState<any>(null)
   const [statusLabels, setStatusLabels] = useState<Record<string, string>>({})
   const [plantStatuses, setPlantStatuses] = useState<string[]>([])
   const [crmStatuses, setCrmStatuses] = useState<string[]>([])
   const [deliveryRoles, setDeliveryRoles] = useState<string[]>([])
+  const [currentStaff, setCurrentStaff] = useState<any>(null)
   const [loading,          setLoading]          = useState(true)
   const [updating,         setUpdating]         = useState(false)
   const [timelineExpanded, setTimelineExpanded] = useState(false)
   const [riders,           setRiders]           = useState<any[]>([])
   const [assigning,        setAssigning]        = useState(false)
+  const [statusModal, setStatusModal] = useState<{ open: boolean; target: string; kind: string; reason: string }>({
+    open: false,
+    target: '',
+    kind: 'forward',
+    reason: '',
+  })
 
   const loadOrder = useCallback(async () => {
+    if (!orderId) return
     try {
       const [orderR, staffR]: [any, any] = await Promise.all([
-        ordersAPI.get(params.id),
+        ordersAPI.get(orderId),
         staffAPI.list(),
       ])
       setOrder(orderR.data?.order || orderR.data)
@@ -221,10 +411,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       toast.error('Order not found')
       router.push('/dashboard/orders')
     } finally { setLoading(false) }
-  }, [deliveryRoles, params.id])
+  }, [deliveryRoles, orderId])
 
   useEffect(() => { loadOrder() }, [loadOrder])
   useEffect(() => {
+    authAPI.me().then((r:any) => setCurrentStaff(r?.staff || r?.data?.staff || null)).catch(() => setCurrentStaff(null))
     metadataAPI.getAll().then((r:any) => {
       const metadata = r?.metadata || r?.data?.metadata || {}
       const orderStatuses = metadata.orderStatuses || []
@@ -235,12 +426,19 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       setPlantStatuses(orderStatuses.filter((item: any) => item.plantManaged).map((item: any) => item.key))
       setCrmStatuses(orderStatuses.filter((item: any) => item.crmEditable && item.key !== 'RETURNED' && item.key !== 'SENT_TO_PLANT').map((item: any) => item.key))
       setDeliveryRoles((metadata.staffRoles || []).filter((item: any) => String(item.value || '').startsWith('DELIVERY_')).map((item: any) => item.value))
-    }).catch(() => {})
+    }).catch(() => {
+      setStatusLabels({})
+      setPlantStatuses([])
+      setCrmStatuses([])
+      setDeliveryRoles([])
+      toast.error('Failed to load order metadata')
+    })
   }, [])
 
   const noItems     = !order?.items?.length
   const isAppOrder  = order?.source === 'APP'
   const canProgress = (targetStatus: string) => !(REQUIRES_ITEMS.includes(targetStatus) && noItems)
+  const statusChoices = getStatusChoices(order?.status, crmStatuses, currentStaff)
   const statusLabel = (status: string) => getStatusLabel(status, order?.source, statusLabels)
 
   const updateStatus = async (status: string) => {
@@ -248,10 +446,28 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       toast.error('Add garment items first — cannot move to processing without items', { duration: 4000 })
       return
     }
+    const transitionKind = getTransitionKind(order.status, status)
+    if (transitionKind === 'forbidden_delivered_cancel') {
+      toast.error('Delivered orders cannot be cancelled. Use the return / re-clean flow instead.')
+      return
+    }
+    if (transitionKind === 'forbidden_delivered_change') {
+      toast.error('Delivered orders can only be corrected back to Ready for Delivery by Super Admin.')
+      return
+    }
+    if (transitionKind === 'forbidden_cancelled_change') {
+      toast.error('Cancelled orders can only be restored back to Pending.')
+      return
+    }
+
+    if (['backward', 'cancel', 'restore', 'delivered_correction'].includes(transitionKind)) {
+      setStatusModal({ open: true, target: status, kind: transitionKind, reason: '' })
+      return
+    }
     setUpdating(true)
     try {
-      const r: any = await ordersAPI.updateStatus(params.id, status)
-      setOrder(r.data?.order || r.data)
+      await ordersAPI.updateStatus(orderId, status)
+      await loadOrder()
       toast.success(`Status updated → ${statusLabel(status)}`)
     } catch (e: any) {
       if (e?.message?.includes('items') || e?.message?.includes('ITEMS_REQUIRED')) {
@@ -262,20 +478,34 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     } finally { setUpdating(false) }
   }
 
+  const submitStatusModal = async () => {
+    if (!statusModal.reason.trim()) {
+      toast.error('Reason is required for this status correction')
+      return
+    }
+    setUpdating(true)
+    try {
+      await ordersAPI.updateStatus(orderId, statusModal.target, statusModal.reason.trim())
+      await loadOrder()
+      setStatusModal({ open: false, target: '', kind: 'forward', reason: '' })
+      toast.success(`Status updated → ${statusLabel(statusModal.target)}`)
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to update status')
+    } finally {
+      setUpdating(false)
+    }
+  }
+
   const assignRider = async (riderId: string) => {
     if (!riderId) return
     setAssigning(true)
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1'}/delivery/orders/${params.id}/assign`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${document.cookie.match(/crm_token=([^;]+)/)?.[1] || ''}` },
-        body: JSON.stringify({ riderId }),
-      })
+      await deliveryAPI.assignOrder(orderId, riderId)
       await loadOrder()
       const rider = riders.find((r: any) => r.id === riderId)
       toast.success(`Order assigned to ${rider?.name}`)
-    } catch {
-      toast.error('Failed to assign rider')
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to assign rider')
     } finally { setAssigning(false) }
   }
 
@@ -287,127 +517,192 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const nextSt         = NEXT_STATUS[order.status]
   const nextBlocked    = nextSt && !canProgress(nextSt)
   const showItemsPanel = !order.isReturn && ['PENDING','PICKED_UP','PROCESSING'].includes(order.status) && noItems
+  const outstandingAmount = getOutstandingAmount(order)
+  const totalPieces = order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0
 
   return (
-    <div style={{padding:'32px 36px',maxWidth:1100,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
-
-      {/* Returned banner */}
-
+    <div style={{padding:'30px 34px',maxWidth:1380,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
       {order.status === 'RETURNED' && (
-
-        <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:10,padding:'12px 16px',marginBottom:16,fontSize:13,color:'#991b1b'}}>
-
+        <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:14,padding:'12px 16px',marginBottom:16,fontSize:13,color:'#991b1b'}}>
           This order has been returned. {order.notes?.includes('[RETURNED') && <span>{order.notes.match(/[RETURNED[^]]+]/)?.[0]?.replace(/[[]]/g,'')}</span>}
-
         </div>
-
       )}
 
       {order.isReturn && order.originalOrderId && (
-
-        <div style={{background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:10,padding:'12px 16px',marginBottom:16,fontSize:13,color:'#1d4ed8'}}>
-
+        <div style={{background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:14,padding:'12px 16px',marginBottom:16,fontSize:13,color:'#1d4ed8'}}>
           ↩ Return / Re-clean order — <Link href={'/dashboard/orders/'+order.originalOrderId} style={{color:'#1d4ed8',fontWeight:600}}>View original order</Link>
-
         </div>
-
       )}
 
-      {/* Header */}
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:24,flexWrap:'wrap',gap:12}}>
-        <div style={{display:'flex',alignItems:'center',gap:16}}>
-          <Link href="/dashboard/orders" style={{padding:'8px 16px',borderRadius:10,border:'1.5px solid #dce8f0',background:'#fff',color:'#6b7fa3',textDecoration:'none',fontSize:14}}>
-            ← Orders
-          </Link>
+      <section
+        style={{
+          background: 'linear-gradient(135deg,#022f50 0%,#035a8f 58%,#0b6f84 100%)',
+          borderRadius: 28,
+          padding: '26px 28px',
+          color: '#fff',
+          boxShadow: '0 22px 52px rgba(2,60,98,0.18)',
+          marginBottom: 22,
+        }}
+      >
+        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.45fr) minmax(320px,0.85fr)',gap:20,alignItems:'stretch'}}>
           <div>
-            <h1 style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:24,color:'#023c62',margin:'0 0 4px'}}>
-              {order.orderNumber}
-              {isAppOrder && <span style={{fontSize:11,background:'#dbeafe',color:'#1d4ed8',borderRadius:20,padding:'2px 10px',fontWeight:700,marginLeft:10,verticalAlign:'middle',display:'inline-flex',alignItems:'center',gap:6}}><Smartphone size={11} />App Pickup</span>}
-            </h1>
-            <p style={{fontSize:13,color:'#6b7fa3',margin:0}}>
-              Created {format(new Date(order.createdAt),'dd MMM yyyy, h:mm a')}
+            <Link href="/dashboard/orders" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 14px',borderRadius:999,background:'rgba(255,255,255,0.14)',border:'1px solid rgba(255,255,255,0.18)',color:'#fff',textDecoration:'none',fontSize:13,fontWeight:700,marginBottom:16}}>
+              ← Back to Orders
+            </Link>
+            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:10}}>
+              <h1 style={{margin:0,fontFamily:'var(--crm-font-display)',fontWeight:800,fontSize:32,lineHeight:1.05}}>
+                {order.orderNumber}
+              </h1>
+              <span style={{fontSize:12,padding:'6px 12px',borderRadius:999,background:'rgba(255,255,255,0.16)',border:'1px solid rgba(255,255,255,0.18)',fontWeight:700}}>
+                {statusLabel(order.status)}
+              </span>
+              {isAppOrder && (
+                <span style={{fontSize:12,padding:'6px 12px',borderRadius:999,background:'rgba(219,234,254,0.18)',border:'1px solid rgba(219,234,254,0.28)',fontWeight:700,display:'inline-flex',alignItems:'center',gap:6}}>
+                  <Smartphone size={13} />
+                  App Pickup
+                </span>
+              )}
+            </div>
+            <p style={{margin:'0 0 16px',fontSize:14,color:'rgba(232,240,247,0.88)',lineHeight:1.6,maxWidth:720}}>
+              Order view for {order.customer?.name || 'this customer'} with current workflow, payment position, logged garments, and operational actions in one place.
             </p>
+            <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
+              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
+                <CalendarRange size={14} />
+                Created {format(new Date(order.createdAt),'dd MMM yyyy, h:mm a')}
+              </span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
+                <User size={14} />
+                {order.customer?.phone ? `+91 ${order.customer.phone}` : 'Customer phone unavailable'}
+              </span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
+                <Shirt size={14} />
+                {totalPieces} garment piece{totalPieces === 1 ? '' : 's'}
+              </span>
+            </div>
+          </div>
+
+          <div style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.16)',borderRadius:24,padding:20,display:'flex',flexDirection:'column',justifyContent:'space-between',gap:16}}>
+            <div>
+              <div style={{fontSize:11,color:'rgba(232,240,247,0.7)',fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>Primary Action</div>
+              {nextSt && !isLocked && !order.isReturn ? (
+                <button
+                  onClick={() => updateStatus(nextSt)}
+                  disabled={updating}
+                  title={nextBlocked ? 'Add items first before moving to processing' : ''}
+                  style={{
+                    width:'100%',
+                    background:nextBlocked?'rgba(255,255,255,0.12)':'#fff',
+                    color:nextBlocked?'rgba(232,240,247,0.72)':'#023c62',
+                    border:nextBlocked?'1.5px dashed rgba(255,255,255,0.24)':'none',
+                    borderRadius:16,
+                    padding:'14px 16px',
+                    fontSize:14,
+                    fontWeight:800,
+                    cursor:nextBlocked?'not-allowed':'pointer',
+                    display:'flex',
+                    alignItems:'center',
+                    justifyContent:'center',
+                    gap:8
+                  }}
+                >
+                  {nextBlocked && <AlertTriangle size={15} color="#fbbf24" />}
+                  {updating ? 'Updating…' : `Mark as ${statusLabel(nextSt)}`}
+                </button>
+              ) : (
+                <div style={{padding:'14px 16px',borderRadius:16,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb',lineHeight:1.5}}>
+                  No direct forward action is available from this state. Use the workflow controls below for manual status changes.
+                </div>
+              )}
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <div style={{padding:'14px 14px 12px',borderRadius:18,background:'rgba(255,255,255,0.1)'}}>
+                <div style={{fontSize:11,color:'rgba(232,240,247,0.68)',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:6}}>Collection</div>
+                <div style={{fontSize:24,fontWeight:800}}>{formatCurrency(order.totalAmount || 0)}</div>
+              </div>
+              <div style={{padding:'14px 14px 12px',borderRadius:18,background:'rgba(255,255,255,0.1)'}}>
+                <div style={{fontSize:11,color:'rgba(232,240,247,0.68)',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:6}}>Balance Due</div>
+                <div style={{fontSize:24,fontWeight:800}}>{formatCurrency(outstandingAmount)}</div>
+              </div>
+            </div>
           </div>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <span style={{fontSize:13,padding:'6px 14px',borderRadius:20,background:'#e8f0f7',color:'#023c62',fontWeight:700}}>
-            {statusLabel(order.status)}
-          </span>
-          {nextSt && !isLocked && !order.isReturn && (
-            <button onClick={() => updateStatus(nextSt)} disabled={updating}
-              title={nextBlocked ? 'Add items first before moving to processing' : ''}
-              style={{background:nextBlocked?'#f0f4f8':'#023c62',color:nextBlocked?'#9dafc8':'#fff',border:nextBlocked?'1.5px dashed #dce8f0':'none',borderRadius:10,padding:'10px 18px',fontSize:13,fontWeight:700,cursor:nextBlocked?'not-allowed':'pointer',fontFamily:"var(--crm-font-ui)",display:'flex',alignItems:'center',gap:8}}>
-              {nextBlocked && <AlertTriangle size={14} color="#f59e0b" />}
-              {updating ? 'Updating…' : `→ Mark as ${statusLabel(nextSt)}`}
-            </button>
-          )}
-        </div>
-      </div>
+      </section>
 
-      {/* Warning banner */}
       {noItems && !['DELIVERED','CANCELLED'].includes(order.status) && (
-        <div style={{background:'#fff8e6',border:'1.5px solid #f59e0b',borderRadius:14,padding:'14px 20px',marginBottom:20,display:'flex',alignItems:'flex-start',gap:14}}>
+        <div style={{background:'#fff8e6',border:'1.5px solid #f59e0b',borderRadius:18,padding:'16px 20px',marginBottom:22,display:'flex',alignItems:'flex-start',gap:14}}>
           <AlertTriangle size={22} color="#f59e0b" style={{flexShrink:0}} />
           <div>
-            <div style={{fontWeight:700,color:'#92400e',fontSize:15,marginBottom:4}}>No garments logged — add items before processing</div>
+            <div style={{fontWeight:800,color:'#92400e',fontSize:15,marginBottom:4}}>No garments logged yet</div>
             <div style={{fontSize:13,color:'#b45309',lineHeight:1.7}}>
               {isAppOrder
-                ? 'This order was booked via the customer app as a pickup request. Please add the garments collected during pickup before moving the order forward.'
-                : 'This order has no garment items. Please add items using the panel below before advancing the status.'}
-            </div>
-            <div style={{marginTop:8,fontSize:12,color:'#b45309',background:'rgba(245,158,11,0.1)',borderRadius:8,padding:'6px 12px',display:'inline-block'}}>
-              Status cannot advance past "Picked Up" until items are added
+                ? 'This order started as an app pickup request. Log the garments collected during pickup before pushing it deeper into processing.'
+                : 'This order does not have garment items yet. Add them before moving ahead in the workflow.'}
             </div>
           </div>
         </div>
       )}
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:24,alignItems:'start'}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:18,marginBottom:22}}>
+        <OrderMetric icon={IndianRupee} label="Order Total" value={formatCurrency(order.totalAmount || 0)} note="Current billed total from the order record." tone="blue" />
+        <OrderMetric icon={PackageCheck} label="Garments" value={String(totalPieces)} note={noItems ? 'Items still need to be logged.' : `${order.items?.length || 0} distinct item line(s) added.`} tone="amber" />
+        <OrderMetric icon={Receipt} label="Collected" value={formatCurrency((order.paidAmount || 0) + (order.writeOffAmount || 0))} note={order.writeOffAmount ? `Includes write-off of ${formatCurrency(order.writeOffAmount)}` : 'Payments and approved write-offs booked so far.'} tone="green" />
+        <OrderMetric icon={Clock3} label="Outstanding" value={formatCurrency(outstandingAmount)} note={outstandingAmount === 0 ? 'No pending collection remains.' : 'Remaining amount still to be collected.'} tone="violet" />
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.45fr) minmax(320px,0.85fr)',gap:24,alignItems:'start'}}>
         <div style={{display:'flex',flexDirection:'column',gap:20}}>
 
           {showItemsPanel && (
             <AddItemsPanel orderId={order.id} currentTotal={order.totalAmount || 0} onAdded={loadOrder} />
           )}
 
-          {/* Customer */}
-          <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
-            <h3 style={{fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:15,color:'#023c62',margin:'0 0 14px',display:'flex',alignItems:'center',gap:8}}><User size={16} />Customer</h3>
-            <div style={{display:'flex',gap:24,flexWrap:'wrap'}}>
-              <div style={{flex:1,minWidth:120}}>
-                <div style={{fontSize:12,color:'#6b7fa3',marginBottom:3}}>Name</div>
-                <div style={{fontSize:16,fontWeight:600,color:'#1a2332'}}>{order.customer?.name||'—'}</div>
-              </div>
-              <div style={{flex:1,minWidth:120}}>
-                <div style={{fontSize:12,color:'#6b7fa3',marginBottom:3}}>Phone</div>
-                <div style={{fontSize:16,fontWeight:600,color:'#023c62'}}>+91 {order.customer?.phone}</div>
-              </div>
-              {order.pickupAddress && (
-                <div style={{flex:2,minWidth:200}}>
-                  <div style={{fontSize:12,color:'#6b7fa3',marginBottom:3}}>Pickup Address</div>
-                  <div style={{fontSize:13,color:'#1a2332',lineHeight:1.5}}>{order.pickupAddress}</div>
-                </div>
-              )}
-              <div style={{display:'flex',alignItems:'flex-end'}}>
-                <Link href={`/dashboard/customers/${order.customer?.id}`} style={{fontSize:13,color:'#035a8f',fontWeight:500,textDecoration:'none',padding:'8px 14px',border:'1px solid #dce8f0',borderRadius:8,display:'inline-block'}}>
-                  View Profile →
+          <OrderShellCard
+            title="Customer & Service Window"
+            subtitle="Who this order belongs to, where it needs to be served, and the main customer-facing touchpoints."
+            action={
+              <div style={{display:'flex',gap:10,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                <Link href={`/dashboard/customers/${order.customer?.id}`} style={{fontSize:13,color:'#035a8f',fontWeight:700,textDecoration:'none',padding:'9px 14px',border:'1px solid #dce8f0',borderRadius:12,display:'inline-flex',alignItems:'center'}}>
+                  View Profile
                 </Link>
                 {!['PENDING','CANCELLED','SENT_TO_PLANT'].includes(order.status) && !order.isReturn && (
-                  <Link href={'/dashboard/orders/return?orderId=' + params.id} style={{fontSize:13,color:'#991b1b',fontWeight:500,textDecoration:'none',padding:'8px 14px',border:'1px solid #fca5a5',borderRadius:8,display:'inline-block',marginLeft:8}}>
+                  <Link href={'/dashboard/orders/return?orderId=' + orderId} style={{fontSize:13,color:'#991b1b',fontWeight:700,textDecoration:'none',padding:'9px 14px',border:'1px solid #fca5a5',borderRadius:12,display:'inline-flex',alignItems:'center'}}>
                     Return / Re-clean
                   </Link>
                 )}
               </div>
+            }
+          >
+            <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:22}}>
+              <div style={{display:'grid',gap:10}}>
+                <DetailRow label="Customer" value={order.customer?.name || '—'} />
+                <DetailRow label="Phone" value={order.customer?.phone ? `+91 ${order.customer.phone}` : '—'} />
+                <DetailRow label="Source" value={order.source==='APP'?'App Pickup':order.source==='COUNTER'?'Walk-in':order.source || '—'} />
+                <DetailRow label="Pickup Date" value={order.pickupDate ? format(new Date(order.pickupDate),'dd MMM yyyy') : 'Not scheduled'} />
+                <DetailRow label="Pickup Slot" value={order.pickupSlot || 'Not scheduled'} />
+              </div>
+              <div style={{background:'#f8fbfe',border:'1px solid #e4edf5',borderRadius:20,padding:18}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,fontWeight:800,color:'#023c62',marginBottom:10}}>
+                  <MapPin size={15} />
+                  Service Address
+                </div>
+                <div style={{fontSize:14,color:'#42556f',lineHeight:1.65}}>
+                  {order.pickupAddress || 'No pickup address recorded for this order.'}
+                </div>
+                {order.deliveryDate && (
+                  <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid #e4edf5',fontSize:13,color:'#6b7fa3'}}>
+                    Expected delivery date: <span style={{color:'#142033',fontWeight:700}}>{format(new Date(order.deliveryDate),'dd MMM yyyy')}</span>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          </OrderShellCard>
 
-          {/* Garments */}
-          <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-              <h3 style={{fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:15,color:'#023c62',margin:0}}>
-                <span style={{display:'inline-flex',alignItems:'center',gap:8}}><Shirt size={16} />Garments {order.items?.length > 0 ? `(${order.items.length})` : ''}</span>
-              </h3>
-              {noItems && <span style={{fontSize:12,color:'#b45309',background:'#fff8e6',border:'1px solid #f59e0b',borderRadius:20,padding:'3px 12px',fontWeight:600}}>No items yet</span>}
-            </div>
+          <OrderShellCard
+            title={`Garments ${order.items?.length > 0 ? `(${order.items.length})` : ''}`}
+            subtitle="Itemized garments and services currently attached to this order."
+            action={noItems ? <span style={{fontSize:12,color:'#b45309',background:'#fff8e6',border:'1px solid #f59e0b',borderRadius:20,padding:'5px 12px',fontWeight:700}}>No items yet</span> : undefined}
+          >
             {noItems ? (
               <div style={{textAlign:'center',padding:'28px 0',color:'#9dafc8'}}>
                 <div style={{fontSize:36,marginBottom:10,display:'flex',justifyContent:'center'}}><ClipboardList size={36} color="#9dafc8" /></div>
@@ -439,19 +734,18 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 </tbody>
               </table>
             )}
-          </div>
+          </OrderShellCard>
 
-          {/* Timeline */}
-          {!order.isReturn && <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-              <h3 style={{fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:15,color:'#023c62',margin:0,display:'flex',alignItems:'center',gap:8}}><Clock3 size={16} />Status Timeline</h3>
-              {(order.stages?.length||0) > 3 && (
-                <button onClick={()=>setTimelineExpanded(v=>!v)}
-                  style={{fontSize:12,color:'#035a8f',fontWeight:600,background:'#f0f5fa',border:'1px solid #dce8f0',borderRadius:20,padding:'4px 12px',cursor:'pointer'}}>
-                  {timelineExpanded ? '▲ Show less' : `▼ Show all ${order.stages.length} entries`}
-                </button>
-              )}
-            </div>
+          {!order.isReturn && <OrderShellCard
+            title="Workflow Timeline"
+            subtitle="Operational movement of the order so far, with direct status controls for the CRM where allowed."
+            action={(order.stages?.length||0) > 3 ? (
+              <button onClick={()=>setTimelineExpanded(v=>!v)}
+                style={{fontSize:12,color:'#035a8f',fontWeight:700,background:'#f0f5fa',border:'1px solid #dce8f0',borderRadius:20,padding:'6px 12px',cursor:'pointer'}}>
+                {timelineExpanded ? 'Show less' : `Show all ${order.stages.length} entries`}
+              </button>
+            ) : undefined}
+          >
             {(()=>{
               const stages  = order.stages || []
               const visible = timelineExpanded ? stages : stages.slice(-3)
@@ -472,7 +766,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                       </div>
                       <div style={{paddingBottom:i<visible.length-1?14:0}}>
                         <div style={{fontSize:13,fontWeight:i===visible.length-1?700:500,color:i===visible.length-1?'#023c62':'#1a2332'}}>{statusLabel(st.stage)}</div>
-                        <div style={{fontSize:11,color:'#9dafc8',marginTop:2}}>{format(new Date(st.createdAt),'dd MMM yyyy, h:mm a')}{st.notes&&<span style={{color:'#6b7fa3'}}> · {st.notes}</span>}</div>
+                        <div style={{fontSize:11,color:'#9dafc8',marginTop:2}}>{format(new Date(st.createdAt),'dd MMM yyyy, h:mm a')}{renderStageNote(st.notes)}</div>
                       </div>
                     </div>
                   ))}
@@ -481,7 +775,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             })()}
             <div style={{marginTop:20,paddingTop:16,borderTop:'1px solid #e8f0f7'}}>
               <div style={{fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Update Status</div>
-              {plantStatuses.includes(order.status) ? (
+              {plantStatuses.includes(order.status) && statusChoices.length <= 1 ? (
                 <div style={{fontSize:13,color:'#1e40af',background:'#dbeafe',borderRadius:10,padding:'12px 16px',lineHeight:1.6,display:'flex',alignItems:'center',gap:10}}>
                   <Lock size={18} color="#1e40af" />
                   <div>
@@ -491,13 +785,18 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 </div>
               ) : (
                 <>
+                {plantStatuses.includes(order.status) && statusChoices.length > 1 && (
+                  <div style={{fontSize:12,color:'#5b21b6',background:'#f5f3ff',borderRadius:8,padding:'7px 12px',marginBottom:10,lineHeight:1.5}}>
+                    Correction mode enabled — authorized rollback targets are available for this plant-managed status.
+                  </div>
+                )}
                 {noItems && (
                   <div style={{fontSize:12,color:'#b45309',background:'#fff8e6',borderRadius:8,padding:'7px 12px',marginBottom:10,lineHeight:1.5}}>
                     Processing statuses are locked — add items first
                   </div>
                 )}
                 <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                {crmStatuses.map(s => {
+                {statusChoices.map(s => {
                   const isCurrent = s === order.status
                   const isBlocked = !isCurrent && !canProgress(s)
                   return (
@@ -512,34 +811,32 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               </>
             )}
             </div>
-          </div>}
+          </OrderShellCard>}
 
           {order.notes && (
-            <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
-              <h3 style={{fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:15,color:'#023c62',margin:'0 0 10px',display:'flex',alignItems:'center',gap:8}}><MessageSquareText size={16} />Notes</h3>
+            <OrderShellCard title="Notes & Exceptions" subtitle="Operational notes, returned-order markers, and other context attached to the order.">
               <p style={{fontSize:14,color:'#6b7fa3',margin:0,lineHeight:1.6}}>{order.notes}</p>
-            </div>
+            </OrderShellCard>
           )}
         </div>
 
-        {/* Right Sidebar */}
         <div style={{display:'flex',flexDirection:'column',gap:16}}>
 
-          <div style={{background:'linear-gradient(135deg,#023c62,#035a8f)',borderRadius:20,padding:24,color:'#fff'}}>
-            <div style={{fontSize:11,color:'rgba(184,208,232,0.7)',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:16}}>Payment Summary</div>
+          <div style={{background:'linear-gradient(135deg,#023c62,#035a8f)',borderRadius:24,padding:24,color:'#fff',boxShadow:'0 18px 44px rgba(2,60,98,0.18)'}}>
+            <div style={{fontSize:11,color:'rgba(184,208,232,0.7)',fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:16}}>Payment Summary</div>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:8,fontSize:14,color:'rgba(184,208,232,0.8)'}}>
-              <span>Subtotal</span><span>₹{order.subtotal?.toLocaleString('en-IN') || 0}</span>
+              <span>Subtotal</span><span>{formatCurrency(order.subtotal || 0)}</span>
             </div>
             {order.discount>0&&(
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:8,fontSize:14,color:'rgba(184,208,232,0.8)'}}>
-                <span>Discount</span><span>−₹{order.discount?.toLocaleString('en-IN')}</span>
+                <span>Discount</span><span>−{formatCurrency(order.discount)}</span>
               </div>
             )}
             <div style={{borderTop:'1px solid rgba(184,208,232,0.2)',paddingTop:12,display:'flex',justifyContent:'space-between',fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:24}}>
-              <span>Total</span><span>₹{order.totalAmount?.toLocaleString('en-IN') || 0}</span>
+              <span>Total</span><span>{formatCurrency(order.totalAmount || 0)}</span>
             </div>
             <div style={{marginTop:12,fontSize:13,color:order.paidAmount>=(order.totalAmount||0)?'#4ade80':'#fbbf24'}}>
-              {((order.paidAmount||0) + (order.writeOffAmount||0)) >= (order.totalAmount||0) ? 'Fully Paid' : `Pending: ₹${Math.max(0,(order.totalAmount||0)-(order.paidAmount||0)-(order.writeOffAmount||0)).toLocaleString('en-IN')}`}
+              {((order.paidAmount||0) + (order.writeOffAmount||0)) >= (order.totalAmount||0) ? 'Fully Paid' : `Pending: ${formatCurrency(outstandingAmount)}`}
             </div>
             {noItems && order.totalAmount===0 && (
               <div style={{marginTop:10,fontSize:11,color:'rgba(184,208,232,0.5)',fontStyle:'italic'}}>Total will update once items are added</div>
@@ -549,7 +846,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           <PaymentPanel orderId={order.id} customerId={order.customer?.id} totalAmount={order.totalAmount||0} paidAmount={order.paidAmount||0} paymentStatus={order.paymentStatus||'UNPAID'} writeOffAlreadyDone={order.writeOffAmount||0} onPaymentRecorded={loadOrder} />
 
           {['READY_FOR_DELIVERY','OUT_FOR_DELIVERY','PENDING','PICKED_UP'].includes(order.status) && (
-            <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
+            <OrderShellCard title="Delivery Assignment" subtitle="Assign or reassign the rider responsible for the next handoff.">
               <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:14,display:'flex',alignItems:'center',gap:6}}><Bike size={12} />Assign Delivery Rider</div>
               {order.assignedTo ? (
                 <div style={{background:'#e8f0f7',borderRadius:12,padding:'10px 14px',marginBottom:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -571,28 +868,24 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                   {riders.map((r:any) => <option key={r.id} value={r.id}>{r.name} · {r.role.replace('_',' ')}</option>)}
                 </select>
               )}
-            </div>
+            </OrderShellCard>
           )}
 
-          <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
-            <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:16}}>Order Info</div>
+          <OrderShellCard title="Order Facts" subtitle="Reference fields and service scheduling information from the live order record.">
             {[
               {l:'Order #', v:order.orderNumber},
-              {l:'Source',  v:order.source==='APP'?'App Pickup':order.source==='COUNTER'?'Walk-in':order.source},
+              {l:'Source',  v:order.source==='APP'?'App Pickup':order.source==='COUNTER'?'Walk-in':order.source || '—'},
               {l:'Status',  v:statusLabel(order.status)},
               {l:'Created', v:format(new Date(order.createdAt),'dd MMM yyyy')},
               ...(order.pickupDate?[{l:'Pickup Date',v:format(new Date(order.pickupDate),'dd MMM yyyy')}]:[]),
               ...(order.pickupSlot?[{l:'Pickup Slot',v:order.pickupSlot}]:[]),
-              ...(order.deliveryDate?[{l:'Delivery',v:format(new Date(order.deliveryDate),'dd MMM')}]:[]),
+              ...(order.deliveryDate?[{l:'Delivery',v:format(new Date(order.deliveryDate),'dd MMM yyyy')}]:[]),
             ].map(row=>(
-              <div key={row.l} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #f0f4f8',fontSize:13}}>
-                <span style={{color:'#6b7fa3'}}>{row.l}</span>
-                <span style={{fontWeight:500,color:'#1a2332',fontFamily:row.l==='Order #'?"var(--crm-font-mono)":"var(--crm-font-ui)",textAlign:'right',maxWidth:160}}>{row.v}</span>
-              </div>
+              <DetailRow key={row.l} label={row.l} value={<span style={{fontFamily:row.l==='Order #'?"var(--crm-font-mono)":"var(--crm-font-ui)"}}>{row.v}</span>} />
             ))}
-          </div>
+          </OrderShellCard>
 
-          <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
+          <OrderShellCard title="Print & Handover" subtitle="Generate the current print outputs used by the counter, plant, and tagging flows.">
             <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:16,display:'flex',alignItems:'center',gap:6}}><Printer size={12} />Print</div>
             <div style={{display:'grid',gap:10}}>
               <Link href={`/dashboard/print?orderId=${order.id}&type=receipt`} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
@@ -608,7 +901,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 <ClipboardList size={15} /> Bag Tags
               </Link>
             </div>
-          </div>
+          </OrderShellCard>
 
           {noItems && !['DELIVERED','CANCELLED'].includes(order.status) && (
             <div style={{background:'#fff8e6',borderRadius:16,padding:18,border:'1px solid #f59e0b'}}>
@@ -624,6 +917,49 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
         </div>
       </div>
+
+      {statusModal.open && (() => {
+        const meta = getCorrectionMeta(statusModal.kind)
+        return (
+          <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.42)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:80, padding:20 }}>
+            <div style={{ width:'100%', maxWidth:560, background:'#fff', borderRadius:24, border:'1px solid #e4edf5', boxShadow:'0 28px 64px rgba(2,60,98,0.22)', overflow:'hidden' }}>
+              <div style={{ padding:'20px 24px 16px', background:meta.bg, borderBottom:'1px solid #edf3f8' }}>
+                <div style={{ fontFamily:'var(--crm-font-display)', fontWeight:800, fontSize:22, color:meta.tone }}>{meta.title}</div>
+                <div style={{ marginTop:6, fontSize:13, lineHeight:1.55, color:'#51657f' }}>
+                  {statusLabel(order.status)} → {statusLabel(statusModal.target)}. {meta.hint}
+                </div>
+              </div>
+              <div style={{ padding:24 }}>
+                <label style={{ display:'block', fontSize:12, fontWeight:700, color:'#6b7fa3', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>
+                  Reason
+                </label>
+                <textarea
+                  value={statusModal.reason}
+                  onChange={(e) => setStatusModal((current) => ({ ...current, reason: e.target.value }))}
+                  placeholder="Enter the operational reason for this correction"
+                  rows={4}
+                  style={{ width:'100%', resize:'vertical', border:'1.5px solid #dce8f0', borderRadius:14, padding:'12px 14px', fontSize:14, lineHeight:1.5, color:'#142033', outline:'none', boxSizing:'border-box' }}
+                />
+                <div style={{ marginTop:16, display:'flex', justifyContent:'flex-end', gap:10 }}>
+                  <button
+                    onClick={() => setStatusModal({ open: false, target: '', kind: 'forward', reason: '' })}
+                    style={{ padding:'11px 16px', borderRadius:12, border:'1px solid #dce8f0', background:'#fff', color:'#51657f', fontWeight:700, cursor:'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitStatusModal}
+                    disabled={updating}
+                    style={{ padding:'11px 16px', borderRadius:12, border:'none', background:'#023c62', color:'#fff', fontWeight:800, cursor:'pointer', opacity: updating ? 0.65 : 1 }}
+                  >
+                    {updating ? 'Saving…' : 'Confirm Change'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

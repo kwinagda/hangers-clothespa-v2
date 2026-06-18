@@ -63,6 +63,9 @@ interface SavedAddress {
 }
 
 const BOOK_PICKUP_DRAFT_KEY = 'customer:book-pickup-draft:v1';
+const warnDraftFailure = (action: string, error: unknown) => {
+  console.warn(`Book pickup draft ${action} failed`, error);
+};
 
 const TIME_SLOTS = [
   { key: '9 AM - 12 PM', title: 'Morning', subtitle: 'Best for same-day planning' },
@@ -189,6 +192,8 @@ export default function BookPickupScreen() {
     } catch (error) {
       console.error('BookPickupScreen addresses error:', error);
       setSavedAddresses([]);
+      setUseManualAddress(true);
+      Alert.alert('Addresses Unavailable', 'Saved addresses could not be loaded. You can still enter the pickup address manually.');
     } finally {
       setAddressesLoading(false);
     }
@@ -210,7 +215,11 @@ export default function BookPickupScreen() {
         if (typeof draft.notes === 'string') setNotes(draft.notes);
         if (typeof draft.activeTab === 'string') setActiveTab(draft.activeTab);
       })
-      .catch(() => {})
+      .catch(() => {
+        if (alive) {
+          Alert.alert('Draft Unavailable', 'Saved pickup draft could not be restored.');
+        }
+      })
       .finally(() => {
         if (alive) setDraftReady(true);
       });
@@ -251,11 +260,15 @@ export default function BookPickupScreen() {
       notes.trim();
 
     if (!hasContent) {
-      SecureStore.deleteItemAsync(BOOK_PICKUP_DRAFT_KEY).catch(() => {});
+      SecureStore.deleteItemAsync(BOOK_PICKUP_DRAFT_KEY).catch((error) => {
+        warnDraftFailure('clear', error);
+      });
       return;
     }
 
-    SecureStore.setItemAsync(BOOK_PICKUP_DRAFT_KEY, JSON.stringify(draft)).catch(() => {});
+    SecureStore.setItemAsync(BOOK_PICKUP_DRAFT_KEY, JSON.stringify(draft)).catch((error) => {
+      warnDraftFailure('save', error);
+    });
   }, [activeTab, draftReady, manualAddress, notes, pickupDate, pickupTime, selectedAddressId, selectedItems, useManualAddress]);
 
   const activeItems = catalog.find((group) => group.key === activeTab)?.items ?? [];
@@ -265,7 +278,9 @@ export default function BookPickupScreen() {
   const selectedAddressLine = selectedAddress ? buildAddressLine(selectedAddress) : '';
 
   const resetDraft = useCallback(async () => {
-    await SecureStore.deleteItemAsync(BOOK_PICKUP_DRAFT_KEY).catch(() => {});
+    await SecureStore.deleteItemAsync(BOOK_PICKUP_DRAFT_KEY).catch((error) => {
+      warnDraftFailure('reset', error);
+    });
     setSelectedItems([]);
     setManualAddress('');
     setNotes('');
@@ -342,7 +357,9 @@ export default function BookPickupScreen() {
         })),
       });
 
-      await SecureStore.deleteItemAsync(BOOK_PICKUP_DRAFT_KEY).catch(() => {});
+      await SecureStore.deleteItemAsync(BOOK_PICKUP_DRAFT_KEY).catch((error) => {
+        warnDraftFailure('clear after booking', error);
+      });
       const order = response?.order || response?.data?.order;
       const orderNumber = order?.orderNumber;
 

@@ -13,19 +13,24 @@ const { log, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error, notFound } = require('../utils/response');
 const { ORDER_STATUS_LABELS, PLANT_STATUS_KEYS } = require('../config/master-data');
 
+const PLANT_STAGE_SEQUENCE = ['SENT_TO_PLANT', 'PROCESSING', 'WASHING', 'DRYING', 'IRONING', 'QC', 'READY_FOR_DELIVERY'];
+const PLANT_ISSUE_TYPES = new Set(['MISSING_ITEM', 'DAMAGE', 'STAIN_NOT_REMOVED', 'WRONG_ITEM', 'OTHER']);
+const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
+
 const getPlantDashboard = async (req, res) => {
   try {
     const [pending, processing, washing, drying, ironing, qc, ready, todayDone] =
       await Promise.all([
-        prisma.order.count({ where: { status: 'PENDING' } }),
-        prisma.order.count({ where: { status: 'PROCESSING' } }),
-        prisma.order.count({ where: { status: 'WASHING' } }),
-        prisma.order.count({ where: { status: 'DRYING' } }),
-        prisma.order.count({ where: { status: 'IRONING' } }),
-        prisma.order.count({ where: { status: 'QC' } }),
-        prisma.order.count({ where: { status: 'READY_FOR_DELIVERY' } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'PENDING' } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'PROCESSING' } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'WASHING' } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'DRYING' } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'IRONING' } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'QC' } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'READY_FOR_DELIVERY' } }),
         prisma.order.count({
           where: {
+            ...ORDER_ONLY_WHERE,
             status: 'READY_FOR_DELIVERY',
             updatedAt: { gte: new Date(new Date().setHours(0,0,0,0)) },
           },
@@ -48,11 +53,16 @@ const getPlantDashboard = async (req, res) => {
 
 const getPlantOrders = async (req, res) => {
   const { status, page = 1, limit = 20 } = req.query;
-  const skip = (parseInt(page) - 1) * parseInt(limit);
+  const parsedPage = Number.parseInt(page, 10);
+  const parsedLimit = Number.parseInt(limit, 10);
+  if (!Number.isInteger(parsedPage) || parsedPage <= 0) return badRequest(res, 'page must be a positive integer');
+  if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 100) return badRequest(res, 'limit must be an integer between 1 and 100');
+  if (status && !PLANT_STATUS_KEYS.includes(String(status).trim().toUpperCase())) return badRequest(res, 'Invalid plant status filter');
+  const skip = (parsedPage - 1) * parsedLimit;
 
   const where = status
-    ? { status }
-    : { status: { in: PLANT_STATUS_KEYS } };
+    ? { ...ORDER_ONLY_WHERE, status: String(status).trim().toUpperCase() }
+    : { ...ORDER_ONLY_WHERE, status: { in: PLANT_STATUS_KEYS } };
 
   try {
     const [orders, total] = await Promise.all([
@@ -64,7 +74,7 @@ const getPlantOrders = async (req, res) => {
         },
         orderBy: { updatedAt: 'asc' },
         skip,
-        take: parseInt(limit),
+        take: parsedLimit,
       }),
       prisma.order.count({ where }),
     ]);
@@ -80,7 +90,7 @@ const getPlantOrders = async (req, res) => {
         updatedAt:   o.updatedAt,
       })),
       total,
-      page: parseInt(page),
+      page: parsedPage,
     });
   } catch (err) {
     return error(res, 'Failed to load orders');
@@ -100,7 +110,7 @@ const scanQRCode = async (req, res) => {
       .toUpperCase();
 
     const order = await prisma.order.findFirst({
-      where: { orderNumber },
+      where: { orderNumber, ...ORDER_ONLY_WHERE },
       include: {
         customer: { select: { name: true, phone: true } },
         items:    true,
@@ -136,8 +146,8 @@ const scanQRCode = async (req, res) => {
 
 const getPlantOrder = async (req, res) => {
   try {
-    const order = await prisma.order.findUnique({
-      where: { id: req.params.id },
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id, ...ORDER_ONLY_WHERE },
       include: {
         customer: { select: { name: true, phone: true } },
         items:    true,
@@ -171,14 +181,21 @@ const updatePlantStage = async (req, res) => {
   }
 
   try {
-    const order = await prisma.order.findUnique({
-      where: { id },
+    const order = await prisma.order.findFirst({
+      where: { id, ...ORDER_ONLY_WHERE },
       include: {
         customer: { select: { name: true, phone: true } },
         items:    { select: { id: true, tagNumber: true } },
       },
     });
     if (!order) return notFound(res, 'Order not found');
+    const currentIndex = PLANT_STAGE_SEQUENCE.indexOf(order.status);
+    const nextIndex = PLANT_STAGE_SEQUENCE.indexOf(status);
+    if (currentIndex === -1) return badRequest(res, 'Order is not currently in a plant-manageable stage');
+    if (nextIndex === -1) return badRequest(res, 'Target stage is not a valid plant stage');
+    if (nextIndex < currentIndex) return badRequest(res, 'Plant stage cannot move backward');
+    if (nextIndex - currentIndex > 1) return badRequest(res, 'Plant stage must advance one step at a time');
+    if (order.status === status) return badRequest(res, 'Order is already in this stage');
 
     // Auto-generate tag numbers when first entering PROCESSING
     if (status === 'PROCESSING' && order.status !== 'PROCESSING') {
@@ -228,22 +245,27 @@ const flagIssue = async (req, res) => {
   const { id } = req.params;
   const { issueType, description, itemIndex } = req.body;
 
-  const ISSUE_TYPES = ['MISSING_ITEM','DAMAGE','STAIN_NOT_REMOVED','WRONG_ITEM','OTHER'];
   if (!issueType) return badRequest(res, 'Issue type is required');
-  if (!ISSUE_TYPES.includes(issueType)) {
-    return badRequest(res, `Invalid issue type. Use: ${ISSUE_TYPES.join(', ')}`);
+  if (!PLANT_ISSUE_TYPES.has(issueType)) {
+    return badRequest(res, `Invalid issue type. Use: ${Array.from(PLANT_ISSUE_TYPES).join(', ')}`);
   }
 
   try {
-    const order = await prisma.order.findUnique({
-      where: { id },
+    const order = await prisma.order.findFirst({
+      where: { id, ...ORDER_ONLY_WHERE },
       include: { items: true },
     });
     if (!order) return notFound(res, 'Order not found');
+    if (itemIndex !== undefined) {
+      const parsedItemIndex = Number(itemIndex);
+      if (!Number.isInteger(parsedItemIndex) || parsedItemIndex < 0 || parsedItemIndex >= order.items.length) {
+        return badRequest(res, 'itemIndex is out of range for this order');
+      }
+    }
 
     const flagNote = `ISSUE FLAGGED: ${issueType.replace(/_/g, ' ')}${
-      description ? ` — ${description}` : ''
-    }${itemIndex !== undefined ? ` (Item ${parseInt(itemIndex) + 1})` : ''}. Reported by ${req.staff.name}`;
+      description ? ` — ${String(description).trim()}` : ''
+    }${itemIndex !== undefined ? ` (Item ${parseInt(itemIndex, 10) + 1})` : ''}. Reported by ${req.staff.name}`;
 
     await prisma.orderStage.create({
       data: {
@@ -274,8 +296,8 @@ const flagIssue = async (req, res) => {
 const generateTags = async (req, res) => {
   const { id } = req.params;
   try {
-    const order = await prisma.order.findUnique({
-      where: { id },
+    const order = await prisma.order.findFirst({
+      where: { id, ...ORDER_ONLY_WHERE },
       include: { items: { select: { id: true, tagNumber: true, serviceName: true } } },
     });
     if (!order) return notFound(res, 'Order not found');

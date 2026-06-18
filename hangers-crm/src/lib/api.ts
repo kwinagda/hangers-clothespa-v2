@@ -1,8 +1,7 @@
 import axios from 'axios'
-import Cookies from 'js-cookie'
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1'
-const api  = axios.create({ baseURL: BASE, timeout: 15000 })
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+const api  = axios.create({ baseURL: API_BASE_URL, timeout: 15000, withCredentials: true })
 
 const normalizeApiResponse = (payload: any) => {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload
@@ -20,17 +19,14 @@ const normalizeApiResponse = (payload: any) => {
   return { ...payload, data: rest }
 }
 
-api.interceptors.request.use((config) => {
-  const token = Cookies.get('crm_token')
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
-})
 api.interceptors.response.use(
   (r) => normalizeApiResponse(r.data),
   (err) => {
     if (err.response?.status === 401 && typeof window !== 'undefined') {
-      Cookies.remove('crm_token')
-      window.location.href = '/login'
+      const path = window.location.pathname || ''
+      if (path !== '/login') {
+        window.location.replace('/login')
+      }
     }
     throw new Error(err.response?.data?.message || 'Something went wrong')
   }
@@ -50,9 +46,19 @@ export const ordersAPI = {
   addItems:     (id: string, data: any) => api.patch(`/orders/${id}/items`, data) as any,
   delete:       (id: string)   => api.delete(`/orders/${id}`),
 }
+export const quotationsAPI = {
+  list:         (params?: any) => api.get('/quotations', { params }) as any,
+  get:          (id: string)   => api.get(`/quotations/${id}`) as any,
+  create:       (data: any)    => api.post('/quotations', data) as any,
+  update:       (id: string, data: any) => api.patch(`/quotations/${id}`, data) as any,
+  updateStatus: (id: string, quotationStatus: string) => api.patch(`/quotations/${id}/status`, { quotationStatus }) as any,
+  convert:      (id: string)   => api.post(`/quotations/${id}/convert`) as any,
+  pdfUrl:       (id: string) => `${API_BASE_URL}/quotations/${id}/pdf`,
+}
 export const customersAPI = {
   list:   (params?: any)          => api.get('/customers', { params }) as any,
   get:    (id: string)            => api.get(`/customers/${id}`) as any,
+  referralReport: (params?: any)  => api.get('/customers/referrals/report', { params }) as any,
   create: (data: any)             => api.post('/customers', data) as any,
   update: (id: string, data: any) => api.patch(`/customers/${id}`, data) as any,
   addAddress: (id: string, data: any) => api.post(`/customers/${id}/addresses`, data) as any,
@@ -75,11 +81,19 @@ export const servicesAPI = {
   getPriceList: ()           => api.get('/services') as any,
   getCatalog:   ()           => api.get('/services').then((r: any) => { const cat = r.data?.catalog || r.data || []; return cat.flatMap((g: any) => (g.items||[]).map((item: any) => ({id: item.id, name: item.name, basePrice: item.price, category: g.category, catalogName: g.category.replace(/\u2014/g, "—")}))); }) as any,
   saveCatalog:  (catalog: any) => api.put('/services', { catalog }) as any,
+  createItem:   (data: any) => api.post('/services', data) as any,
+  updateItem:   (id: string, data: any) => api.patch(`/services/${id}`, data) as any,
+  deactivateItem: (id: string) => api.delete(`/services/${id}`) as any,
   getDailyIronRates: ()      => api.get('/services', { params: { category: 'DAILY_IRON' } }) as any,
 }
 
 export const metadataAPI = {
   getAll: () => api.get('/metadata') as any,
+}
+
+export const settingsAPI = {
+  getAll: () => api.get('/settings') as any,
+  update: (data: any) => api.patch('/settings', data) as any,
 }
 
 export const ironAPI = {
@@ -140,6 +154,10 @@ export const challanAPI = {
   receiveItems:  (id: string, items: any[]) => api.patch(`/challans/${id}/receive-items`, { items }) as any,
   create:        (data: any)                 => api.post('/challans', data),
   setStatus:     (id: string, status: string) => api.patch(`/challans/${id}/status`, { status }),
+}
+
+export const deliveryAPI = {
+  assignOrder: (id: string, riderId: string) => api.post(`/delivery/orders/${id}/assign`, { riderId }) as any,
 }
 
 export const vendorBillAPI = {

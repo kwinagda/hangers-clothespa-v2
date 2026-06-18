@@ -12,20 +12,6 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import api, { metadataAPI } from '../services/api';
 import { Colors, FontSize, Fonts, Radius, Shadow, Spacing } from '../utils/theme';
 
-const STATUS_COLOR: Record<string, string> = {
-  PENDING: '#6b7fa3',
-  PICKED_UP: '#0284c7',
-  PROCESSING: '#7c3aed',
-  WASHING: '#0891b2',
-  DRYING: '#f59e0b',
-  IRONING: '#d97706',
-  QC: '#16a34a',
-  READY_FOR_DELIVERY: '#059669',
-  OUT_FOR_DELIVERY: '#0284c7',
-  DELIVERED: '#16a34a',
-  CANCELLED: '#dc2626',
-};
-
 const formatDate = (iso?: string) => {
   if (!iso) return '';
   return new Date(iso).toLocaleDateString('en-IN', {
@@ -39,7 +25,10 @@ const formatDate = (iso?: string) => {
 export default function OrderTrackingScreen({ route, navigation }: any) {
   const { orderId, orderNumber } = route.params || {};
   const [order, setOrder] = useState<any>(null);
+  const [loadError, setLoadError] = useState('');
   const [stages, setStages] = useState<any[]>([]);
+  const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, string>>({});
+  const [statusStyles, setStatusStyles] = useState<Record<string, { bg: string; text: string; border: string }>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -47,11 +36,16 @@ export default function OrderTrackingScreen({ route, navigation }: any) {
     try {
       const response: any = await api.get(`/customer/orders/${orderId}`);
       setOrder(response?.order || response?.data?.order || null);
+      setLoadError('');
     } catch {
       try {
         const fallback: any = await api.get(`/orders/${orderId}`);
         setOrder(fallback?.order || fallback?.data?.order || null);
-      } catch {}
+        setLoadError('');
+      } catch (e: any) {
+        setOrder(null);
+        setLoadError(e?.message || 'Could not load order tracking right now.');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -75,9 +69,27 @@ export default function OrderTrackingScreen({ route, navigation }: any) {
             icon: item.icon || 'package-variant-closed',
             desc: item.customerLabel || item.label || item.key,
           }));
+        const nextPaymentMeta = (metadata.paymentStatuses || []).reduce((acc: Record<string, string>, item: any) => {
+          acc[item.value] = item.label || item.value;
+          return acc;
+        }, {});
+        const nextStatusStyles = (metadata.orderStatuses || []).reduce((acc: Record<string, { bg: string; text: string; border: string }>, item: any) => {
+          acc[item.key] = {
+            bg: item.bg || '#eef4f8',
+            text: item.color || Colors.primary,
+            border: item.border || item.bg || '#d9e4ee',
+          };
+          return acc;
+        }, {});
         if (nextStages.length) setStages(nextStages);
+        setPaymentStatusMeta(nextPaymentMeta);
+        setStatusStyles(nextStatusStyles);
       })
-      .catch(() => {});
+      .catch(() => {
+        setStages([]);
+        setPaymentStatusMeta({});
+        setStatusStyles({});
+      });
   }, []);
 
   if (loading) {
@@ -85,6 +97,19 @@ export default function OrderTrackingScreen({ route, navigation }: any) {
       <View style={styles.loadingWrap}>
         <ActivityIndicator size="large" color="#fff" />
         <Text style={styles.loadingText}>Loading order tracking...</Text>
+      </View>
+    );
+  }
+
+  if (!order) {
+    return (
+      <View style={styles.errorWrap}>
+        <MaterialCommunityIcons name="alert-circle-outline" size={42} color={Colors.error} />
+        <Text style={styles.errorTitle}>Tracking unavailable</Text>
+        <Text style={styles.errorBody}>{loadError || 'Please try again.'}</Text>
+        <TouchableOpacity style={styles.errorBtn} onPress={() => { setLoading(true); load(); }}>
+          <Text style={styles.errorBtnText}>Retry</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -99,7 +124,7 @@ export default function OrderTrackingScreen({ route, navigation }: any) {
     computedStages.findIndex((stage) => stage.key === order?.status),
     0
   );
-  const statusColor = STATUS_COLOR[order?.status] || Colors.primary;
+  const statusColor = statusStyles[order?.status]?.text || Colors.primary;
   const isCancelled = order?.status === 'CANCELLED';
 
   return (
@@ -154,7 +179,7 @@ export default function OrderTrackingScreen({ route, navigation }: any) {
           {!!order?.paymentStatus && (
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Payment</Text>
-              <Text style={styles.summaryValue}>{order.paymentStatus}</Text>
+              <Text style={styles.summaryValue}>{paymentStatusMeta[order.paymentStatus] || order.paymentStatus}</Text>
             </View>
           )}
         </View>
@@ -172,9 +197,9 @@ export default function OrderTrackingScreen({ route, navigation }: any) {
                   <View
                     style={[
                       styles.dot,
-                      done && { backgroundColor: Colors.primary, borderColor: Colors.primary },
-                      current && { borderColor: Colors.primary, backgroundColor: '#fff' },
-                      future && { borderColor: '#d9e4ee', backgroundColor: '#f7fafc' },
+                      done && { backgroundColor: statusColor, borderColor: statusColor },
+                      current && { borderColor: statusColor, backgroundColor: '#fff' },
+                      future && { borderColor: statusStyles[stage.key]?.border || '#d9e4ee', backgroundColor: '#f7fafc' },
                     ]}
                   >
                     {done ? (
@@ -183,12 +208,12 @@ export default function OrderTrackingScreen({ route, navigation }: any) {
                       <MaterialCommunityIcons
                         name={stage.icon as any}
                         size={14}
-                        color={current ? Colors.primary : '#93a8bf'}
+                        color={current ? statusColor : '#93a8bf'}
                       />
                     )}
                   </View>
                   {index < computedStages.length - 1 && (
-                    <View style={[styles.railLine, done && { backgroundColor: Colors.primary }]} />
+                    <View style={[styles.railLine, done && { backgroundColor: statusColor }]} />
                   )}
                 </View>
                 <View style={styles.timelineContent}>
@@ -234,6 +259,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#eef4f8' },
   loadingWrap: { flex: 1, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
   loadingText: { marginTop: 12, color: '#fff', fontFamily: Fonts.body, fontSize: FontSize.base },
+  errorWrap: { flex: 1, backgroundColor: Colors.offWhite, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl },
+  errorTitle: { marginTop: 12, marginBottom: 6, fontSize: FontSize.xl, fontFamily: Fonts.displayBold, color: Colors.textDark },
+  errorBody: { textAlign: 'center', color: Colors.textMuted, fontSize: FontSize.base, marginBottom: 16 },
+  errorBtn: { backgroundColor: Colors.primary, paddingHorizontal: 18, paddingVertical: 12, borderRadius: Radius.lg },
+  errorBtnText: { color: '#fff', fontFamily: Fonts.bold, fontSize: FontSize.base },
   scrollContent: { paddingBottom: 40 },
   hero: {
     paddingTop: 58,

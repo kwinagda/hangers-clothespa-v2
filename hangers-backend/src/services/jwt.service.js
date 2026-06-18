@@ -4,37 +4,64 @@
 
 const jwt = require('jsonwebtoken');
 
-const SECRET = process.env.JWT_SECRET || 'hangers-dev-secret-change-in-production';
+const SECRET = process.env.JWT_SECRET;
+
+if (!SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
 
 /**
  * Generate a JWT token for a customer
  */
-const generateCustomerToken = (customer) => {
+const resolveExpiryConfig = (value, fallback) => {
+  const normalized = String(value || fallback || '').trim();
+  if (!normalized) return fallback;
+  return normalized;
+};
+
+const parseExpiryMs = (expiresIn) => {
+  const normalized = resolveExpiryConfig(expiresIn, '1d');
+  if (/^\d+$/.test(normalized)) return Number(normalized) * 1000;
+
+  const match = normalized.match(/^(\d+)\s*([smhd])$/i);
+  if (!match) {
+    throw new Error(`Unsupported JWT expiry format: ${normalized}`);
+  }
+
+  const value = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  const multipliers = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+  return value * multipliers[unit];
+};
+
+const generateCustomerToken = (customer, expiresIn = process.env.JWT_CUSTOMER_EXPIRES_IN || '30d') => {
   return jwt.sign(
     {
-      id:    customer.id,
+      id: customer.id,
       phone: customer.phone,
-      type:  'customer',
+      sessionVersion: customer.sessionVersion || 0,
+      type: 'customer',
     },
     SECRET,
-    { expiresIn: process.env.JWT_CUSTOMER_EXPIRES_IN || '30d' }
+    { expiresIn: resolveExpiryConfig(expiresIn, '30d') }
   );
 };
 
 /**
  * Generate a JWT token for a staff member
  */
-const generateStaffToken = (staff) => {
+const generateStaffToken = (staff, expiresIn = process.env.JWT_STAFF_EXPIRES_IN || '12h') => {
   return jwt.sign(
     {
-      id:    staff.id,
+      id: staff.id,
       phone: staff.phone,
       email: staff.email,
-      role:  staff.role,
-      type:  'staff',
+      role: staff.role,
+      sessionVersion: staff.sessionVersion || 0,
+      type: 'staff',
     },
     SECRET,
-    { expiresIn: process.env.JWT_STAFF_EXPIRES_IN || '12h' }
+    { expiresIn: resolveExpiryConfig(expiresIn, '12h') }
   );
 };
 
@@ -57,15 +84,7 @@ const decodeToken = (token) => {
  * Calculate token expiry as a Date object
  */
 const getTokenExpiry = (expiresIn) => {
-  const now = Date.now();
-  // Parse "30d", "12h", "60m" etc.
-  const unit  = expiresIn.slice(-1);
-  const value = parseInt(expiresIn.slice(0, -1));
-  const ms    = unit === 'd' ? value * 86400000
-              : unit === 'h' ? value * 3600000
-              : unit === 'm' ? value * 60000
-              : 86400000;
-  return new Date(now + ms);
+  return new Date(Date.now() + parseExpiryMs(expiresIn));
 };
 
 module.exports = {

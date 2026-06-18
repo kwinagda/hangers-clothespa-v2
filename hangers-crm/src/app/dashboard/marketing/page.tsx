@@ -3,6 +3,20 @@ import { useEffect, useState } from 'react'
 import { campaignsAPI, automationsAPI, metadataAPI } from '@/lib/api'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 type Tab = 'campaigns'|'automations'
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
+const unwrapRecord = (value: any, keys: string[] = []) => {
+  if (!value || Array.isArray(value)) return null
+  for (const key of keys) {
+    if (value?.[key] && typeof value[key] === 'object' && !Array.isArray(value[key])) return value[key]
+  }
+  return value
+}
 export default function MarketingPage() {
   const [tab,setTab] = useState<Tab>('campaigns')
   const [triggers,setTriggers] = useState<any[]>([])
@@ -30,8 +44,8 @@ export default function MarketingPage() {
       if (nextAudiences[0]?.value) setCf(prev => ({ ...prev, audience: nextAudiences[0].value }))
       if (nextTriggers[0]?.value) setAf(prev => ({ ...prev, trigger: nextTriggers[0].value }))
     }).catch(()=>{})
-    campaignsAPI.getAll().then((r:any)=>setCampaigns(r.data||[]))
-    automationsAPI.getAll().then((r:any)=>setAutomations(r.data||[]))
+    campaignsAPI.getAll().then((r:any)=>setCampaigns(asArray(r.data, ['campaigns', 'items']))).catch(()=>setCampaigns([]))
+    automationsAPI.getAll().then((r:any)=>setAutomations(asArray(r.data, ['automations', 'items']))).catch(()=>setAutomations([]))
   },[])
   const s = {fontFamily:"var(--crm-font-ui)"}
   const pagedCampaigns = campaigns.slice((campaignPage - 1) * pageSize, campaignPage * pageSize)
@@ -59,7 +73,7 @@ export default function MarketingPage() {
               </div>
               <div style={{display:'flex',flexDirection:'column' as const,alignItems:'flex-end',gap:8}}>
                 <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:SS[c.status]?.bg||'#f3f4f6',color:SS[c.status]?.color||'#374151'}}>{c.status}</span>
-                {c.status==='DRAFT'&&<button onClick={async()=>{setSending(c.id);const r=await campaignsAPI.send(c.id);setCampaigns(campaigns.map(x=>x.id===c.id?{...x,status:'SENT',sentCount:r.data?.sentCount}:x));setSending(null)}} disabled={sending===c.id} style={{padding:'6px 14px',background:'#166534',color:'#fff',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:'pointer',opacity:sending===c.id?0.5:1}}>{sending===c.id?'Sending...':'Send Now'}</button>}
+                {c.status==='DRAFT'&&<button onClick={async()=>{try{setSending(c.id);const r:any=await campaignsAPI.send(c.id);const sentCount = r?.data?.sentCount ?? r?.sentCount ?? c.sentCount;setCampaigns(campaigns.map(x=>x.id===c.id?{...x,status:'SENT',sentCount}:x))}finally{setSending(null)}}} disabled={sending===c.id} style={{padding:'6px 14px',background:'#166534',color:'#fff',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:'pointer',opacity:sending===c.id?0.5:1}}>{sending===c.id?'Sending...':'Send Now'}</button>}
                 {c.status==='SENT'&&<div style={{fontSize:12,color:'#6b7fa3'}}>Sent to {c.sentCount}</div>}
               </div>
             </div>
@@ -94,7 +108,7 @@ export default function MarketingPage() {
               </div>
               <div style={{display:'flex',flexDirection:'column' as const,alignItems:'flex-end',gap:8}}>
                 <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:a.isActive?'#dcfce7':'#f3f4f6',color:a.isActive?'#166534':'#6b7280'}}>{a.isActive?'Active':'Paused'}</span>
-                <button onClick={()=>automationsAPI.toggle(a.id).then(()=>setAutomations(automations.map(x=>x.id===a.id?{...x,isActive:!x.isActive}:x)))} style={{fontSize:12,color:'#023c62',background:'none',border:'none',cursor:'pointer'}}>{a.isActive?'Pause':'Enable'}</button>
+                <button onClick={()=>automationsAPI.toggle(a.id).then(()=>setAutomations(automations.map(x=>x.id===a.id?{...x,isActive:!x.isActive}:x))).catch(()=>{})} style={{fontSize:12,color:'#023c62',background:'none',border:'none',cursor:'pointer'}}>{a.isActive?'Pause':'Enable'}</button>
               </div>
             </div>
           </div>)}
@@ -119,7 +133,7 @@ export default function MarketingPage() {
           </div>
           <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:20}}>
             <button onClick={()=>setShowCamp(false)} style={{padding:'8px 16px',fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer'}}>Cancel</button>
-            <button onClick={async()=>{setLoading(true);const r=await campaignsAPI.create(cf);setCampaigns([r.data,...campaigns]);setShowCamp(false);setLoading(false)}} disabled={loading} style={{padding:'8px 16px',background:'#166534',color:'#fff',borderRadius:8,fontSize:13,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Creating...':'Create'}</button>
+            <button onClick={async()=>{try{setLoading(true);const r=await campaignsAPI.create(cf);const created = unwrapRecord(r?.data, ['campaign']) || r?.data;if(created) setCampaigns([created,...campaigns]);setShowCamp(false)}finally{setLoading(false)}}} disabled={loading} style={{padding:'8px 16px',background:'#166534',color:'#fff',borderRadius:8,fontSize:13,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Creating...':'Create'}</button>
           </div>
         </div>
       </div>}
@@ -134,7 +148,7 @@ export default function MarketingPage() {
           </div>
           <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:20}}>
             <button onClick={()=>setShowAuto(false)} style={{padding:'8px 16px',fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer'}}>Cancel</button>
-            <button onClick={async()=>{setLoading(true);const r=await automationsAPI.create(af);setAutomations([r.data,...automations]);setShowAuto(false);setLoading(false)}} disabled={loading} style={{padding:'8px 16px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Creating...':'Create'}</button>
+            <button onClick={async()=>{try{setLoading(true);const r=await automationsAPI.create(af);const created = unwrapRecord(r?.data, ['automation']) || r?.data;if(created) setAutomations([created,...automations]);setShowAuto(false)}finally{setLoading(false)}}} disabled={loading} style={{padding:'8px 16px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Creating...':'Create'}</button>
           </div>
         </div>
       </div>}

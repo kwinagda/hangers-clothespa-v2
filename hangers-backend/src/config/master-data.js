@@ -1,17 +1,17 @@
 const ORDER_STATUSES = [
-  { key: 'PENDING', label: 'Pending', customerLabel: 'Pickup Pending', plantLabel: 'Order Placed', icon: 'clipboard-text-outline', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true },
-  { key: 'PICKED_UP', label: 'Picked Up', customerLabel: 'Picked Up', plantLabel: 'Picked Up', icon: 'car-outline', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true },
-  { key: 'PROCESSING', label: 'Processing', customerLabel: 'At Plant', plantLabel: 'At Plant', icon: 'factory', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'processing' },
-  { key: 'WASHING', label: 'Washing', customerLabel: 'Washing', plantLabel: 'Being Cleaned', icon: 'water-outline', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'washing' },
-  { key: 'DRYING', label: 'Drying', customerLabel: 'Drying', plantLabel: 'Drying', icon: 'weather-sunny', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'drying' },
-  { key: 'IRONING', label: 'Ironing', customerLabel: 'Ironing', plantLabel: 'Ironing', icon: 'iron', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'ironing' },
-  { key: 'QC', label: 'QC Check', customerLabel: 'QC Check', plantLabel: 'Quality Check', icon: 'magnify', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'qc' },
-  { key: 'READY_FOR_DELIVERY', label: 'Ready for Delivery', customerLabel: 'Ready for Delivery', plantLabel: 'Ready', icon: 'package-variant-closed', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'ready' },
-  { key: 'OUT_FOR_DELIVERY', label: 'Out for Delivery', customerLabel: 'Out for Delivery', plantLabel: 'Out for Delivery', icon: 'motorbike', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true },
-  { key: 'DELIVERED', label: 'Delivered', customerLabel: 'Delivered', plantLabel: 'Delivered', icon: 'check-decagram-outline', crmEditable: true, plantManaged: false, customerBucket: 'completed', customerTrackVisible: true },
-  { key: 'CANCELLED', label: 'Cancelled', customerLabel: 'Cancelled', plantLabel: 'Cancelled', icon: 'close-circle-outline', crmEditable: true, plantManaged: false, customerBucket: 'completed', customerTrackVisible: false },
-  { key: 'SENT_TO_PLANT', label: 'Sent to Plant', customerLabel: 'Sent to Plant', plantLabel: 'Sent to Plant', icon: 'truck-fast-outline', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: false },
-  { key: 'RETURNED', label: 'Returned', customerLabel: 'Returned', plantLabel: 'Returned', icon: 'backup-restore', crmEditable: false, plantManaged: false, customerBucket: 'completed', customerTrackVisible: false },
+  { key: 'PENDING', label: 'Pending', customerLabel: 'Pickup Pending', plantLabel: 'Order Placed', icon: 'clipboard-text-outline', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, color: '#92400e', bg: '#fffbeb', border: '#fde68a' },
+  { key: 'PICKED_UP', label: 'Picked Up', customerLabel: 'Picked Up', plantLabel: 'Picked Up', icon: 'car-outline', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
+  { key: 'PROCESSING', label: 'Processing', customerLabel: 'At Plant', plantLabel: 'At Plant', icon: 'factory', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'processing', color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe' },
+  { key: 'WASHING', label: 'Washing', customerLabel: 'Washing', plantLabel: 'Being Cleaned', icon: 'water-outline', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'washing', color: '#0e7490', bg: '#ecfeff', border: '#a5f3fc' },
+  { key: 'DRYING', label: 'Drying', customerLabel: 'Drying', plantLabel: 'Drying', icon: 'weather-sunny', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'drying', color: '#0369a1', bg: '#f0f9ff', border: '#bae6fd' },
+  { key: 'IRONING', label: 'Ironing', customerLabel: 'Ironing', plantLabel: 'Ironing', icon: 'iron', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'ironing', color: '#c2410c', bg: '#fff7ed', border: '#fed7aa' },
+  { key: 'QC', label: 'QC Check', customerLabel: 'QC Check', plantLabel: 'Quality Check', icon: 'magnify', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'qc', color: '#7e22ce', bg: '#faf5ff', border: '#e9d5ff' },
+  { key: 'READY_FOR_DELIVERY', label: 'Ready for Delivery', customerLabel: 'Ready for Delivery', plantLabel: 'Ready', icon: 'package-variant-closed', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, plantQueue: true, plantSelectable: true, plantDashKey: 'ready', color: '#0f766e', bg: '#f0fdfa', border: '#99f6e4' },
+  { key: 'OUT_FOR_DELIVERY', label: 'Out for Delivery', customerLabel: 'Out for Delivery', plantLabel: 'Out for Delivery', icon: 'motorbike', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, color: '#6d28d9', bg: '#f5f3ff', border: '#ddd6fe' },
+  { key: 'DELIVERED', label: 'Delivered', customerLabel: 'Delivered', plantLabel: 'Delivered', icon: 'check-decagram-outline', crmEditable: true, plantManaged: false, customerBucket: 'completed', customerTrackVisible: true, color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
+  { key: 'CANCELLED', label: 'Cancelled', customerLabel: 'Cancelled', plantLabel: 'Cancelled', icon: 'close-circle-outline', crmEditable: true, plantManaged: false, customerBucket: 'completed', customerTrackVisible: false, color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+  { key: 'SENT_TO_PLANT', label: 'Sent to Plant', customerLabel: 'Sent to Plant', plantLabel: 'Sent to Plant', icon: 'truck-fast-outline', crmEditable: false, plantManaged: true, customerBucket: 'active', customerTrackVisible: false, color: '#854d0e', bg: '#fef9c3', border: '#fde68a' },
+  { key: 'RETURNED', label: 'Returned', customerLabel: 'Returned', plantLabel: 'Returned', icon: 'backup-restore', crmEditable: false, plantManaged: false, customerBucket: 'completed', customerTrackVisible: false, color: '#991b1b', bg: '#fee2e2', border: '#fecaca' },
 ];
 
 const ORDER_STATUS_KEYS = ORDER_STATUSES.map((status) => status.key);
@@ -32,18 +32,28 @@ const DELIVERY_FAIL_REASONS = [
 ];
 
 const STAFF_ROLES = [
-  { value: 'SUPER_ADMIN', label: 'Super Admin', pinEligible: false },
-  { value: 'MANAGER', label: 'Manager', pinEligible: false },
-  { value: 'COUNTER_STAFF', label: 'Counter Staff', pinEligible: false },
-  { value: 'ACCOUNTS', label: 'Accounts', pinEligible: false },
-  { value: 'DELIVERY_MANAGER', label: 'Delivery Manager', pinEligible: true },
-  { value: 'DELIVERY_RIDER', label: 'Delivery Rider', pinEligible: true },
-  { value: 'PLANT_MANAGER', label: 'Plant Manager', pinEligible: true },
-  { value: 'PLANT_STAFF', label: 'Plant Staff', pinEligible: true },
-  { value: 'PLANT_QC', label: 'Plant QC', pinEligible: true },
+  { value: 'SUPER_ADMIN', label: 'Super Admin', pinEligible: false, color: '#92400e', bg: '#fef3c7' },
+  { value: 'MANAGER', label: 'Manager', pinEligible: false, color: '#065f46', bg: '#d1fae5' },
+  { value: 'COUNTER_STAFF', label: 'Counter Staff', pinEligible: false, color: '#1e40af', bg: '#dbeafe' },
+  { value: 'ACCOUNTS', label: 'Accounts', pinEligible: false, color: '#5b21b6', bg: '#ede9fe' },
+  { value: 'DELIVERY_MANAGER', label: 'Delivery Manager', pinEligible: true, color: '#9a3412', bg: '#ffedd5' },
+  { value: 'DELIVERY_RIDER', label: 'Delivery Rider', pinEligible: true, color: '#0c4a6e', bg: '#e0f2fe' },
+  { value: 'PLANT_MANAGER', label: 'Plant Manager', pinEligible: true, color: '#4a1d96', bg: '#f3e8ff' },
+  { value: 'PLANT_STAFF', label: 'Plant Staff', pinEligible: true, color: '#1e3a5f', bg: '#e8f0f7' },
+  { value: 'PLANT_QC', label: 'Plant QC', pinEligible: true, color: '#14532d', bg: '#dcfce7' },
 ];
 
 const STAFF_ROLE_VALUES = STAFF_ROLES.map((role) => role.value);
+const SERVICE_CODES = [
+  'CRM',
+  'CUSTOMER_APP',
+  'STAFF_APP',
+  'DELIVERY',
+  'PLANT',
+  'FINANCE',
+  'MARKETING',
+  'REPORTS',
+];
 
 const ROLE_PERMISSIONS = {
   SUPER_ADMIN: ['*'],
@@ -108,6 +118,18 @@ const ROLE_PERMISSIONS = {
   ],
 };
 
+const ROLE_SERVICE_ACCESS = {
+  SUPER_ADMIN: [...SERVICE_CODES],
+  MANAGER: ['CRM', 'CUSTOMER_APP', 'STAFF_APP', 'DELIVERY', 'PLANT', 'FINANCE', 'MARKETING', 'REPORTS'],
+  COUNTER_STAFF: ['CRM', 'CUSTOMER_APP', 'REPORTS'],
+  ACCOUNTS: ['CRM', 'FINANCE', 'REPORTS'],
+  DELIVERY_MANAGER: ['CRM', 'DELIVERY', 'REPORTS'],
+  DELIVERY_RIDER: ['DELIVERY', 'STAFF_APP'],
+  PLANT_MANAGER: ['PLANT', 'STAFF_APP', 'REPORTS'],
+  PLANT_STAFF: ['PLANT', 'STAFF_APP'],
+  PLANT_QC: ['PLANT', 'STAFF_APP'],
+};
+
 const MARKETING_TRIGGERS = [
   { value: 'ORDER_PLACED', label: 'Order Placed' },
   { value: 'ORDER_READY', label: 'Order Ready' },
@@ -146,9 +168,22 @@ const PAYMENT_METHODS = [
 const PAYMENT_METHOD_VALUES = PAYMENT_METHODS.map((method) => method.value);
 const CORE_PAYMENT_METHODS = PAYMENT_METHODS.filter((method) => ['CASH', 'UPI', 'CARD'].includes(method.value)).map((method) => method.value);
 const PAYMENT_STATUSES = [
-  { value: 'UNPAID', label: 'Unpaid' },
-  { value: 'PARTIAL', label: 'Partial' },
-  { value: 'PAID', label: 'Paid' },
+  { value: 'UNPAID', label: 'Unpaid', color: '#991b1b', bg: '#fee2e2' },
+  { value: 'PARTIAL', label: 'Partial', color: '#92400e', bg: '#fef3c7' },
+  { value: 'PAID', label: 'Paid', color: '#166534', bg: '#dcfce7' },
+];
+
+const DOCUMENT_TYPES = [
+  { value: 'ORDER', label: 'Order' },
+  { value: 'QUOTATION', label: 'Quotation' },
+];
+
+const QUOTATION_STATUSES = [
+  { value: 'DRAFT', label: 'Draft', color: '#5b21b6', bg: '#f5f3ff' },
+  { value: 'SENT', label: 'Sent', color: '#1d4ed8', bg: '#eff6ff' },
+  { value: 'APPROVED', label: 'Approved', color: '#166534', bg: '#dcfce7' },
+  { value: 'EXPIRED', label: 'Expired', color: '#991b1b', bg: '#fee2e2' },
+  { value: 'CONVERTED', label: 'Converted', color: '#0f766e', bg: '#f0fdfa' },
 ];
 
 const CUSTOMER_TAGS = [
@@ -246,6 +281,27 @@ const PLANT_ISSUE_TYPES = [
   { value: 'OTHER', label: 'Other', icon: 'note-text-outline' },
 ];
 
+const SERVICE_CATEGORY_UI = {
+  'DRY CLEAN — MEN': { id: 'dry_clean_men', label: 'Dry Clean Men', icon: 'hanger', color: '#023c62', lightColor: '#E8F0F7' },
+  'DRY CLEAN — WOMEN': { id: 'dry_clean_women', label: 'Dry Clean Women', icon: 'hanger', color: '#035a8f', lightColor: '#EBF4FF' },
+  'DRY CLEAN — HOUSEHOLD': { id: 'dry_clean_household', label: 'Household Dry Clean', icon: 'sofa', color: '#046a9e', lightColor: '#E8F2F8' },
+  'STEAM IRONING': { id: 'steam_ironing', label: 'Steam Ironing', icon: 'iron', color: '#035a8f', lightColor: '#EBF4FF' },
+  'NORMAL IRONING': { id: 'normal_ironing', label: 'Normal Ironing', icon: 'tshirt-crew', color: '#046a9e', lightColor: '#E8F2F8' },
+  'DAILY_IRON': { id: 'daily_iron', label: 'Daily Iron', icon: 'iron', color: '#0d7a4e', lightColor: '#E8F7F0' },
+  'LAUNDRY BY KG': { id: 'laundry_by_kg', label: 'Laundry / KG', icon: 'scale-bathroom', color: '#02304f', lightColor: '#E6EFF5' },
+  'SHOE CLEANING': { id: 'shoe_cleaning', label: 'Shoe Cleaning', icon: 'shoe-sneaker', color: '#014e80', lightColor: '#EAF3FA' },
+  'SOFA CLEANING': { id: 'sofa_cleaning', label: 'Sofa Cleaning', icon: 'sofa', color: '#023c62', lightColor: '#E8F0F7' },
+  'ROLL PRESS': { id: 'roll_press', label: 'Roll Press', icon: 'newspaper-variant-outline', color: '#035a8f', lightColor: '#EBF4FF' },
+  'ACCESSORIES': { id: 'accessories', label: 'Accessories', icon: 'bag-personal-outline', color: '#046a9e', lightColor: '#E8F2F8' },
+};
+
+const PROMO_BANNERS = [
+  { id: 'pickup_delivery', title: 'Free Pickup & Delivery', subtitle: 'On all orders above ₹499', cta: 'Book Now' },
+  { id: 'express', title: 'Express 24h Service', subtitle: 'Same-day cleaning available', cta: 'Book Now' },
+  { id: 'referral', title: 'Refer & Earn ₹100', subtitle: 'Share your code, earn credits', cta: 'Share Now' },
+  { id: 'eco', title: 'Eco-Friendly Process', subtitle: 'Safe for your clothes & planet', cta: 'Know More' },
+];
+
 module.exports = {
   ACTIVE_IRON_SUB_STATUSES,
   ADDRESS_LABELS,
@@ -255,6 +311,7 @@ module.exports = {
   DELIVERY_FAIL_REASONS,
   DELIVERY_MANAGER_ROLES,
   DELIVERY_PIN_ROLES,
+  DOCUMENT_TYPES,
   IRON_SUBSCRIPTION_STATUS_META,
   IRON_SUBSCRIPTION_STATUSES,
   LANGUAGES,
@@ -273,13 +330,18 @@ module.exports = {
   PLANT_PARTNERS,
   PLANT_ISSUE_TYPES,
   PLANT_STATUS_KEYS,
+  QUOTATION_STATUSES,
   RECURRING_FREQUENCIES,
   REPORT_TYPES,
   RETURN_REASONS,
   ROLE_PERMISSIONS,
+  ROLE_SERVICE_ACCESS,
+  SERVICE_CODES,
+  SERVICE_CATEGORY_UI,
   STAFF_ROLES,
   STAFF_ROLE_VALUES,
   WEEKDAY_OPTIONS,
   EXPENSE_CATEGORIES,
   DISCOUNT_VALUE_TYPES,
+  PROMO_BANNERS,
 };

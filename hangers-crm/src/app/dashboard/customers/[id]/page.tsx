@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { customersAPI, statsAPI, ordersAPI, walletAPI, ironAPI, servicesAPI, metadataAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
-import { Info, MapPin, Sparkles } from 'lucide-react'
+import { CreditCard, Info, IndianRupee, MapPin, PackageCheck, Sparkles, Wallet } from 'lucide-react'
 
 const TAG_COLORS: Record<string, { bg: string; color: string }> = {
   VIP:       { bg: '#fef9c3', color: '#854d0e' },
@@ -35,6 +35,56 @@ const normalizeAddress = (addr: any) => ({
   lat: addr?.lat ?? addr?.latitude ?? null,
   lng: addr?.lng ?? addr?.longitude ?? null,
 })
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
+
+function CustomerMetric({
+  label,
+  value,
+  note,
+}: {
+  label: string
+  value: string
+  note: string
+}) {
+  return (
+    <div style={{ background: '#fff', borderRadius: 22, border: '1px solid #e4edf5', padding: '18px 18px 16px', boxShadow: '0 10px 24px rgba(2,60,98,0.05)' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7fa3', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>
+      <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: '#142033' }}>{value}</div>
+      <div style={{ marginTop: 8, fontSize: 12, color: '#8ba0bb', lineHeight: 1.45 }}>{note}</div>
+    </div>
+  )
+}
+
+function ProfileSection({
+  title,
+  subtitle,
+  action,
+  children,
+}: {
+  title: string
+  subtitle?: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section style={{ background: '#fff', borderRadius: 24, border: '1px solid #e4edf5', boxShadow: '0 12px 28px rgba(2,60,98,0.06)', overflow: 'hidden' }}>
+      <div style={{ padding: '20px 24px 18px', borderBottom: '1px solid #edf3f8', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <h2 style={{ margin: '0 0 4px', fontFamily: 'var(--crm-font-display)', fontWeight: 700, fontSize: 19, color: '#023c62' }}>{title}</h2>
+          {subtitle && <p style={{ margin: 0, fontSize: 13, color: '#6b7fa3', lineHeight: 1.45 }}>{subtitle}</p>}
+        </div>
+        {action}
+      </div>
+      <div style={{ padding: 24 }}>{children}</div>
+    </section>
+  )
+}
 
 export default function CustomerProfilePage() {
   const { id } = useParams()
@@ -42,6 +92,10 @@ export default function CustomerProfilePage() {
   const searchParams = useSearchParams()
 
   const [customer, setCustomer]     = useState<any>(null)
+  const [referralSummary, setReferralSummary] = useState<any>(null)
+  const [notificationSummary, setNotificationSummary] = useState<any>(null)
+  const [paymentSummary, setPaymentSummary] = useState<any>(null)
+  const [paymentEvents, setPaymentEvents] = useState<any[]>([])
   const [stats, setStats]           = useState<any>(null)
   const [orders, setOrders]         = useState<any[]>([])
   const [wallet, setWallet]         = useState<any>(null)
@@ -69,6 +123,7 @@ export default function CustomerProfilePage() {
   const [languageOptions, setLanguageOptions]   = useState<Array<{ value: string; label: string }>>([])
   const [addressLabels, setAddressLabels]       = useState<Array<{ value: string; label: string }>>([])
   const [paymentMethods, setPaymentMethods]     = useState<Array<{ value: string; label: string }>>([])
+  const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, { label: string; color: string; bg: string }>>({})
 
   // Daily Iron
   const [ironLoading, setIronLoading]           = useState(false)
@@ -97,6 +152,10 @@ export default function CustomerProfilePage() {
         walletAPI.get(id as string),
       ])
       const cust = c.data?.customer || c.data
+      setReferralSummary(c.data?.referralSummary || null)
+      setNotificationSummary(c.data?.notificationSummary || null)
+      setPaymentSummary(c.data?.paymentSummary || null)
+      setPaymentEvents(asArray(c.data, ['paymentEvents', 'payments', 'items']))
       setCustomer(cust)
       setEditForm({
         name:           cust?.name || '',
@@ -108,9 +167,9 @@ export default function CustomerProfilePage() {
         preferredLanguage: cust?.preferredLanguage || 'ENGLISH',
       })
       setStats(st.data)
-      setOrders(o.data?.orders || [])
+      setOrders(asArray(o.data, ['orders', 'items']))
       setWallet(w.data)
-      setAddresses((cust?.addresses || []).map(normalizeAddress))
+      setAddresses(asArray(cust?.addresses).map(normalizeAddress))
     } catch { toast.error('Failed to load customer') }
     setLoading(false)
   }, [id])
@@ -126,9 +185,9 @@ export default function CustomerProfilePage() {
       ])
 
       const nextSubscription = subscriptionRes?.data?.subscription || null
-      const nextLogs = logsRes?.data?.logs || []
-      const nextBills = billsRes?.data?.bills || []
-      const dailyIronCatalog = ratesRes?.data?.catalog?.[0]?.items || []
+      const nextLogs = asArray(logsRes?.data, ['logs', 'items'])
+      const nextBills = asArray(billsRes?.data, ['bills', 'items'])
+      const dailyIronCatalog = asArray(ratesRes?.data?.catalog, ['catalog']).flatMap((section: any) => asArray(section?.items))
 
       setIronSubscription(nextSubscription)
       setIronLogs(nextLogs)
@@ -154,11 +213,19 @@ export default function CustomerProfilePage() {
   useEffect(() => {
     metadataAPI.getAll().then((r: any) => {
       const metadata = r?.metadata || r?.data?.metadata || {}
-      setTagOptions(metadata.customerTags || [])
-      setLanguageOptions(metadata.languages || [])
-      setAddressLabels(metadata.addressLabels || [])
-      setPaymentMethods(metadata.paymentMethods || [])
-    }).catch(() => {})
+      setTagOptions(asArray(metadata.customerTags))
+      setLanguageOptions(asArray(metadata.languages))
+      setAddressLabels(asArray(metadata.addressLabels))
+      setPaymentMethods(asArray(metadata.paymentMethods))
+      setPaymentStatusMeta(Object.fromEntries(asArray(metadata.paymentStatuses).map((item: any) => [item.value, { label: item.label || item.value, color: item.color || '#023c62', bg: item.bg || '#f4f7fb' }])))
+    }).catch(() => {
+      setTagOptions([])
+      setLanguageOptions([])
+      setAddressLabels([])
+      setPaymentMethods([])
+      setPaymentStatusMeta({})
+      toast.error('Failed to load customer metadata')
+    })
   }, [])
   useEffect(() => {
     if (!addressLabels.length) return
@@ -381,7 +448,7 @@ export default function CustomerProfilePage() {
   if (!customer) return <div style={{ padding: 40, color: '#e53e3e', ...s }}>Customer not found</div>
 
   const tabBtn = (t: Tab, l: string, count?: number) => (
-    <button onClick={() => setActiveTab(t)} style={{ padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer', background: tab === t ? '#fff' : 'transparent', color: tab === t ? '#023c62' : '#6b7fa3', boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>
+    <button onClick={() => setActiveTab(t)} style={{ padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', background: tab === t ? '#fff' : 'transparent', color: tab === t ? '#023c62' : '#6b7fa3', boxShadow: tab === t ? '0 8px 18px rgba(2,60,98,0.08)' : 'none' }}>
       {l}{count !== undefined ? ` (${count})` : ''}
     </button>
   )
@@ -397,54 +464,69 @@ export default function CustomerProfilePage() {
   }
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 1100, margin: '0 auto', ...s }}>
-
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <button onClick={() => router.back()} style={{ fontSize: 13, color: '#6b7fa3', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 8, padding: 0 }}>← Back</button>
-          <h1 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 26, color: '#023c62', margin: '0 0 4px' }}>
-            {customer.name || 'Unknown Customer'}
-          </h1>
-          <p style={{ fontSize: 14, color: '#6b7fa3', margin: 0 }}>+91 {customer.phone}</p>
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: TAG_COLORS[customer.tag || 'REGULAR']?.bg, color: TAG_COLORS[customer.tag || 'REGULAR']?.color }}>
-            {customer.tag || 'REGULAR'}
-          </span>
-          {!editing ? (
-            <button onClick={() => setEditing(true)} style={{ padding: '8px 16px', border: '1px solid #023c62', borderRadius: 8, fontSize: 13, background: '#fff', color: '#023c62', cursor: 'pointer', fontWeight: 600 }}>
-              Edit Profile
-            </button>
-          ) : (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setEditing(false)} style={{ padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, background: '#fff', color: '#6b7fa3', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={saveEdit} disabled={saving} style={{ padding: '8px 16px', background: '#023c62', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: saving ? 0.5 : 1 }}>
-                {saving ? 'Saving...' : 'Save'}
-              </button>
+    <div style={{ padding: '30px 34px', maxWidth: 1380, margin: '0 auto', ...s }}>
+      <section style={{background:'linear-gradient(135deg,#022f50 0%,#035a8f 58%,#0b6f84 100%)',borderRadius:28,padding:'26px 28px',color:'#fff',boxShadow:'0 22px 52px rgba(2,60,98,0.18)',marginBottom:22}}>
+        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.45fr) minmax(320px,0.85fr)',gap:20,alignItems:'stretch'}}>
+          <div>
+            <button onClick={() => router.back()} style={{ fontSize: 13, color: '#fff', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 999, cursor: 'pointer', marginBottom: 14, padding: '8px 14px', fontWeight: 700 }}>← Back</button>
+            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:10}}>
+              <h1 style={{ fontFamily: "var(--crm-font-display)", fontWeight: 800, fontSize: 32, color: '#fff', margin: 0 }}>
+                {customer.name || 'Unknown Customer'}
+              </h1>
+              <span style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700, background: TAG_COLORS[customer.tag || 'REGULAR']?.bg, color: TAG_COLORS[customer.tag || 'REGULAR']?.color }}>
+                {customer.tag || 'REGULAR'}
+              </span>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Stats row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 24 }}>
-        {[
-          { label: 'Total Orders', value: stats?.totalOrders || 0 },
-          { label: 'Total Spend', value: fmt(stats?.totalSpend || 0) },
-          { label: 'Outstanding', value: fmt(stats?.outstanding || 0), warn: (stats?.outstanding || 0) > 0 },
-          { label: 'Wallet', value: fmt(wallet?.balance || 0), highlight: true },
-          { label: 'Loyalty Pts', value: customer.loyaltyPoints || 0 },
-        ].map(st => (
-          <div key={st.label} style={{ background: st.highlight ? '#023c62' : '#fff', borderRadius: 12, border: '1px solid #e8f0f7', padding: '16px 14px' }}>
-            <div style={{ fontSize: 11, color: st.highlight ? 'rgba(255,255,255,0.6)' : '#9dafc8', marginBottom: 4, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>{st.label}</div>
-            <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 20, color: st.highlight ? '#fff' : st.warn ? '#e53e3e' : '#023c62' }}>{st.value}</div>
+            <p style={{ fontSize: 14, color: 'rgba(232,240,247,0.88)', margin: '0 0 16px', lineHeight: 1.6, maxWidth: 720 }}>
+              Customer workspace for profile edits, wallet activity, saved addresses, recent orders, and Daily Iron operations.
+            </p>
+            <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
+              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
+                <CreditCard size={14} />
+                +91 {customer.phone}
+              </span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
+                <PackageCheck size={14} />
+                {stats?.totalOrders || 0} total orders
+              </span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
+                <Wallet size={14} />
+                Wallet {fmt(wallet?.balance || 0)}
+              </span>
+            </div>
           </div>
-        ))}
+          <div style={{display:'flex',flexDirection:'column',gap:12,justifyContent:'space-between',background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.16)',borderRadius:24,padding:20}}>
+            <div>
+              <div style={{fontSize:11,color:'rgba(232,240,247,0.72)',fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:6}}>Profile Action</div>
+              <div style={{fontSize:15,fontWeight:700,lineHeight:1.5,color:'#fff'}}>Edit customer profile details here without leaving the customer workspace.</div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              {!editing ? (
+                <button onClick={() => setEditing(true)} style={{ padding: '10px 16px', border: 'none', borderRadius: 14, fontSize: 13, background: '#fff', color: '#023c62', cursor: 'pointer', fontWeight: 800 }}>
+                  Edit Profile
+                </button>
+              ) : (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={() => setEditing(false)} style={{ padding: '10px 14px', border: '1px solid rgba(255,255,255,0.22)', borderRadius: 14, fontSize: 13, background: 'rgba(255,255,255,0.08)', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>Cancel</button>
+                  <button onClick={saveEdit} disabled={saving} style={{ padding: '10px 16px', background: '#fff', color: '#023c62', border: 'none', borderRadius: 14, fontSize: 13, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.5 : 1 }}>
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gap: 18, marginBottom: 22 }}>
+        <CustomerMetric label="Total Orders" value={String(stats?.totalOrders || 0)} note="Lifetime order count for this customer." />
+        <CustomerMetric label="Total Spend" value={fmt(stats?.totalSpend || 0)} note="Sum of recorded collections across orders." />
+        <CustomerMetric label="Outstanding" value={fmt(stats?.outstanding || 0)} note={(stats?.outstanding || 0) > 0 ? 'Customer still has unpaid balance pending.' : 'No open outstanding balance right now.'} />
+        <CustomerMetric label="Wallet" value={fmt(wallet?.balance || 0)} note="Current wallet balance available for future use." />
+        <CustomerMetric label="Loyalty" value={String(customer.loyaltyPoints || 0)} note="Available loyalty points on the customer record." />
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#f1f5f9', borderRadius: 12, padding: 4, width: 'fit-content' }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20, background: '#eef4f8', borderRadius: 18, padding: 6, width: 'fit-content', border: '1px solid #dde9f2' }}>
         {tabBtn('overview', 'Overview')}
         {tabBtn('iron', 'Daily Iron', ironSubscription ? ironLogs.length : undefined)}
         {tabBtn('wallet', 'Wallet', wallet?.transactions?.length)}
@@ -456,8 +538,7 @@ export default function CustomerProfilePage() {
       {tab === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           {/* Details card */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', padding: 20 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, color: '#6b7fa3', marginBottom: 16, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Customer Details</div>
+          <ProfileSection title="Customer Details" subtitle="Core profile, preferences, and communication settings from the live customer record.">
             {editing ? (
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
                 {[
@@ -509,6 +590,7 @@ export default function CustomerProfilePage() {
                   ['WhatsApp Language', languageLabel(customer.preferredLanguage)],
                   ['Daily Iron Status', customer.ironSubStatus || 'Not enrolled'],
                   ['WhatsApp Notif', customer.notifWhatsApp !== false ? 'Enabled' : 'Disabled'],
+                  ['Push Notif', customer.notifPush !== false ? 'Enabled' : 'Disabled'],
                 ].map(([k, v]) => (
                   <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}>
                     <span style={{ color: '#9dafc8' }}>{k}</span>
@@ -530,16 +612,143 @@ export default function CustomerProfilePage() {
                 )}
               </>
             )}
-          </div>
+          </ProfileSection>
 
           {/* Quick actions */}
           <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', padding: 20 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: '#6b7fa3', marginBottom: 16, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Quick Actions</div>
+            <ProfileSection title="Notification Preferences" subtitle="Visibility into the customer app notification state using existing customer profile data.">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>WhatsApp</div>
+                  <div style={{ fontWeight: 700, color: notificationSummary?.notifWhatsApp !== false ? '#166534' : '#991b1b' }}>
+                    {notificationSummary?.notifWhatsApp !== false ? 'Enabled' : 'Disabled'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>CRM can edit this preference.</div>
+                </div>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Push</div>
+                  <div style={{ fontWeight: 700, color: notificationSummary?.notifPush !== false ? '#166534' : '#991b1b' }}>
+                    {notificationSummary?.notifPush !== false ? 'Enabled' : 'Disabled'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>Customer app controlled.</div>
+                </div>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Push Token</div>
+                  <div style={{ fontWeight: 700, color: '#023c62', fontFamily: 'monospace', fontSize: 12 }}>
+                    {notificationSummary?.pushTokenPreview || 'Not registered'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>{notificationSummary?.hasPushToken ? 'Device is available for push delivery.' : 'No device token saved yet.'}</div>
+                </div>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Preferred Language</div>
+                  <div style={{ fontWeight: 700, color: '#023c62' }}>{languageLabel(notificationSummary?.preferredLanguage || customer.preferredLanguage)}</div>
+                  <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>Used for customer-facing messaging.</div>
+                </div>
+              </div>
+            </ProfileSection>
+            <ProfileSection title="Referral Program" subtitle="Referral code, referral source, and earned referral credits from the existing customer referral system.">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Referral Code</div>
+                  <div style={{ fontFamily: 'monospace', fontWeight: 700, color: '#023c62' }}>{referralSummary?.referralCode || customer.referralCode || 'Not generated'}</div>
+                </div>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Referral Earned</div>
+                  <div style={{ fontWeight: 700, color: '#023c62' }}>{fmt(referralSummary?.totalEarned || 0)}</div>
+                </div>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Friends Referred</div>
+                  <div style={{ fontWeight: 700, color: '#023c62' }}>{referralSummary?.referredCount || 0}</div>
+                </div>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Pending</div>
+                  <div style={{ fontWeight: 700, color: '#b45309' }}>{referralSummary?.pendingCount || 0}</div>
+                </div>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Joined Via</div>
+                  <div style={{ fontWeight: 700, color: '#023c62' }}>{referralSummary?.referredBy?.name || 'Direct signup'}</div>
+                  <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>{referralSummary?.referredBy?.phone ? `+91 ${referralSummary.referredBy.phone}` : 'No referral source recorded'}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: '#6b7fa3', background: '#fbfdff', borderRadius: 10, border: '1px solid #edf3f8', padding: '12px 14px', marginBottom: 12 }}>
+                Program rule: {referralSummary?.program?.rewardPercent || 20}% wallet reward per side after the referred customer’s first delivered and fully paid order, capped at {fmt(referralSummary?.program?.rewardCap || 0)} with a minimum order of {fmt(referralSummary?.program?.minOrderAmount || 0)}.
+              </div>
+              {referralSummary?.recentReferrals?.length ? (
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+                  {referralSummary.recentReferrals.map((referral: any) => (
+                    <div key={referral.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 10, background: '#fbfdff', border: '1px solid #edf3f8' }}>
+                      <div>
+                        <div style={{ fontWeight: 700, color: '#023c62', fontSize: 13 }}>{referral.referred?.name || 'Unnamed customer'}</div>
+                        <div style={{ fontSize: 12, color: '#6b7fa3' }}>
+                          {referral.referred?.phone ? `+91 ${referral.referred.phone}` : 'Phone unavailable'} · Joined {referral.referred?.createdAt ? format(new Date(referral.referred.createdAt), 'dd MMM yyyy') : 'recently'}
+                        </div>
+                      </div>
+                      <div style={{ fontWeight: 700, color: referral.status === 'PENDING' ? '#b45309' : '#166534' }}>
+                        {referral.status === 'PENDING' ? 'Pending' : `+${fmt(referral.creditAwarded || 0)}`}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: '#6b7fa3', background: '#fbfdff', borderRadius: 10, border: '1px solid #edf3f8', padding: '12px 14px' }}>
+                  No successful referrals recorded for this customer yet.
+                </div>
+              )}
+            </ProfileSection>
+            <ProfileSection title="Payment Activity" subtitle="Recent payment events recorded against this customer through existing order and Razorpay payment rows.">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Recorded</div>
+                  <div style={{ fontWeight: 700, color: '#023c62' }}>{fmt(paymentSummary?.totalRecorded || 0)}</div>
+                </div>
+                <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #eef4f8' }}>
+                  <div style={{ fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4 }}>Events</div>
+                  <div style={{ fontWeight: 700, color: '#023c62' }}>{paymentSummary?.totalEvents || 0}</div>
+                  <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>{paymentSummary?.onlineEvents || 0} online payments</div>
+                </div>
+              </div>
+              {!paymentEvents.length ? (
+                <div style={{ fontSize: 13, color: '#6b7fa3', background: '#fbfdff', borderRadius: 10, border: '1px solid #edf3f8', padding: '12px 14px' }}>
+                  No payment events recorded for this customer yet.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+                  {paymentEvents.slice(0, 6).map((payment: any) => (
+                    <div key={payment.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 10, background: '#fbfdff', border: '1px solid #edf3f8' }}>
+                      <div>
+                        <div style={{ fontWeight: 700, color: '#023c62', fontSize: 13 }}>
+                          {fmt(payment.amount || 0)} via {payment.method || 'Unknown'}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>
+                          {payment.order?.orderNumber ? `Order ${payment.order.orderNumber}` : 'No linked order'}{payment.reference ? ` · Ref ${payment.reference}` : ''}{payment.collectedByStaff?.name ? ` · Collected by ${payment.collectedByStaff.name}` : ''}
+                        </div>
+                        {payment.notes && <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>{payment.notes}</div>}
+                      </div>
+                      <div style={{ textAlign: 'right' as const }}>
+                        <div style={{ fontSize: 12, color: '#6b7fa3' }}>{payment.createdAt ? format(new Date(payment.createdAt), 'dd MMM yyyy, h:mm a') : '—'}</div>
+                        <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: payment.status === 'FAILED' ? '#991b1b' : '#166534' }}>
+                          {payment.status || 'RECORDED'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {paymentEvents.length > 6 && (
+                    <div style={{ fontSize: 12, color: '#6b7fa3' }}>
+                      Showing latest 6 of {paymentEvents.length} payment events on this profile.
+                    </div>
+                  )}
+                </div>
+              )}
+            </ProfileSection>
+            <ProfileSection title="Quick Actions" subtitle="Common customer operations routed directly from this profile.">
               <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
                 <Link href={`/dashboard/orders/new?customerId=${id}`}
                   style={{ padding: '10px 16px', background: '#023c62', color: '#fff', borderRadius: 10, fontSize: 13, fontWeight: 700, textDecoration: 'none', textAlign: 'center' as const }}>
                   + New Order
+                </Link>
+                <Link href={`/dashboard/orders/new?mode=quotation&customerId=${id}`}
+                  style={{ padding: '10px 16px', background: '#fff', color: '#023c62', borderRadius: 10, fontSize: 13, fontWeight: 700, textDecoration: 'none', textAlign: 'center' as const, border: '1px solid #dce8f0' }}>
+                  + New Quotation
                 </Link>
                 <button onClick={() => { setWalletAction('credit'); setShowWalletModal(true) }}
                   style={{ padding: '10px 16px', background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
@@ -558,7 +767,7 @@ export default function CustomerProfilePage() {
                   <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Sparkles size={14} />Open Daily Iron</span>
                 </button>
               </div>
-            </div>
+            </ProfileSection>
             {stats?.lastOrderDate && (
               <div style={{ background: '#eff6ff', borderRadius: 12, padding: 16, fontSize: 13, color: '#1d4ed8' }}>
                 Last order: <strong>{format(new Date(stats.lastOrderDate), 'dd MMM yyyy')}</strong>
@@ -908,15 +1117,20 @@ export default function CustomerProfilePage() {
                     <td style={{ padding: '10px 16px' }}><span style={{ padding: '3px 8px', background: '#f1f5f9', borderRadius: 4, fontSize: 11 }}>{o.status}</span></td>
                     <td style={{ padding: '10px 16px', fontWeight: 600 }}>{fmt(o.totalAmount || 0)}</td>
                     <td style={{ padding: '10px 16px' }}>
-                      <span style={{
-                        padding: '3px 8px',
-                        borderRadius: 4,
-                        fontSize: 11,
-                        background: o.paymentStatus === 'PAID' ? '#dcfce7' : o.paymentStatus === 'PARTIAL' ? '#fef3c7' : '#fee2e2',
-                        color: o.paymentStatus === 'PAID' ? '#166534' : o.paymentStatus === 'PARTIAL' ? '#92400e' : '#991b1b'
-                      }}>
-                        {o.paymentStatus || 'UNPAID'}
-                      </span>
+                      {(() => {
+                        const paymentStyle = paymentStatusMeta[o.paymentStatus || 'UNPAID'] || { label: o.paymentStatus || 'UNPAID', color: '#023c62', bg: '#f4f7fb' }
+                        return (
+                          <span style={{
+                            padding: '3px 8px',
+                            borderRadius: 4,
+                            fontSize: 11,
+                            background: paymentStyle.bg,
+                            color: paymentStyle.color
+                          }}>
+                            {paymentStyle.label}
+                          </span>
+                        )
+                      })()}
                     </td>
                   </tr>
                 ))}

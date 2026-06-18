@@ -21,22 +21,29 @@ import {
   UserRoundPlus,
   X,
 } from 'lucide-react'
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
 
-const ROLE_UI: Record<string, { color: string; bg: string; icon: any }> = {
-  SUPER_ADMIN: { color: '#92400e', bg: '#fef3c7', icon: Crown },
-  MANAGER: { color: '#065f46', bg: '#d1fae5', icon: UserCog },
-  COUNTER_STAFF: { color: '#1e40af', bg: '#dbeafe', icon: Laptop2 },
-  ACCOUNTS: { color: '#5b21b6', bg: '#ede9fe', icon: BriefcaseBusiness },
-  DELIVERY_MANAGER: { color: '#9a3412', bg: '#ffedd5', icon: Truck },
-  DELIVERY_RIDER: { color: '#0c4a6e', bg: '#e0f2fe', icon: Truck },
-  PLANT_MANAGER: { color: '#4a1d96', bg: '#f3e8ff', icon: Factory },
-  PLANT_STAFF: { color: '#1e3a5f', bg: '#e8f0f7', icon: User },
-  PLANT_QC: { color: '#14532d', bg: '#dcfce7', icon: PackageSearch },
+const ROLE_ICON: Record<string, any> = {
+  SUPER_ADMIN: Crown,
+  MANAGER: UserCog,
+  COUNTER_STAFF: Laptop2,
+  ACCOUNTS: BriefcaseBusiness,
+  DELIVERY_MANAGER: Truck,
+  DELIVERY_RIDER: Truck,
+  PLANT_MANAGER: Factory,
+  PLANT_STAFF: User,
+  PLANT_QC: PackageSearch,
 }
 const roleInfo = (roles: any[], role: string) => {
-  const meta = roles.find(r => r.value === role) || { value: role, label: role, pinEligible: false }
-  const ui = ROLE_UI[role] || { color: '#6b7fa3', bg: '#f4f7fb', icon: User }
-  return { ...meta, ...ui }
+  const meta = roles.find(r => r.value === role) || { value: role, label: role, pinEligible: false, color: '#6b7fa3', bg: '#f4f7fb' }
+  const Icon = ROLE_ICON[role] || User
+  return { ...meta, icon: Icon }
 }
 
 type Staff = { id:string; name:string; phone:string; email:string|null; role:string; isActive:boolean; lastLoginAt:string|null; createdAt:string; hasPin:boolean }
@@ -57,7 +64,7 @@ export default function StaffPage() {
   const [pageSize, setPageSize] = useState(20)
 
   const load = useCallback(async () => {
-    try { const r:any = await staffAPI.list(); setStaff(r.data?.staff||[]) }
+    try { const r:any = await staffAPI.list(); setStaff(asArray(r.data, ['staff', 'items'])) }
     catch(e:any) { toast.error(e.message) }
     finally { setLoading(false) }
   },[])
@@ -68,7 +75,10 @@ export default function StaffPage() {
         const metadata = r?.metadata || r?.data?.metadata || {}
         setRoles(metadata.staffRoles || [])
       })
-      .catch(() => {})
+      .catch((e: any) => {
+        setRoles([])
+        toast.error(e.message || 'Failed to load staff roles')
+      })
   }, [])
 
   const handleCreate = async () => {

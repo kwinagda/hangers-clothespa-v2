@@ -116,7 +116,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    try { await authAPI.logout(); } catch {}
+    try {
+      await authAPI.logout();
+    } catch (error) {
+      console.warn('Customer logout request failed; clearing local session anyway', error);
+    }
     await clearToken();
     setCustomer(null);
   };
@@ -125,7 +129,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const response: any = await authAPI.getMe();
       setCustomer(response?.customer || response?.data?.customer || null);
-    } catch {}
+    } catch (error) {
+      console.warn('Customer profile refresh failed', error);
+    }
   };
 
   return (

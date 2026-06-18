@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { paymentsAPI } from '@/lib/api'
+import { metadataAPI, paymentsAPI } from '@/lib/api'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
 import { CheckCircle2, CreditCard, IndianRupee, Wallet } from 'lucide-react'
@@ -21,6 +21,7 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   const [loading, setLoading]         = useState(false)
   const [writeOff, setWriteOff]       = useState(false)
   const [writeOffMax, setWriteOffMax] = useState(50)
+  const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, { label: string; color: string; bg: string }>>({})
 
   const balance = Math.max(0, totalAmount - paidAmount - (writeOffAlreadyDone || 0))
 
@@ -33,6 +34,20 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
     // Load write-off max from settings
     ;(api as any).get('/settings/public').then((r: any) => {
       if (r?.writeoff_max_amount) setWriteOffMax(parseFloat(r.writeoff_max_amount))
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    metadataAPI.getAll().then((response: any) => {
+      const metadata = response?.metadata || response?.data?.metadata || {}
+      setPaymentStatusMeta((metadata.paymentStatuses || []).reduce((acc: Record<string, { label: string; color: string; bg: string }>, item: any) => {
+        acc[item.value] = {
+          label: item.label || item.value,
+          color: item.color || '#023c62',
+          bg: item.bg || '#f4f7fb',
+        }
+        return acc
+      }, {}))
     }).catch(() => {})
   }, [])
 
@@ -70,10 +85,10 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
     }
   }
 
-  const statusColor: Record<string, string> = {
-    PAID:    '#0d7a4e',
-    PARTIAL: '#b35a00',
-    UNPAID:  '#c0392b',
+  const statusStyle = paymentStatusMeta[paymentStatus] || {
+    label: paymentStatus,
+    color: '#023c62',
+    bg: '#f4f7fb',
   }
 
   return (
@@ -100,11 +115,11 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
       {/* Status badge */}
       <div style={{ marginBottom:16 }}>
         <span style={{
-          background: paymentStatus === 'PAID' ? '#e6f7f0' : paymentStatus === 'PARTIAL' ? '#fff3e0' : '#fdecea',
-          color: statusColor[paymentStatus] || '#023c62',
+          background: statusStyle.bg,
+          color: statusStyle.color,
           padding:'4px 12px', borderRadius:20, fontSize:11, fontWeight:700
         }}>
-          {paymentStatus}
+          {statusStyle.label}
         </span>
       </div>
 

@@ -67,11 +67,11 @@ export const FontSize = {
 };
 
 export const Fonts = {
-  body:       'DMSans_400Regular',
-  medium:     'DMSans_500Medium',
-  bold:       'DMSans_700Bold',
-  display:    'Syne_700Bold',
-  displayBold:'Syne_800ExtraBold',
+  body:       'Inter_400Regular',
+  medium:     'Inter_500Medium',
+  bold:       'Inter_700Bold',
+  display:    'SpaceGrotesk_700Bold',
+  displayBold:'SpaceGrotesk_700Bold',
   mono:       'SpaceMono_400Regular',
 };
 

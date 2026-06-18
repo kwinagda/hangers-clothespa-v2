@@ -16,8 +16,7 @@ import { Colors, Spacing, Radius, FontSize, Shadow, Fonts } from '../utils/theme
 import { metadataAPI, ordersAPI } from '../services/api';
 import AnimatedButton from '../components/AnimatedButton';
 import StaggerItem from '../components/StaggerItem';
-
-const INVOICE_LOGO_URL = 'https://wadashboardapi.161apps.com/media-file/406df8a3-4651-46d8-9e0b-9ee9aa3b0173/Hangers%20logo%20unit%20transparent.png';
+import { LOGO_BLUE_URL } from '../lib/branding';
 
 type FilterType = 'all' | 'active' | 'completed';
 
@@ -39,14 +38,14 @@ const buildInvoiceHTML = (order: any): string => {
   ).join('');
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-<style>@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap');body{font-family:'Manrope',sans-serif;padding:32px;color:#1a1a2e}.brand{margin-bottom:8px}.brand-logo{width:260px;max-width:100%;height:auto;display:block}
+<style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;500&display=swap');body{font-family:'Inter',sans-serif;padding:32px;color:#1a1a2e}.brand{margin-bottom:8px}.brand-logo{width:260px;max-width:100%;height:auto;display:block}
 .meta{display:flex;justify-content:space-between;margin:20px 0}.lbl{color:#888;font-size:12px}
-table{width:100%;border-collapse:collapse}th{background:#023c62;color:#fff;padding:10px;text-align:left;font-size:13px;font-family:'Outfit',sans-serif;letter-spacing:0.01em}
-td{border-bottom:1px solid #e8f0f7;padding:10px;font-size:13px}.tot td{font-family:'Outfit',sans-serif;font-weight:700;border-top:2px solid #023c62;color:#023c62}
+table{width:100%;border-collapse:collapse}th{background:#023c62;color:#fff;padding:10px;text-align:left;font-size:13px;font-family:'Space Grotesk',sans-serif;letter-spacing:0.01em}
+td{border-bottom:1px solid #e8f0f7;padding:10px;font-size:13px}.tot td{font-family:'Space Grotesk',sans-serif;font-weight:700;border-top:2px solid #023c62;color:#023c62}
 .foot{margin-top:28px;text-align:center;color:#888;font-size:12px}</style></head>
-<body><div class="brand"><img class="brand-logo" src="${INVOICE_LOGO_URL}" alt="Hangers logo" /></div><p style="color:#666;margin-top:4px">Care in Every Clean</p>
+<body><div class="brand"><img class="brand-logo" src="${LOGO_BLUE_URL}" alt="Hangers logo" /></div><p style="color:#666;margin-top:4px">Care in Every Clean</p>
 <div class="meta">
-  <div><div class="lbl">Order</div><b style="font-family:'IBM Plex Mono',monospace">${order.orderNumber}</b></div>
+  <div><div class="lbl">Order</div><b style="font-family:'Space Mono',monospace">${order.orderNumber}</b></div>
   <div><div class="lbl">Date</div>${formatDate(order.createdAt)}</div>
   <div><div class="lbl">Status</div>${order.status}</div>
 </div>
@@ -71,31 +70,13 @@ async function downloadInvoice(order: any) {
   }
 }
 
-const STATUS_COLOR: Record<string, { bg: string; text: string; glow: string }> = {
-  PENDING:            { bg: '#eef2f7', text: '#60758f', glow: '#d7e1ec' },
-  PICKED_UP:          { bg: '#dbeafe', text: '#1d4ed8', glow: '#bfdbfe' },
-  PROCESSING:         { bg: '#ede9fe', text: '#6d28d9', glow: '#ddd6fe' },
-  WASHING:            { bg: '#cffafe', text: '#0e7490', glow: '#a5f3fc' },
-  DRYING:             { bg: '#fef3c7', text: '#92400e', glow: '#fde68a' },
-  IRONING:            { bg: '#fed7aa', text: '#9a3412', glow: '#fdba74' },
-  QC:                 { bg: '#dcfce7', text: '#166534', glow: '#bbf7d0' },
-  READY_FOR_DELIVERY: { bg: '#d1fae5', text: '#166534', glow: '#86efac' },
-  OUT_FOR_DELIVERY:   { bg: '#bfdbfe', text: '#1e3a8a', glow: '#93c5fd' },
-  DELIVERED:          { bg: '#dcfce7', text: '#166534', glow: '#86efac' },
-  CANCELLED:          { bg: '#fee2e2', text: '#991b1b', glow: '#fecaca' },
-};
-
-const PAYMENT_COLOR: Record<string, { bg: string; text: string }> = {
-  PAID: { bg: '#dcfce7', text: '#166534' },
-  PARTIAL: { bg: '#fef3c7', text: '#92400e' },
-  UNPAID: { bg: '#fee2e2', text: '#991b1b' },
-};
-
 export default function MyOrdersScreen({ navigation }: any) {
   const [orders, setOrders] = useState<any[]>([]);
   const [statusMeta, setStatusMeta] = useState<Record<string, string>>({});
+  const [statusStyles, setStatusStyles] = useState<Record<string, { bg: string; text: string; glow: string }>>({});
   const [statusBuckets, setStatusBuckets] = useState<Record<string, FilterType | 'other'>>({});
   const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, string>>({});
+  const [paymentStatusStyles, setPaymentStatusStyles] = useState<Record<string, { bg: string; text: string }>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,10 +115,33 @@ export default function MyOrdersScreen({ navigation }: any) {
         acc[item.value] = item.label || item.value;
         return acc;
       }, {});
+      const nextStatusStyles = (metadata.orderStatuses || []).reduce((acc: Record<string, { bg: string; text: string; glow: string }>, item: any) => {
+        acc[item.key] = {
+          bg: item.bg || '#eef2f7',
+          text: item.color || '#60758f',
+          glow: item.border || item.bg || '#d7e1ec',
+        };
+        return acc;
+      }, {});
+      const nextPaymentStyles = (metadata.paymentStatuses || []).reduce((acc: Record<string, { bg: string; text: string }>, item: any) => {
+        acc[item.value] = {
+          bg: item.bg || '#f3f4f6',
+          text: item.color || Colors.textMid,
+        };
+        return acc;
+      }, {});
       setStatusMeta(labels);
+      setStatusStyles(nextStatusStyles);
       setStatusBuckets(buckets);
       setPaymentStatusMeta(paymentLabels);
-    }).catch(() => {});
+      setPaymentStatusStyles(nextPaymentStyles);
+    }).catch(() => {
+      setStatusMeta({});
+      setStatusStyles({});
+      setStatusBuckets({});
+      setPaymentStatusMeta({});
+      setPaymentStatusStyles({});
+    });
   }, []);
 
   const onRefresh = () => {
@@ -169,8 +173,8 @@ export default function MyOrdersScreen({ navigation }: any) {
     const bucket = statusBuckets[order.status] || 'other';
     const isActive = bucket === 'active';
     const isCompleted = bucket === 'completed';
-    const statusStyle = STATUS_COLOR[order.status] || { bg: '#eef2f7', text: '#60758f', glow: '#d7e1ec' };
-    const paymentStyle = PAYMENT_COLOR[order.paymentStatus] || { bg: '#f3f4f6', text: Colors.textMid };
+    const statusStyle = statusStyles[order.status] || { bg: '#eef2f7', text: '#60758f', glow: '#d7e1ec' };
+    const paymentStyle = paymentStatusStyles[order.paymentStatus] || { bg: '#f3f4f6', text: Colors.textMid };
     const itemCount = order.items?.length || 0;
     const stageLabel = statusMeta[order.status] || order.status;
 

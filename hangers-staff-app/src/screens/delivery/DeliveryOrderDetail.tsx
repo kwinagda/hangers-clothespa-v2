@@ -10,6 +10,7 @@ import { deliveryAPI, metadataAPI } from '../../services/api';
 export default function DeliveryOrderDetail({ route, navigation }: any) {
   const { orderId } = route.params || {};
   const [order,     setOrder]     = useState<any>(null);
+  const [loadError, setLoadError] = useState('');
   const [loading,   setLoading]   = useState(true);
   const [refreshing,setRefreshing]= useState(false);
   const [saving,    setSaving]    = useState(false);
@@ -22,12 +23,17 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
   const [sentTo,    setSentTo]    = useState('');
   const [notes,     setNotes]     = useState('');
   const [failReasons, setFailReasons] = useState<Array<{ key: string; label: string }>>([]);
+  const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, { label: string; color: string; bg: string }>>({});
 
   const load = useCallback(async () => {
     try {
       const r: any = await deliveryAPI.order(orderId);
       setOrder(r.data?.order);
-    } catch {} finally { setLoading(false); setRefreshing(false); }
+      setLoadError('');
+    } catch (e: any) {
+      setOrder(null);
+      setLoadError(e?.message || 'Could not load this order right now.');
+    } finally { setLoading(false); setRefreshing(false); }
   }, [orderId]);
 
   useEffect(() => { load(); }, [load]);
@@ -35,7 +41,18 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
     metadataAPI.getAll().then((response: any) => {
       const metadata = response?.metadata || response?.data?.metadata || {};
       setFailReasons((metadata.deliveryFailReasons || []).map((item: any) => ({ key: item.value, label: item.label })));
-    }).catch(() => {});
+      setPaymentStatusMeta((metadata.paymentStatuses || []).reduce((acc: Record<string, { label: string; color: string; bg: string }>, item: any) => {
+        acc[item.value] = {
+          label: item.label || item.value,
+          color: item.color || Colors.textDark,
+          bg: item.bg || '#f3f4f6',
+        };
+        return acc;
+      }, {}));
+    }).catch(() => {
+      setFailReasons([]);
+      setPaymentStatusMeta({});
+    });
   }, []);
 
   const handlePickup = async () => {
@@ -109,18 +126,28 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
     </View>
   );
 
+  if (!order) return (
+    <View style={styles.errorWrap}>
+      <MaterialCommunityIcons name="alert-circle-outline" size={42} color={Colors.error} />
+      <Text style={styles.errorTitle}>Could not load order</Text>
+      <Text style={styles.errorBody}>{loadError || 'Please try again.'}</Text>
+      <TouchableOpacity style={styles.retryBtn} onPress={() => { setLoading(true); load(); }}>
+        <Text style={styles.retryBtnText}>Retry</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   const isPending  = order?.status === 'PENDING';
   const isOut      = order?.status === 'OUT_FOR_DELIVERY';
   const isReady    = order?.status === 'READY_FOR_DELIVERY';
   const isDone     = order?.status === 'DELIVERED';
   const canDeliver = isOut || isReady;
   const balanceDue = Math.max(0, (order?.totalAmount || 0) - (order?.paidAmount || 0));
-  const paymentStatusColor =
-    order?.paymentStatus === 'PAID'
-      ? Colors.success
-      : order?.paymentStatus === 'PARTIAL'
-        ? Colors.warning
-        : Colors.error;
+  const paymentStatusStyle = paymentStatusMeta[order?.paymentStatus || ''] || {
+    label: order?.paymentStatus || 'UNPAID',
+    color: Colors.error,
+    bg: '#fee2e2',
+  };
 
   return (
     <View style={styles.container}>
@@ -169,8 +196,8 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
               </Text>
             </View>
           </View>
-          <Text style={[styles.payStatus, { color: paymentStatusColor }]}>
-            {order?.paymentStatus}
+          <Text style={[styles.payStatus, { color: paymentStatusStyle.color, backgroundColor: paymentStatusStyle.bg }]}>
+            {paymentStatusStyle.label}
           </Text>
         </View>
 
@@ -338,6 +365,11 @@ export default function DeliveryOrderDetail({ route, navigation }: any) {
 
 const styles = StyleSheet.create({
   container:       { flex:1, backgroundColor:Colors.offWhite },
+  errorWrap:       { flex:1, justifyContent:'center', alignItems:'center', padding:24, backgroundColor:Colors.offWhite },
+  errorTitle:      { marginTop:12, fontSize:18, fontWeight:'800', color:Colors.textDark },
+  errorBody:       { marginTop:8, fontSize:14, lineHeight:20, color:Colors.textMuted, textAlign:'center' },
+  retryBtn:        { marginTop:16, backgroundColor:Colors.delivery, borderRadius:10, paddingHorizontal:18, paddingVertical:12 },
+  retryBtnText:    { color:'#fff', fontSize:14, fontWeight:'700' },
   header:          { flexDirection:'row', alignItems:'center', justifyContent:'space-between', backgroundColor:Colors.delivery, paddingTop:Platform.OS==='ios'?52:22, paddingHorizontal:Spacing.lg, paddingBottom:16 },
   backBtn:         { width:40, height:40, borderRadius:20, backgroundColor:'rgba(255,255,255,0.15)', alignItems:'center', justifyContent:'center' },
   backText:        { color:'#fff', fontSize:22 },
@@ -350,7 +382,7 @@ const styles = StyleSheet.create({
   payCard:         { backgroundColor:'#fff', borderRadius:16, padding:16, marginBottom:14, borderWidth:2 },
   payLabel:        { fontSize:11, color:Colors.textMuted, textTransform:'uppercase', letterSpacing:0.5 },
   payAmount:       { fontSize:18, fontWeight:'800', color:Colors.textDark, marginTop:2 },
-  payStatus:       { fontSize:11, fontWeight:'700', marginTop:10, textAlign:'right', textTransform:'uppercase' },
+  payStatus:       { fontSize:11, fontWeight:'700', marginTop:10, textAlign:'right', textTransform:'uppercase', alignSelf:'flex-end', paddingHorizontal:10, paddingVertical:4, borderRadius:999 },
   sectionTitle:    { fontSize:14, fontWeight:'700', color:Colors.primary, marginBottom:10, marginTop:4 },
   itemsCard:       { backgroundColor:'#fff', borderRadius:16, borderWidth:1, borderColor:Colors.border, overflow:'hidden', marginBottom:14 },
   itemRow:         { flexDirection:'row', alignItems:'center', padding:14 },

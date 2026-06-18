@@ -83,7 +83,9 @@ export default function PaymentScreen({ route, navigation }: any) {
       } else if (data.error) {
         Alert.alert('Payment Failed', data.error);
       }
-    } catch {}
+    } catch (e: any) {
+      Alert.alert('Payment Error', e?.message || 'Could not process payment response.');
+    }
   };
 
   if (!loading && !error && !isDevMode && webviewHtml) {

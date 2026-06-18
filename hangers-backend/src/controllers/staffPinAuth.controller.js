@@ -8,8 +8,35 @@ const bcrypt  = require('bcryptjs');
 const prisma  = require('../config/database');
 const { generateStaffToken, getTokenExpiry } = require('../services/jwt.service');
 const { log, getRequestMeta }                = require('../services/activity.service');
+const { clearAuthThrottle, getAuthThrottleBlock, registerAuthThrottleFailure } = require('../services/authThrottle.service');
 const { success, badRequest, error, unauthorized } = require('../utils/response');
 const { DELIVERY_PIN_ROLES, PLANT_PIN_ROLES } = require('../config/master-data');
+const { buildStaffAccessContext } = require('../services/accessControl.service');
+const MAX_ACTIVE_STAFF_SESSIONS = 5;
+const PIN_LOGIN_MAX_FAILURES = 5;
+const PIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+const ELEVATED_ROLES = new Set(['SUPER_ADMIN', 'MANAGER']);
+const STAFF_PIN_EXPIRES_IN = process.env.JWT_STAFF_PIN_EXPIRES_IN || process.env.JWT_STAFF_EXPIRES_IN || '12h';
+
+const canResetPinForStaff = (actor, target) => {
+  if (!actor || !target) return false;
+  if (actor.role === 'SUPER_ADMIN') return actor.id !== target.id;
+  if (actor.role !== 'MANAGER') return false;
+  return actor.id !== target.id && !ELEVATED_ROLES.has(target.role);
+};
+
+const trimStaffSessions = async (staffId) => {
+  const sessions = await prisma.staffSession.findMany({
+    where: { staffId },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  const staleSessionIds = sessions.slice(MAX_ACTIVE_STAFF_SESSIONS).map((session) => session.id);
+  if (staleSessionIds.length) {
+    await prisma.staffSession.deleteMany({ where: { id: { in: staleSessionIds } } });
+  }
+};
 
 // ── PIN login — used by Plant App and Delivery App ───────────────────────────
 const pinLoginController = async (req, res) => {
@@ -21,6 +48,16 @@ const pinLoginController = async (req, res) => {
 
   try {
     const normalised = phone.replace(/[\s\-\(\)\+]/g, '');
+    const ipScopeKey = (req.ip || req.headers['x-forwarded-for'] || 'unknown').toString().slice(0, 64);
+    const phoneScopeKey = normalised.slice(-10);
+    const [phoneBlockedUntil, ipBlockedUntil] = await Promise.all([
+      getAuthThrottleBlock({ scope: 'staff-pin:phone', scopeKey: phoneScopeKey }),
+      getAuthThrottleBlock({ scope: 'staff-pin:ip', scopeKey: ipScopeKey }),
+    ]);
+    if (phoneBlockedUntil || ipBlockedUntil) {
+      return unauthorized(res, 'Too many failed attempts. Please try again later.');
+    }
+
     const staff = await prisma.staff.findFirst({
       where: {
         phone:    { endsWith: normalised.slice(-10) },
@@ -29,11 +66,21 @@ const pinLoginController = async (req, res) => {
       include: { permissions: true },
     });
 
-    if (!staff) return unauthorized(res, 'Phone number not found');
+    if (!staff) {
+      await Promise.all([
+        registerAuthThrottleFailure({ scope: 'staff-pin:phone', scopeKey: phoneScopeKey, maxFailures: PIN_LOGIN_MAX_FAILURES, windowMs: PIN_LOGIN_WINDOW_MS }),
+        registerAuthThrottleFailure({ scope: 'staff-pin:ip', scopeKey: ipScopeKey, maxFailures: PIN_LOGIN_MAX_FAILURES, windowMs: PIN_LOGIN_WINDOW_MS }),
+      ]);
+      return unauthorized(res, 'Phone number not found');
+    }
     if (!staff.pin) return unauthorized(res, 'PIN not set. Ask your manager to reset your PIN.');
 
     const pinMatch = await bcrypt.compare(pin, staff.pin);
     if (!pinMatch) {
+      await Promise.all([
+        registerAuthThrottleFailure({ scope: 'staff-pin:phone', scopeKey: phoneScopeKey, maxFailures: PIN_LOGIN_MAX_FAILURES, windowMs: PIN_LOGIN_WINDOW_MS }),
+        registerAuthThrottleFailure({ scope: 'staff-pin:ip', scopeKey: ipScopeKey, maxFailures: PIN_LOGIN_MAX_FAILURES, windowMs: PIN_LOGIN_WINDOW_MS }),
+      ]);
       await log({
         actorType: 'staff', actorId: staff.id, actorName: staff.name,
         action: 'PIN_LOGIN_FAILED', resource: 'staff', resourceId: staff.id,
@@ -43,13 +90,18 @@ const pinLoginController = async (req, res) => {
       return unauthorized(res, 'Incorrect PIN');
     }
 
+    await Promise.all([
+      clearAuthThrottle({ scope: 'staff-pin:phone', scopeKey: phoneScopeKey }),
+      clearAuthThrottle({ scope: 'staff-pin:ip', scopeKey: ipScopeKey }),
+    ]);
+
     // Only plant and delivery roles can use PIN login
     if (![...PLANT_PIN_ROLES, ...DELIVERY_PIN_ROLES].includes(staff.role)) {
       return unauthorized(res, 'PIN login is only available for Plant and Delivery staff. Use email + password.');
     }
 
-    const token  = generateStaffToken(staff);
-    const expiry = getTokenExpiry('24h');
+    const token  = generateStaffToken(staff, STAFF_PIN_EXPIRES_IN);
+    const expiry = getTokenExpiry(STAFF_PIN_EXPIRES_IN);
 
     await prisma.staffSession.create({
       data: {
@@ -65,6 +117,7 @@ const pinLoginController = async (req, res) => {
       where: { id: staff.id },
       data:  { lastLoginAt: new Date() },
     });
+    await trimStaffSessions(staff.id);
 
     await log({
       actorType: 'staff', actorId: staff.id, actorName: staff.name,
@@ -74,6 +127,7 @@ const pinLoginController = async (req, res) => {
     });
 
     const appType = PLANT_PIN_ROLES.includes(staff.role) ? 'plant' : 'delivery';
+    const access = await buildStaffAccessContext(staff);
 
     return success(res, {
       token,
@@ -83,6 +137,8 @@ const pinLoginController = async (req, res) => {
         name:  staff.name,
         phone: staff.phone,
         role:  staff.role,
+        permissions: access.permissions,
+        serviceAccess: access.services,
       },
     }, `Welcome, ${staff.name}!`);
 
@@ -108,7 +164,11 @@ const changePinController = async (req, res) => {
     if (!match) return unauthorized(res, 'Current PIN is incorrect');
 
     const newHash = await bcrypt.hash(newPin, 10);
-    await prisma.staff.update({ where: { id: staff.id }, data: { pin: newHash } });
+    await prisma.staff.update({
+      where: { id: staff.id },
+      data: { pin: newHash, sessionVersion: { increment: 1 } },
+    });
+    await prisma.staffSession.deleteMany({ where: { staffId: staff.id } });
 
     return success(res, {}, 'PIN changed successfully');
   } catch (err) {
@@ -121,14 +181,24 @@ const resetPinController = async (req, res) => {
   const { id: staffId } = req.params;
 
   try {
+    const target = await prisma.staff.findUnique({
+      where: { id: staffId },
+      select: { id: true, name: true, phone: true, role: true },
+    });
+    if (!target) return badRequest(res, 'Staff not found');
+    if (!canResetPinForStaff(req.staff, target)) {
+      return badRequest(res, 'You can only reset PINs for non-manager staff accounts');
+    }
+
     const newPin  = Math.floor(1000 + Math.random() * 9000).toString();
     const newHash = await bcrypt.hash(newPin, 10);
 
     const updated = await prisma.staff.update({
       where:  { id: staffId },
-      data:   { pin: newHash },
+      data:   { pin: newHash, sessionVersion: { increment: 1 } },
       select: { id: true, name: true, phone: true, role: true },
     });
+    await prisma.staffSession.deleteMany({ where: { staffId } });
 
     await log({
       actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
@@ -139,7 +209,6 @@ const resetPinController = async (req, res) => {
 
     return success(res, { staff: updated, newPin }, `New PIN for ${updated.name}: ${newPin}`);
   } catch (err) {
-    if (err.code === 'P2025') return badRequest(res, 'Staff not found');
     return error(res, 'Failed to reset PIN');
   }
 };

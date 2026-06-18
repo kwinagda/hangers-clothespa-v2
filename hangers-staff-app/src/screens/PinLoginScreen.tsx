@@ -95,7 +95,7 @@ export default function PinLoginScreen() {
           </TouchableOpacity>
 
           <Text style={styles.hint}>
-            PIN is set by your manager.{'\n'}First-time? Contact admin@hangers.in
+            PIN is set by your manager.{'\n'}First-time? Contact your supervisor.
           </Text>
         </View>
 

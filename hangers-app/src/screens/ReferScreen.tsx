@@ -29,7 +29,8 @@ export default function ReferScreen({ navigation }: any) {
 
   const stats = useMemo(
     () => [
-      { label: 'Friends Joined', value: String(info?.referralCount || 0) },
+      { label: 'Rewarded', value: String(info?.referralCount || 0) },
+      { label: 'Pending', value: String(info?.pendingCount || 0) },
       { label: 'Earned So Far', value: `₹${info?.totalEarned || 0}` },
       { label: 'Wallet Balance', value: `₹${info?.walletBalance || 0}` },
     ],
@@ -46,9 +47,11 @@ export default function ReferScreen({ navigation }: any) {
     if (!info?.referralCode) return;
     try {
       await Share.share({
-        message: `Use my referral code ${info.referralCode} when signing up on Hangers Clothes Spa and we both get wallet credits. Download now: https://hangers.in`,
+        message: `Use my referral code ${info.referralCode} when signing up on Hangers Clothes Spa. After your first qualifying delivered and paid order, we both get wallet credits. Download now: https://hangers.in`,
       });
-    } catch {}
+    } catch {
+      Alert.alert('Share failed', 'Could not open the share sheet right now.');
+    }
   };
 
   return (
@@ -61,13 +64,15 @@ export default function ReferScreen({ navigation }: any) {
           <Text style={styles.heroEyebrow}>Refer & Earn</Text>
           <Text style={styles.heroTitle}>Turn your happy customers into your next credits.</Text>
           <Text style={styles.heroBody}>
-            Invite friends with one code. When they sign up and place their first order, both of
-            you earn wallet credit.
+            Invite friends with one code. Once their first qualifying order is delivered and fully
+            paid, both of you earn wallet credit.
           </Text>
 
           <View style={styles.heroBadge}>
             <MaterialCommunityIcons name="gift-outline" size={18} color="#fff" />
-            <Text style={styles.heroBadgeText}>₹100 reward for you and your friend</Text>
+            <Text style={styles.heroBadgeText}>
+              {info?.program?.rewardPercent ? `${info.program.rewardPercent}% reward credit each` : 'Referral rewards active'}
+            </Text>
           </View>
         </LinearGradient>
 
@@ -109,7 +114,7 @@ export default function ReferScreen({ navigation }: any) {
               {[
                 'Share your referral code with friends.',
                 'They sign up using your code.',
-                'After their first order, both accounts receive wallet credits.',
+                'After their first qualifying delivered and paid order, both accounts receive wallet credits.',
               ].map((step, index) => (
                 <View key={step} style={styles.stepRow}>
                   <View style={styles.stepIndex}>
@@ -148,7 +153,9 @@ export default function ReferScreen({ navigation }: any) {
                         : 'recently'}
                     </Text>
                   </View>
-                  <Text style={styles.friendCredit}>+₹{referral.creditEarned || 0}</Text>
+                  <Text style={[styles.friendCredit, { color: referral.status === 'PENDING' ? '#b45309' : '#166534' }]}>
+                    {referral.status === 'PENDING' ? 'Pending' : `+₹${referral.creditEarned || 0}`}
+                  </Text>
                 </View>
               ))
             ) : (
@@ -157,7 +164,7 @@ export default function ReferScreen({ navigation }: any) {
                 <Text style={styles.emptyTitle}>No referrals yet</Text>
                 <Text style={styles.emptyText}>
                   Share your code with a few regular customers and your first bonus can land in the
-                  wallet quickly.
+                  wallet after their first qualifying order.
                 </Text>
               </View>
             )}

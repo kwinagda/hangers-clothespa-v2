@@ -72,7 +72,9 @@ export default function ProfileScreen({ navigation }: any) {
         const metadata = response?.metadata || response?.data?.metadata || {};
         setLanguageOptions(metadata.languages || []);
       })
-      .catch(() => {});
+      .catch(() => {
+        setLanguageOptions([]);
+      });
   }, []);
 
   const handleSaveProfile = async () => {
@@ -342,19 +344,19 @@ const styles = StyleSheet.create({
   bgCircle:    { position:'absolute', top:-50, right:-50, width:180, height:180, borderRadius:90, backgroundColor:'rgba(3,90,143,0.4)' },
   headerTop:   { width:'100%', flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:14 },
   backBtn:     { width:38, height:38, borderRadius:19, backgroundColor:'rgba(255,255,255,0.14)', alignItems:'center', justifyContent:'center' },
-  backText:    { fontFamily:'DMSans_500Medium', fontSize:22, color:Colors.white },
+  backText:    { fontFamily:'Inter_500Medium', fontSize:22, color:Colors.white },
   headerTitle: { fontFamily: Fonts.bold, fontSize: FontSize.base, color: Colors.white },
   headerSpacer:{ width:38, height:38 },
 
   avatarWrap:  { position:'relative', marginBottom:10 },
   avatar:      { width:74, height:74, borderRadius:37, backgroundColor:'rgba(255,255,255,0.18)', borderWidth:2, borderColor:'rgba(184,208,232,0.4)', alignItems:'center', justifyContent:'center' },
-  avatarText:  { fontFamily:'Syne_800ExtraBold', fontSize:26, color:Colors.white },
+  avatarText:  { fontFamily:'SpaceGrotesk_700Bold', fontSize:26, color:Colors.white },
   editAvatarBtn:{ position:'absolute', bottom:0, right:0, width:30, height:30, borderRadius:15, backgroundColor:Colors.white, alignItems:'center', justifyContent:'center', ...Shadow.sm },
-  customerName: { fontFamily:'Syne_700Bold', fontSize:18, color:Colors.white, marginBottom:2 },
-  customerPhone:{ fontFamily:'DMSans_400Regular', fontSize:12, color:Colors.primaryLight, marginBottom:10 },
+  customerName: { fontFamily:'SpaceGrotesk_700Bold', fontSize:18, color:Colors.white, marginBottom:2 },
+  customerPhone:{ fontFamily:'Inter_400Regular', fontSize:12, color:Colors.primaryLight, marginBottom:10 },
   memberBadge:  { backgroundColor:'rgba(184,208,232,0.18)', borderRadius:Radius.full, borderWidth:1, borderColor:'rgba(184,208,232,0.3)', paddingHorizontal:14, paddingVertical:5 },
   memberBadgeInner:{ flexDirection:'row', alignItems:'center', gap:6 },
-  memberBadgeText:{ fontFamily:'DMSans_500Medium', fontSize:FontSize.xs, color:Colors.primaryLight, letterSpacing:0.5 },
+  memberBadgeText:{ fontFamily:'Inter_500Medium', fontSize:FontSize.xs, color:Colors.primaryLight, letterSpacing:0.5 },
   profileStats:{ width:'100%', flexDirection:'row', gap:8, marginTop:14 },
   profileStatCard:{ flex:1, backgroundColor:'rgba(255,255,255,0.12)', borderWidth:1, borderColor:'rgba(255,255,255,0.14)', borderRadius:16, paddingVertical:10, paddingHorizontal:10, alignItems:'center' },
   profileStatValue:{ fontFamily: Fonts.medium, fontSize:12, color:Colors.white, textAlign:'center' },
@@ -363,40 +365,40 @@ const styles = StyleSheet.create({
   section: { paddingHorizontal:Spacing.lg, marginTop:Spacing.lg },
   card:    { backgroundColor:Colors.white, borderRadius:Radius.lg, ...Shadow.sm, borderWidth:1, borderColor:Colors.border, overflow:'hidden' },
   cardHeader:{ flexDirection:'row', justifyContent:'space-between', alignItems:'center', padding:Spacing.md, borderBottomWidth:1, borderColor:Colors.borderLight },
-  cardTitle: { fontFamily:'Syne_700Bold', fontSize:FontSize.base, color:Colors.textDark },
-  editBtn:   { fontFamily:'DMSans_500Medium', fontSize:FontSize.sm, color:Colors.primary },
-  cancelBtn: { fontFamily:'DMSans_500Medium', fontSize:FontSize.sm, color:Colors.error },
+  cardTitle: { fontFamily:'SpaceGrotesk_700Bold', fontSize:FontSize.base, color:Colors.textDark },
+  editBtn:   { fontFamily:'Inter_500Medium', fontSize:FontSize.sm, color:Colors.primary },
+  cancelBtn: { fontFamily:'Inter_500Medium', fontSize:FontSize.sm, color:Colors.error },
 
   // Edit form
   editForm:    { padding:Spacing.md },
-  fieldLabel:  { fontFamily:'DMSans_500Medium', fontSize:FontSize.xs, color:Colors.textMuted, marginBottom:6, marginTop:8, textTransform:'uppercase', letterSpacing:0.5 },
-  fieldInput:  { backgroundColor:Colors.accent, borderRadius:Radius.sm, borderWidth:1, borderColor:Colors.border, paddingHorizontal:14, paddingVertical:13, fontFamily:'DMSans_400Regular', fontSize:FontSize.base, color:Colors.textDark, marginBottom:4 },
+  fieldLabel:  { fontFamily:'Inter_500Medium', fontSize:FontSize.xs, color:Colors.textMuted, marginBottom:6, marginTop:8, textTransform:'uppercase', letterSpacing:0.5 },
+  fieldInput:  { backgroundColor:Colors.accent, borderRadius:Radius.sm, borderWidth:1, borderColor:Colors.border, paddingHorizontal:14, paddingVertical:13, fontFamily:'Inter_400Regular', fontSize:FontSize.base, color:Colors.textDark, marginBottom:4 },
   langRow:     { flexDirection:'row', gap:8, marginTop:2, marginBottom:4 },
   langChip:    { flex:1, borderRadius:Radius.sm, borderWidth:1, borderColor:Colors.border, backgroundColor:Colors.white, paddingVertical:12, alignItems:'center' },
   langChipActive:{ backgroundColor:Colors.primary, borderColor:Colors.primary },
-  langChipText:{ fontFamily:'DMSans_500Medium', fontSize:FontSize.sm, color:Colors.textMid },
+  langChipText:{ fontFamily:'Inter_500Medium', fontSize:FontSize.sm, color:Colors.textMid },
   langChipTextActive:{ color:Colors.white },
   saveBtn:     { backgroundColor:Colors.primary, borderRadius:Radius.md, paddingVertical:14, alignItems:'center', marginTop:16, ...Shadow.sm },
-  saveBtnText: { fontFamily:'Syne_700Bold', fontSize:FontSize.base, color:Colors.white },
+  saveBtnText: { fontFamily:'SpaceGrotesk_700Bold', fontSize:FontSize.base, color:Colors.white },
 
   // Info rows
   infoRows:      { padding:Spacing.md },
   infoRow:       { flexDirection:'row', alignItems:'center', gap:14, paddingVertical:10 },
   infoRowBorder: { borderTopWidth:1, borderBottomWidth:1, borderColor:Colors.borderLight },
   infoIcon:      { width:26, textAlign:'center' },
-  infoLabel:     { fontFamily:'DMSans_400Regular', fontSize:FontSize.xs, color:Colors.textMuted, marginBottom:2 },
-  infoValue:     { fontFamily:'DMSans_500Medium', fontSize:FontSize.base, color:Colors.textDark },
+  infoLabel:     { fontFamily:'Inter_400Regular', fontSize:FontSize.xs, color:Colors.textMuted, marginBottom:2 },
+  infoValue:     { fontFamily:'Inter_500Medium', fontSize:FontSize.base, color:Colors.textDark },
 
   // Menu
   menuRow:       { flexDirection:'row', alignItems:'center', gap:14, padding:Spacing.md },
   menuRowBorder: { borderBottomWidth:1, borderColor:Colors.borderLight },
   menuIcon:      { width:26, textAlign:'center' },
-  menuLabel:     { flex:1, fontFamily:'DMSans_400Regular', fontSize:FontSize.base, color:Colors.textDark },
-  menuArrow:     { fontFamily:'DMSans_400Regular', fontSize:22, color:Colors.textLight },
+  menuLabel:     { flex:1, fontFamily:'Inter_400Regular', fontSize:FontSize.base, color:Colors.textDark },
+  menuArrow:     { fontFamily:'Inter_400Regular', fontSize:22, color:Colors.textLight },
 
   // Logout
   logoutBtn:   { backgroundColor:Colors.white, borderRadius:Radius.lg, borderWidth:1, borderColor:Colors.border, padding:Spacing.md, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:10, ...Shadow.sm },
   logoutIcon:  {},
-  logoutText:  { fontFamily:'Syne_700Bold', fontSize:FontSize.base, color:Colors.error },
-  versionText: { textAlign:'center', fontFamily:'DMSans_400Regular', fontSize:FontSize.xs, color:Colors.textLight, marginTop:20, lineHeight:18 },
+  logoutText:  { fontFamily:'SpaceGrotesk_700Bold', fontSize:FontSize.base, color:Colors.error },
+  versionText: { textAlign:'center', fontFamily:'Inter_400Regular', fontSize:FontSize.xs, color:Colors.textLight, marginTop:20, lineHeight:18 },
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -14,6 +14,8 @@ import { walletAPI } from '../services/api';
 
 const REASON_LABEL: Record<string, string> = {
   REFERRAL: 'Referral Bonus',
+  REFERRAL_REWARD_REFERRER: 'Referral Reward',
+  REFERRAL_REWARD_REFERRED: 'Referral Welcome Reward',
   ORDER_PAYMENT: 'Order Payment',
   BONUS: 'Bonus Credit',
 };
@@ -24,14 +26,24 @@ const formatCurrency = (value?: number) =>
 export default function WalletScreen({ navigation }: any) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadWallet = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
     walletAPI
       .getWallet()
       .then((res: any) => setData(res))
-      .catch(() => {})
+      .catch((e: any) => {
+        setData(null);
+        setLoadError(e?.message || 'Could not load wallet details.');
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadWallet();
+  }, [loadWallet]);
 
   const balance = Number(data?.balance || 0);
   const transactions = data?.transactions || [];
@@ -72,6 +84,15 @@ export default function WalletScreen({ navigation }: any) {
           <View style={styles.centerState}>
             <ActivityIndicator size="large" color={Colors.primary} />
             <Text style={styles.centerText}>Loading wallet details...</Text>
+          </View>
+        ) : loadError ? (
+          <View style={styles.emptyCard}>
+            <MaterialCommunityIcons name="wallet-outline" size={36} color={Colors.primary} />
+            <Text style={styles.emptyTitle}>Could not load wallet</Text>
+            <Text style={styles.emptyText}>{loadError}</Text>
+            <TouchableOpacity style={styles.emptyBtn} onPress={loadWallet}>
+              <Text style={styles.emptyBtnText}>Retry</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <>

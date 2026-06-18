@@ -1,0 +1,118 @@
+const prisma = require('../config/database');
+const { ROLE_PERMISSIONS, ROLE_SERVICE_ACCESS, SERVICE_CODES, STAFF_ROLE_VALUES } = require('../config/master-data');
+
+const unique = (values) => [...new Set(values.filter(Boolean))];
+
+const syncPermissionCatalog = async () => {
+  const permissionCodes = unique(
+    STAFF_ROLE_VALUES.flatMap((role) => (ROLE_PERMISSIONS[role] || []).filter((permission) => permission !== '*'))
+  );
+
+  if (!permissionCodes.length) return;
+
+  await prisma.$transaction(async (tx) => {
+    for (const code of permissionCodes) {
+      const category = code.includes('.') ? code.split('.')[0] : 'general';
+      await tx.permissionCatalog.upsert({
+        where: { code },
+        update: { category },
+        create: { code, category, description: `${code} access` },
+      });
+    }
+
+    await tx.staffRolePermission.deleteMany({});
+    for (const role of STAFF_ROLE_VALUES) {
+      const permissions = (ROLE_PERMISSIONS[role] || []).filter((permission) => permission !== '*');
+      for (const permissionCode of permissions) {
+        await tx.staffRolePermission.create({
+          data: { role, permissionCode },
+        });
+      }
+    }
+  });
+};
+
+const getRolePermissions = async (role) => {
+  if (!role) return [];
+  if ((ROLE_PERMISSIONS[role] || []).includes('*')) return ['*'];
+
+  const roleBindings = await prisma.staffRolePermission.findMany({
+    where: { role },
+    select: { permissionCode: true },
+  });
+
+  if (roleBindings.length) {
+    return unique(roleBindings.map((binding) => binding.permissionCode));
+  }
+
+  return unique((ROLE_PERMISSIONS[role] || []).filter((permission) => permission !== '*'));
+};
+
+const getEffectivePermissions = async (staff) => {
+  if (!staff) return [];
+
+  const rolePermissions = await getRolePermissions(staff.role);
+  if (rolePermissions.includes('*')) return ['*'];
+
+  const customPermissions = Array.isArray(staff.permissions)
+    ? staff.permissions
+    : await prisma.staffPermission.findMany({
+        where: { staffId: staff.id },
+        select: { permission: true, granted: true },
+      });
+
+  const grants = customPermissions.filter((entry) => entry.granted).map((entry) => entry.permission);
+  const revokes = customPermissions.filter((entry) => !entry.granted).map((entry) => entry.permission);
+
+  return unique([...rolePermissions, ...grants]).filter((permission) => !revokes.includes(permission));
+};
+
+const getEffectiveServices = async (staff) => {
+  if (!staff) return [];
+
+  const defaultServices = ROLE_SERVICE_ACCESS[staff.role] || [];
+  const overrides = await prisma.staffServiceAllowance.findMany({
+    where: { staffId: staff.id },
+    select: { serviceCode: true, allowed: true },
+  });
+
+  const allowed = new Set(defaultServices);
+  for (const override of overrides) {
+    if (override.allowed) allowed.add(override.serviceCode);
+    else allowed.delete(override.serviceCode);
+  }
+
+  return [...allowed].filter((serviceCode) => SERVICE_CODES.includes(serviceCode));
+};
+
+const buildStaffAccessContext = async (staff) => {
+  if (!staff) return { permissions: [], services: [] };
+
+  const [permissions, services] = await Promise.all([
+    getEffectivePermissions(staff),
+    getEffectiveServices(staff),
+  ]);
+
+  return { permissions, services };
+};
+
+const hasResolvedPermission = (staff, permission) => {
+  if (!staff) return false;
+  const permissions = staff.effectivePermissions || [];
+  return permissions.includes('*') || permissions.includes(permission);
+};
+
+const hasResolvedServiceAccess = (staff, serviceCode) => {
+  if (!staff) return false;
+  const services = staff.serviceAccess || [];
+  return services.includes(serviceCode);
+};
+
+module.exports = {
+  buildStaffAccessContext,
+  getEffectivePermissions,
+  getEffectiveServices,
+  hasResolvedPermission,
+  hasResolvedServiceAccess,
+  syncPermissionCatalog,
+};

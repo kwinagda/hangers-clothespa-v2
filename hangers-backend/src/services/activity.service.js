@@ -18,22 +18,35 @@ const log = async ({
   metadata,
   ipAddress,
   userAgent,
+  route,
+  method,
+  status = 'SUCCESS',
 }) => {
   try {
-    await prisma.activityLog.create({
-      data: {
-        actorType,
-        actorId:     actorId     || null,
-        actorName:   actorName   || null,
-        action,
-        resource:    resource    || null,
-        resourceId:  resourceId  || null,
-        description,
-        metadata:    metadata    || null,
-        ipAddress:   ipAddress   || null,
-        userAgent:   userAgent   || null,
-      },
-    });
+    const data = {
+      actorType,
+      actorId: actorId || null,
+      actorName: actorName || null,
+      action,
+      resource: resource || null,
+      resourceId: resourceId || null,
+      description,
+      metadata: metadata || null,
+      ipAddress: ipAddress || null,
+      userAgent: userAgent || null,
+    };
+
+    await prisma.$transaction([
+      prisma.activityLog.create({ data }),
+      prisma.auditLog.create({
+        data: {
+          ...data,
+          status,
+          route: route || null,
+          method: method || null,
+        },
+      }),
+    ]);
   } catch (err) {
     // Never crash the main request because of a log failure
     console.error('ActivityLog write failed:', err.message);
@@ -46,6 +59,8 @@ const log = async ({
 const getRequestMeta = (req) => ({
   ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
   userAgent: req.headers['user-agent'] || null,
+  route: req.originalUrl || req.path || null,
+  method: req.method || null,
 });
 
 module.exports = { log, getRequestMeta };

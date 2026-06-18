@@ -1,9 +1,19 @@
 // ── Settings Controller ───────────────────────────────────────────────────────
 const prisma = require('../config/database');
+const { updateSettingsSchema } = require('../validation/settings.schemas');
+const { log, getRequestMeta } = require('../services/activity.service');
+const { success, badRequest, error } = require('../utils/response');
 
-const ok  = (res, data, msg = 'Success') => res.json({ success: true, message: msg, data });
-const bad = (res, msg) => res.status(400).json({ success: false, message: msg });
-const err = (res, e)   => res.status(500).json({ success: false, message: e.message });
+const ALLOWED_SETTING_KEYS = new Set([
+  'writeoff_max_amount',
+  'loyalty_points_per_rupee',
+  'loyalty_rupee_per_point',
+  'loyalty_min_redeem_points',
+  'referral_reward_percent',
+  'referral_reward_cap',
+  'referral_min_order_amount',
+  'referral_program_enabled',
+]);
 
 // GET /api/v1/settings — get all settings
 const getSettings = async (req, res) => {
@@ -11,36 +21,55 @@ const getSettings = async (req, res) => {
     const settings = await prisma.setting.findMany({ orderBy: { key: 'asc' } });
     const map = {};
     settings.forEach(s => { map[s.key] = s.value; });
-    ok(res, { settings, map });
-  } catch (e) { err(res, e); }
+    return success(res, { settings, map });
+  } catch (e) {
+    return error(res, 'Failed to fetch settings');
+  }
 };
 
 // PATCH /api/v1/settings — update one or more settings
 const updateSettings = async (req, res) => {
   try {
-    const updates = req.body; // { key: value, key2: value2 }
+    const parsed = updateSettingsSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid settings payload');
+    const updates = parsed.data;
+    const entries = Object.entries(updates);
     const results = await Promise.all(
-      Object.entries(updates).map(([key, value]) =>
+      entries.map(([key, value]) =>
         prisma.setting.upsert({
           where:  { key },
-          update: { value: String(value), updatedBy: req.staff?.id || null },
-          create: { key, value: String(value), updatedBy: req.staff?.id || null },
+          update: { value: typeof value === 'boolean' ? String(value) : String(Number(value)), updatedBy: req.staff?.id || null },
+          create: { key, value: typeof value === 'boolean' ? String(value) : String(Number(value)), updatedBy: req.staff?.id || null },
         })
       )
     );
-    ok(res, results, 'Settings updated');
-  } catch (e) { err(res, e); }
+    await log({
+      actorType: 'staff',
+      actorId: req.staff?.id,
+      actorName: req.staff?.name,
+      action: 'SETTINGS_UPDATED',
+      resource: 'settings',
+      description: `Updated settings: ${entries.map(([key]) => key).join(', ')}`,
+      metadata: Object.fromEntries(entries),
+      ...getRequestMeta(req),
+    });
+    return success(res, results, 'Settings updated');
+  } catch (e) {
+    return error(res, 'Failed to update settings');
+  }
 };
 
 // GET /api/v1/settings/public — get settings needed by POS/frontend (no auth)
 const getPublicSettings = async (req, res) => {
   try {
-    const keys = ['writeoff_max_amount', 'loyalty_points_per_rupee', 'loyalty_rupee_per_point', 'loyalty_min_redeem_points'];
+    const keys = ['writeoff_max_amount', 'loyalty_points_per_rupee', 'loyalty_rupee_per_point', 'loyalty_min_redeem_points', 'referral_reward_percent', 'referral_reward_cap', 'referral_min_order_amount', 'referral_program_enabled'];
     const settings = await prisma.setting.findMany({ where: { key: { in: keys } } });
     const map = {};
     settings.forEach(s => { map[s.key] = parseFloat(s.value) || 0; });
-    ok(res, map);
-  } catch (e) { err(res, e); }
+    return success(res, map);
+  } catch (e) {
+    return error(res, 'Failed to fetch public settings');
+  }
 };
 
 module.exports = { getSettings, updateSettings, getPublicSettings };

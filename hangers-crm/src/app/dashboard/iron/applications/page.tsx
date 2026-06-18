@@ -7,6 +7,13 @@ import { format } from 'date-fns'
 import IronSectionTabs from '../_components/IronSectionTabs'
 import { InlineLoader, SkeletonCard, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
 
 export default function IronApplicationsPage() {
   const [loading, setLoading] = useState(true)
@@ -20,7 +27,7 @@ export default function IronApplicationsPage() {
     setLoading(true)
     try {
       const response = await ironAPI.listSubscriptions('PENDING_REVIEW')
-      setSubscriptions(response?.data?.subscriptions || [])
+      setSubscriptions(asArray(response?.data, ['subscriptions', 'items']))
     } catch {
       toast.error('Failed to load Daily Iron applications')
     } finally {
@@ -38,7 +45,10 @@ export default function IronApplicationsPage() {
         return acc
       }, {})
       setLanguageLabels(labels)
-    }).catch(() => {})
+    }).catch((e: any) => {
+      setLanguageLabels({})
+      toast.error(e.message || 'Failed to load language labels')
+    })
   }, [])
 
   const handleConfirm = async (subscriptionId: string) => {

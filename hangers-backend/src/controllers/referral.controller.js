@@ -5,6 +5,7 @@
 
 const prisma = require('../config/database');
 const { success, error } = require('../utils/response');
+const { getReferralProgramSettings, REFERRAL_STATUS } = require('../services/referral.service');
 
 const generateReferralCode = async () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -42,18 +43,28 @@ const getReferralInfo = async (req, res) => {
       include: { referred: { select: { name: true, createdAt: true } } },
       orderBy: { createdAt: 'desc' },
     });
-
-    const totalEarned = referrals.reduce((s, r) => s + r.creditAwarded, 0);
+    const settings = await getReferralProgramSettings(prisma);
+    const rewardedReferrals = referrals.filter((referral) => referral.status === REFERRAL_STATUS.REWARDED);
+    const pendingReferrals = referrals.filter((referral) => referral.status === REFERRAL_STATUS.PENDING);
+    const totalEarned = rewardedReferrals.reduce((s, r) => s + r.creditAwarded, 0);
 
     return success(res, {
       referralCode:   customer?.referralCode,
       walletBalance:  customer?.walletBalance || 0,
-      referralCount:  referrals.length,
+      referralCount:  rewardedReferrals.length,
+      pendingCount: pendingReferrals.length,
       totalEarned,
+      program: {
+        rewardPercent: settings.rewardPercent,
+        rewardCap: settings.rewardCap,
+        minOrderAmount: settings.minOrderAmount,
+        enabled: settings.enabled,
+      },
       referrals: referrals.map(r => ({
         name:         r.referred.name || 'Anonymous',
         joinedAt:     r.referred.createdAt,
         creditEarned: r.creditAwarded,
+        status:       r.status || REFERRAL_STATUS.REWARDED,
       })),
     });
   } catch (err) {

@@ -71,6 +71,26 @@ textarea:focus {
   animation: crm-fade-up 320ms var(--crm-ease);
 }
 
+.crm-page-shell {
+  min-height: 100vh;
+  padding-bottom: 108px;
+}
+
+.crm-floating-order {
+  max-width: calc(100vw - 32px);
+}
+
+@media (max-width: 900px) {
+  .crm-page-shell {
+    padding-bottom: 120px;
+  }
+
+  .crm-floating-order {
+    right: 16px !important;
+    bottom: 16px !important;
+  }
+}
+
 .crm-surface {
   background: #fff;
   border: 1px solid #e8f0f7;

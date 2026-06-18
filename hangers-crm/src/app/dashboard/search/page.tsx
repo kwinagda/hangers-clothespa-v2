@@ -1,14 +1,23 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import toast from 'react-hot-toast'
 import { metadataAPI, searchAPI } from '@/lib/api'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
 const fmt = (n:number) => `₹${(n||0).toLocaleString('en-IN',{maximumFractionDigits:0})}`
 export default function SearchPage() {
   const [st,setSt] = useState<'orders'|'customers'>('orders')
   const [statusOptions,setStatusOptions] = useState<Array<{v:string,l:string}>>([])
   const [tagOptions,setTagOptions] = useState<Array<{v:string,l:string}>>([])
   const [paymentStatusOptions,setPaymentStatusOptions] = useState<Array<{v:string,l:string}>>([])
+  const [paymentStatusMeta,setPaymentStatusMeta] = useState<Record<string,{l:string;color:string;bg:string}>>({})
   const [q,setQ] = useState('')
   const [status,setStatus] = useState('')
   const [pStatus,setPStatus] = useState('')
@@ -27,16 +36,30 @@ export default function SearchPage() {
       setStatusOptions((metadata.orderStatuses || []).filter((item:any) => item.key !== 'RETURNED').map((item:any) => ({ v: item.key, l: item.label || item.key })))
       setTagOptions((metadata.customerTags || []).map((item:any) => ({ v: item.value, l: item.label })))
       setPaymentStatusOptions((metadata.paymentStatuses || []).map((item:any) => ({ v: item.value, l: item.label })))
-    }).catch(() => {})
+      setPaymentStatusMeta(Object.fromEntries((metadata.paymentStatuses || []).map((item:any) => [item.value, { l: item.label || item.value, color: item.color || '#023c62', bg: item.bg || '#f4f7fb' }])))
+    }).catch(() => {
+      toast.error('Failed to load search filters')
+    })
   }, [])
   const search = async (p=1, limit=pageSize) => {
     setLoading(true); setPage(p)
-    const params:any = {type:st,page:p,limit}
-    if(q)params.q=q; if(status)params.status=status; if(pStatus)params.paymentStatus=pStatus
-    if(tag)params.tag=tag; if(from)params.from=from; if(to)params.to=to
-    if(minAmt)params.minAmount=minAmt; if(maxAmt)params.maxAmount=maxAmt
-    const r = await searchAPI.query(params)
-    setResults(r.data); setLoading(false)
+    try {
+      const params:any = {type:st,page:p,limit}
+      if(q)params.q=q; if(status)params.status=status; if(pStatus)params.paymentStatus=pStatus
+      if(tag)params.tag=tag; if(from)params.from=from; if(to)params.to=to
+      if(minAmt)params.minAmount=minAmt; if(maxAmt)params.maxAmount=maxAmt
+      const r = await searchAPI.query(params)
+      setResults({
+        ...r.data,
+        orders: asArray(r.data, ['orders', 'items']),
+        customers: asArray(r.data, ['customers', 'items']),
+      })
+    } catch (e:any) {
+      toast.error(e.message || 'Search failed')
+      setResults(null)
+    } finally {
+      setLoading(false)
+    }
   }
   const s = {fontFamily:"var(--crm-font-ui)"}
   const sel = (v:string,onChange:any,opts:{v:string,l:string}[],placeholder:string) => <select value={v} onChange={e=>onChange(e.target.value)} style={{border:'1px solid #e2e8f0',borderRadius:8,padding:'7px 10px',fontSize:13,width:'100%'}}><option value="">{placeholder}</option>{opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select>
@@ -73,7 +96,10 @@ export default function SearchPage() {
               <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{new Date(o.createdAt).toLocaleDateString('en-IN')}</td>
               <td style={{padding:'10px 16px'}}><span style={{padding:'3px 8px',background:'#f1f5f9',borderRadius:4,fontSize:11}}>{o.status}</span></td>
               <td style={{padding:'10px 16px',textAlign:'right',fontWeight:600}}>{fmt(o.totalAmount||o.total||0)}</td>
-              <td style={{padding:'10px 16px',textAlign:'right'}}><span style={{padding:'3px 8px',borderRadius:4,fontSize:11,background:o.paymentStatus==='PAID'?'#dcfce7':'#fee2e2',color:o.paymentStatus==='PAID'?'#166534':'#991b1b'}}>{o.paymentStatus||'UNPAID'}</span></td>
+              <td style={{padding:'10px 16px',textAlign:'right'}}>{(() => {
+                const paymentStyle = paymentStatusMeta[o.paymentStatus || 'UNPAID'] || { l: o.paymentStatus || 'UNPAID', color: '#023c62', bg: '#f4f7fb' }
+                return <span style={{padding:'3px 8px',borderRadius:4,fontSize:11,background:paymentStyle.bg,color:paymentStyle.color}}>{paymentStyle.l}</span>
+              })()}</td>
             </tr>)}</tbody>
           </table>}
         </div>}

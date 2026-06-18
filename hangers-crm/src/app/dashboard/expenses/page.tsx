@@ -1,7 +1,15 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { expensesAPI, metadataAPI } from '@/lib/api'
+import toast from 'react-hot-toast'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
 
 const CAT_STYLE: Record<string,{bg:string,color:string}> = {
   SALARY:    {bg:'#f3e8ff',color:'#6b21a8'},
@@ -28,9 +36,11 @@ export default function ExpensesPage() {
 
   const load = () => {
     expensesAPI.get(month, year).then((r: any) => {
-      setExpenses(r.data?.expenses || [])
+      setExpenses(asArray(r.data, ['expenses', 'items']))
       setTotal(r.data?.total || 0)
       setByCategory(r.data?.byCategory || {})
+    }).catch(() => {
+      toast.error('Failed to load expenses')
     })
   }
 
@@ -46,23 +56,34 @@ export default function ExpensesPage() {
           category: nextCategories.some((item:any) => item.value === prev.category) ? prev.category : nextCategories[0].value,
         }))
       }
-    }).catch(() => {})
+    }).catch(() => {
+      toast.error('Failed to load expense categories')
+    })
   }, [])
 
   const add = async () => {
-    if (!form.description || !form.amount) return
+    if (!form.description || !form.amount) { toast.error('Description and amount are required'); return }
     setLoading(true)
-    await expensesAPI.add(form)
-    setShowAdd(false)
-    setForm({ category: 'SUPPLIES', description: '', amount: '', date: new Date().toISOString().split('T')[0], paidBy: '' })
-    load()
-    setLoading(false)
+    try {
+      await expensesAPI.add(form)
+      setShowAdd(false)
+      setForm({ category: 'SUPPLIES', description: '', amount: '', date: new Date().toISOString().split('T')[0], paidBy: '' })
+      load()
+    } catch (e:any) {
+      toast.error(e.message || 'Failed to save expense')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const del = async (id: string) => {
     if (!confirm('Delete this expense?')) return
-    await expensesAPI.delete(id)
-    load()
+    try {
+      await expensesAPI.delete(id)
+      load()
+    } catch (e:any) {
+      toast.error(e.message || 'Failed to delete expense')
+    }
   }
 
   const fmt = (n: number) => `₹${(n||0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`

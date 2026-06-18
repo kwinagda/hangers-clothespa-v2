@@ -587,7 +587,7 @@
           <p>In the <code>hangers-backend</code> folder, make a copy of <code>.env.example</code> and rename it to <code>.env</code>. Then fill in your values:</p>
           <div class="code-block">
             <div class="code-header"><span class="code-label">.env — FILL IN YOUR VALUES</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
-            <div class="code-content"><span class="key">PORT</span>=<span class="val">5000</span>
+            <div class="code-content"><span class="key">PORT</span>=<span class="val">5001</span>
 <span class="key">NODE_ENV</span>=<span class="val">development</span>
 
 <span class="comment"># Replace 'yourpassword' with your PostgreSQL password</span>
@@ -660,7 +660,7 @@
           <div class="code-block">
             <div class="code-header"><span class="code-label">TERMINAL</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
             <div class="code-content"><span class="cmd">node prisma/seed.js</span>
-<span class="comment"># Creates: admin@hangers.in / Hangers@2025 (change after first login!)</span></div>
+<span class="comment"># Creates a default admin only when DEFAULT_ADMIN_PASSWORD is provided</span></div>
           </div>
         </div>
       </div>
@@ -676,7 +676,7 @@
 <span class="comment"># You should see:</span>
 <span class="val">─────────────────────────────────────────</span>
 <span class="val">🧺  Hangers Clothes Spa</span>
-<span class="val">✅  Server running on port 5000</span>
+<span class="val">✅  Server running on port 5001</span>
 <span class="val">🌍  Environment: development</span>
 <span class="val">─────────────────────────────────────────</span></div>
           </div>
@@ -703,7 +703,7 @@
           <h4>Health check — open this in your browser</h4>
           <div class="code-block">
             <div class="code-header"><span class="code-label">BROWSER URL</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
-            <div class="code-content">http://localhost:5000/health</div>
+            <div class="code-content">http://localhost:5001/health</div>
           </div>
           <div class="alert alert-success">✅ &nbsp;You should see: <code>{"success": true, "message": "🧺 Hangers API is running"}</code></div>
         </div>
@@ -735,12 +735,12 @@
         <div class="step-icon">👤</div>
         <div class="step-content">
           <h4>Test Staff Login</h4>
-          <p>In Postman, create a POST request to <code>http://localhost:5000/api/v1/staff/auth/login</code> with this body:</p>
+          <p>In Postman, create a POST request to <code>http://localhost:5001/api/v1/staff/auth/login</code> with this body:</p>
           <div class="code-block">
             <div class="code-header"><span class="code-label">REQUEST BODY (JSON)</span><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
             <div class="code-content">{
-  <span class="key">"email"</span>:    <span class="str">"admin@hangers.in"</span>,
-  <span class="key">"password"</span>: <span class="str">"Hangers@2025"</span>
+  <span class="key">"email"</span>:    <span class="str">"your configured admin email"</span>,
+  <span class="key">"password"</span>: <span class="str">"the DEFAULT_ADMIN_PASSWORD you set before seeding"</span>
 }</div>
           </div>
           <div class="alert alert-success">✅ &nbsp;You should get back a <code>token</code> and your staff profile with role <code>SUPER_ADMIN</code> and all permissions.</div>
@@ -782,12 +782,12 @@
         <li><div class="check-box" onclick="toggleCheck(this)"></div><span><code>.env</code> file created with my database password and JWT secret</span></li>
         <li><div class="check-box" onclick="toggleCheck(this)"></div><span><code>npm install</code> completed without errors</span></li>
         <li><div class="check-box" onclick="toggleCheck(this)"></div><span><code>npx prisma migrate dev</code> ran — all tables created</span></li>
-        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Seed ran — admin@hangers.in account exists</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Seed ran — the configured default admin account exists</span></li>
         <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Server starts with <code>npm run dev</code> — see "🧺 Hangers API is running"</span></li>
-        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Health check at localhost:5000/health returns success</span></li>
-        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Staff login works — got token back for admin@hangers.in</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Health check at localhost:5001/health returns success</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Staff login works for the configured default admin</span></li>
         <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Customer OTP flow works — send OTP → verify → got token</span></li>
-        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Changed default admin password (admin@hangers.in)</span></li>
+        <li><div class="check-box" onclick="toggleCheck(this)"></div><span>Changed the seeded admin password immediately</span></li>
       </ul>
     </div>
   </div>

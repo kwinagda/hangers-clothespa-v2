@@ -20,25 +20,58 @@ const phaseARoutes        = require('./routes/phaseA.routes');
 const challanRoutes       = require('./routes/challan.routes');
 const staffWalletRoutes   = require('./routes/staff.wallet.routes');
 const settingsRoutes      = require('./routes/settings.routes');
+const securityRoutes      = require('./routes/security.routes');
 const checkoutRoutes      = require('./routes/checkout.routes');
 const ironRoutes          = require('./routes/iron.routes');
 const metadataRoutes      = require('./routes/metadata.routes');
+const quotationsRoutes    = require('./routes/quotations.routes');
+const { syncPermissionCatalog } = require('./services/accessControl.service');
 const app  = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5001;
+const parseOriginList = (value) =>
+  String(value || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
-app.use(helmet());
+const allowedOrigins = new Set([
+  ...parseOriginList(process.env.ALLOWED_ORIGINS),
+  process.env.CRM_URL || 'http://localhost:5002',
+  process.env.CUSTOMER_APP_URL || 'http://localhost:8081',
+  process.env.STAFF_APP_URL || 'http://localhost:8082',
+  'http://localhost:19006',
+  'http://localhost:19000',
+  'http://127.0.0.1:5002',
+  'http://127.0.0.1:8081',
+  'http://127.0.0.1:8082',
+  'http://127.0.0.1:19000',
+  'http://127.0.0.1:19006',
+  'http://192.168.29.246:5002',
+  'http://192.168.29.246:8081',
+].filter(Boolean));
+
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  frameguard: { action: 'deny' },
+  referrerPolicy: { policy: 'no-referrer' },
+  hsts: process.env.NODE_ENV === 'production'
+    ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+    : false,
+}));
 app.use(cors({
-  origin: [
-    process.env.CRM_URL          || 'http://localhost:3001',
-    process.env.CUSTOMER_APP_URL || 'http://localhost:8081',
-    'http://localhost:19006', 'http://localhost:19000',
-    'http://192.168.29.246:3001', 'http://192.168.29.246:8081',
-  ],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '1mb', strict: true }));
+app.use(express.urlencoded({ extended: true, limit: '1mb', parameterLimit: 100 }));
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 app.get('/health', (req, res) => res.json({ success: true, message: 'Hangers API is running', version: '4.0.0' }));
@@ -48,11 +81,13 @@ app.use('/api/v1/auth',            authRoutes);
 app.use('/api/v1/staff',                       staffRoutes);
 // CRM
 app.use('/api/v1/orders',                      ordersRoutes);
+app.use('/api/v1/quotations',                 quotationsRoutes);
 app.use('/api/v1/customers',                   customersRoutes);
 app.use('/api/v1/payments',                    paymentsRoutes);
 app.use('/api/v1',                             challanRoutes);
 app.use('/api/v1/wallet',                      staffWalletRoutes);
 app.use('/api/v1/settings',                    settingsRoutes);
+app.use('/api/v1/security',                    securityRoutes);
 app.use('/api/v1/checkout',                    checkoutRoutes);
 // Customer app
 app.use('/api/v1/customer/orders',    customerOrderRoutes);
@@ -76,6 +111,9 @@ app.use(notFound);
 app.use(errorHandler);
 
 app.listen(PORT, () => {
+  syncPermissionCatalog().catch((err) => {
+    console.error('Permission catalog sync failed:', err.message);
+  });
   console.log('\n─────────────────────────────────────────');
   console.log(`Hangers Clothes Spa - Phase 4`);
   console.log(`Server running on port ${PORT}`);

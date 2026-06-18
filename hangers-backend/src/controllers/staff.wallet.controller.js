@@ -7,10 +7,9 @@
 //   POST /api/v1/wallet/:customerId/apply    — apply wallet to order (POS)
 
 const prisma = require('../config/database');
-
-const ok  = (res, data, msg = 'Success') => res.json({ success: true, message: msg, data });
-const bad = (res, msg) => res.status(400).json({ success: false, message: msg });
-const err = (res, e)   => res.status(500).json({ success: false, message: e.message });
+const { success, badRequest, error, notFound } = require('../utils/response');
+const { walletAdjustmentSchema, walletApplySchema } = require('../validation/finance.schemas');
+const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // GET /api/v1/wallet/:customerId
 const getCustomerWallet = async (req, res) => {
@@ -33,31 +32,38 @@ const getCustomerWallet = async (req, res) => {
       prisma.walletTransaction.count({ where: { customerId } })
     ]);
 
-    if (!customer) return bad(res, 'Customer not found');
+    if (!customer) return notFound(res, 'Customer not found');
 
-    ok(res, {
+    return success(res, {
       customer,
       balance:      customer.walletBalance,
       transactions: txns,
       total,
     });
-  } catch (e) { err(res, e); }
+  } catch (e) {
+    return error(res, 'Failed to fetch customer wallet');
+  }
 };
 
 // POST /api/v1/wallet/:customerId/credit
 const creditWallet = async (req, res) => {
   try {
     const { customerId } = req.params;
-    const { amount, reason, orderId } = req.body;
+    const parsed = walletAdjustmentSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid wallet credit payload');
+    const { amount, reason, orderId } = parsed.data;
 
-    if (!amount || amount <= 0) return bad(res, 'Amount must be greater than 0');
-    if (!reason)               return bad(res, 'Reason is required');
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { id: true },
+    });
+    if (!customer) return notFound(res, 'Customer not found');
 
     const result = await prisma.$transaction(async (tx) => {
       const txn = await tx.walletTransaction.create({
         data: {
           customerId,
-          amount:  parseFloat(amount),
+          amount,
           type:    'CREDIT',
           reason,
           orderId: orderId || null,
@@ -65,40 +71,41 @@ const creditWallet = async (req, res) => {
       });
       const updated = await tx.customer.update({
         where: { id: customerId },
-        data:  { walletBalance: { increment: parseFloat(amount) } },
+        data:  { walletBalance: { increment: amount } },
         select: { walletBalance: true }
       });
       return { txn, newBalance: updated.walletBalance };
     });
 
-    ok(res, result, `₹${amount} credited to wallet`);
-  } catch (e) { err(res, e); }
+    return success(res, result, `₹${amount} credited to wallet`);
+  } catch (e) {
+    return error(res, 'Failed to credit wallet');
+  }
 };
 
 // POST /api/v1/wallet/:customerId/deduct
 const deductWallet = async (req, res) => {
   try {
     const { customerId } = req.params;
-    const { amount, reason, orderId } = req.body;
-
-    if (!amount || amount <= 0) return bad(res, 'Amount must be greater than 0');
-    if (!reason)               return bad(res, 'Reason is required');
+    const parsed = walletAdjustmentSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid wallet deduction payload');
+    const { amount, reason, orderId } = parsed.data;
 
     const customer = await prisma.customer.findUnique({
       where:  { id: customerId },
       select: { walletBalance: true }
     });
 
-    if (!customer) return bad(res, 'Customer not found');
-    if (customer.walletBalance < parseFloat(amount)) {
-      return bad(res, `Insufficient wallet balance. Current balance: ₹${customer.walletBalance}`);
+    if (!customer) return notFound(res, 'Customer not found');
+    if (customer.walletBalance < amount) {
+      return badRequest(res, `Insufficient wallet balance. Current balance: ₹${customer.walletBalance}`);
     }
 
     const result = await prisma.$transaction(async (tx) => {
       const txn = await tx.walletTransaction.create({
         data: {
           customerId,
-          amount:  parseFloat(amount),
+          amount,
           type:    'DEBIT',
           reason,
           orderId: orderId || null,
@@ -106,35 +113,43 @@ const deductWallet = async (req, res) => {
       });
       const updated = await tx.customer.update({
         where: { id: customerId },
-        data:  { walletBalance: { decrement: parseFloat(amount) } },
+        data:  { walletBalance: { decrement: amount } },
         select: { walletBalance: true }
       });
       return { txn, newBalance: updated.walletBalance };
     });
 
-    ok(res, result, `₹${amount} deducted from wallet`);
-  } catch (e) { err(res, e); }
+    return success(res, result, `₹${amount} deducted from wallet`);
+  } catch (e) {
+    return error(res, 'Failed to deduct wallet balance');
+  }
 };
 
 // POST /api/v1/wallet/:customerId/apply — apply wallet balance to an order (POS)
 const applyWalletToOrder = async (req, res) => {
   try {
     const { customerId } = req.params;
-    const { orderId, amount } = req.body;
-
-    if (!orderId) return bad(res, 'orderId required');
-    if (!amount || amount <= 0) return bad(res, 'Amount must be greater than 0');
+    const parsed = walletApplySchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid wallet apply payload');
+    const { orderId, amount } = parsed.data;
 
     const [customer, order] = await Promise.all([
       prisma.customer.findUnique({ where: { id: customerId }, select: { walletBalance: true } }),
-      prisma.order.findUnique({ where: { id: orderId }, select: { id: true, totalAmount: true, paidAmount: true, paymentStatus: true } })
+      prisma.order.findFirst({
+        where: { id: orderId, ...ORDER_ONLY_WHERE },
+        select: { id: true, customerId: true, totalAmount: true, paidAmount: true, writeOffAmount: true, paymentStatus: true },
+      })
     ]);
 
-    if (!customer) return bad(res, 'Customer not found');
-    if (!order)    return bad(res, 'Order not found');
+    if (!customer) return notFound(res, 'Customer not found');
+    if (!order)    return notFound(res, 'Order not found');
+    if (order.customerId !== customerId) {
+      return badRequest(res, 'Wallet can only be applied to orders belonging to the same customer');
+    }
 
-    const applyAmount = Math.min(parseFloat(amount), customer.walletBalance, order.totalAmount - order.paidAmount);
-    if (applyAmount <= 0) return bad(res, 'Nothing to apply');
+    const balanceDue = Math.max(0, Number((order.totalAmount - order.paidAmount - (order.writeOffAmount || 0)).toFixed(2)));
+    const applyAmount = Math.min(amount, customer.walletBalance, balanceDue);
+    if (applyAmount <= 0) return badRequest(res, 'Nothing to apply');
 
     const result = await prisma.$transaction(async (tx) => {
       // Deduct from wallet
@@ -160,15 +175,17 @@ const applyWalletToOrder = async (req, res) => {
         where: { id: orderId },
         data: {
           paidAmount:    newPaid,
-          paymentStatus: newPaid >= order.totalAmount ? 'PAID' : newPaid > 0 ? 'PARTIAL' : 'UNPAID'
+          paymentStatus: newPaid + (order.writeOffAmount || 0) >= order.totalAmount ? 'PAID' : newPaid > 0 || (order.writeOffAmount || 0) > 0 ? 'PARTIAL' : 'UNPAID'
         }
       });
 
       return { appliedAmount: applyAmount, newBalance: customer.walletBalance - applyAmount, order: updated };
     });
 
-    ok(res, result, `₹${applyAmount} applied from wallet to order`);
-  } catch (e) { err(res, e); }
+    return success(res, result, `₹${applyAmount} applied from wallet to order`);
+  } catch (e) {
+    return error(res, 'Failed to apply wallet to order');
+  }
 };
 
 module.exports = { getCustomerWallet, creditWallet, deductWallet, applyWalletToOrder };

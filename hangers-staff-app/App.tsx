@@ -8,7 +8,11 @@ import {
   Inter_500Medium,
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
-import { SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
+import {
+  SpaceGrotesk_500Medium,
+  SpaceGrotesk_600SemiBold,
+  SpaceGrotesk_700Bold,
+} from '@expo-google-fonts/space-grotesk';
 import { SpaceMono_400Regular } from '@expo-google-fonts/space-mono';
 import { AuthProvider } from './src/hooks/useAuth';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -18,16 +22,10 @@ export default function App() {
     Inter_400Regular,
     Inter_500Medium,
     Inter_700Bold,
+    SpaceGrotesk_500Medium,
+    SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
     SpaceMono_400Regular,
-    DMSans_400Regular: Inter_400Regular,
-    DMSans_500Medium: Inter_500Medium,
-    DMSans_700Bold: Inter_700Bold,
-    Syne_400Regular: SpaceGrotesk_700Bold,
-    Syne_600SemiBold: SpaceGrotesk_700Bold,
-    Syne_700Bold: SpaceGrotesk_700Bold,
-    Syne_800ExtraBold: SpaceGrotesk_700Bold,
-    SpaceMono_700Bold: SpaceMono_400Regular,
   });
 
   if (!fontsLoaded) return null;

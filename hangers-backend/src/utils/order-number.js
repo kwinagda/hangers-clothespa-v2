@@ -1,12 +1,13 @@
 const prisma = require('../config/database');
 
 const generateOrderNumber = async (options = {}) => {
-  const { isReturn = false } = options;
+  const { isReturn = false, documentType = 'ORDER' } = options;
   const count = await prisma.order.count({
-    where: { isReturn },
+    where: { isReturn, documentType },
   });
 
-  const nextNumber = `HCS-${String(count + 1).padStart(3, '0')}`;
+  const prefix = documentType === 'QUOTATION' ? 'HCS-Q' : 'HCS-';
+  const nextNumber = `${prefix}${String(count + 1).padStart(3, '0')}`;
   return isReturn ? `${nextNumber}-R` : nextNumber;
 };
 

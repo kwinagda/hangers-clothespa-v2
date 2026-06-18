@@ -7,6 +7,8 @@
 const express = require('express');
 const router  = express.Router();
 const { customerAuth } = require('../middleware/auth');
+const { privateNoStore } = require('../middleware/privateCache');
+const { requireTrustedWrite } = require('../middleware/origin');
 const {
   getAddresses,
   createAddress,
@@ -14,6 +16,9 @@ const {
   setDefaultAddress,
   deleteAddress,
 } = require('../controllers/addresses.controller');
+
+router.use(privateNoStore);
+router.use(requireTrustedWrite);
 
 router.get('/',              customerAuth, getAddresses);
 router.post('/',             customerAuth, createAddress);

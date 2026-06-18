@@ -103,8 +103,8 @@ npm run dev
 
 ## Default Local URLs
 
-- backend API: `http://localhost:3000/api/v1`
-- CRM: `http://localhost:3001`
+- backend API: `http://localhost:5001/api/v1`
+- CRM: `http://localhost:5002`
 - customer/staff apps use `EXPO_PUBLIC_API_URL` when set
 
 ## Current Direction

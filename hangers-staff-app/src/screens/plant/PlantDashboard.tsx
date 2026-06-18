@@ -22,6 +22,7 @@ export default function PlantDashboard({ navigation }: any) {
   const [stageCards, setStageCards] = useState<Array<{ key: string; dashKey: string; label: string; icon: string; color: string }>>([]);
   const [defaultPlantStage, setDefaultPlantStage] = useState('PROCESSING');
   const [readyStageKey, setReadyStageKey] = useState('READY_FOR_DELIVERY');
+  const [loadError, setLoadError] = useState('');
   const [loading,   setLoading]   = useState(true);
   const [refreshing,setRefreshing]= useState(false);
 
@@ -29,7 +30,11 @@ export default function PlantDashboard({ navigation }: any) {
     try {
       const r: any = await plantAPI.dashboard();
       setDash(r.data?.dashboard);
-    } catch {} finally { setLoading(false); setRefreshing(false); }
+      setLoadError('');
+    } catch (e: any) {
+      setDash(null);
+      setLoadError(e?.message || 'Could not load plant dashboard.');
+    } finally { setLoading(false); setRefreshing(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -48,12 +53,25 @@ export default function PlantDashboard({ navigation }: any) {
       setStageCards(nextCards);
       setDefaultPlantStage(nextCards[0]?.key || 'PROCESSING');
       setReadyStageKey(nextCards.find((item: any) => item.dashKey === 'ready')?.key || 'READY_FOR_DELIVERY');
-    }).catch(() => {});
+    }).catch(() => {
+      setStageCards([]);
+    });
   }, []);
 
   if (loading) return (
     <View style={{ flex:1, backgroundColor: Colors.primary, justifyContent:'center', alignItems:'center' }}>
       <ActivityIndicator size="large" color="#fff" />
+    </View>
+  );
+
+  if (!dash) return (
+    <View style={styles.errorWrap}>
+      <MaterialCommunityIcons name="alert-circle-outline" size={42} color={Colors.error} />
+      <Text style={styles.errorTitle}>Dashboard unavailable</Text>
+      <Text style={styles.errorBody}>{loadError || 'Please try again.'}</Text>
+      <TouchableOpacity style={styles.retryBtn} onPress={() => { setLoading(true); load(); }}>
+        <Text style={styles.retryBtnText}>Retry</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -161,6 +179,11 @@ function getTimeGreeting() {
 
 const styles = StyleSheet.create({
   container:   { flex: 1, backgroundColor: Colors.offWhite },
+  errorWrap:   { flex:1, alignItems:'center', justifyContent:'center', padding:24, backgroundColor:Colors.offWhite },
+  errorTitle:  { fontSize:18, fontWeight:'800', color:Colors.textDark, marginTop:12, marginBottom:6 },
+  errorBody:   { fontSize:14, color:Colors.textMuted, textAlign:'center', marginBottom:16 },
+  retryBtn:    { backgroundColor:Colors.plant, borderRadius:12, paddingHorizontal:18, paddingVertical:12 },
+  retryBtnText:{ color:'#fff', fontSize:14, fontWeight:'700' },
   header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.primary, paddingTop: Platform.OS === 'ios' ? 52 : 22, paddingHorizontal: Spacing.lg, paddingBottom: 20 },
   greeting:    { color: '#fff', fontSize: 17, fontWeight: '700' },
   role:        { color: Colors.primaryLight, fontSize: 12, marginTop: 2 },

@@ -4,7 +4,21 @@
 
 const prisma                                   = require('../config/database');
 const { success, error, notFound, badRequest } = require('../utils/response');
-const { DEFAULT_LANGUAGE, LANGUAGE_VALUES }     = require('../config/master-data');
+const { ADDRESS_LABELS, CUSTOMER_TAGS, DEFAULT_LANGUAGE, LANGUAGE_VALUES } = require('../config/master-data');
+const { getReferralProgramSettings, REFERRAL_STATUS } = require('../services/referral.service');
+
+const VALID_ADDRESS_LABELS = new Set(ADDRESS_LABELS.map((label) => label.value));
+const VALID_CUSTOMER_TAGS = new Set(CUSTOMER_TAGS.map((tag) => tag.value));
+
+const parsePositiveInt = (value, fallback) => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const isValidPhone = (value) => /^[6-9]\d{9}$/.test(String(value || '').replace(/\D/g, '').slice(-10));
+const isValidPincode = (value) => !value || /^\d{6}$/.test(String(value).trim());
+const isValidLatitude = (value) => value === null || (Number.isFinite(value) && value >= -90 && value <= 90);
+const isValidLongitude = (value) => value === null || (Number.isFinite(value) && value >= -180 && value <= 180);
 
 const normalizeLanguage = (value) => {
   if (!value) return DEFAULT_LANGUAGE;
@@ -32,11 +46,20 @@ const normalizeCustomerAddressInput = (body) => {
     longitude: Number.isFinite(longitude) ? longitude : null,
   };
 };
+const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
+
+const parseDateBoundary = (value, endOfDay = false) => {
+  if (!value) return null;
+  const parsed = new Date(`${String(value).trim()}${endOfDay ? 'T23:59:59.999' : 'T00:00:00.000'}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
 
 // ── GET /api/v1/customers ─────────────────────────────────────────────────────
 const listCustomers = async (req, res) => {
   try {
-    const { page = 1, limit = 30, search } = req.query;
+    const page = parsePositiveInt(req.query.page, 1);
+    const limit = Math.min(parsePositiveInt(req.query.limit, 30), 100);
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
 
     const where = {};
     if (search) {
@@ -50,23 +73,24 @@ const listCustomers = async (req, res) => {
       prisma.customer.findMany({
         where,
         include: {
-          _count:  { select: { orders: true } },
+          _count:  { select: { orders: { where: ORDER_ONLY_WHERE } } },
           orders:  {
+            where: ORDER_ONLY_WHERE,
             take:    1,
             orderBy: { createdAt: 'desc' },
             select:  { orderNumber: true, status: true, createdAt: true, totalAmount: true },
           },
         },
         orderBy: { createdAt: 'desc' },
-        skip:    (Number(page) - 1) * Number(limit),
-        take:    Number(limit),
+        skip:    (page - 1) * limit,
+        take:    limit,
       }),
       prisma.customer.count({ where }),
     ]);
 
     return success(res, {
       customers,
-      pagination: { total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) },
+      pagination: { total, page, limit, pages: Math.ceil(total / limit) },
     });
   } catch (err) {
     return error(res, 'Failed to fetch customers');
@@ -80,25 +104,203 @@ const getCustomer = async (req, res) => {
       where:   { id: req.params.id },
       include: {
         addresses: true,
+        referrer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            referralCode: true,
+          },
+        },
+        referralsMade: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          include: {
+            referred: {
+              select: {
+                id: true,
+                name: true,
+                phone: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
         orders:    {
+          where: ORDER_ONLY_WHERE,
           orderBy: { createdAt: 'desc' },
           take:    20,
           include: { items: true },
         },
-        _count: { select: { orders: true } },
+        _count: { select: { orders: { where: ORDER_ONLY_WHERE } } },
       },
     });
     if (!customer) return notFound(res, 'Customer not found');
 
     // Calculate lifetime value
     const ltv = await prisma.order.aggregate({
-      where: { customerId: customer.id, status: 'DELIVERED' },
+      where: { customerId: customer.id, documentType: 'ORDER', status: 'DELIVERED' },
       _sum:  { totalAmount: true },
     });
 
-    return success(res, { customer, lifetimeValue: ltv._sum.totalAmount || 0 });
+    const paymentEvents = await prisma.payment.findMany({
+      where: {
+        OR: [
+          { customerId: customer.id },
+          { order: { customerId: customer.id } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      include: {
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            totalAmount: true,
+            paymentStatus: true,
+            status: true,
+          },
+        },
+        collectedByStaff: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    const referralProgram = await getReferralProgramSettings(prisma);
+    const rewardedReferrals = customer.referralsMade.filter((referral) => referral.status === REFERRAL_STATUS.REWARDED);
+    const pendingReferrals = customer.referralsMade.filter((referral) => referral.status === REFERRAL_STATUS.PENDING);
+    const referralSummary = {
+      referralCode: customer.referralCode || null,
+      referredBy: customer.referrer || null,
+      referredCount: rewardedReferrals.length,
+      pendingCount: pendingReferrals.length,
+      totalEarned: rewardedReferrals.reduce((sum, referral) => sum + Number(referral.creditAwarded || 0), 0),
+      program: referralProgram,
+      recentReferrals: customer.referralsMade.map((referral) => ({
+        id: referral.id,
+        status: referral.status,
+        creditAwarded: referral.creditAwarded,
+        createdAt: referral.createdAt,
+        rewardedAt: referral.rewardedAt,
+        referred: referral.referred,
+      })),
+    };
+    const notificationSummary = {
+      preferredLanguage: customer.preferredLanguage || DEFAULT_LANGUAGE,
+      notifWhatsApp: customer.notifWhatsApp !== false,
+      notifPush: customer.notifPush !== false,
+      hasPushToken: Boolean(customer.pushToken),
+      pushTokenPreview: customer.pushToken
+        ? `${String(customer.pushToken).slice(0, 14)}...${String(customer.pushToken).slice(-6)}`
+        : null,
+    };
+    const paymentSummary = {
+      totalEvents: paymentEvents.length,
+      totalRecorded: paymentEvents.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+      onlineEvents: paymentEvents.filter((payment) => payment.method === 'RAZORPAY').length,
+      lastPaymentAt: paymentEvents[0]?.createdAt || null,
+    };
+
+    return success(res, {
+      customer,
+      lifetimeValue: ltv._sum.totalAmount || 0,
+      referralSummary,
+      notificationSummary,
+      paymentSummary,
+      paymentEvents,
+    });
   } catch (err) {
     return error(res, 'Failed to fetch customer');
+  }
+};
+
+// ── GET /api/v1/customers/referrals/report ───────────────────────────────────
+const getReferralReport = async (req, res) => {
+  try {
+    const from = parseDateBoundary(req.query.from, false);
+    const to = parseDateBoundary(req.query.to, true);
+    if ((req.query.from && !from) || (req.query.to && !to)) {
+      return badRequest(res, 'Invalid referral report date range');
+    }
+
+    const where = {};
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = from;
+      if (to) where.createdAt.lte = to;
+    }
+
+    const [referrals, totals, topReferrersRaw, settings] = await Promise.all([
+      prisma.referral.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        include: {
+          referrer: {
+            select: { id: true, name: true, phone: true, referralCode: true, walletBalance: true },
+          },
+          referred: {
+            select: { id: true, name: true, phone: true, createdAt: true },
+          },
+        },
+      }),
+      prisma.referral.aggregate({
+        where,
+        _count: { id: true },
+        _sum: { creditAwarded: true },
+      }),
+      prisma.referral.groupBy({
+        by: ['referrerId'],
+        where: { ...where, status: REFERRAL_STATUS.REWARDED },
+        _count: { id: true },
+        _sum: { creditAwarded: true },
+        _max: { createdAt: true },
+        orderBy: { _count: { id: 'desc' } },
+        take: 15,
+      }),
+      getReferralProgramSettings(prisma),
+    ]);
+
+    const referrerIds = topReferrersRaw.map((item) => item.referrerId);
+    const referrers = referrerIds.length
+      ? await prisma.customer.findMany({
+          where: { id: { in: referrerIds } },
+          select: { id: true, name: true, phone: true, referralCode: true, walletBalance: true },
+        })
+      : [];
+    const referrerMap = Object.fromEntries(referrers.map((item) => [item.id, item]));
+
+    const topReferrers = topReferrersRaw.map((item) => ({
+      referrer: referrerMap[item.referrerId] || { id: item.referrerId, name: 'Unknown customer', phone: null, referralCode: null, walletBalance: 0 },
+      referredCount: item._count.id,
+      totalEarned: Number(item._sum.creditAwarded || 0),
+      lastReferralAt: item._max.createdAt || null,
+    }));
+
+    return success(res, {
+      summary: {
+        totalReferrals: totals._count.id || 0,
+        totalCreditsAwarded: Number(totals._sum.creditAwarded || 0),
+        uniqueReferrers: topReferrers.length,
+        rewardedReferrals: referrals.filter((item) => item.status === REFERRAL_STATUS.REWARDED).length,
+        pendingReferrals: referrals.filter((item) => item.status === REFERRAL_STATUS.PENDING).length,
+        window: {
+          from: from ? from.toISOString() : null,
+          to: to ? to.toISOString() : null,
+        },
+      },
+      program: settings,
+      topReferrers,
+      recentReferrals: referrals,
+    });
+  } catch (err) {
+    return error(res, 'Failed to fetch referral report');
   }
 };
 
@@ -114,13 +316,17 @@ const createCustomer = async (req, res) => {
 
   try {
     const normalized = phone.replace(/\D/g, '').slice(-10);
+    if (!isValidPhone(normalized)) return badRequest(res, 'Please enter a valid 10-digit Indian mobile number');
+    if (name !== undefined && name !== null && String(name).trim().length && String(name).trim().length < 2) {
+      return badRequest(res, 'Name must be at least 2 characters');
+    }
     const existing   = await prisma.customer.findUnique({ where: { phone: normalized } });
     if (existing) return badRequest(res, 'Customer with this phone already exists');
 
     const customer = await prisma.customer.create({
       data: {
         phone: normalized,
-        name: name || null,
+        name: name?.trim() || null,
         preferredLanguage: language,
       },
     });
@@ -137,15 +343,33 @@ const updateCustomer = async (req, res) => {
   if (preferredLanguage !== undefined && !language) {
     return badRequest(res, 'preferredLanguage must be ENGLISH, HINDI, or MARATHI');
   }
+  if (name !== undefined && name !== null && String(name).trim().length && String(name).trim().length < 2) {
+    return badRequest(res, 'Name must be at least 2 characters');
+  }
+  if (tag !== undefined && tag !== null && tag !== '' && !VALID_CUSTOMER_TAGS.has(String(tag).trim().toUpperCase())) {
+    return badRequest(res, 'Invalid customer tag');
+  }
+  if (dob !== undefined && dob !== null && Number.isNaN(new Date(dob).getTime())) {
+    return badRequest(res, 'Invalid date of birth');
+  }
+  if (notifWhatsApp !== undefined && typeof notifWhatsApp !== 'boolean') {
+    return badRequest(res, 'notifWhatsApp must be true or false');
+  }
 
   try {
+    const existing = await prisma.customer.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    });
+    if (!existing) return notFound(res, 'Customer not found');
+
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
       data:  {
-        name,
+        ...(name !== undefined && { name: name?.trim() || null }),
         dob: dob ? new Date(dob) : undefined,
         mapLocation,
-        tag,
+        ...(tag !== undefined && { tag: tag ? String(tag).trim().toUpperCase() : null }),
         notes,
         notifWhatsApp,
         ...(language !== undefined && { preferredLanguage: language }),
@@ -169,9 +393,14 @@ const addCustomerAddress = async (req, res) => {
 
     const payload = normalizeCustomerAddressInput(req.body);
     if (!payload.addressLine1) return badRequest(res, 'Address is required');
+    if (!VALID_ADDRESS_LABELS.has(payload.label)) return badRequest(res, 'Invalid address label');
+    if (!isValidPincode(payload.pincode)) return badRequest(res, 'Pincode must be a 6-digit value');
+    if (!isValidLatitude(payload.latitude) || !isValidLongitude(payload.longitude)) {
+      return badRequest(res, 'Invalid address coordinates');
+    }
 
     const existingCount = await prisma.address.count({ where: { customerId: customer.id } });
-    const makeDefault = Boolean(req.body.setAsDefault) || existingCount === 0;
+    const makeDefault = req.body.setAsDefault === true || existingCount === 0;
 
     if (makeDefault) {
       await prisma.address.updateMany({
@@ -194,4 +423,4 @@ const addCustomerAddress = async (req, res) => {
   }
 };
 
-module.exports = { listCustomers, getCustomer, createCustomer, updateCustomer, addCustomerAddress };
+module.exports = { listCustomers, getCustomer, getReferralReport, createCustomer, updateCustomer, addCustomerAddress };

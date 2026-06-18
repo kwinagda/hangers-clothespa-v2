@@ -4,6 +4,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const prisma = require('../config/database');
 const { success, created, error, badRequest, notFound } = require('../utils/response');
+const { ADDRESS_LABELS } = require('../config/master-data');
+
+const VALID_ADDRESS_LABELS = new Set(ADDRESS_LABELS.map((label) => label.value));
+const isValidPincode = (value) => !value || /^\d{6}$/.test(String(value).trim());
+const isValidLatitude = (value) => value === null || (Number.isFinite(value) && value >= -90 && value <= 90);
+const isValidLongitude = (value) => value === null || (Number.isFinite(value) && value >= -180 && value <= 180);
 
 const formatAddress = (address) => ({
   id: address.id,
@@ -67,9 +73,18 @@ const createAddress = async (req, res) => {
     if (!payload.addressLine1) {
       return badRequest(res, 'Address is required');
     }
+    if (!VALID_ADDRESS_LABELS.has(payload.label)) {
+      return badRequest(res, 'Invalid address label');
+    }
+    if (!isValidPincode(payload.pincode)) {
+      return badRequest(res, 'Pincode must be a 6-digit value');
+    }
+    if (!isValidLatitude(payload.latitude) || !isValidLongitude(payload.longitude)) {
+      return badRequest(res, 'Invalid address coordinates');
+    }
 
     const existingCount = await prisma.address.count({ where: { customerId } });
-    const makeDefault = req.body.setAsDefault || existingCount === 0;
+    const makeDefault = req.body.setAsDefault === true || existingCount === 0;
 
     if (makeDefault) {
       await prisma.address.updateMany({
@@ -115,6 +130,15 @@ const updateAddress = async (req, res) => {
 
     if (!payload.addressLine1) {
       return badRequest(res, 'Address is required');
+    }
+    if (!VALID_ADDRESS_LABELS.has(payload.label)) {
+      return badRequest(res, 'Invalid address label');
+    }
+    if (!isValidPincode(payload.pincode)) {
+      return badRequest(res, 'Pincode must be a 6-digit value');
+    }
+    if (!isValidLatitude(payload.latitude) || !isValidLongitude(payload.longitude)) {
+      return badRequest(res, 'Invalid address coordinates');
     }
 
     const updated = await prisma.address.update({

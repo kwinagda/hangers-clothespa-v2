@@ -6,6 +6,13 @@ import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { ArrowRight, Plus, Search } from 'lucide-react'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
 
 export default function CustomersPage() {
   const [customers,setCustomers]=useState<any[]>([])
@@ -20,7 +27,7 @@ export default function CustomersPage() {
 
   const load=useCallback(async()=>{
     setLoading(true)
-    try{const r=await customersAPI.list({page,limit:pageSize,search:search||undefined});setCustomers(r.data.customers);setTotal(r.data.pagination.total)}
+    try{const r=await customersAPI.list({page,limit:pageSize,search:search||undefined});setCustomers(asArray(r.data, ['customers', 'items']));setTotal(r.data?.pagination?.total || 0)}
     catch{toast.error('Failed to load')}finally{setLoading(false)}
   },[page,pageSize,search])
 
@@ -29,7 +36,9 @@ export default function CustomersPage() {
     metadataAPI.getAll().then((r:any) => {
       const metadata = r?.metadata || r?.data?.metadata || {}
       setLanguageOptions(metadata.languages || [])
-    }).catch(() => {})
+    }).catch(() => {
+      toast.error('Failed to load customer language options')
+    })
   }, [])
 
   const addCustomer=async()=>{

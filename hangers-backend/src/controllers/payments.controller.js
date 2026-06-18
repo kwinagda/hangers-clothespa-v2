@@ -2,87 +2,106 @@
 // PAYMENTS CONTROLLER — Record, update, and track payments for orders
 // ─────────────────────────────────────────────────────────────────────────────
 const prisma = require('../config/database');
+const { processReferralQualification } = require('../services/referral.service');
+const { success, created, badRequest, error, notFound } = require('../utils/response');
+const { recordPaymentSchema } = require('../validation/finance.schemas');
+const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
+
+const calculatePaymentState = (order, incomingAmount) => {
+  const requestedAmount = Number.parseFloat(incomingAmount);
+  const currentPaid = Number(order?.paidAmount || 0);
+  const totalAmount = Number(order?.totalAmount || 0);
+  const balanceDue = Math.max(0, Number((totalAmount - currentPaid).toFixed(2)));
+  const appliedAmount = Math.min(requestedAmount, balanceDue);
+  const overpayment = Math.max(0, Number((requestedAmount - appliedAmount).toFixed(2)));
+  const nextPaidAmount = Number((currentPaid + appliedAmount).toFixed(2));
+  const paymentStatus = nextPaidAmount >= totalAmount ? 'PAID' : nextPaidAmount > 0 ? 'PARTIAL' : 'UNPAID';
+
+  return { requestedAmount, balanceDue, appliedAmount, overpayment, nextPaidAmount, paymentStatus };
+};
 
 // ── POST /api/v1/payments — Record a payment for an order ─────────────────────
 const recordPayment = async (req, res) => {
   try {
-    const { orderId, amount, method, reference, notes } = req.body;
+    const parsed = recordPaymentSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid payment payload');
+    const { orderId, amount, method, reference, notes } = parsed.data;
+    const amountNum = amount;
 
-    if (!orderId || !amount || !method) {
-      return res.status(400).json({ error: 'orderId, amount, and method are required' });
-    }
+    const { payment, updatedOrder, overpayment } = await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({ where: { id: orderId, ...ORDER_ONLY_WHERE } });
+      if (!order) {
+        const err = new Error('ORDER_NOT_FOUND');
+        throw err;
+      }
 
-    const order = await prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+      const { balanceDue, appliedAmount, overpayment, nextPaidAmount, paymentStatus } =
+        calculatePaymentState(order, amountNum);
 
-    // Record payment entry
-    const payment = await prisma.payment.create({
-      data: {
-        orderId,
-        amount:    parseFloat(amount),
-        method,           // CASH | UPI | CARD | RAZORPAY | OTHER
-        reference:  reference || null,
-        notes:      notes || null,
-        collectedBy: req.staff?.id || null,
-      },
-    });
+      if (balanceDue <= 0 || appliedAmount <= 0) {
+        const err = new Error('ORDER_ALREADY_PAID');
+        throw err;
+      }
 
-    // Recalculate total paid
-    const allPayments = await prisma.payment.findMany({ where: { orderId } });
-    let totalPaid   = allPayments.reduce((sum, p) => sum + p.amount, 0);
-
-    // Determine payment status
-    let paymentStatus = 'UNPAID';
-    if (totalPaid >= order.totalAmount) paymentStatus = 'PAID';
-    else if (totalPaid > 0)             paymentStatus = 'PARTIAL';
-
-    // Handle overpayment → wallet credit
-    const overpayment = totalPaid - order.totalAmount;
-    if (overpayment > 0 && order.customerId) {
-      await prisma.customer.update({
-        where: { id: order.customerId },
-        data:  { walletBalance: { increment: overpayment } }
-      });
-      await prisma.walletTransaction.create({
+      const payment = await tx.payment.create({
         data: {
-          customerId: order.customerId,
-          amount:     overpayment,
-          type:       'CREDIT',
-          reason:     'Overpayment refunded to wallet',
           orderId,
-        }
+          amount: appliedAmount,
+          method,
+          reference: reference || null,
+          notes: notes || null,
+          collectedBy: req.staff?.id || null,
+        },
       });
-      // Cap paid amount at total
-      totalPaid = order.totalAmount;
-      paymentStatus = 'PAID';
-    }
 
-    // Update order paid amount + status
-    const updatedOrder = await prisma.order.update({
-      where: { id: orderId },
-      data:  { paidAmount: totalPaid, paymentStatus },
+      const updatedOrder = await tx.order.update({
+        where: { id: orderId },
+        data: { paidAmount: nextPaidAmount, paymentStatus },
+      });
+
+      if (overpayment > 0 && order.customerId) {
+        await tx.customer.update({
+          where: { id: order.customerId },
+          data: { walletBalance: { increment: overpayment } },
+        });
+        await tx.walletTransaction.create({
+          data: {
+            customerId: order.customerId,
+            amount: overpayment,
+            type: 'CREDIT',
+            reason: 'Overpayment refunded to wallet',
+            orderId,
+          },
+        });
+      }
+
+      await tx.orderStage.create({
+        data: {
+          orderId,
+          stage: 'PAYMENT_RECORDED',
+          notes: `₹${appliedAmount} received via ${method}${reference ? ` (Ref: ${reference})` : ''}${overpayment > 0 ? `. ₹${overpayment} credited to wallet` : ''}`,
+          changedById: req.staff?.id || null,
+        },
+      });
+
+      return { payment, updatedOrder, overpayment };
     });
 
-    // Log activity
-    await prisma.orderStage.create({
-      data: {
-        orderId,
-        stage:   'PAYMENT_RECORDED',
-        notes:   `₹${amount} received via ${method}${reference ? ` (Ref: ${reference})` : ''}`,
-        changedById: req.staff?.id || null,
-      },
-    });
-
-    res.status(201).json({
-      success: true,
+    created(res, {
       payment,
-      paidAmount:    totalPaid,
+      paidAmount:    updatedOrder.paidAmount,
       paymentStatus: updatedOrder.paymentStatus,
-      balance:       Math.max(0, order.totalAmount - totalPaid),
-    });
+      balance:       Math.max(0, updatedOrder.totalAmount - updatedOrder.paidAmount),
+      overpayment,
+    }, 'Payment recorded successfully');
+    if (updatedOrder.paymentStatus === 'PAID') {
+      processReferralQualification(orderId).catch(() => {});
+    }
   } catch (err) {
     console.error('recordPayment:', err);
-    res.status(500).json({ error: 'Failed to record payment' });
+    if (err.message === 'ORDER_NOT_FOUND') return notFound(res, 'Order not found');
+    if (err.message === 'ORDER_ALREADY_PAID') return badRequest(res, 'This order is already fully paid');
+    return error(res, 'Failed to record payment');
   }
 };
 
@@ -95,9 +114,9 @@ const getOrderPayments = async (req, res) => {
       include: { collectedByStaff: { select: { name: true } } },
       orderBy: { createdAt: 'asc' },
     });
-    res.json({ success: true, data: { payments } });
+    return success(res, { payments });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch payments' });
+    return error(res, 'Failed to fetch payments');
   }
 };
 
@@ -106,6 +125,7 @@ const getDailySummary = async (req, res) => {
   try {
     const { date } = req.query;
     const day   = date ? new Date(date) : new Date();
+    if (Number.isNaN(day.getTime())) return badRequest(res, 'date must be valid');
     const start = new Date(day.setHours(0, 0, 0, 0));
     const end   = new Date(day.setHours(23, 59, 59, 999));
 
@@ -127,9 +147,9 @@ const getDailySummary = async (req, res) => {
       count:  payments.length,
     };
 
-    res.json({ success: true, data: { summary, payments } });
+    return success(res, { summary, payments });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch daily summary' });
+    return error(res, 'Failed to fetch daily summary');
   }
 };
 
@@ -137,19 +157,22 @@ const getDailySummary = async (req, res) => {
 const getReceivables = async (req, res) => {
   try {
     const orders = await prisma.order.findMany({
-      where:   { paymentStatus: { in: ['UNPAID', 'PARTIAL'] }, status: { not: 'CANCELLED' } },
+      where:   { ...ORDER_ONLY_WHERE, paymentStatus: { in: ['UNPAID', 'PARTIAL'] }, status: { not: 'CANCELLED' } },
       include: { customer: { select: { name: true, phone: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
-    const total = orders.reduce((s, o) => s + (o.totalAmount - o.paidAmount), 0);
+    const total = orders.reduce((s, o) => s + Math.max(0, o.totalAmount - o.paidAmount - (o.writeOffAmount || 0)), 0);
 
-    res.json({ success: true, data: { total, orders: orders.map(o => ({
-      ...o,
-      balance: o.totalAmount - o.paidAmount,
-    })) } });
+    return success(res, {
+      total,
+      orders: orders.map((o) => ({
+        ...o,
+        balance: Math.max(0, o.totalAmount - o.paidAmount - (o.writeOffAmount || 0)),
+      })),
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch receivables' });
+    return error(res, 'Failed to fetch receivables');
   }
 };
 

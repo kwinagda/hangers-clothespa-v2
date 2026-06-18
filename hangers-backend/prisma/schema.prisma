@@ -11,6 +11,7 @@ model Customer {
   id                  String               @id @default(uuid())
   phone               String               @unique
   name                String?
+  sessionVersion      Int                  @default(0)
   ironRateOverride    Float?
   preferredLanguage   String               @default("ENGLISH")
   ironSubStatus       String?
@@ -71,6 +72,8 @@ model Staff {
   phone             String            @unique
   email             String?           @unique
   passwordHash      String
+  sessionVersion    Int               @default(0)
+  mustChangePassword Boolean          @default(false)
   role              StaffRole
   isActive          Boolean           @default(true)
   pin               String?
@@ -83,6 +86,7 @@ model Staff {
   paymentsCollected Payment[]
   attendance        Attendance[]
   permissions       StaffPermission[]
+  serviceAllowances StaffServiceAllowance[]
   sessions          StaffSession[]
   ironSubscriptionsConfirmed IronSubscription[] @relation("IronSubscriptionConfirmedBy")
   ironLogsEntered   IronLog[]         @relation("IronLogEnteredBy")
@@ -164,12 +168,118 @@ model ActivityLog {
   @@map("activity_logs")
 }
 
+model AuditLog {
+  id          String          @id @default(uuid())
+  actorType   String
+  actorId     String?
+  actorName   String?
+  action      String
+  status      AuditEventStatus @default(SUCCESS)
+  resource    String?
+  resourceId  String?
+  description String
+  metadata    Json?
+  route       String?
+  method      String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime        @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([status])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model AuthThrottle {
+  id           String   @id @default(uuid())
+  scope        String
+  scopeKey     String
+  failureCount Int      @default(0)
+  blockedUntil DateTime?
+  lastFailedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([scope, scopeKey])
+  @@index([blockedUntil])
+  @@index([scope, blockedUntil])
+  @@map("auth_throttles")
+}
+
+model PermissionCatalog {
+  id          String                @id @default(uuid())
+  code        String                @unique
+  category    String?
+  description String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  roleBindings StaffRolePermission[]
+
+  @@index([category])
+  @@map("permission_catalog")
+}
+
+model StaffRolePermission {
+  id             String            @id @default(uuid())
+  role           StaffRole
+  permissionCode String
+  createdAt      DateTime          @default(now())
+  permission     PermissionCatalog @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
+
+  @@unique([role, permissionCode])
+  @@index([permissionCode])
+  @@map("staff_role_permissions")
+}
+
+model StaffServiceAllowance {
+  id          String   @id @default(uuid())
+  staffId     String
+  serviceCode String
+  allowed     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  staff       Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, serviceCode])
+  @@index([serviceCode])
+  @@map("staff_service_allowances")
+}
+
+model AuthChallenge {
+  id            String              @id @default(uuid())
+  subjectType   String
+  subjectKey    String
+  purpose       AuthChallengePurpose
+  status        AuthChallengeStatus @default(PENDING)
+  hashedCode    String
+  attemptCount  Int                 @default(0)
+  maxAttempts   Int                 @default(5)
+  resendCount   Int                 @default(0)
+  lastSentAt    DateTime            @default(now())
+  cooldownUntil DateTime?
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  metadata      Json?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([subjectType, subjectKey, purpose])
+  @@index([status, expiresAt])
+  @@map("auth_challenges")
+}
+
 model Order {
   id              String              @id @default(cuid())
   orderNumber     String              @unique
   customerId      String
   status          OrderStatus         @default(PENDING)
+  documentType    String              @default("ORDER")
   source          String              @default("COUNTER")
+  quotationStatus String?
+  validUntil      DateTime?
+  convertedOrderId String?
   subtotal        Float               @default(0)
   discount        Float               @default(0)
   totalAmount     Float               @default(0)
@@ -201,6 +311,8 @@ model Order {
 
   @@index([customerId])
   @@index([status])
+  @@index([documentType])
+  @@index([quotationStatus])
   @@index([createdAt])
 }
 
@@ -212,7 +324,11 @@ model OrderItem {
   garmentType  String
   variant      String?
   quantity     Int           @default(1)
+  baseUnitPrice Float?
   unitPrice    Float
+  lineDiscountType String?
+  lineDiscountValue Float     @default(0)
+  lineDiscountAmount Float    @default(0)
   subtotal     Float
   upcharges    String?
   notes        String?
@@ -353,6 +469,11 @@ model Referral {
   referrerId    String
   referredId    String   @unique
   creditAwarded Float    @default(100)
+  status        String   @default("REWARDED")
+  rewardPercent Float?
+  qualifiedAt   DateTime?
+  rewardedAt    DateTime?
+  qualifyingOrderId String?
   createdAt     DateTime @default(now())
   referred      Customer @relation("ReferralReceived", fields: [referredId], references: [id])
   referrer      Customer @relation("ReferralsMade", fields: [referrerId], references: [id])
@@ -636,6 +757,25 @@ enum OtpPurpose {
   REGISTER
   RESET
   DELIVERY
+}
+
+enum AuthChallengePurpose {
+  CUSTOMER_LOGIN
+  DELIVERY_CONFIRMATION
+}
+
+enum AuthChallengeStatus {
+  PENDING
+  VERIFIED
+  EXPIRED
+  LOCKED
+  CANCELLED
+}
+
+enum AuditEventStatus {
+  SUCCESS
+  FAILURE
+  DENIED
 }
 
 enum OrderStatus {

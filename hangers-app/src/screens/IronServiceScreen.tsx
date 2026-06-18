@@ -30,6 +30,7 @@ export default function IronServiceScreen({ navigation }: any) {
   const { customer, refreshProfile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [pausing, setPausing] = useState(false);
   const [statusStyles, setStatusStyles] = useState<Record<string, { bg: string; text: string; label: string }>>({});
@@ -62,8 +63,14 @@ export default function IronServiceScreen({ navigation }: any) {
       setLogs(logsRes?.data?.logs || []);
       setMonthSummary(monthRes?.data?.totals || { pieces: 0, amount: 0 });
       setBills(billsRes?.data?.bills || []);
-    } catch {
-      Alert.alert('Error', 'Could not load Daily Iron details right now.');
+      setLoadError('');
+    } catch (e: any) {
+      setRates([]);
+      setSubscription(null);
+      setLogs([]);
+      setMonthSummary({ pieces: 0, amount: 0 });
+      setBills([]);
+      setLoadError(e?.message || 'Could not load Daily Iron details right now.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -80,7 +87,9 @@ export default function IronServiceScreen({ navigation }: any) {
         return acc;
       }, {});
       setStatusStyles(nextMap);
-    }).catch(() => {});
+    }).catch(() => {
+      setStatusStyles({});
+    });
   }, []);
 
   const onRefresh = () => {
@@ -206,6 +215,13 @@ export default function IronServiceScreen({ navigation }: any) {
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={Colors.primary} />
           <Text style={styles.centerText}>Loading Daily Iron…</Text>
+        </View>
+      ) : loadError ? (
+        <View style={styles.centerState}>
+          <Text style={styles.centerText}>{loadError}</Text>
+          <AnimatedButton style={styles.retryBtn} onPress={() => loadIronData()}>
+            <Text style={styles.retryText}>Try Again</Text>
+          </AnimatedButton>
         </View>
       ) : (
         <PageMotion style={{ flex: 1 }}>
@@ -388,50 +404,52 @@ const styles = StyleSheet.create({
   header: { paddingTop: 44, paddingBottom: 16, paddingHorizontal: Spacing.lg },
   headerTop: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:10 },
   backBtn: { width: 38, height: 38, borderRadius: 19, alignItems:'center', justifyContent:'center', backgroundColor:'rgba(255,255,255,0.14)' },
-  backText: { fontFamily: 'DMSans_500Medium', fontSize: 22, color: Colors.white },
+  backText: { fontFamily: 'Inter_500Medium', fontSize: 22, color: Colors.white },
   headerBadge:{ backgroundColor:'rgba(255,255,255,0.14)', borderWidth:1, borderColor:'rgba(255,255,255,0.14)', borderRadius:Radius.full, paddingHorizontal:12, paddingVertical:7 },
   headerBadgeText:{ fontFamily: Fonts.medium, fontSize: FontSize.xs, color: Colors.white },
-  headerTitle: { fontFamily: 'Syne_700Bold', fontSize: 26, color: Colors.white, marginBottom: 4 },
-  headerSub: { fontFamily: 'DMSans_400Regular', fontSize: FontSize.xs, color: Colors.primaryLight, lineHeight: 18, maxWidth:'88%' },
+  headerTitle: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 26, color: Colors.white, marginBottom: 4 },
+  headerSub: { fontFamily: 'Inter_400Regular', fontSize: FontSize.xs, color: Colors.primaryLight, lineHeight: 18, maxWidth:'88%' },
   centerState: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  centerText: { marginTop: 12, color: Colors.textMuted, fontFamily: 'DMSans_400Regular' },
+  centerText: { marginTop: 12, color: Colors.textMuted, fontFamily: 'Inter_400Regular' },
+  retryBtn: { marginTop: 16, backgroundColor: Colors.primary, borderRadius: Radius.md, paddingHorizontal: 18, paddingVertical: 12 },
+  retryText: { fontFamily: 'Inter_700Bold', fontSize: FontSize.sm, color: Colors.white },
   scrollContent: { paddingBottom: 40 },
   section: { paddingHorizontal: Spacing.lg, marginTop: Spacing.lg },
   statusCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: 18, ...Shadow.sm },
   statusRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' },
   statusBadge: { borderRadius: Radius.full, paddingHorizontal: 12, paddingVertical: 7 },
-  statusText: { fontFamily: 'DMSans_700Bold', fontSize: FontSize.xs },
-  sectionTitle: { fontFamily: 'Syne_700Bold', fontSize: FontSize.base, color: Colors.textDark },
-  sectionSub: { fontFamily: 'DMSans_400Regular', fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 4 },
-  helperText: { marginTop: 14, fontFamily: 'DMSans_400Regular', fontSize: FontSize.sm, color: Colors.textMid, lineHeight: 20 },
+  statusText: { fontFamily: 'Inter_700Bold', fontSize: FontSize.xs },
+  sectionTitle: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: FontSize.base, color: Colors.textDark },
+  sectionSub: { fontFamily: 'Inter_400Regular', fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 4 },
+  helperText: { marginTop: 14, fontFamily: 'Inter_400Regular', fontSize: FontSize.sm, color: Colors.textMid, lineHeight: 20 },
   summaryGrid: { flexDirection: 'row', gap: 10, marginTop: 18 },
   summaryCard: { flex: 1, backgroundColor: Colors.accent, borderRadius: Radius.md, padding: 14 },
-  summaryLabel: { fontFamily: 'DMSans_500Medium', fontSize: FontSize.xs, color: Colors.textMuted, textTransform: 'uppercase' },
-  summaryValue: { fontFamily: 'Syne_700Bold', fontSize: FontSize.lg, color: Colors.primary, marginTop: 4 },
-  summarySub: { fontFamily: 'DMSans_400Regular', fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+  summaryLabel: { fontFamily: 'Inter_500Medium', fontSize: FontSize.xs, color: Colors.textMuted, textTransform: 'uppercase' },
+  summaryValue: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: FontSize.lg, color: Colors.primary, marginTop: 4 },
+  summarySub: { fontFamily: 'Inter_400Regular', fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
   primaryBtn: { marginTop: 18, backgroundColor: Colors.primary, borderRadius: Radius.md, paddingVertical: 14, alignItems: 'center' },
-  primaryBtnText: { fontFamily: 'Syne_700Bold', fontSize: FontSize.base, color: Colors.white },
+  primaryBtnText: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: FontSize.base, color: Colors.white },
   secondaryBtn: { marginTop: 18, borderWidth: 1, borderColor: Colors.primary, borderRadius: Radius.md, paddingVertical: 14, alignItems: 'center' },
-  secondaryBtnText: { fontFamily: 'DMSans_700Bold', fontSize: FontSize.base, color: Colors.primary },
+  secondaryBtnText: { fontFamily: 'Inter_700Bold', fontSize: FontSize.base, color: Colors.primary },
   applyCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: 20, ...Shadow.sm },
-  applyTitle: { fontFamily: 'Syne_700Bold', fontSize: FontSize.lg, color: Colors.textDark, marginBottom: 8 },
-  applyText: { fontFamily: 'DMSans_400Regular', fontSize: FontSize.sm, color: Colors.textMid, lineHeight: 21 },
+  applyTitle: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: FontSize.lg, color: Colors.textDark, marginBottom: 8 },
+  applyText: { fontFamily: 'Inter_400Regular', fontSize: FontSize.sm, color: Colors.textMid, lineHeight: 21 },
   block: { backgroundColor: Colors.white, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden', ...Shadow.sm },
   blockHeader: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 8 },
   monthChipRow: { paddingHorizontal: 18, paddingBottom: 10, gap: 8 },
   monthChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: Radius.full, backgroundColor: Colors.offWhite, borderWidth: 1, borderColor: Colors.border },
   monthChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  monthChipText: { fontFamily: 'DMSans_500Medium', fontSize: FontSize.xs, color: Colors.textMid },
+  monthChipText: { fontFamily: 'Inter_500Medium', fontSize: FontSize.xs, color: Colors.textMid },
   monthChipTextActive: { color: Colors.white },
   listRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: 1, borderTopColor: Colors.borderLight },
   billRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: 1, borderTopColor: Colors.borderLight },
-  rowTitle: { fontFamily: 'DMSans_500Medium', fontSize: FontSize.base, color: Colors.textDark },
-  rowMeta: { fontFamily: 'DMSans_400Regular', fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  rowAmount: { fontFamily: 'Syne_700Bold', fontSize: FontSize.base, color: Colors.primary },
-  emptyText: { paddingHorizontal: 18, paddingBottom: 18, paddingTop: 10, fontFamily: 'DMSans_400Regular', fontSize: FontSize.sm, color: Colors.textMuted },
+  rowTitle: { fontFamily: 'Inter_500Medium', fontSize: FontSize.base, color: Colors.textDark },
+  rowMeta: { fontFamily: 'Inter_400Regular', fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+  rowAmount: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: FontSize.base, color: Colors.primary },
+  emptyText: { paddingHorizontal: 18, paddingBottom: 18, paddingTop: 10, fontFamily: 'Inter_400Regular', fontSize: FontSize.sm, color: Colors.textMuted },
   expandBtn: { marginHorizontal: 18, marginTop: 6, marginBottom: 18, paddingVertical: 10, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', backgroundColor: Colors.offWhite },
-  expandBtnText: { fontFamily: 'DMSans_500Medium', fontSize: FontSize.sm, color: Colors.primary },
+  expandBtnText: { fontFamily: 'Inter_500Medium', fontSize: FontSize.sm, color: Colors.primary },
   billRight: { alignItems: 'flex-end' },
   inlineBadge: { marginTop: 6, borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 4 },
-  inlineBadgeText: { fontFamily: 'DMSans_700Bold', fontSize: 10 },
+  inlineBadgeText: { fontFamily: 'Inter_700Bold', fontSize: 10 },
 });

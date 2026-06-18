@@ -7,7 +7,7 @@
 //   ✅ QR codes offline via qrcode npm package
 //   ✅ window.open() isolated — sidebar never prints
 // ─────────────────────────────────────────────────────────────────────────────
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import QRCode from 'qrcode'
 import { ordersAPI } from '@/lib/api'
@@ -101,7 +101,7 @@ async function buildPrintHTML(
   const padding    = Math.max(3,  Math.min(8,  Math.floor(size.w / 10)))
 
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;500;600&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #fff; font-family: 'Inter', sans-serif; }
 
@@ -457,7 +457,7 @@ async function buildPrintHTML(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-export default function PrintCenterPage() {
+function PrintCenterPageContent() {
   const searchParams = useSearchParams()
   const [orderNum,    setOrderNum]    = useState('')
   const [order,       setOrder]       = useState<any>(null)
@@ -700,5 +700,23 @@ export default function PrintCenterPage() {
         </div>
       )}
     </div>
+  )
+}
+
+function PrintCenterPageFallback() {
+  return (
+    <div style={{ padding: '32px 36px', maxWidth: 920, margin: '0 auto', fontFamily: "var(--crm-font-ui)" }}>
+      <div style={{ background: '#fff', borderRadius: 16, padding: 24, border: '1px solid #e8f0f7', color: '#6b7fa3' }}>
+        Loading print center...
+      </div>
+    </div>
+  )
+}
+
+export default function PrintCenterPage() {
+  return (
+    <Suspense fallback={<PrintCenterPageFallback />}>
+      <PrintCenterPageContent />
+    </Suspense>
   )
 }

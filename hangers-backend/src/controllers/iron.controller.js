@@ -7,6 +7,7 @@ const {
 const {
   ACTIVE_IRON_SUB_STATUSES,
   DEFAULT_LANGUAGE,
+  CORE_PAYMENT_METHODS,
   IRON_SUBSCRIPTION_STATUSES,
   LANGUAGE_VALUES,
   LOCKED_BILL_STATUSES,
@@ -153,7 +154,11 @@ const listSubscriptions = async (req, res) => {
   try {
     const { status } = req.query;
     const where = {};
-    if (status) where.applicationStatus = String(status).trim().toUpperCase();
+    if (status) {
+      const normalizedStatus = String(status).trim().toUpperCase();
+      if (!IRON_SUBSCRIPTION_STATUSES.includes(normalizedStatus)) return badRequest(res, 'Invalid subscription status filter');
+      where.applicationStatus = normalizedStatus;
+    }
 
     const subscriptions = await prisma.ironSubscription.findMany({
       where,
@@ -362,6 +367,7 @@ const listAllLogs = async (req, res) => {
 
   const start = requestedDate || requestedStart || new Date();
   const end = requestedDate || requestedEnd || start;
+  if (end < start) return badRequest(res, 'end must be on or after start');
 
   try {
     const where = {
@@ -460,6 +466,7 @@ const getLogsByPeriod = async (req, res) => {
   const start = toDate(req.query.start);
   const end = toDate(req.query.end);
   if (!start || !end) return badRequest(res, 'Valid start and end query params are required');
+  if (end < start) return badRequest(res, 'end must be on or after start');
 
   try {
     const logs = await prisma.ironLog.findMany({
@@ -796,6 +803,7 @@ const sendBill = async (req, res) => {
       },
     });
     if (!bill) return notFound(res, 'Iron bill not found');
+    if (!bill.totalAmount || bill.totalAmount <= 0) return badRequest(res, 'Cannot send a zero-value bill');
 
     const whatsappSent = bill.customer?.notifWhatsApp !== false
       ? await sendIronBillNotification({
@@ -836,12 +844,18 @@ const recordBillPayment = async (req, res) => {
   const { amount, paymentMethod } = req.body;
   const paymentAmount = Number(amount);
   if (!(paymentAmount > 0)) return badRequest(res, 'amount must be greater than 0');
+  if (paymentMethod && !CORE_PAYMENT_METHODS.includes(paymentMethod)) {
+    return badRequest(res, `paymentMethod must be one of: ${CORE_PAYMENT_METHODS.join(', ')}`);
+  }
 
   try {
     const bill = await prisma.ironBill.findUnique({ where: { id: req.params.billId } });
     if (!bill) return notFound(res, 'Iron bill not found');
+    const balanceDue = Math.max(0, Number((bill.totalAmount - bill.paidAmount).toFixed(2)));
+    if (balanceDue <= 0) return badRequest(res, 'Bill is already fully paid');
+    const appliedAmount = Math.min(paymentAmount, balanceDue);
 
-    const nextPaidAmount = Number((bill.paidAmount + paymentAmount).toFixed(2));
+    const nextPaidAmount = Number((bill.paidAmount + appliedAmount).toFixed(2));
     const nextStatus = nextPaidAmount >= bill.totalAmount ? 'PAID' : 'PARTIAL';
 
     const updated = await prisma.ironBill.update({
@@ -939,6 +953,8 @@ const getOwnLogsByMonth = async (req, res) => {
   const month = Number(req.query.month);
   const year = Number(req.query.year);
   if (!month || !year) return badRequest(res, 'month and year are required');
+  if (!Number.isInteger(month) || month < 1 || month > 12) return badRequest(res, 'month must be between 1 and 12');
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) return badRequest(res, 'year must be valid');
 
   try {
     const start = new Date(year, month - 1, 1);

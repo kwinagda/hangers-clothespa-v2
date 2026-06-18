@@ -60,12 +60,6 @@ const TRUST_POINTS: Array<{ icon: HomeIconName; title: string; text: string }> =
   { icon: 'leaf', title: 'Fabric Care', text: 'Process-led handling instead of rough batch treatment.' },
 ];
 
-const LANGUAGE_LABELS: Record<string, string> = {
-  ENGLISH: 'English',
-  HINDI: 'Hindi',
-  MARATHI: 'Marathi',
-};
-
 export default function HomeScreen({ navigation }: any) {
   const { customer } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
@@ -76,6 +70,8 @@ export default function HomeScreen({ navigation }: any) {
   const [promoBanners, setPromoBanners] = useState<any[]>([]);
   const [statusMeta, setStatusMeta] = useState<Record<string, { label: string; icon: HomeIconName }>>({});
   const [activeStatuses, setActiveStatuses] = useState<string[]>([]);
+  const [languageLabels, setLanguageLabels] = useState<Record<string, string>>({ ENGLISH: 'English' });
+  const [metadataError, setMetadataError] = useState<string | null>(null);
   const bannerScrollRef = useRef<FlatList<any>>(null);
   const autoScrollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -83,7 +79,7 @@ export default function HomeScreen({ navigation }: any) {
   const activeOrderMeta = activeOrder ? statusMeta[activeOrder.status] : null;
   const walletBalance = customer?.walletBalance || 0;
   const referralCode = customer?.referralCode || null;
-  const languageLabel = LANGUAGE_LABELS[customer?.preferredLanguage || 'ENGLISH'] || 'English';
+  const languageLabel = languageLabels[customer?.preferredLanguage || 'ENGLISH'] || 'English';
 
   const fetchActiveOrder = useCallback(async (silent = false) => {
     if (!silent) setLoadingOrders(true);
@@ -110,6 +106,7 @@ export default function HomeScreen({ navigation }: any) {
     metadataAPI.getAll()
       .then((result: any) => {
         const metadata = result?.metadata || result?.data?.metadata || {};
+        setMetadataError(null);
         setServiceTiles(metadata.serviceCategories || []);
         setPromoBanners((metadata.promoBanners || []).map((banner: any, index: number) => ({
           ...banner,
@@ -132,8 +129,13 @@ export default function HomeScreen({ navigation }: any) {
             .filter((item: any) => item.customerBucket === 'active')
             .map((item: any) => item.key)
         );
+        setLanguageLabels(Object.fromEntries(
+          (metadata.languages || []).map((item: any) => [item.value, item.label || item.value])
+        ));
       })
-      .catch(() => {});
+      .catch((e: any) => {
+        setMetadataError(e?.message || 'Could not load home metadata.');
+      });
   }, []);
 
   useEffect(() => {
@@ -257,6 +259,11 @@ export default function HomeScreen({ navigation }: any) {
         </LinearGradient>
 
         <View style={styles.content}>
+          {metadataError ? (
+            <View style={styles.metadataNotice}>
+              <Text style={styles.metadataNoticeText}>{metadataError}</Text>
+            </View>
+          ) : null}
           <StaggerItem index={0}>
           <View style={styles.section}>
             <View style={styles.accountStrip}>
@@ -652,6 +659,22 @@ const styles = StyleSheet.create({
   content: {
     paddingTop: 16,
     paddingBottom: 104,
+  },
+  metadataNotice: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: 16,
+    backgroundColor: '#fff4e5',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#f5d7a1',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  metadataNoticeText: {
+    fontFamily: Fonts.body,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: '#9a3412',
   },
   section: {
     paddingHorizontal: Spacing.lg,

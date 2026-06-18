@@ -4,6 +4,9 @@
 
 const express = require('express');
 const router  = express.Router();
+const { otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimit');
+const { privateNoStore } = require('../middleware/privateCache');
+const { requireTrustedWrite } = require('../middleware/origin');
 
 const {
   sendOtpController,
@@ -17,9 +20,12 @@ const {
 
 const { customerAuth } = require('../middleware/auth');
 
+router.use(privateNoStore);
+router.use(requireTrustedWrite);
+
 // Public routes (no auth needed)
-router.post('/send-otp',   sendOtpController);
-router.post('/verify-otp', verifyOtpController);
+router.post('/send-otp',   otpSendLimiter, sendOtpController);
+router.post('/verify-otp', otpVerifyLimiter, verifyOtpController);
 
 // Protected routes (customer must be logged in)
 router.get   ('/me',            customerAuth, getMeController);

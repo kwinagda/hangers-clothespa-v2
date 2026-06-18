@@ -12,10 +12,22 @@
 
 const prisma = require('../config/database');
 const { log, getRequestMeta } = require('../services/activity.service');
-const { success, badRequest, error, notFound, unauthorized } = require('../utils/response');
-const { generateOtp, hashOtp, verifyOtpHash, sendDeliveryOtp } = require('../services/whatsapp-otp.service');
+const { success, badRequest, error, notFound, forbidden } = require('../utils/response');
+const { generateOtp, hashOtp, sendDeliveryOtp } = require('../services/whatsapp-otp.service');
 const { sendStatusNotification } = require('../services/whatsapp-notifications.service');
-const { DELIVERY_MANAGER_ROLES, ORDER_STATUS_LABELS } = require('../config/master-data');
+const { processReferralQualification } = require('../services/referral.service');
+const { DELIVERY_MANAGER_ROLES, DELIVERY_PIN_ROLES, ORDER_STATUS_LABELS } = require('../config/master-data');
+const { AUTH_CHALLENGE_PURPOSE, createAuthChallenge, verifyAuthChallenge } = require('../services/authChallenge.service');
+
+const isDeliveryManager = (staff) => DELIVERY_MANAGER_ROLES.includes(staff?.role);
+const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
+
+const canAccessDeliveryOrder = (order, staff) => {
+  if (!order || !staff) return false;
+  if (isDeliveryManager(staff)) return true;
+  if (order.assignedToId) return order.assignedToId === staff.id;
+  return order.status === 'PENDING';
+};
 
 // ── Dashboard — tasks today ───────────────────────────────────────────────────
 const getDeliveryDashboard = async (req, res) => {
@@ -28,8 +40,8 @@ const getDeliveryDashboard = async (req, res) => {
     const isManager = DELIVERY_MANAGER_ROLES.includes(req.staff.role);
 
     const baseWhere = isManager
-      ? {}
-      : { assignedToId: riderId };
+      ? { ...ORDER_ONLY_WHERE }
+      : { ...ORDER_ONLY_WHERE, assignedToId: riderId };
 
     const [pendingPickups, outForDelivery, deliveredToday, totalCashToday] = await Promise.all([
       prisma.order.count({ where: { ...baseWhere, status: 'PENDING' } }),
@@ -41,7 +53,9 @@ const getDeliveryDashboard = async (req, res) => {
         where: {
           createdAt: { gte: todayStart },
           method:    'CASH',
-          order: isManager ? {} : { assignedToId: riderId },
+          order: isManager
+            ? { documentType: 'ORDER' }
+            : { assignedToId: riderId, documentType: 'ORDER' },
         },
         _sum: { amount: true },
       }),
@@ -49,7 +63,7 @@ const getDeliveryDashboard = async (req, res) => {
 
     // Ready orders (need to go out)
     const readyOrders = await prisma.order.count({
-      where: { status: 'READY_FOR_DELIVERY' },
+      where: { ...ORDER_ONLY_WHERE, status: 'READY_FOR_DELIVERY' },
     });
 
     return success(res, {
@@ -80,8 +94,8 @@ const getMyOrders = async (req, res) => {
 
   const statusFilter = statusMap[type] || statusMap.active;
   const baseWhere = isManager
-    ? { status: { in: statusFilter } }
-    : { assignedToId: riderId, status: { in: statusFilter } };
+    ? { ...ORDER_ONLY_WHERE, status: { in: statusFilter } }
+    : { ...ORDER_ONLY_WHERE, assignedToId: riderId, status: { in: statusFilter } };
 
   try {
     const orders = await prisma.order.findMany({
@@ -103,7 +117,7 @@ const getMyOrders = async (req, res) => {
         totalAmount:  o.totalAmount,
         paidAmount:   o.paidAmount,
         paymentStatus: o.paymentStatus,
-        balanceDue:   Math.max(0, (o.totalAmount || 0) - (o.paidAmount || 0)),
+        balanceDue:   Math.max(0, (o.totalAmount || 0) - (o.paidAmount || 0) - (o.writeOffAmount || 0)),
         items:        o.items,
         itemCount:    o.items.reduce((s, i) => s + i.quantity, 0),
         notes:        o.notes,
@@ -118,8 +132,8 @@ const getMyOrders = async (req, res) => {
 
 const getDeliveryOrder = async (req, res) => {
   try {
-    const order = await prisma.order.findUnique({
-      where: { id: req.params.id },
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id, ...ORDER_ONLY_WHERE },
       include: {
         customer: { select: { name: true, phone: true } },
         items: true,
@@ -128,12 +142,15 @@ const getDeliveryOrder = async (req, res) => {
       },
     });
     if (!order) return notFound(res, 'Order not found');
+    if (!canAccessDeliveryOrder(order, req.staff)) {
+      return forbidden(res, 'You can only access delivery orders assigned to you');
+    }
 
     return success(res, {
       order: {
         ...order,
         statusLabel: ORDER_STATUS_LABELS[order.status] || order.status,
-        balanceDue: Math.max(0, (order.totalAmount || 0) - (order.paidAmount || 0)),
+        balanceDue: Math.max(0, (order.totalAmount || 0) - (order.paidAmount || 0) - (order.writeOffAmount || 0)),
         itemCount:  order.items.reduce((s, i) => s + i.quantity, 0),
       },
     });
@@ -148,8 +165,11 @@ const markPickedUp = async (req, res) => {
   const { bagCount, notes } = req.body;
 
   try {
-    const order = await prisma.order.findUnique({ where: { id } });
+    const order = await prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
     if (!order) return notFound(res, 'Order not found');
+    if (!canAccessDeliveryOrder(order, req.staff)) {
+      return forbidden(res, 'You can only pick up orders assigned to you');
+    }
     if (order.status !== 'PENDING') {
       return badRequest(res, `Cannot mark picked up — current status: ${ORDER_STATUS_LABELS[order.status] || order.status}`);
     }
@@ -196,13 +216,23 @@ const markDelivered = async (req, res) => {
   const { confirmCode, notes } = req.body;  // confirmCode = customer OTP or last 4 of phone
 
   try {
-    const order = await prisma.order.findUnique({
-      where: { id },
+    const order = await prisma.order.findFirst({
+      where: { id, ...ORDER_ONLY_WHERE },
       include: { customer: { select: { phone: true, name: true } } },
     });
     if (!order) return notFound(res, 'Order not found');
+    if (!canAccessDeliveryOrder(order, req.staff)) {
+      return forbidden(res, 'You can only deliver orders assigned to you');
+    }
     if (!['OUT_FOR_DELIVERY', 'READY_FOR_DELIVERY'].includes(order.status)) {
       return badRequest(res, `Cannot mark delivered — current status: ${ORDER_STATUS_LABELS[order.status] || order.status}`);
+    }
+    const expectedCode = order.customer?.phone?.slice(-4);
+    if (!confirmCode || String(confirmCode).trim().length < 4) {
+      return badRequest(res, 'Delivery confirmation code is required');
+    }
+    if (!expectedCode || String(confirmCode).trim() !== expectedCode) {
+      return badRequest(res, 'Invalid delivery confirmation code');
     }
 
     await prisma.$transaction([
@@ -229,6 +259,7 @@ const markDelivered = async (req, res) => {
 
     // Fire-and-forget WhatsApp notification
     sendStatusNotification({ ...order, customer: order.customer }, 'DELIVERED').catch(() => {});
+    processReferralQualification(id).catch(() => {});
 
     return success(res, {
       orderId: id, orderNumber: order.orderNumber, status: 'DELIVERED',
@@ -250,8 +281,11 @@ const markFailed = async (req, res) => {
   }
 
   try {
-    const order = await prisma.order.findUnique({ where: { id } });
+    const order = await prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
     if (!order) return notFound(res, 'Order not found');
+    if (!canAccessDeliveryOrder(order, req.staff)) {
+      return forbidden(res, 'You can only update delivery attempts for orders assigned to you');
+    }
 
     const reasonLabel = {
       NOT_HOME: 'Customer not home',
@@ -296,12 +330,23 @@ const collectCash = async (req, res) => {
   }
 
   try {
-    const order = await prisma.order.findUnique({ where: { id } });
+    const order = await prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
     if (!order) return notFound(res, 'Order not found');
+    if (!canAccessDeliveryOrder(order, req.staff)) {
+      return forbidden(res, 'You can only collect cash for orders assigned to you');
+    }
 
     const amt = parseFloat(amount);
+    const balanceDue = Math.max(0, (order.totalAmount || 0) - (order.paidAmount || 0) - (order.writeOffAmount || 0));
+    if (balanceDue <= 0) {
+      return badRequest(res, 'This order has no balance due');
+    }
+    if (amt > balanceDue) {
+      return badRequest(res, `Amount exceeds balance due of ₹${balanceDue.toLocaleString('en-IN')}`);
+    }
+
     const newPaid = (order.paidAmount || 0) + amt;
-    const newStatus = newPaid >= (order.totalAmount || 0) ? 'PAID' : 'PARTIAL';
+    const newStatus = newPaid + (order.writeOffAmount || 0) >= (order.totalAmount || 0) ? 'PAID' : 'PARTIAL';
 
     await prisma.$transaction([
       prisma.payment.create({
@@ -336,11 +381,14 @@ const sendDeliveryOtpController = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const order = await prisma.order.findUnique({
-      where:   { id },
+    const order = await prisma.order.findFirst({
+      where:   { id, ...ORDER_ONLY_WHERE },
       include: { customer: { select: { name: true, phone: true } } },
     });
     if (!order) return notFound(res, 'Order not found');
+    if (!canAccessDeliveryOrder(order, req.staff)) {
+      return forbidden(res, 'You can only send OTPs for orders assigned to you');
+    }
     if (!['OUT_FOR_DELIVERY', 'READY_FOR_DELIVERY'].includes(order.status)) {
       return badRequest(res, `Cannot send OTP — order status is: ${order.status}`);
     }
@@ -366,6 +414,16 @@ const sendDeliveryOtpController = async (req, res) => {
         purpose:   'DELIVERY',
         expiresAt,
         },
+    });
+    await createAuthChallenge({
+      subjectType: 'delivery',
+      subjectKey: `${id}:${customerPhone}`,
+      purpose: AUTH_CHALLENGE_PURPOSE.DELIVERY_CONFIRMATION,
+      code: otp,
+      ttlMs: 15 * 60 * 1000,
+      maxAttempts: 5,
+      cooldownMs: 60 * 1000,
+      metadata: { orderId: id, orderNumber: order.orderNumber },
     });
 
     // Send via WhatsApp
@@ -399,11 +457,17 @@ const verifyDeliveryOtpController = async (req, res) => {
   if (!otp) return badRequest(res, 'OTP is required');
 
   try {
-    const order = await prisma.order.findUnique({
-      where:   { id },
+    const order = await prisma.order.findFirst({
+      where:   { id, ...ORDER_ONLY_WHERE },
       include: { customer: { select: { name: true, phone: true } } },
     });
     if (!order) return notFound(res, 'Order not found');
+    if (!canAccessDeliveryOrder(order, req.staff)) {
+      return forbidden(res, 'You can only verify OTPs for orders assigned to you');
+    }
+    if (!['OUT_FOR_DELIVERY', 'READY_FOR_DELIVERY'].includes(order.status)) {
+      return badRequest(res, `Cannot verify OTP — order status is: ${ORDER_STATUS_LABELS[order.status] || order.status}`);
+    }
 
     const customerPhone = order.customer?.phone;
 
@@ -422,8 +486,20 @@ const verifyDeliveryOtpController = async (req, res) => {
       return badRequest(res, 'OTP expired or not found. Ask customer to check WhatsApp and try again.');
     }
 
-    const isValid = await verifyOtpHash(otp, otpRecord.otp);
-    if (!isValid) {
+    const verification = await verifyAuthChallenge({
+      subjectType: 'delivery',
+      subjectKey: `${id}:${customerPhone}`,
+      purpose: AUTH_CHALLENGE_PURPOSE.DELIVERY_CONFIRMATION,
+      code: otp,
+    });
+    if (!verification.ok) {
+      if (verification.reason === 'LOCKED') {
+        await prisma.otpVerification.update({
+          where: { id: otpRecord.id },
+          data: { isUsed: true },
+        });
+        return badRequest(res, 'Too many wrong OTP attempts. Please send a new OTP.');
+      }
       return badRequest(res, 'Incorrect OTP. Please check with the customer.');
     }
 
@@ -458,6 +534,7 @@ const verifyDeliveryOtpController = async (req, res) => {
 
     // Fire-and-forget WhatsApp notification
     sendStatusNotification({ ...order, customer: order.customer }, 'DELIVERED').catch(() => {});
+    processReferralQualification(id).catch(() => {});
 
     return success(res, {
       orderId: id, orderNumber: order.orderNumber,
@@ -478,12 +555,12 @@ const getDailySummary = async (req, res) => {
   try {
     const [delivered, pickups, cashPayments] = await Promise.all([
       prisma.order.findMany({
-        where: { assignedToId: riderId, status: 'DELIVERED', deliveredAt: { gte: todayStart } },
+        where: { ...ORDER_ONLY_WHERE, assignedToId: riderId, status: 'DELIVERED', deliveredAt: { gte: todayStart } },
         select: { id: true, orderNumber: true, totalAmount: true, paymentStatus: true, deliveredAt: true,
                   customer: { select: { name: true } } },
       }),
       prisma.order.findMany({
-        where: { assignedToId: riderId, status: 'PICKED_UP', updatedAt: { gte: todayStart } },
+        where: { ...ORDER_ONLY_WHERE, assignedToId: riderId, status: 'PICKED_UP', updatedAt: { gte: todayStart } },
         select: { id: true, orderNumber: true, customer: { select: { name: true } } },
       }),
       prisma.payment.findMany({
@@ -491,6 +568,7 @@ const getDailySummary = async (req, res) => {
           collectedBy: riderId,
           method:      'CASH',
           createdAt:   { gte: todayStart },
+          order:       { documentType: 'ORDER' },
         },
         select: { amount: true, orderId: true, createdAt: true },
       }),
@@ -522,12 +600,16 @@ const assignOrder = async (req, res) => {
 
   try {
     const [order, rider] = await Promise.all([
-      prisma.order.findUnique({ where: { id } }),
+      prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } }),
       prisma.staff.findUnique({ where: { id: riderId } }),
     ]);
 
     if (!order) return notFound(res, 'Order not found');
     if (!rider)  return notFound(res, 'Rider not found');
+    if (!rider.isActive) return badRequest(res, 'Selected rider is inactive');
+    if (!DELIVERY_PIN_ROLES.includes(rider.role)) {
+      return badRequest(res, 'Selected staff member is not a delivery assignee');
+    }
 
     await prisma.order.update({
       where: { id },

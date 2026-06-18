@@ -229,21 +229,21 @@ const styles = StyleSheet.create({
   // Header
   header:      { paddingTop: 44, paddingBottom: 14, paddingHorizontal: Spacing.lg },
   headerTop:   { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:10 },
-  backBtn:     { fontFamily:'DMSans_500Medium', fontSize:24, color:Colors.white, width:32 },
-  headerTitle: { fontFamily:'Syne_700Bold', fontSize:FontSize.lg, color:Colors.white },
-  headerSub:   { fontFamily:'DMSans_400Regular', fontSize:FontSize.xs, lineHeight:18, color:'rgba(255,255,255,0.76)', marginBottom:12, maxWidth:'86%' },
+  backBtn:     { fontFamily:'Inter_500Medium', fontSize:24, color:Colors.white, width:32 },
+  headerTitle: { fontFamily:'SpaceGrotesk_700Bold', fontSize:FontSize.lg, color:Colors.white },
+  headerSub:   { fontFamily:'Inter_400Regular', fontSize:FontSize.xs, lineHeight:18, color:'rgba(255,255,255,0.76)', marginBottom:12, maxWidth:'86%' },
 
   // Search
   searchBar:   { flexDirection:'row', alignItems:'center', backgroundColor:'rgba(255,255,255,0.12)', borderRadius:Radius.md, borderWidth:1, borderColor:'rgba(184,208,232,0.2)', paddingHorizontal:14, gap:10 },
   searchIcon:  {},
-  searchInput: { flex:1, fontFamily:'DMSans_400Regular', fontSize:FontSize.base, color:Colors.white, paddingVertical:14 },
+  searchInput: { flex:1, fontFamily:'Inter_400Regular', fontSize:FontSize.base, color:Colors.white, paddingVertical:14 },
   clearSearch: { padding:4 },
 
   // Loading / error
   centeredState: { flex:1, alignItems:'center', justifyContent:'center', paddingTop:60 },
-  loadingText:   { fontFamily:'DMSans_400Regular', fontSize:FontSize.base, color:Colors.textMuted, marginTop:14 },
+  loadingText:   { fontFamily:'Inter_400Regular', fontSize:FontSize.base, color:Colors.textMuted, marginTop:14 },
   errorIcon:     { marginBottom:12 },
-  errorText:     { fontFamily:'DMSans_400Regular', fontSize:FontSize.base, color:Colors.error, textAlign:'center', paddingHorizontal:32 },
+  errorText:     { fontFamily:'Inter_400Regular', fontSize:FontSize.base, color:Colors.error, textAlign:'center', paddingHorizontal:32 },
 
   // Tabs
   tabsScroll:     { flexGrow:0, backgroundColor:Colors.white, borderBottomWidth:1, borderColor:Colors.border },
@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
   tab:            { flexDirection:'row', alignItems:'center', gap:6, paddingHorizontal:14, paddingVertical:8, borderRadius:Radius.full, backgroundColor:Colors.accent, borderWidth:1, borderColor:Colors.border },
   tabActive:      { backgroundColor:Colors.primary, borderColor:Colors.primary },
   tabIcon:        {},
-  tabLabel:       { fontFamily:'DMSans_500Medium', fontSize:FontSize.sm, color:Colors.textMid },
+  tabLabel:       { fontFamily:'Inter_500Medium', fontSize:FontSize.sm, color:Colors.textMid },
   tabLabelActive: { color:Colors.white },
 
   // List
@@ -259,21 +259,21 @@ const styles = StyleSheet.create({
 
   categorySection: { marginTop:12 },
   categoryHeader:  { backgroundColor:Colors.primary, paddingHorizontal:Spacing.lg, paddingVertical:10 },
-  categoryTitle:   { fontFamily:'Syne_700Bold', fontSize:FontSize.sm, color:Colors.white, letterSpacing:0.5 },
+  categoryTitle:   { fontFamily:'SpaceGrotesk_700Bold', fontSize:FontSize.sm, color:Colors.white, letterSpacing:0.5 },
 
   priceRow:     { flexDirection:'row', alignItems:'center', paddingHorizontal:Spacing.lg, paddingVertical:13, backgroundColor:Colors.white, borderBottomWidth:1, borderColor:Colors.borderLight },
   priceRowEven: { backgroundColor:Colors.offWhite },
   priceRowLeft: { flex:1 },
-  itemName:     { fontFamily:'DMSans_500Medium', fontSize:FontSize.base, color:Colors.textDark },
+  itemName:     { fontFamily:'Inter_500Medium', fontSize:FontSize.base, color:Colors.textDark },
 
   priceCol:  { alignItems:'flex-end' },
-  priceText: { fontFamily:'Syne_700Bold', fontSize:FontSize.md, color:Colors.primary },
-  priceTbd:  { fontFamily:'DMSans_400Regular', fontSize:FontSize.sm, color:Colors.error, fontStyle:'italic' },
+  priceText: { fontFamily:'SpaceGrotesk_700Bold', fontSize:FontSize.md, color:Colors.primary },
+  priceTbd:  { fontFamily:'Inter_400Regular', fontSize:FontSize.sm, color:Colors.error, fontStyle:'italic' },
 
   emptyState: { alignItems:'center', paddingTop:60 },
   emptyIcon:  { fontSize:40, marginBottom:12 },
-  emptyText:  { fontFamily:'DMSans_400Regular', fontSize:FontSize.base, color:Colors.textMuted },
+  emptyText:  { fontFamily:'Inter_400Regular', fontSize:FontSize.base, color:Colors.textMuted },
 
   footer:     { padding:Spacing.lg, marginBottom:40 },
-  footerText: { fontFamily:'DMSans_400Regular', fontSize:FontSize.xs, color:Colors.textMuted, lineHeight:20, textAlign:'center' },
+  footerText: { fontFamily:'Inter_400Regular', fontSize:FontSize.xs, color:Colors.textMuted, lineHeight:20, textAlign:'center' },
 });

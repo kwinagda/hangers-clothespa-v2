@@ -3,30 +3,30 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev":   "next dev -p 3001",
+    "dev": "next dev -p 5002",
     "build": "next build",
-    "start": "next start -p 3001"
+    "start": "next start -p 5002"
   },
   "dependencies": {
-    "next":            "14.2.5",
-    "react":           "^18.3.0",
-    "react-dom":       "^18.3.0",
-    "axios":           "^1.7.0",
-    "js-cookie":       "^3.0.5",
-    "date-fns":        "^3.6.0",
-    "react-hot-toast": "^2.4.1",
-    "lucide-react":    "^0.400.0",
-    "qrcode":          "^1.5.3"
+    "axios": "^1.7.0",
+    "date-fns": "^3.6.0",
+    "js-cookie": "^3.0.5",
+    "lucide-react": "^0.400.0",
+    "next": "^15.5.14",
+    "qrcode": "^1.5.3",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-hot-toast": "^2.4.1"
   },
   "devDependencies": {
-    "@types/node":      "^20",
-    "@types/react":     "^18",
-    "@types/react-dom": "^18",
     "@types/js-cookie": "^3",
-    "typescript":       "^5",
-    "tailwindcss":      "^3.4.0",
-    "postcss":          "^8",
-    "autoprefixer":     "^10",
-    "@types/qrcode":    "^1.5.5"
+    "@types/node": "^20",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5"
   }
 }

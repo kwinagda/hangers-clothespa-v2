@@ -4,10 +4,50 @@
 //   ✅ FIX 3: Items are stored with the order immediately on booking
 //   ✅ Subtotal & totalAmount calculated from items
 // ─────────────────────────────────────────────────────────────────────────────
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../config/database');
 const { generateOrderNumber } = require('../utils/order-number');
 const { success, created, error, badRequest, notFound } = require('../utils/response');
+const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
+
+const normalizeRequestedItems = async (items) => {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  const requestedServiceIds = [...new Set(
+    items
+      .map((item) => String(item?.serviceId || '').trim())
+      .filter(Boolean)
+  )];
+
+  if (requestedServiceIds.length !== items.length || requestedServiceIds.length === 0) {
+    throw new Error('Each selected item must include a valid serviceId.');
+  }
+
+  const services = await prisma.service.findMany({
+    where: { id: { in: requestedServiceIds }, isActive: true },
+    select: { id: true, name: true, category: true, basePrice: true },
+  });
+
+  if (services.length !== requestedServiceIds.length) {
+    throw new Error('One or more selected services are unavailable. Please refresh the catalog and try again.');
+  }
+
+  const serviceMap = new Map(services.map((service) => [service.id, service]));
+
+  return items.map((item) => {
+    const serviceId = String(item.serviceId).trim();
+    const service = serviceMap.get(serviceId);
+    const quantity = Math.max(1, parseInt(item.quantity, 10) || 1);
+
+    return {
+      serviceId,
+      serviceName: service.name,
+      garmentType: item.garmentType || item.category || service.category || '',
+      quantity,
+      unitPrice: Number(service.basePrice) || 0,
+      subtotal: (Number(service.basePrice) || 0) * quantity,
+    };
+  });
+};
 
 // ── GET /api/v1/customer/orders ───────────────────────────────────────────────
 const getMyOrders = async (req, res) => {
@@ -15,10 +55,11 @@ const getMyOrders = async (req, res) => {
     const customerId = req.customer.id;
     const { page = 1, limit = 50, status } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    const where = { customerId, ...ORDER_ONLY_WHERE, ...(status ? { status } : {}) };
 
     const [orders, total] = await Promise.all([
       prisma.order.findMany({
-        where:   { customerId, ...(status ? { status } : {}) },
+        where,
         include: {
           items:  { select: { id: true, serviceName: true, garmentType: true, quantity: true, unitPrice: true } },
           stages: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -27,7 +68,7 @@ const getMyOrders = async (req, res) => {
         skip,
         take:    parseInt(limit),
       }),
-      prisma.order.count({ where: { customerId } }),
+      prisma.order.count({ where }),
     ]);
 
     return success(res, { orders, pagination: { total, page: +page, limit: +limit } });
@@ -44,7 +85,7 @@ const getMyOrder = async (req, res) => {
     const customerId = req.customer.id;
 
     const order = await prisma.order.findFirst({
-      where:   { id, customerId },
+      where:   { id, customerId, ...ORDER_ONLY_WHERE },
       include: {
         items:  true,
         stages: { orderBy: { createdAt: 'asc' } },
@@ -71,7 +112,7 @@ const requestPickup = async (req, res) => {
       pickupAddress,
       notes,
       savedAddressId,
-      items = [],        // FIX 3: receive items from app
+      items = [],
       subtotal      = 0,
       totalAmount   = 0,
       useWalletCredits = false,
@@ -87,8 +128,9 @@ const requestPickup = async (req, res) => {
     // FIX 2: Use same format as CRM — HNG2403XXXX
     const orderNumber = await generateOrderNumber();
 
-    const calcSubtotal = items.length > 0
-      ? items.reduce((s, i) => s + (i.unitPrice || 0) * (i.quantity || 1), 0)
+    const normalizedItems = await normalizeRequestedItems(items);
+    const calcSubtotal = normalizedItems.length > 0
+      ? normalizedItems.reduce((sum, item) => sum + item.subtotal, 0)
       : parseFloat(subtotal) || 0;
 
     // ── Wallet deduction ───────────────────────────────────────────────────
@@ -107,6 +149,7 @@ const requestPickup = async (req, res) => {
       const created = await tx.order.create({
         data: {
           orderNumber,
+          documentType: 'ORDER',
           customerId,
           source:        'APP',
           status:        'PENDING',
@@ -121,14 +164,15 @@ const requestPickup = async (req, res) => {
           pickupAddress: resolvedAddress,
 
           // FIX 3: Create order items immediately if provided
-          ...(items.length > 0 ? {
+          ...(normalizedItems.length > 0 ? {
             items: {
-              create: items.map((item) => ({
-                serviceName:  item.serviceName || item.name,
-                garmentType:  item.garmentType || item.category || '',
-                quantity:     parseInt(item.quantity) || 1,
-                unitPrice:    parseFloat(item.unitPrice || item.price) || 0,
-                subtotal:     (parseFloat(item.unitPrice || item.price) || 0) * (parseInt(item.quantity) || 1),
+              create: normalizedItems.map((item) => ({
+                serviceId: item.serviceId,
+                serviceName: item.serviceName,
+                garmentType: item.garmentType,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                subtotal: item.subtotal,
               })),
             },
           } : {}),
@@ -136,7 +180,9 @@ const requestPickup = async (req, res) => {
           stages: {
             create: [{
               stage: 'PENDING',
-              notes: `Pickup booked via app. Slot: ${resolvedTimeSlot || 'TBD'}. Services: ${(serviceTypes || []).join(', ') || 'TBD'}. Address: ${resolvedAddress}${savedAddressId ? ` (Saved address: ${savedAddressId})` : ''}`,
+              notes: `Pickup booked via app. Slot: ${resolvedTimeSlot || 'TBD'}. Services: ${
+                (serviceTypes || normalizedItems.map((item) => item.garmentType)).filter(Boolean).join(', ') || 'TBD'
+              }. Address: ${resolvedAddress}${savedAddressId ? ` (Saved address: ${savedAddressId})` : ''}`,
             }],
           },
         },

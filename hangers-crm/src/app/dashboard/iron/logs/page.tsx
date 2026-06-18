@@ -7,6 +7,13 @@ import { ironAPI } from '@/lib/api'
 import IronSectionTabs from '../_components/IronSectionTabs'
 import { InlineLoader, SkeletonCard, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
 
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 
@@ -33,8 +40,8 @@ export default function IronLogsPage() {
   useEffect(() => { load(selectedDate) }, [load, selectedDate])
   useEffect(() => { setSummaryPage(1); setLogPage(1) }, [selectedDate, pageSize, payload])
 
-  const customerSummaries = useMemo(() => payload?.customers || [], [payload])
-  const logs = useMemo(() => payload?.logs || [], [payload])
+  const customerSummaries = useMemo(() => asArray(payload, ['customers', 'summaries', 'items']), [payload])
+  const logs = useMemo(() => asArray(payload, ['logs', 'items']), [payload])
   const summary = payload?.summary || {}
   const pagedCustomerSummaries = useMemo(
     () => customerSummaries.slice((summaryPage - 1) * pageSize, summaryPage * pageSize),

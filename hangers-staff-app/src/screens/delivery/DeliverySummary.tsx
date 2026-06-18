@@ -5,22 +5,57 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../utils/theme';
-import { deliveryAPI } from '../../services/api';
+import { deliveryAPI, metadataAPI } from '../../services/api';
 
 export default function DeliverySummary({ navigation }: any) {
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, { label: string; color: string; bg: string }>>({});
 
   useEffect(() => {
     deliveryAPI.summary()
-      .then((r: any) => setSummary(r.data?.summary))
-      .catch(() => {})
+      .then((r: any) => {
+        setSummary(r.data?.summary);
+        setLoadError(null);
+      })
+      .catch((e: any) => {
+        setSummary(null);
+        setLoadError(e?.message || 'Could not load delivery summary.');
+      })
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    metadataAPI.getAll().then((response: any) => {
+      const metadata = response?.metadata || response?.data?.metadata || {};
+      setPaymentStatusMeta((metadata.paymentStatuses || []).reduce((acc: Record<string, { label: string; color: string; bg: string }>, item: any) => {
+        acc[item.value] = {
+          label: item.label || item.value,
+          color: item.color || Colors.textDark,
+          bg: item.bg || '#f3f4f6',
+        };
+        return acc;
+      }, {}));
+    }).catch(() => {
+      setPaymentStatusMeta({});
+    });
   }, []);
 
   if (loading) return (
     <View style={{ flex: 1, backgroundColor: Colors.delivery, justifyContent: 'center', alignItems: 'center' }}>
       <ActivityIndicator size="large" color="#fff" />
+    </View>
+  );
+
+  if (loadError) return (
+    <View style={{ flex: 1, backgroundColor: Colors.offWhite, justifyContent: 'center', alignItems: 'center', paddingHorizontal: Spacing.lg }}>
+      <MaterialCommunityIcons name="alert-circle-outline" size={44} color={Colors.delivery} />
+      <Text style={{ marginTop: 12, fontSize: 18, fontWeight: '700', color: Colors.textDark }}>Could not load summary</Text>
+      <Text style={{ marginTop: 6, fontSize: 14, color: Colors.textMuted, textAlign: 'center' }}>{loadError}</Text>
+      <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 18, backgroundColor: Colors.delivery, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12 }}>
+        <Text style={{ color: '#fff', fontWeight: '700' }}>Go back</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -62,12 +97,11 @@ export default function DeliverySummary({ navigation }: any) {
             <Text style={styles.sectionTitle}>Deliveries Completed</Text>
             {summary.delivered.map((o: any) => (
               (() => {
-                const paymentStatusColor =
-                  o.paymentStatus === 'PAID'
-                    ? Colors.success
-                    : o.paymentStatus === 'PARTIAL'
-                      ? Colors.warning
-                      : Colors.error;
+                const paymentStatusStyle = paymentStatusMeta[o.paymentStatus] || {
+                  label: o.paymentStatus || 'UNPAID',
+                  color: Colors.error,
+                  bg: '#fee2e2',
+                };
                 return (
               <View key={o.id} style={styles.row}>
                 <View style={{ flex: 1 }}>
@@ -76,8 +110,8 @@ export default function DeliverySummary({ navigation }: any) {
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.rowAmount}>₹{o.totalAmount?.toLocaleString('en-IN')}</Text>
-                  <Text style={[styles.rowStatus, { color: paymentStatusColor }]}>
-                    {o.paymentStatus}
+                  <Text style={[styles.rowStatus, { color: paymentStatusStyle.color, backgroundColor: paymentStatusStyle.bg }]}>
+                    {paymentStatusStyle.label}
                   </Text>
                 </View>
               </View>
@@ -129,7 +163,7 @@ const styles = StyleSheet.create({
   rowOrder:     { fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontSize: 13, fontWeight: '700', color: Colors.primary },
   rowCust:      { fontSize: 14, color: Colors.textDark, marginTop: 2 },
   rowAmount:    { fontSize: 15, fontWeight: '700', color: Colors.textDark },
-  rowStatus:    { fontSize: 11, fontWeight: '700', marginTop: 2 },
+  rowStatus:    { fontSize: 11, fontWeight: '700', marginTop: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' },
   emptyBox:     { alignItems: 'center', paddingTop: 60, gap: 10 },
   emptyTitle:   { fontSize: 18, fontWeight: '700', color: Colors.textDark },
   emptySub:     { fontSize: 14, color: Colors.textMuted, textAlign: 'center' },

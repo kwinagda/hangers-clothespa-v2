@@ -10,6 +10,20 @@ const crypto  = require('crypto');
 const Razorpay = require('razorpay');
 const prisma  = require('../config/database');
 const { success, badRequest, error, unauthorized, notFound } = require('../utils/response');
+const { processReferralQualification } = require('../services/referral.service');
+const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
+
+const calculateBalanceDue = (order) =>
+  Math.max(
+    0,
+    Number(
+      (
+        Number(order?.totalAmount || 0) -
+        Number(order?.paidAmount || 0) -
+        Number(order?.writeOffAmount || 0)
+      ).toFixed(2)
+    )
+  );
 
 // ── Razorpay instance ─────────────────────────────────────────────────────────
 const getRazorpay = () => {
@@ -34,24 +48,25 @@ const createRazorpayOrder = async (req, res) => {
   try {
     // Fetch the hangers order — must belong to this customer
     const order = await prisma.order.findFirst({
-      where: { id: orderId, customerId },
-      select: { id: true, orderNumber: true, totalAmount: true, paymentStatus: true },
+      where: { id: orderId, customerId, ...ORDER_ONLY_WHERE },
+      select: { id: true, orderNumber: true, totalAmount: true, paidAmount: true, writeOffAmount: true, paymentStatus: true },
     });
 
     if (!order)                        return notFound(res, 'Order not found');
     if (order.paymentStatus === 'PAID') return badRequest(res, 'Order is already paid');
-    if (order.totalAmount <= 0)        return badRequest(res, 'Order total must be greater than zero');
+    const balanceDue = calculateBalanceDue(order);
+    if (balanceDue <= 0)               return badRequest(res, 'Order is already fully settled');
 
     // Dev mode — skip Razorpay, return a fake order
     if (isDevMode()) {
       const fakeRzpOrderId = `order_DEV_${Date.now()}`;
       return success(res, {
         razorpayOrderId: fakeRzpOrderId,
-        amount:          order.totalAmount * 100,  // paise
+        amount:          Math.round(balanceDue * 100),
         currency:        'INR',
         key:             'rzp_test_DEV_MODE',
         orderNumber:     order.orderNumber,
-        orderAmount:     order.totalAmount,
+        orderAmount:     balanceDue,
         devMode:         true,
         note:            'Add RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET to .env for live payments',
       }, 'DEV MODE — Razorpay not configured');
@@ -59,7 +74,7 @@ const createRazorpayOrder = async (req, res) => {
 
     const razorpay = getRazorpay();
     const rzpOrder = await razorpay.orders.create({
-      amount:   Math.round(order.totalAmount * 100), // paise
+      amount:   Math.round(balanceDue * 100),
       currency: 'INR',
       receipt:  order.orderNumber,
       notes: {
@@ -75,13 +90,13 @@ const createRazorpayOrder = async (req, res) => {
       currency:        rzpOrder.currency,
       key:             process.env.RAZORPAY_KEY_ID,
       orderNumber:     order.orderNumber,
-      orderAmount:     order.totalAmount,
+      orderAmount:     balanceDue,
       devMode:         false,
     }, 'Razorpay order created');
 
   } catch (err) {
     console.error('createRazorpayOrder error:', err.message);
-    return error(res, err.message || 'Failed to create payment order');
+    return error(res, 'Failed to create payment order');
   }
 };
 
@@ -101,12 +116,31 @@ const verifyRazorpayPayment = async (req, res) => {
   try {
     // Verify the order belongs to this customer
     const order = await prisma.order.findFirst({
-      where: { id: orderId, customerId },
-      select: { id: true, orderNumber: true, totalAmount: true, paymentStatus: true },
+      where: { id: orderId, customerId, ...ORDER_ONLY_WHERE },
+      select: { id: true, orderNumber: true, totalAmount: true, paidAmount: true, writeOffAmount: true, paymentStatus: true },
     });
 
     if (!order)                        return notFound(res, 'Order not found');
     if (order.paymentStatus === 'PAID') return badRequest(res, 'Order is already paid');
+    const balanceDue = calculateBalanceDue(order);
+    if (balanceDue <= 0) return badRequest(res, 'Order is already fully settled');
+
+    const existingPayment = await prisma.payment.findFirst({
+      where: { razorpayPaymentId },
+      select: { id: true, orderId: true },
+    });
+    if (existingPayment) {
+      if (existingPayment.orderId === orderId) {
+        return success(res, {
+          paymentId: existingPayment.id,
+          orderNumber: order.orderNumber,
+          amount: balanceDue,
+          method: 'RAZORPAY',
+          status: 'SUCCESS',
+        }, 'Payment already recorded');
+      }
+      return badRequest(res, 'This Razorpay payment ID is already linked to a different order');
+    }
 
     // Dev mode — skip signature check
     if (!isDevMode()) {
@@ -121,29 +155,51 @@ const verifyRazorpayPayment = async (req, res) => {
       }
     }
 
-    // Record payment in DB
-    const payment = await prisma.payment.create({
-      data: {
-        orderId,
-        amount:            amount || order.totalAmount,
-        method:            'RAZORPAY',
-        status:            'SUCCESS',
-        razorpayOrderId:   razorpayOrderId   || null,
-        razorpayPaymentId: razorpayPaymentId,
-        razorpaySignature: razorpaySignature  || null,
-        reference:         razorpayPaymentId,
-        notes:             'Online payment via Razorpay',
-      },
+    const requestedAmount = Number.parseFloat(amount);
+    const appliedAmount = Number.isFinite(requestedAmount) && requestedAmount > 0
+      ? Math.min(requestedAmount, balanceDue)
+      : balanceDue;
+    if (appliedAmount <= 0) return badRequest(res, 'Nothing is due on this order');
+
+    const payment = await prisma.$transaction(async (tx) => {
+      const createdPayment = await tx.payment.create({
+        data: {
+          orderId,
+          amount: appliedAmount,
+          method: 'RAZORPAY',
+          status: 'SUCCESS',
+          razorpayOrderId: razorpayOrderId || null,
+          razorpayPaymentId,
+          razorpaySignature: razorpaySignature || null,
+          reference: razorpayPaymentId,
+          notes: 'Online payment via Razorpay',
+        },
+      });
+
+      const nextPaidAmount = Number((Number(order.paidAmount || 0) + appliedAmount).toFixed(2));
+      const effectivePaid = Number((nextPaidAmount + Number(order.writeOffAmount || 0)).toFixed(2));
+      const paymentStatus = effectivePaid >= Number(order.totalAmount || 0) ? 'PAID' : effectivePaid > 0 ? 'PARTIAL' : 'UNPAID';
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          paymentStatus,
+          paidAmount: nextPaidAmount,
+        },
+      });
+
+      await tx.orderStage.create({
+        data: {
+          orderId,
+          stage: 'PAYMENT_RECORDED',
+          notes: `₹${appliedAmount} received via Razorpay${razorpayPaymentId ? ` (Ref: ${razorpayPaymentId})` : ''}`,
+        },
+      });
+
+      return createdPayment;
     });
 
-    // Update order payment status
-    await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        paymentStatus: 'PAID',
-        paidAmount:    { increment: amount || order.totalAmount },
-      },
-    });
+    processReferralQualification(orderId).catch(() => {});
 
     return success(res, {
       paymentId:   payment.id,
@@ -165,7 +221,7 @@ const getPaymentHistory = async (req, res) => {
 
   try {
     const orders = await prisma.order.findMany({
-      where: { customerId },
+      where: { customerId, ...ORDER_ONLY_WHERE },
       select: {
         id: true,
         orderNumber: true,

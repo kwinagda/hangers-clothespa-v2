@@ -16,17 +16,6 @@ import { Colors, FontSize, Fonts, Radius, Shadow, Spacing } from '../utils/theme
 import StaggerItem from '../components/StaggerItem';
 import AnimatedButton from '../components/AnimatedButton';
 
-const STATUS_STYLE: Record<string, { bg: string; text: string; label: string }> = {
-  PAID: { bg: '#d8f3e5', text: '#156d46', label: 'Paid' },
-  PARTIAL: { bg: '#fff0d8', text: '#9a5d00', label: 'Partial' },
-  UNPAID: { bg: '#fde8e8', text: '#b9382a', label: 'Unpaid' },
-  COMPLETED: { bg: '#d8f3e5', text: '#156d46', label: 'Paid' },
-  SUCCESS: { bg: '#d8f3e5', text: '#156d46', label: 'Paid' },
-  PENDING: { bg: '#fff0d8', text: '#9a5d00', label: 'Pending' },
-  FAILED: { bg: '#fde8e8', text: '#b9382a', label: 'Failed' },
-  REFUNDED: { bg: '#ece7ff', text: '#6941c6', label: 'Refunded' },
-};
-
 const formatCurrency = (value?: number) =>
   `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
@@ -42,6 +31,7 @@ const formatDate = (value?: string) =>
 export default function PaymentHistoryScreen({ navigation }: any) {
   const [payments, setPayments] = useState<any[]>([]);
   const [methodLabels, setMethodLabels] = useState<Record<string, string>>({});
+  const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, { bg: string; text: string; label: string }>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,8 +67,23 @@ export default function PaymentHistoryScreen({ navigation }: any) {
         labels.ADJUSTMENT = labels.ADJUSTMENT || 'Adjustment';
         labels.SETTLEMENT = labels.SETTLEMENT || 'Settlement';
         setMethodLabels(labels);
+        setPaymentStatusMeta((metadata.paymentStatuses || []).reduce((acc: Record<string, { bg: string; text: string; label: string }>, item: any) => {
+          acc[item.value] = {
+            bg: item.bg || '#f3f4f6',
+            text: item.color || Colors.textMuted,
+            label: item.label || item.value,
+          };
+          return acc;
+        }, {}));
       })
-      .catch(() => {});
+      .catch(() => {
+        setMethodLabels({
+          WALLET: 'Wallet',
+          ADJUSTMENT: 'Adjustment',
+          SETTLEMENT: 'Settlement',
+        });
+        setPaymentStatusMeta({});
+      });
   }, []);
 
   const totalPaid = useMemo(
@@ -151,7 +156,13 @@ export default function PaymentHistoryScreen({ navigation }: any) {
 
           {payments.map((payment, index) => {
             const statusKey = payment.order?.paymentStatus || payment.status;
-            const status = STATUS_STYLE[statusKey] || {
+            const status = paymentStatusMeta[statusKey] || ({
+              COMPLETED: { bg: '#dcfce7', text: '#166534', label: 'Paid' },
+              SUCCESS: { bg: '#dcfce7', text: '#166534', label: 'Paid' },
+              PENDING: { bg: '#fff0d8', text: '#9a5d00', label: 'Pending' },
+              FAILED: { bg: '#fde8e8', text: '#b9382a', label: 'Failed' },
+              REFUNDED: { bg: '#ece7ff', text: '#6941c6', label: 'Refunded' },
+            } as Record<string, { bg: string; text: string; label: string }>)[statusKey] || {
               bg: '#edf3f8',
               text: Colors.textMuted,
               label: statusKey || 'Unknown',

@@ -5,6 +5,17 @@
 const { verifyToken }  = require('../services/jwt.service');
 const { unauthorized } = require('../utils/response');
 const prisma           = require('../config/database');
+const { buildStaffAccessContext } = require('../services/accessControl.service');
+
+const hasActiveSession = async (type, token) => {
+  const where = { token, expiresAt: { gt: new Date() } };
+  if (type === 'customer') {
+    const session = await prisma.customerSession.findFirst({ where, select: { id: true } });
+    return Boolean(session);
+  }
+  const session = await prisma.staffSession.findFirst({ where, select: { id: true } });
+  return Boolean(session);
+};
 
 /**
  * Protect customer routes
@@ -17,17 +28,24 @@ const customerAuth = async (req, res, next) => {
 
     const decoded = verifyToken(token);
     if (decoded.type !== 'customer') return unauthorized(res, 'Invalid token type');
+    if (!(await hasActiveSession('customer', token))) {
+      return unauthorized(res, 'Session expired — please login again');
+    }
 
     // Verify customer still exists and is active
     const customer = await prisma.customer.findUnique({
       where: { id: decoded.id },
-      select: { id: true, phone: true, name: true, isActive: true },
+      select: { id: true, phone: true, name: true, isActive: true, sessionVersion: true },
     });
 
     if (!customer)           return unauthorized(res, 'Account not found');
     if (!customer.isActive)  return unauthorized(res, 'Account has been deactivated');
+    if ((decoded.sessionVersion || 0) !== (customer.sessionVersion || 0)) {
+      return unauthorized(res, 'Session expired — please login again');
+    }
 
     req.customer = customer;
+    req.authToken = token;
     req.tokenData = decoded;
     next();
   } catch (err) {
@@ -48,6 +66,9 @@ const staffAuth = async (req, res, next) => {
 
     const decoded = verifyToken(token);
     if (decoded.type !== 'staff') return unauthorized(res, 'Invalid token type');
+    if (!(await hasActiveSession('staff', token))) {
+      return unauthorized(res, 'Session expired — please login again');
+    }
 
     // Verify staff still exists and is active
     const staff = await prisma.staff.findUnique({
@@ -59,14 +80,26 @@ const staffAuth = async (req, res, next) => {
         email:       true,
         role:        true,
         isActive:    true,
+        sessionVersion: true,
+        mustChangePassword: true,
         permissions: true,
       },
     });
 
     if (!staff)          return unauthorized(res, 'Staff account not found');
     if (!staff.isActive) return unauthorized(res, 'Account has been deactivated. Contact admin.');
+    if ((decoded.sessionVersion || 0) !== (staff.sessionVersion || 0)) {
+      return unauthorized(res, 'Session expired — please login again');
+    }
 
-    req.staff = staff;
+    const access = await buildStaffAccessContext(staff);
+
+    req.staff = {
+      ...staff,
+      effectivePermissions: access.permissions,
+      serviceAccess: access.services,
+    };
+    req.authToken = token;
     req.tokenData = decoded;
     next();
   } catch (err) {
@@ -84,7 +117,20 @@ const extractToken = (req) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     return authHeader.substring(7);
   }
-  return null;
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return null;
+  const cookies = Object.fromEntries(
+    cookieHeader
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const index = part.indexOf('=');
+        if (index === -1) return [part, ''];
+        return [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+      })
+  );
+  return cookies.crm_token || cookies.customer_token || null;
 };
 
 module.exports = { customerAuth, staffAuth };

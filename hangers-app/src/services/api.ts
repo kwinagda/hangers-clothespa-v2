@@ -18,17 +18,20 @@ const resolveBaseUrl = () => {
 
   if (expoHost) {
     const host = expoHost.split(':')[0];
-    if (host) return `http://${host}:3000/api/v1`;
+    if (host) return `http://${host}:5001/api/v1`;
   }
 
-  if (Platform.OS === 'android') return 'http://10.0.2.2:3000/api/v1';
-  return 'http://localhost:3000/api/v1';
+  if (Platform.OS === 'android') return 'http://10.0.2.2:5001/api/v1';
+  return 'http://localhost:5001/api/v1';
 };
 
 const BASE_URL = resolveBaseUrl();
 
 const TOKEN_KEY = 'hangers_auth_token';
 const authInvalidationListeners = new Set<() => void>();
+const warnStorageFailure = (action: string, error: unknown) => {
+  console.warn(`Customer app auth storage failed during ${action}`, error);
+};
 
 const normalizeApiResponse = (payload: any) => {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
@@ -56,7 +59,9 @@ const notifyAuthInvalidated = () => {
   authInvalidationListeners.forEach((listener) => {
     try {
       listener();
-    } catch {}
+    } catch (error) {
+      console.warn('Customer app auth invalidation listener failed', error);
+    }
   });
 };
 
@@ -65,7 +70,9 @@ api.interceptors.request.use(async (config) => {
   try {
     const token = await SecureStore.getItemAsync(TOKEN_KEY);
     if (token) config.headers.Authorization = `Bearer ${token}`;
-  } catch {}
+  } catch (error) {
+    warnStorageFailure('token read', error);
+  }
   return config;
 });
 
@@ -81,7 +88,11 @@ api.interceptors.response.use(
       err.response?.status === 401 &&
       /session expired|invalid token|account not found|deactivated/i.test(message)
     ) {
-      await SecureStore.deleteItemAsync(TOKEN_KEY);
+      try {
+        await SecureStore.deleteItemAsync(TOKEN_KEY);
+      } catch (error) {
+        warnStorageFailure('token clear after auth invalidation', error);
+      }
       notifyAuthInvalidated();
     }
     throw new Error(message);
@@ -101,7 +112,22 @@ export const onAuthInvalidated = (listener: () => void) => {
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 export const authAPI = {
   sendOtp:   (phone: string)                                               => api.post('/auth/send-otp',  { phone }),
-  verifyOtp: (phone: string, otp: string, name?: string, referredByCode?: string)  => api.post('/auth/verify-otp',{ phone, otp, name, referredByCode }),
+  verifyOtp: (
+    phone: string,
+    otp: string,
+    name?: string,
+    referredByCode?: string,
+    address?: {
+      label?: string;
+      addressLine1: string;
+      addressLine2?: string;
+      landmark?: string;
+      city: string;
+      pincode: string;
+      latitude?: number | null;
+      longitude?: number | null;
+    }
+  )  => api.post('/auth/verify-otp',{ phone, otp, name, referredByCode, address }),
   getMe:     ()                                                            => api.get('/auth/me'),
   logout:    ()                                                            => api.post('/auth/logout'),
 

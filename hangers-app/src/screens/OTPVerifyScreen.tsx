@@ -6,7 +6,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, Image,
   KeyboardAvoidingView, Platform, ActivityIndicator,
-  StatusBar, Animated, Dimensions
+  StatusBar, Animated, Dimensions, ScrollView
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
@@ -27,6 +27,11 @@ export default function OTPVerifyScreen({ route, navigation }: any) {
   const [otp,       setOtp]       = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [isLoading, setIsLoading] = useState(false);
   const [error,     setError]     = useState('');
+  const [name, setName] = useState('');
+  const [addressLine1, setAddressLine1] = useState('');
+  const [addressLine2, setAddressLine2] = useState('');
+  const [city, setCity] = useState('');
+  const [pincode, setPincode] = useState('');
   const [resendTimer, setResendTimer] = useState(30);
   const [isDevMode, setIsDevMode] = useState(false);
 
@@ -93,12 +98,39 @@ export default function OTPVerifyScreen({ route, navigation }: any) {
       return;
     }
 
+    if (isNewUser) {
+      if (!name.trim()) {
+        setError('Please enter your name');
+        shakeCard();
+        return;
+      }
+      if (!addressLine1.trim() || !city.trim() || !/^\d{6}$/.test(pincode.trim())) {
+        setError('Please enter a valid pickup address');
+        shakeCard();
+        return;
+      }
+    }
+
     setIsLoading(true);
     setError('');
 
     try {
       // Verify via backend
-      const response: any = await authAPI.verifyOtp(phone, otpValue);
+      const response: any = await authAPI.verifyOtp(
+        phone,
+        otpValue,
+        isNewUser ? name.trim() : undefined,
+        undefined,
+        isNewUser
+          ? {
+              label: 'Home',
+              addressLine1: addressLine1.trim(),
+              addressLine2: addressLine2.trim() || undefined,
+              city: city.trim(),
+              pincode: pincode.trim(),
+            }
+          : undefined
+      );
       const { token, customer } = (response.data || response) as any;
 
       if (!token) throw new Error('Login failed — no token received');
@@ -143,6 +175,7 @@ export default function OTPVerifyScreen({ route, navigation }: any) {
         </View>
 
         <Animated.View style={[styles.card, { transform: [{ translateY: cardAnim }, { translateX: shakeAnim }], opacity: cardOpacity }]}>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
           {/* Badge */}
           <View style={[styles.badge, isDevMode ? styles.badgeDev : styles.badgeWa]}>
@@ -158,6 +191,52 @@ export default function OTPVerifyScreen({ route, navigation }: any) {
           <Text style={styles.subtitle}>
             Sent to <Text style={styles.phoneHighlight}>+91 {phone}</Text>
           </Text>
+
+          {isNewUser ? (
+            <View style={styles.signupSection}>
+              <Text style={styles.sectionTitle}>Complete your profile</Text>
+              <Text style={styles.sectionSubtitle}>We will save this as your first pickup address.</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={name}
+                onChangeText={setName}
+                placeholder="Full name"
+                placeholderTextColor={Colors.textLight}
+              />
+              <TextInput
+                style={styles.fieldInput}
+                value={addressLine1}
+                onChangeText={setAddressLine1}
+                placeholder="House / flat / street"
+                placeholderTextColor={Colors.textLight}
+              />
+              <TextInput
+                style={styles.fieldInput}
+                value={addressLine2}
+                onChangeText={setAddressLine2}
+                placeholder="Area / landmark"
+                placeholderTextColor={Colors.textLight}
+              />
+              <View style={styles.inlineFields}>
+                <TextInput
+                  style={[styles.fieldInput, styles.inlineField]}
+                  value={city}
+                  onChangeText={setCity}
+                  placeholder="City"
+                  placeholderTextColor={Colors.textLight}
+                />
+                <TextInput
+                  style={[styles.fieldInput, styles.inlineField]}
+                  value={pincode}
+                  onChangeText={(text) => setPincode(text.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="Pincode"
+                  placeholderTextColor={Colors.textLight}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                />
+              </View>
+            </View>
+          ) : null}
 
           {isDevMode && (
             <View style={styles.devBanner}>
@@ -216,6 +295,7 @@ export default function OTPVerifyScreen({ route, navigation }: any) {
             <Text style={styles.changeNumberText}>← Change number</Text>
           </TouchableOpacity>
 
+          </ScrollView>
         </Animated.View>
       </LinearGradient>
     </KeyboardAvoidingView>
@@ -240,6 +320,12 @@ const styles = StyleSheet.create({
   devBanner:       { backgroundColor: '#fff8e1', borderRadius: Radius.sm, padding: Spacing.sm, marginBottom: Spacing.md },
   devBannerText:   { fontFamily: Fonts.body, fontSize: FontSize.xs, color: '#e65100' },
   devBannerCode:   { fontFamily: Fonts.display },
+  signupSection:   { marginBottom: Spacing.md, gap: 10 },
+  sectionTitle:    { fontFamily: Fonts.medium, fontSize: FontSize.sm, color: Colors.primary },
+  sectionSubtitle: { fontFamily: Fonts.body, fontSize: FontSize.xs, color: Colors.textLight, marginBottom: 2 },
+  fieldInput:      { borderWidth: 1.5, borderColor: Colors.border, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 13, fontFamily: Fonts.body, fontSize: FontSize.sm, color: Colors.text, backgroundColor: Colors.background },
+  inlineFields:    { flexDirection: 'row', gap: 10 },
+  inlineField:     { flex: 1 },
   otpRow:          { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing.md },
   otpBox:          { width: 44, height: 52, borderWidth: 1.5, borderColor: Colors.border, borderRadius: Radius.md, fontFamily: Fonts.display, fontSize: 22, color: Colors.primary, backgroundColor: Colors.background },
   otpBoxFilled:    { borderColor: Colors.primary, backgroundColor: '#e8f0ff' },

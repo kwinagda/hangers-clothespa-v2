@@ -1,38 +1,223 @@
 'use client'
-import { useEffect, useState } from 'react'
+
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { metadataAPI, ordersAPI, ironAPI } from '@/lib/api'
 import { format } from 'date-fns'
-import { ArrowRight, CheckCircle2, ClipboardList, Clock3, IndianRupee, PackagePlus, Plus, Truck, Users } from 'lucide-react'
+import toast from 'react-hot-toast'
+import {
+  ArrowRight,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardList,
+  Clock3,
+  IndianRupee,
+  PackagePlus,
+  Receipt,
+  Shirt,
+  Truck,
+  Users,
+} from 'lucide-react'
+import { ironAPI, metadataAPI, ordersAPI } from '@/lib/api'
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
+
+type StatCardProps = {
+  icon: any
+  label: string
+  value: string | number
+  note: string
+  tone?: 'blue' | 'amber' | 'green' | 'violet'
+}
+
+const TONE = {
+  blue: {
+    color: '#023c62',
+    soft: '#e8f0f7',
+    border: '#cfe0ec',
+  },
+  amber: {
+    color: '#9a4d00',
+    soft: '#fff4e5',
+    border: '#f4d5a9',
+  },
+  green: {
+    color: '#0d7a4e',
+    soft: '#e8f7f0',
+    border: '#bfe6d2',
+  },
+  violet: {
+    color: '#5b2fb0',
+    soft: '#f1ebff',
+    border: '#d6c6fa',
+  },
+} as const
+
+function StatCard({ icon: Icon, label, value, note, tone = 'blue' }: StatCardProps) {
+  const palette = TONE[tone]
+  return (
+    <div
+      className="crm-card-hover"
+      style={{
+        background: '#fff',
+        borderRadius: 22,
+        border: `1px solid ${palette.border}`,
+        padding: '20px 20px 18px',
+        boxShadow: '0 10px 28px rgba(2,60,98,0.06)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: 14,
+            background: palette.soft,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: palette.color,
+          }}
+        >
+          <Icon size={20} />
+        </div>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: '#6b7fa3',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+          }}
+        >
+          {label}
+        </span>
+      </div>
+      <div style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 32, color: '#142033', lineHeight: 1 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 12, color: '#8ca1bc', marginTop: 8, lineHeight: 1.45 }}>{note}</div>
+    </div>
+  )
+}
+
+function SectionCard({
+  title,
+  subtitle,
+  actionHref,
+  actionLabel,
+  children,
+}: {
+  title: string
+  subtitle: string
+  actionHref?: string
+  actionLabel?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 24,
+        border: '1px solid #e3edf6',
+        boxShadow: '0 10px 28px rgba(2,60,98,0.06)',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          padding: '20px 24px 18px',
+          borderBottom: '1px solid #edf3f8',
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <div>
+          <h2
+            style={{
+              fontFamily: 'var(--crm-font-display)',
+              fontWeight: 700,
+              fontSize: 19,
+              color: '#023c62',
+              margin: '0 0 4px',
+            }}
+          >
+            {title}
+          </h2>
+          <p style={{ margin: 0, fontSize: 13, color: '#6b7fa3', lineHeight: 1.45 }}>{subtitle}</p>
+        </div>
+        {actionHref && actionLabel && (
+          <Link
+            href={actionHref}
+            style={{
+              textDecoration: 'none',
+              color: '#035a8f',
+              fontSize: 13,
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {actionLabel}
+            <ArrowRight size={14} />
+          </Link>
+        )}
+      </div>
+      <div style={{ padding: 24 }}>{children}</div>
+    </div>
+  )
+}
 
 export default function DashboardPage() {
-  const [stats, setStats]     = useState<any>(null)
+  const [stats, setStats] = useState<any>(null)
   const [ironSummary, setIronSummary] = useState<any>(null)
-  const [statusLabels, setStatusLabels] = useState<Record<string,string>>({})
+  const [statusLabels, setStatusLabels] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const load = async () => {
       try {
-        metadataAPI.getAll().then((r:any) => {
-          const metadata = r?.metadata || r?.data?.metadata || {}
-          const labels = (metadata.orderStatuses || []).reduce((acc: Record<string, string>, item: any) => {
-            acc[item.key] = item.label || item.key
-            return acc
-          }, {})
-          setStatusLabels(labels)
-        }).catch(() => {})
-        const orderPromise = ordersAPI.stats().then((r:any) => setStats(r.data)).catch(() => setStats(null))
+        metadataAPI
+          .getAll()
+          .then((r: any) => {
+            const metadata = r?.metadata || r?.data?.metadata || {}
+            const labels = (metadata.orderStatuses || []).reduce((acc: Record<string, string>, item: any) => {
+              acc[item.key] = item.label || item.key
+              return acc
+            }, {})
+            setStatusLabels(labels)
+          })
+          .catch(() => {
+            toast.error('Failed to load dashboard metadata')
+          })
+
+        const orderPromise = ordersAPI.stats().then((r: any) => setStats(r.data)).catch(() => {
+          toast.error('Failed to load order dashboard summary')
+          setStats(null)
+        })
+
         const ironPromise = (async () => {
           try {
             const all = await ironAPI.listSubscriptions()
-            const subscriptions = all?.data?.subscriptions || []
+            const subscriptions = asArray(all?.data, ['subscriptions', 'items'])
             const active = subscriptions.filter((sub: any) => sub.applicationStatus === 'ACTIVE')
             const pending = subscriptions.filter((sub: any) => sub.applicationStatus === 'PENDING_REVIEW')
             const today = new Date().toISOString().slice(0, 10)
 
             const [logResponses, billResponses] = await Promise.all([
-              Promise.all(active.map((sub: any) => ironAPI.getLogsByPeriod(sub.customerId, today, today).catch(() => ({ data: { totals: { pieces: 0 } } })))),
+              Promise.all(
+                active.map((sub: any) =>
+                  ironAPI.getLogsByPeriod(sub.customerId, today, today).catch(() => ({ data: { totals: { pieces: 0 } } }))
+                )
+              ),
               Promise.all(active.map((sub: any) => ironAPI.getBills(sub.customerId).catch(() => ({ data: { bills: [] } })))),
             ])
 
@@ -44,6 +229,7 @@ export default function DashboardPage() {
 
             setIronSummary({ active: active.length, pending: pending.length, piecesToday, billsPending })
           } catch {
+            toast.error('Failed to load Daily Iron dashboard summary')
             setIronSummary(null)
           }
         })()
@@ -53,113 +239,485 @@ export default function DashboardPage() {
         setLoading(false)
       }
     }
+
     load()
   }, [])
 
-  const fmt = (n: number) => `₹${(n||0).toLocaleString('en-IN')}`
-  const card = (Icon:any,label:string,value:any,sub:string,color='#023c62') => (
-    <div className="crm-card-hover" style={{background:'#fff',borderRadius:20,padding:'22px 24px',border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)',flex:1,minWidth:0}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-        <Icon size={24} color={color} />
-        <span style={{fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.08em'}}>{label}</span>
-      </div>
-      <div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:32,color,lineHeight:1}}>{loading?'—':value}</div>
-      <div style={{fontSize:12,color:'#9dafc8',marginTop:6}}>{sub}</div>
-    </div>
+  const todayDate = useMemo(
+    () => new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+    []
   )
 
+  const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN')}`
+  const recentOrders = stats?.recentOrders || []
+  const deliveredToday = stats?.today?.delivered || 0
+  const totalToday = stats?.today?.orders || 0
+  const pendingOrders = stats?.active?.pending || 0
+  const readyOrders = stats?.active?.ready || 0
+  const activeSubscribers = ironSummary?.active || 0
+  const pendingApplications = ironSummary?.pending || 0
+  const billsPending = ironSummary?.billsPending || 0
+
+  const workflowHealth = [
+    {
+      label: 'Orders In Queue',
+      value: pendingOrders,
+      helper: 'Orders waiting across pickup and plant flow',
+      tone: 'amber' as const,
+    },
+    {
+      label: 'Ready For Delivery',
+      value: readyOrders,
+      helper: 'Orders available for routing and dispatch',
+      tone: 'green' as const,
+    },
+    {
+      label: 'Delivered Today',
+      value: deliveredToday,
+      helper: totalToday ? `${Math.round((deliveredToday / totalToday) * 100)}% of today's orders completed` : 'No completed orders yet today',
+      tone: 'blue' as const,
+    },
+  ]
+
+  const attentionRows = [
+    {
+      label: 'Ready orders needing dispatch',
+      value: readyOrders,
+      href: '/dashboard/orders?status=READY_FOR_DELIVERY',
+      tone: 'green' as const,
+    },
+    {
+      label: 'Daily Iron bills pending',
+      value: billsPending,
+      href: '/dashboard/finance',
+      tone: 'violet' as const,
+    },
+    {
+      label: 'Daily Iron applications pending',
+      value: pendingApplications,
+      href: '/dashboard/iron/applications',
+      tone: 'amber' as const,
+    },
+  ]
+
   return (
-    <div style={{padding:'32px 36px',maxWidth:1300,margin:'0 auto'}}>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:32}}>
-        <div>
-          <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:28,color:'#023c62',margin:'0 0 4px'}}>Dashboard</h1>
-          <p style={{fontSize:14,color:'#6b7fa3',margin:0}}>{new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p>
-        </div>
-        <Link href="/dashboard/orders/new" className="crm-card-hover" style={{display:'inline-flex',alignItems:'center',gap:8,background:'#023c62',color:'#fff',textDecoration:'none',padding:'12px 22px',borderRadius:12,fontWeight:700,fontFamily:"var(--crm-font-ui)",fontSize:14}}>
-          <Plus size={16} /> New Order
-        </Link>
-      </div>
-
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16,marginBottom:24}}>
-        {card(ClipboardList,"Today's Orders",stats?.today?.orders??0,'Total orders today')}
-        {card(Clock3,'Active Orders',stats?.active?.pending??0,'Pending & processing','#b35a00')}
-        {card(CheckCircle2,'Ready to Deliver',stats?.active?.ready??0,'Awaiting pickup','#0d7a4e')}
-        {card(IndianRupee,"Today's Revenue",fmt(stats?.today?.revenue),'From delivered orders')}
-      </div>
-
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:32}}>
-        <div style={{background:'linear-gradient(135deg,#023c62,#035a8f)',borderRadius:20,padding:'24px',color:'#fff'}}>
-          <div style={{fontSize:11,color:'rgba(184,208,232,0.7)',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase' as const,marginBottom:10}}>All-Time Revenue</div>
-          <div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:36,marginBottom:4}}>{loading?'—':fmt(stats?.allTime?.revenue)}</div>
-          <div style={{fontSize:13,color:'rgba(184,208,232,0.6)'}}>Total from all delivered orders</div>
-        </div>
-        <div style={{background:'#fff',borderRadius:20,padding:'24px',border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
-          <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase' as const,marginBottom:12}}>Quick Actions</div>
-          {[
-            {href:'/dashboard/orders/new',Icon:PackagePlus,l:'Create Walk-in Order'},
-            {href:'/dashboard/orders?status=READY_FOR_DELIVERY',Icon:Truck,l:'View Ready Orders'},
-            {href:'/dashboard/customers',Icon:Users,l:'Customer Directory'}
-          ].map(a=>(
-            <Link key={a.href} href={a.href} className="crm-card-hover" style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:10,background:'#f7f9fc',border:'1px solid #e8f0f7',textDecoration:'none',color:'#023c62',fontSize:14,fontWeight:500,marginBottom:8}}>
-              <a.Icon size={16} />
-              {a.l}
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      <div style={{background:'#fff',borderRadius:20,padding:'24px',border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)',marginBottom:32}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+    <div style={{ padding: '30px 34px', maxWidth: 1380, margin: '0 auto' }}>
+      <section
+        style={{
+          background: 'linear-gradient(135deg,#022f50 0%,#035a8f 52%,#0a7496 100%)',
+          borderRadius: 30,
+          padding: '28px 30px',
+          color: '#fff',
+          boxShadow: '0 22px 52px rgba(2,60,98,0.18)',
+          marginBottom: 22,
+        }}
+      >
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0,1.4fr) minmax(320px,0.9fr)',
+            gap: 20,
+            alignItems: 'stretch',
+          }}
+        >
           <div>
-            <h2 style={{fontFamily:"var(--crm-font-display)",fontWeight:700,fontSize:18,color:'#023c62',margin:'0 0 4px'}}>Daily Iron Snapshot</h2>
-            <p style={{fontSize:13,color:'#6b7fa3',margin:0}}>Fast view of the subscription pipeline and today&apos;s logged pieces.</p>
-          </div>
-          <Link href="/dashboard/iron/logs" style={{fontSize:13,color:'#035a8f',fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>Open logs <ArrowRight size={14} /></Link>
-        </div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
-          {[
-            { label:'Active Subscribers', value: ironSummary?.active ?? '—', color:'#023c62' },
-            { label:'Pending Applications', value: ironSummary?.pending ?? '—', color:'#b35a00' },
-            { label:'Pieces Today', value: ironSummary?.piecesToday ?? '—', color:'#166534' },
-            { label:'Bills Pending', value: ironSummary?.billsPending ?? '—', color:'#6d28d9' },
-          ].map((item) => (
-            <div key={item.label} style={{background:'#f8fafc',border:'1px solid #eef4f8',borderRadius:14,padding:'16px 18px'}}>
-              <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,textTransform:'uppercase' as const,letterSpacing:'0.06em',marginBottom:6}}>{item.label}</div>
-              <div style={{fontFamily:"var(--crm-font-ui)",fontSize:28,fontWeight:800,color:item.color}}>{loading ? '—' : item.value}</div>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                background: 'rgba(255,255,255,0.14)',
+                border: '1px solid rgba(255,255,255,0.16)',
+                borderRadius: 999,
+                padding: '7px 12px',
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                marginBottom: 16,
+              }}
+            >
+              <ClipboardList size={14} />
+              Operations Snapshot
             </div>
-          ))}
-        </div>
-      </div>
+            <h1
+              style={{
+                fontFamily: 'var(--crm-font-display)',
+                fontWeight: 800,
+                fontSize: 34,
+                lineHeight: 1.05,
+                margin: '0 0 8px',
+              }}
+            >
+              Clear view of today’s orders, dispatch load, and collections.
+            </h1>
+            <p style={{ margin: '0 0 20px', fontSize: 14, color: 'rgba(230,241,250,0.78)', maxWidth: 660, lineHeight: 1.6 }}>
+              Designed for fast operational scanning: revenue, queue pressure, delivery readiness, and Daily Iron movement in one place.
+            </p>
 
-      <div style={{background:'#fff',borderRadius:20,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)',overflow:'hidden'}}>
-        <div style={{padding:'20px 24px',borderBottom:'1px solid #e8f0f7',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-          <h2 style={{fontFamily:"var(--crm-font-display)",fontWeight:700,fontSize:18,color:'#023c62',margin:0}}>Recent Orders</h2>
-          <Link href="/dashboard/orders" style={{fontSize:13,color:'#035a8f',fontWeight:500,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>View all <ArrowRight size={14} /></Link>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12 }}>
+              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 18, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.12)' }}>
+                <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.66)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Today&apos;s Orders</div>
+                <div style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 30, fontWeight: 800 }}>{loading ? '—' : totalToday}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 18, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.12)' }}>
+                <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.66)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Today&apos;s Revenue</div>
+                <div style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 30, fontWeight: 800 }}>{loading ? '—' : fmt(stats?.today?.revenue)}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 18, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.12)' }}>
+                <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.66)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>All-Time Revenue</div>
+                <div style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 30, fontWeight: 800 }}>{loading ? '—' : fmt(stats?.allTime?.revenue)}</div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: 'rgba(255,255,255,0.1)',
+              borderRadius: 24,
+              border: '1px solid rgba(255,255,255,0.14)',
+              padding: '22px 22px 18px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(230,241,250,0.66)', marginBottom: 8 }}>
+                Today
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 6 }}>{todayDate}</div>
+              <div style={{ fontSize: 13, color: 'rgba(230,241,250,0.72)', lineHeight: 1.55 }}>
+                Use the dashboard to identify queue pressure first, then move into customer, order, finance, or plant actions.
+              </div>
+            </div>
+
+            <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
+              {attentionRows.map((row) => (
+                <Link
+                  key={row.label}
+                  href={row.href}
+                  style={{
+                    textDecoration: 'none',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    padding: '12px 14px',
+                    borderRadius: 16,
+                    background: 'rgba(255,255,255,0.08)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{row.label}</div>
+                    <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.64)' }}>Open the relevant work queue</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span
+                      style={{
+                        minWidth: 34,
+                        height: 34,
+                        padding: '0 10px',
+                        borderRadius: 999,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: TONE[row.tone].soft,
+                        color: TONE[row.tone].color,
+                        fontWeight: 800,
+                        fontSize: 14,
+                      }}
+                    >
+                      {loading ? '—' : row.value}
+                    </span>
+                    <ChevronRight size={16} />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
         </div>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead><tr style={{background:'#f7f9fc'}}>
-            {['Order #','Customer','Status','Amount','Date'].map(h=>(
-              <th key={h} style={{padding:'11px 20px',textAlign:'left',fontSize:11,fontWeight:600,color:'#6b7fa3',letterSpacing:'0.08em',textTransform:'uppercase' as const,borderBottom:'1px solid #e8f0f7'}}>{h}</th>
+      </section>
+
+      <section
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4,minmax(0,1fr))',
+          gap: 14,
+          marginBottom: 22,
+        }}
+      >
+        <StatCard icon={ClipboardList} label="Today's Orders" value={loading ? '—' : totalToday} note="Total orders created today across channels" tone="blue" />
+        <StatCard icon={Clock3} label="Queue Load" value={loading ? '—' : pendingOrders} note="Pending and in-process orders needing movement" tone="amber" />
+        <StatCard icon={Truck} label="Ready To Dispatch" value={loading ? '—' : readyOrders} note="Orders cleaned and ready for delivery assignment" tone="green" />
+        <StatCard icon={IndianRupee} label="Collections Today" value={loading ? '—' : fmt(stats?.today?.revenue)} note="Actual payments recorded today" tone="violet" />
+      </section>
+
+      <section
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(300px,0.95fr) minmax(0,1.35fr)',
+          gap: 18,
+          marginBottom: 22,
+        }}
+      >
+        <SectionCard title="Quick Actions" subtitle="Common operational jumps without browsing through the full nav.">
+          <div style={{ display: 'grid', gap: 10 }}>
+            {[
+              {
+                href: '/dashboard/orders/new',
+                icon: PackagePlus,
+                title: 'Create Walk-in Order',
+                note: 'Use for counter-created bookings and same-visit orders',
+              },
+              {
+                href: '/dashboard/orders?status=READY_FOR_DELIVERY',
+                icon: Truck,
+                title: 'Open Ready Orders',
+                note: 'Review delivery-ready work and move it to dispatch',
+              },
+              {
+                href: '/dashboard/customers',
+                icon: Users,
+                title: 'Open Customer Directory',
+                note: 'Search profiles, address history, and repeat activity',
+              },
+              {
+                href: '/dashboard/finance',
+                icon: Receipt,
+                title: 'Review Finance',
+                note: 'Check collections, balances, and open receivables',
+              },
+            ].map((action) => (
+              <Link
+                key={action.href}
+                href={action.href}
+                className="crm-card-hover"
+                style={{
+                  textDecoration: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '14px 16px',
+                  borderRadius: 18,
+                  background: '#f7fafc',
+                  border: '1px solid #e6eef5',
+                  color: '#142033',
+                }}
+              >
+                <span
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 14,
+                    background: '#e8f0f7',
+                    color: '#023c62',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <action.icon size={18} />
+                </span>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ display: 'block', fontSize: 14, fontWeight: 800, marginBottom: 3 }}>{action.title}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: '#6b7fa3', lineHeight: 1.45 }}>{action.note}</span>
+                </span>
+                <ArrowRight size={15} color="#6b7fa3" />
+              </Link>
             ))}
-          </tr></thead>
-          <tbody>
-            {loading ? <tr><td colSpan={5} style={{padding:40,textAlign:'center',color:'#9dafc8'}}>Loading...</td></tr>
-            : !stats?.recentOrders?.length ? <tr><td colSpan={5} style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No orders yet. <Link href="/dashboard/orders/new" style={{color:'#023c62'}}>Create the first one</Link></td></tr>
-            : stats.recentOrders.map((o:any)=>(
-              <tr key={o.id} style={{borderBottom:'1px solid #f0f4f8',cursor:'pointer'}} onClick={()=>window.location.href=`/dashboard/orders/${o.id}`}>
-                <td style={{padding:'13px 20px',fontFamily:"var(--crm-font-mono)",fontSize:13,fontWeight:500,color:'#023c62'}}>{o.orderNumber}</td>
-                <td style={{padding:'13px 20px'}}>
-                  <div style={{fontSize:14,fontWeight:500,color:'#1a2332'}}>{o.customer?.name||'—'}</div>
-                  <div style={{fontSize:12,color:'#9dafc8'}}>+91 {o.customer?.phone}</div>
-                </td>
-                <td style={{padding:'13px 20px'}}><span className={`status-badge status-${o.status}`}>{statusLabels[o.status] || o.status}</span></td>
-                <td style={{padding:'13px 20px',fontWeight:600,color:'#023c62',fontSize:14}}>₹{o.totalAmount?.toLocaleString('en-IN')}</td>
-                <td style={{padding:'13px 20px',fontSize:13,color:'#6b7fa3'}}>{format(new Date(o.createdAt),'dd MMM, h:mm a')}</td>
-              </tr>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Workflow Health" subtitle="The main operational pressure points to scan before opening individual queues.">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
+            {workflowHealth.map((item) => (
+              <div
+                key={item.label}
+                style={{
+                  borderRadius: 20,
+                  border: `1px solid ${TONE[item.tone].border}`,
+                  background: TONE[item.tone].soft,
+                  padding: '16px 18px',
+                }}
+              >
+                <div style={{ fontSize: 11, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>{item.label}</div>
+                <div style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 30, color: TONE[item.tone].color, lineHeight: 1 }}>
+                  {loading ? '—' : item.value}
+                </div>
+                <div style={{ fontSize: 12, color: '#59708f', marginTop: 8, lineHeight: 1.5 }}>{item.helper}</div>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+
+          <div
+            style={{
+              borderRadius: 20,
+              border: '1px solid #e6eef5',
+              background: '#fbfdff',
+              padding: '18px 20px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#023c62' }}>Operational cues</div>
+              <span style={{ fontSize: 12, color: '#8ba0bb' }}>Based on current summary data</span>
+            </div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {[
+                readyOrders > 0
+                  ? `${readyOrders} orders are waiting for delivery planning.`
+                  : 'No ready-for-delivery bottleneck right now.',
+                pendingOrders > readyOrders
+                  ? 'Processing load is higher than dispatch load; plant throughput should be watched.'
+                  : 'Dispatch load is keeping pace with the processing queue.',
+                totalToday > 0
+                  ? `${deliveredToday} of ${totalToday} today’s orders are already completed.`
+                  : 'No orders have been created today yet.',
+              ].map((line) => (
+                <div
+                  key={line}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                    fontSize: 13,
+                    color: '#3f5876',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: 999, background: '#6ea8cc', marginTop: 6, flexShrink: 0 }} />
+                  <span>{loading ? 'Loading dashboard insight…' : line}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </SectionCard>
+      </section>
+
+      <section style={{ marginBottom: 22 }}>
+        <SectionCard
+          title="Daily Iron"
+          subtitle="Applications, active subscribers, pieces logged today, and unpaid bill pressure."
+          actionHref="/dashboard/iron/logs"
+          actionLabel="Open logs"
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12 }}>
+            {[
+              { label: 'Active Subscribers', value: activeSubscribers, tone: 'blue' as const, icon: Users },
+              { label: 'Pending Applications', value: pendingApplications, tone: 'amber' as const, icon: Clock3 },
+              { label: 'Pieces Today', value: ironSummary?.piecesToday || 0, tone: 'green' as const, icon: Shirt },
+              { label: 'Bills Pending', value: billsPending, tone: 'violet' as const, icon: Receipt },
+            ].map((item) => (
+              <div
+                key={item.label}
+                style={{
+                  borderRadius: 20,
+                  border: `1px solid ${TONE[item.tone].border}`,
+                  background: '#fff',
+                  padding: '18px 18px 16px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <span style={{ fontSize: 11, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{item.label}</span>
+                  <span
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 12,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: TONE[item.tone].soft,
+                      color: TONE[item.tone].color,
+                    }}
+                  >
+                    <item.icon size={17} />
+                  </span>
+                </div>
+                <div style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 30, color: '#142033', lineHeight: 1 }}>
+                  {loading ? '—' : item.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </section>
+
+      <section>
+        <SectionCard title="Recent Orders" subtitle="Latest activity for fast drill-down into live customer work." actionHref="/dashboard/orders" actionLabel="View all orders">
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+              <thead>
+                <tr style={{ background: '#f7fafc' }}>
+                  {['Order #', 'Customer', 'Status', 'Amount', 'Date'].map((heading) => (
+                    <th
+                      key={heading}
+                      style={{
+                        padding: '12px 18px',
+                        textAlign: 'left',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: '#6b7fa3',
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        borderBottom: '1px solid #e8f0f7',
+                      }}
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 42, textAlign: 'center', color: '#9dafc8' }}>
+                      Loading dashboard orders…
+                    </td>
+                  </tr>
+                ) : !recentOrders.length ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 42, textAlign: 'center', color: '#9dafc8' }}>
+                      No orders yet. <Link href="/dashboard/orders/new" style={{ color: '#023c62' }}>Create the first one</Link>
+                    </td>
+                  </tr>
+                ) : (
+                  recentOrders.map((order: any) => (
+                    <tr
+                      key={order.id}
+                      className="crm-table-row"
+                      style={{ borderBottom: '1px solid #eef4f8', cursor: 'pointer' }}
+                      onClick={() => {
+                        window.location.href = `/dashboard/orders/${order.id}`
+                      }}
+                    >
+                      <td style={{ padding: '14px 18px', fontFamily: 'var(--crm-font-mono)', fontSize: 13, fontWeight: 600, color: '#023c62' }}>
+                        {order.orderNumber}
+                      </td>
+                      <td style={{ padding: '14px 18px' }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#162235', marginBottom: 2 }}>{order.customer?.name || '—'}</div>
+                        <div style={{ fontSize: 12, color: '#8da2bc' }}>+91 {order.customer?.phone}</div>
+                      </td>
+                      <td style={{ padding: '14px 18px' }}>
+                        <span className={`status-badge status-${order.status}`}>{statusLabels[order.status] || order.status}</span>
+                      </td>
+                      <td style={{ padding: '14px 18px', fontSize: 14, fontWeight: 700, color: '#023c62' }}>
+                        ₹{order.totalAmount?.toLocaleString('en-IN')}
+                      </td>
+                      <td style={{ padding: '14px 18px', fontSize: 13, color: '#6b7fa3' }}>
+                        {format(new Date(order.createdAt), 'dd MMM, h:mm a')}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      </section>
     </div>
   )
 }

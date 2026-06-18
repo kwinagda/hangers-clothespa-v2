@@ -7,17 +7,13 @@ import { Feather } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../utils/theme';
 import { metadataAPI, plantAPI } from '../../services/api';
 
-const STATUS_COLOR: Record<string, string> = {
-  PROCESSING: '#7c3aed', WASHING: '#0891b2', DRYING: '#f59e0b',
-  IRONING: '#d97706', QC: '#059669', READY_FOR_DELIVERY: '#16a34a',
-  PICKED_UP: '#0284c7', PENDING: '#6b7fa3',
-};
-
 export default function PlantOrdersList({ route, navigation }: any) {
   const initialFilter = route.params?.filterStatus || '';
   const [statusFilters, setStatusFilters] = useState<Array<{ key: string; label: string }>>([{ key: '', label: 'All' }]);
   const [statusLabels, setStatusLabels] = useState<Record<string, string>>({});
+  const [statusStyles, setStatusStyles] = useState<Record<string, { bg: string; text: string }>>({});
   const [orders,     setOrders]     = useState<any[]>([]);
+  const [loadError,  setLoadError]  = useState('');
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter,     setFilter]     = useState(initialFilter);
@@ -27,7 +23,11 @@ export default function PlantOrdersList({ route, navigation }: any) {
     try {
       const r: any = await plantAPI.orders({ status: status || undefined, limit: 100 });
       setOrders(r.data?.orders || []);
-    } catch {} finally { setLoading(false); setRefreshing(false); }
+      setLoadError('');
+    } catch (e: any) {
+      setOrders([]);
+      setLoadError(e?.message || 'Could not load plant orders.');
+    } finally { setLoading(false); setRefreshing(false); }
   }, [filter]);
 
   useEffect(() => { load(filter); }, [filter]);
@@ -40,8 +40,14 @@ export default function PlantOrdersList({ route, navigation }: any) {
           .map((item: any) => ({ key: item.key, label: item.plantLabel || item.label }));
         setStatusFilters([{ key: '', label: 'All' }, ...filters]);
         setStatusLabels(Object.fromEntries((metadata.orderStatuses || []).map((item: any) => [item.key, item.plantLabel || item.label])));
+        setStatusStyles(Object.fromEntries((metadata.orderStatuses || []).map((item: any) => [item.key, {
+          bg: item.bg || '#eef4f8',
+          text: item.color || '#6b7fa3',
+        }])));
       })
-      .catch(() => {});
+      .catch(() => {
+        setStatusFilters([{ key: '', label: 'All' }]);
+      });
   }, []);
 
   const handleFilterChange = (key: string) => {
@@ -62,6 +68,19 @@ export default function PlantOrdersList({ route, navigation }: any) {
       <ActivityIndicator size="large" color="#fff" />
     </View>
   );
+
+  if (loadError && !orders.length) {
+    return (
+      <View style={styles.errorWrap}>
+        <Feather name="alert-circle" size={38} color={Colors.error} />
+        <Text style={styles.errorTitle}>Orders unavailable</Text>
+        <Text style={styles.errorBody}>{loadError}</Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={() => { setLoading(true); load(filter); }}>
+          <Text style={styles.retryBtnText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -118,15 +137,17 @@ export default function PlantOrdersList({ route, navigation }: any) {
             <Text style={styles.emptyText}>No orders found</Text>
           </View>
         }
-        renderItem={({ item }) => (
+        renderItem={({ item }) => {
+          const statusStyle = statusStyles[item.status] || { bg: '#eef4f8', text: '#6b7fa3' }
+          return (
           <TouchableOpacity
             style={styles.card}
             onPress={() => navigation.navigate('PlantOrderDetail', { orderId: item.id })}
           >
             <View style={styles.cardTop}>
               <Text style={styles.orderNum}>{item.orderNumber}</Text>
-              <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLOR[item.status] || '#6b7fa3') + '20' }]}>
-                <Text style={[styles.statusText, { color: STATUS_COLOR[item.status] || '#6b7fa3' }]}>
+              <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+                <Text style={[styles.statusText, { color: statusStyle.text }]}>
                   {statusLabels[item.status] || item.status}
                 </Text>
               </View>
@@ -140,7 +161,8 @@ export default function PlantOrdersList({ route, navigation }: any) {
               </Text>
             </View>
           </TouchableOpacity>
-        )}
+          )
+        }}
       />
     </View>
   );
@@ -148,6 +170,11 @@ export default function PlantOrdersList({ route, navigation }: any) {
 
 const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: Colors.offWhite },
+  errorWrap:    { flex:1, alignItems:'center', justifyContent:'center', padding:24, backgroundColor:Colors.offWhite },
+  errorTitle:   { fontSize:18, fontWeight:'800', color:Colors.textDark, marginTop:12, marginBottom:6 },
+  errorBody:    { fontSize:14, color:Colors.textMuted, textAlign:'center', marginBottom:16 },
+  retryBtn:     { backgroundColor:Colors.plant, borderRadius:12, paddingHorizontal:18, paddingVertical:12 },
+  retryBtnText: { color:'#fff', fontSize:14, fontWeight:'700' },
   header:       { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.plant, paddingTop: Platform.OS === 'ios' ? 52 : 22, paddingHorizontal: Spacing.lg, paddingBottom: 16 },
   backBtn:      { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   backText:     { color: '#fff', fontSize: 22 },

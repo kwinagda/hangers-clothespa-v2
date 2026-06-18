@@ -270,13 +270,18 @@ async function main() {
 
   // ── Admin user (skip if exists) ────────────────────────────────────────────
   const bcrypt = require('bcryptjs');
-  const existing = await prisma.staff.findUnique({ where: { email: 'admin@hangers.in' } });
+  const defaultAdminEmail = process.env.DEFAULT_ADMIN_EMAIL || 'admin@hangers.in';
+  const defaultAdminPassword = process.env.DEFAULT_ADMIN_PASSWORD;
+  const existing = await prisma.staff.findUnique({ where: { email: defaultAdminEmail } });
   if (!existing) {
+    if (!defaultAdminPassword) {
+      throw new Error('DEFAULT_ADMIN_PASSWORD must be set before seeding a default admin user');
+    }
     await prisma.staff.create({
       data: {
         name:     'Super Admin',
-        email:    'admin@hangers.in',
-        passwordHash: await bcrypt.hash('Hangers@2025', 10),
+        email:    defaultAdminEmail,
+        passwordHash: await bcrypt.hash(defaultAdminPassword, 10),
         role:     'SUPER_ADMIN',
         isActive: true,
         phone:    '7977417014'
@@ -304,8 +309,8 @@ async function main() {
   console.log('🎉 Seed complete!');
   console.log('─────────────────────────────────────────');
   console.log('Next steps:');
-  console.log('1. Login to CRM with admin@hangers.in');
-  console.log('2. Change the default password immediately');
+  console.log(`1. Login to CRM with ${defaultAdminEmail}`);
+  console.log('2. Change the seeded admin password immediately');
   console.log('3. Create your real staff accounts from the CRM');
   console.log('─────────────────────────────────────────');
 }

@@ -3,6 +3,13 @@ import { useEffect, useState } from 'react'
 import { attendanceAPI, staffListAPI } from '@/lib/api'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
 export default function AttendancePage() {
   const [records,setRecords] = useState<any[]>([])
   const [staff,setStaff] = useState<any[]>([])
@@ -13,11 +20,11 @@ export default function AttendancePage() {
   const [loading,setLoading] = useState(false)
   const [page,setPage] = useState(1)
   const [pageSize,setPageSize] = useState(20)
-  useEffect(()=>{ staffListAPI.getAll().then((r:any)=>setStaff(r.data?.staff||r.data||[])) },[])
+  useEffect(()=>{ staffListAPI.getAll().then((r:any)=>setStaff(asArray(r.data, ['staff', 'items']))).catch(()=>setStaff([])) },[])
   const load = () => {
     const params:any = {month,year}
     if(selectedStaff) params.staffId = selectedStaff
-    attendanceAPI.get(params).then((r:any)=>setRecords(r.data||[]))
+    attendanceAPI.get(params).then((r:any)=>setRecords(asArray(r.data, ['records', 'attendance', 'items']))).catch(()=>setRecords([]))
   }
   useEffect(()=>{ load() },[month,year,selectedStaff])
   useEffect(()=>{ setPage(1) },[month,year,selectedStaff,pageSize])

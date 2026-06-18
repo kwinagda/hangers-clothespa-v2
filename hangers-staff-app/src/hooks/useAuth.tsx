@@ -67,7 +67,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    try { await authAPI.logout(); } catch {}
+    try {
+      await authAPI.logout();
+    } catch (error) {
+      console.warn('Staff logout request failed; clearing local session anyway', error);
+    }
     await clearToken();
     setStaff(null);
     setAppType(null);

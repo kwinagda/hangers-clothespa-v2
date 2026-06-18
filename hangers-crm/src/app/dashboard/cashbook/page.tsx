@@ -2,6 +2,13 @@
 import { useEffect, useState } from 'react'
 import { cashBookAPI } from '@/lib/api'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
 
 const TYPE_STYLE: Record<string, { bg: string, color: string }> = {
   IN:    { bg: '#dcfce7', color: '#166534' },
@@ -22,7 +29,7 @@ export default function CashBookPage() {
 
   const load = () => {
     cashBookAPI.get(date).then((r: any) => {
-      setEntries(r.data?.entries || [])
+      setEntries(asArray(r.data, ['entries', 'items']))
       setSummary({ totalIn: r.data?.totalIn || 0, totalOut: r.data?.totalOut || 0, balance: r.data?.balance || 0 })
     })
   }

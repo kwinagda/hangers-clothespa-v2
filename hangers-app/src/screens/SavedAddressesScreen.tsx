@@ -23,6 +23,7 @@ const LABEL_ICON: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> =
 export default function SavedAddressesScreen({ navigation }: any) {
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
   const [loading,   setLoading]   = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [adding,    setAdding]    = useState(false);      // show add form
   const [editId,    setEditId]    = useState<string|null>(null); // which card is editing
 
@@ -38,10 +39,14 @@ export default function SavedAddressesScreen({ navigation }: any) {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const r: any = await addressAPI.getAll();
       setAddresses(r?.addresses || []);
-    } catch { setAddresses([]); }
+    } catch (e: any) {
+      setAddresses([]);
+      setLoadError(e?.message || 'Could not load saved addresses.');
+    }
     finally { setLoading(false); }
   }, []);
 
@@ -58,7 +63,13 @@ export default function SavedAddressesScreen({ navigation }: any) {
           setEditLabel((prev) => labels.some((item: any) => item.value === prev) ? prev : labels[0].value);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        setLabelOptions([
+          { value: 'Home', label: 'Home' },
+          { value: 'Work', label: 'Work' },
+          { value: 'Other', label: 'Other' },
+        ]);
+      });
   }, []);
 
   const saveNew = async () => {
@@ -178,8 +189,19 @@ export default function SavedAddressesScreen({ navigation }: any) {
           </View>
         )}
 
+        {!loading && !!loadError && (
+          <View style={styles.emptyBox}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={56} color={Colors.primary} style={styles.emptyIcon} />
+            <Text style={styles.emptyTitle}>Could not load addresses</Text>
+            <Text style={styles.emptySub}>{loadError}</Text>
+            <AnimatedButton onPress={load} style={styles.emptyBtn}>
+              <Text style={styles.emptyBtnText}>Retry</Text>
+            </AnimatedButton>
+          </View>
+        )}
+
         {/* ── Empty state ───────────────────────────────────────────────── */}
-        {!loading && addresses.length === 0 && !adding && (
+        {!loading && !loadError && addresses.length === 0 && !adding && (
           <View style={styles.emptyBox}>
             <MaterialCommunityIcons name="map-marker-outline" size={56} color={Colors.primary} style={styles.emptyIcon} />
             <Text style={styles.emptyTitle}>No saved addresses yet</Text>
@@ -191,7 +213,7 @@ export default function SavedAddressesScreen({ navigation }: any) {
         )}
 
         {/* ── Address cards ─────────────────────────────────────────────── */}
-        {!loading && addresses.map((addr, idx) => {
+        {!loading && !loadError && addresses.map((addr, idx) => {
           const isEditing = editId === addr.id;
           return (
             <View key={addr.id} style={[styles.addrCard, addr.isDefault && styles.addrCardDefault]}>

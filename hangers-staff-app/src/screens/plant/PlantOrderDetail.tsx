@@ -14,6 +14,7 @@ try { QRCode = require('react-native-qrcode-svg').default; } catch { /* not inst
 export default function PlantOrderDetail({ route, navigation }: any) {
   const { orderId } = route.params || {};
   const [order,     setOrder]     = useState<any>(null);
+  const [loadError, setLoadError] = useState('');
   const [stageFlow, setStageFlow] = useState<any[]>([]);
   const [plantStages, setPlantStages] = useState<string[]>([]);
   const [issueTypes, setIssueTypes] = useState<any[]>([]);
@@ -33,7 +34,11 @@ export default function PlantOrderDetail({ route, navigation }: any) {
     try {
       const r: any = await plantAPI.order(orderId);
       setOrder(r.data?.order);
-    } catch {} finally { setLoading(false); setRefreshing(false); }
+      setLoadError('');
+    } catch (e: any) {
+      setOrder(null);
+      setLoadError(e?.message || 'Could not load this order right now.');
+    } finally { setLoading(false); setRefreshing(false); }
   }, [orderId]);
 
   useEffect(() => { load(); }, [load]);
@@ -58,7 +63,11 @@ export default function PlantOrderDetail({ route, navigation }: any) {
           icon: item.icon || 'note-text-outline',
         })));
       }
-    }).catch(() => {});
+    }).catch(() => {
+      setStageFlow([]);
+      setPlantStages([]);
+      setIssueTypes([]);
+    });
   }, []);
 
   const handleSetStage = async () => {
@@ -92,6 +101,17 @@ export default function PlantOrderDetail({ route, navigation }: any) {
   if (loading) return (
     <View style={{ flex:1, backgroundColor: Colors.plant, justifyContent:'center', alignItems:'center' }}>
       <ActivityIndicator size="large" color="#fff" />
+    </View>
+  );
+
+  if (!order) return (
+    <View style={styles.errorWrap}>
+      <MaterialCommunityIcons name="alert-circle-outline" size={42} color={Colors.error} />
+      <Text style={styles.errorTitle}>Could not load order</Text>
+      <Text style={styles.errorBody}>{loadError || 'Please try again.'}</Text>
+      <TouchableOpacity style={styles.retryBtn} onPress={() => { setLoading(true); load(); }}>
+        <Text style={styles.retryBtnText}>Retry</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -344,6 +364,11 @@ export default function PlantOrderDetail({ route, navigation }: any) {
 
 const styles = StyleSheet.create({
   container:         { flex: 1, backgroundColor: Colors.offWhite },
+  errorWrap:         { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: Colors.offWhite },
+  errorTitle:        { fontSize: 18, fontWeight: '800', color: Colors.textDark, marginTop: 12, marginBottom: 6 },
+  errorBody:         { fontSize: 14, color: Colors.textMuted, textAlign: 'center', marginBottom: 16 },
+  retryBtn:          { backgroundColor: Colors.plant, borderRadius: 12, paddingHorizontal: 18, paddingVertical: 12 },
+  retryBtnText:      { color: '#fff', fontSize: 14, fontWeight: '700' },
   header:            { flexDirection:'row', alignItems:'center', justifyContent:'space-between', backgroundColor: Colors.plant, paddingTop: Platform.OS === 'ios' ? 52 : 22, paddingHorizontal: Spacing.lg, paddingBottom: 16 },
   backBtn:           { width:40, height:40, borderRadius:20, backgroundColor:'rgba(255,255,255,0.15)', alignItems:'center', justifyContent:'center' },
   backText:          { color:'#fff', fontSize:22 },

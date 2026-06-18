@@ -1,7 +1,6 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Cookies from 'js-cookie'
 import { AlertCircle, ArrowRight } from 'lucide-react'
 import { authAPI } from '@/lib/api'
 import { LOGO_WHITE_URL } from '@/lib/branding'
@@ -12,29 +11,49 @@ export default function LoginPage() {
   const [pw,      setPw]      = useState('')
   const [err,     setErr]     = useState('')
   const [loading, setLoading] = useState(false)
+  const [checkingSession, setCheckingSession] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    authAPI.me()
+      .then(() => {
+        if (!active) return
+        router.replace('/dashboard')
+      })
+      .catch(() => {
+        if (!active) return
+        setCheckingSession(false)
+      })
+    return () => { active = false }
+  }, [router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true); setErr('')
     try {
-      const res = await authAPI.login(email, pw)
-      Cookies.set('crm_token', res.data.token, { expires: 1 })
-      router.push('/dashboard')
+      await authAPI.login(email, pw)
+      await authAPI.me()
+      router.replace('/dashboard')
     } catch (e: any) { setErr(e.message || 'Invalid credentials') }
     finally { setLoading(false) }
   }
 
   const s = { fontFamily:"var(--crm-font-ui)", minHeight:'100vh', background:'linear-gradient(135deg,#023c62 0%,#035a8f 100%)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }
 
+  if (checkingSession) {
+    return (
+      <div style={s}>
+        <div style={{color:'#fff',fontSize:14,opacity:0.9}}>Checking session...</div>
+      </div>
+    )
+  }
+
   return (
     <div style={s}>
       <div style={{position:'fixed',top:-100,right:-100,width:400,height:400,borderRadius:'50%',background:'rgba(3,90,143,0.4)',pointerEvents:'none'}}/>
       <div style={{width:'100%',maxWidth:420}}>
         <div style={{textAlign:'center',marginBottom:36}}>
-          <div style={{width:72,height:72,borderRadius:20,background:'rgba(255,255,255,0.1)',border:'1px solid rgba(184,208,232,0.2)',display:'inline-flex',alignItems:'center',justifyContent:'center',marginBottom:16}}>
-            <img src={LOGO_WHITE_URL} alt="Hangers logo" style={{width:40,height:40,objectFit:'contain'}} />
-          </div>
           <div style={{display:'flex',justifyContent:'center',marginBottom:6}}>
-            <img src={LOGO_WHITE_URL} alt="Hangers" style={{height:28,width:'auto',objectFit:'contain'}} />
+            <img src={LOGO_WHITE_URL} alt="Hangers" style={{height:42,width:'auto',objectFit:'contain'}} />
           </div>
           <h1 style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:18,color:'#fff',margin:'0 0 4px'}}>CRM</h1>
           <p style={{color:'rgba(184,208,232,0.7)',fontSize:14,margin:0}}>Staff Management Dashboard</p>
@@ -50,7 +69,7 @@ export default function LoginPage() {
           )}
           <form onSubmit={handleLogin}>
             {[
-              {label:'Email',type:'email',val:email,set:setEmail,ph:'admin@hangers.in'},
+              {label:'Email',type:'email',val:email,set:setEmail,ph:'your.staff@company.com'},
               {label:'Password',type:'password',val:pw,set:setPw,ph:'••••••••'},
             ].map(f => (
               <div key={f.label} style={{marginBottom:16}}>
@@ -65,7 +84,7 @@ export default function LoginPage() {
             </button>
           </form>
           <div style={{marginTop:20,padding:'12px 14px',background:'#f7f9fc',borderRadius:10,border:'1px solid #e8f0f7',fontSize:12,color:'#6b7fa3',lineHeight:1.7}}>
-            <strong style={{color:'#023c62'}}>Default admin:</strong><br/>admin@hangers.in · Hangers@2025
+            Use your staff credentials. If you need access, contact the system administrator.
           </div>
         </div>
       </div>

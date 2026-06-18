@@ -3,6 +3,7 @@ import { ChangeEvent, Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CheckCircle2 } from 'lucide-react'
 import { metadataAPI, returnOrderAPI } from '@/lib/api'
+import toast from 'react-hot-toast'
 function ReturnOrderPageContent() {
   const router = useRouter()
   const sp = useSearchParams()
@@ -19,15 +20,26 @@ function ReturnOrderPageContent() {
       const items = r?.metadata?.returnReasons || r?.data?.metadata?.returnReasons || []
       setReasons(items)
       if (items[0]?.value) setReason(items[0].value)
-    }).catch(() => {})
+    }).catch((e:any) => {
+      setReasons([])
+      toast.error(e.message || 'Failed to load return reasons')
+    })
   }, [])
   const submit = async () => {
     if(!orderId){setError('Enter the original order ID');return}
+    if(reason === 'Other' && !custom.trim()){setError('Enter the custom return reason');return}
     setLoading(true); setError('')
-    const r = await returnOrderAPI.create({originalOrderId:orderId,reason:reason==='Other'?custom:reason})
-    if(r.data?.success!==false&&r.data) setSuccess(r.data)
-    else setError(r.data?.message||'Failed to create return order')
-    setLoading(false)
+    try {
+      const r = await returnOrderAPI.create({originalOrderId:orderId.trim(),reason:reason==='Other'?custom.trim():reason})
+      if(r.data?.success!==false&&r.data) {
+        setSuccess(r.data)
+        toast.success('Return order created')
+      } else setError(r.data?.message||'Failed to create return order')
+    } catch (e:any) {
+      setError(e.message || 'Failed to create return order')
+    } finally {
+      setLoading(false)
+    }
   }
   if(success) return (
     <div style={{padding:'60px 36px',maxWidth:480,margin:'0 auto',...s,textAlign:'center'}}>

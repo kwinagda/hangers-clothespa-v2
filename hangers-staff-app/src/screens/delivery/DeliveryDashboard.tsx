@@ -12,7 +12,8 @@ export default function DeliveryDashboard({ navigation }: any) {
   const { staff, logout } = useAuth();
   const [dash,       setDash]       = useState<any>(null);
   const [orders,     setOrders]     = useState<any[]>([]);
-  const [statusMeta, setStatusMeta] = useState<Record<string, { label: string }>>({});
+  const [statusMeta, setStatusMeta] = useState<Record<string, { label: string; bg: string; color: string }>>({});
+  const [loadError,  setLoadError]  = useState('');
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -24,19 +25,30 @@ export default function DeliveryDashboard({ navigation }: any) {
       ]);
       setDash(dashR.data?.dashboard);
       setOrders(ordersR.data?.orders || []);
-    } catch {} finally { setLoading(false); setRefreshing(false); }
+      setLoadError('');
+    } catch (e: any) {
+      setDash(null);
+      setOrders([]);
+      setLoadError(e?.message || 'Could not load delivery dashboard.');
+    } finally { setLoading(false); setRefreshing(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     metadataAPI.getAll().then((response: any) => {
       const metadata = response?.metadata || response?.data?.metadata || {};
-      const labels = (metadata.orderStatuses || []).reduce((acc: Record<string, { label: string }>, item: any) => {
-        acc[item.key] = { label: item.plantLabel || item.label || item.key };
+      const labels = (metadata.orderStatuses || []).reduce((acc: Record<string, { label: string; bg: string; color: string }>, item: any) => {
+        acc[item.key] = {
+          label: item.plantLabel || item.label || item.key,
+          bg: item.bg || Colors.offWhite,
+          color: item.color || Colors.textMuted,
+        };
         return acc;
       }, {});
       setStatusMeta(labels);
-    }).catch(() => {});
+    }).catch(() => {
+      setStatusMeta({});
+    });
   }, []);
 
   if (loading) return (
@@ -44,6 +56,19 @@ export default function DeliveryDashboard({ navigation }: any) {
       <ActivityIndicator size="large" color="#fff" />
     </View>
   );
+
+  if (!dash && !orders.length) {
+    return (
+      <View style={styles.errorWrap}>
+        <MaterialCommunityIcons name="alert-circle-outline" size={42} color={Colors.error} />
+        <Text style={styles.errorTitle}>Dashboard unavailable</Text>
+        <Text style={styles.errorBody}>{loadError || 'Please try again.'}</Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={() => { setLoading(true); load(); }}>
+          <Text style={styles.retryBtnText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -134,14 +159,8 @@ export default function DeliveryDashboard({ navigation }: any) {
   );
 }
 
-function StatusPill({ status, statusMeta }: { status: string; statusMeta: Record<string, { label: string }> }) {
-  const map: Record<string, { label: string; color: string; bg: string }> = {
-    PENDING:           { label: statusMeta.PENDING?.label || 'Pickup', color: Colors.warning, bg: Colors.warningBg },
-    OUT_FOR_DELIVERY:  { label: statusMeta.OUT_FOR_DELIVERY?.label || 'Out', color: Colors.delivery, bg: Colors.deliveryLight },
-    READY_FOR_DELIVERY:{ label: statusMeta.READY_FOR_DELIVERY?.label || 'Ready', color: Colors.success, bg: Colors.successBg },
-    DELIVERED:         { label: statusMeta.DELIVERED?.label || 'Done', color: Colors.success, bg: Colors.successBg },
-  };
-  const s = map[status] || { label: status, color: Colors.textMuted, bg: Colors.offWhite };
+function StatusPill({ status, statusMeta }: { status: string; statusMeta: Record<string, { label: string; bg: string; color: string }> }) {
+  const s = statusMeta[status] || { label: status, color: Colors.textMuted, bg: Colors.offWhite };
   return (
     <View style={{ backgroundColor: s.bg, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 }}>
       <Text style={{ color: s.color, fontWeight: '700', fontSize: 11 }}>{s.label}</Text>
@@ -151,6 +170,11 @@ function StatusPill({ status, statusMeta }: { status: string; statusMeta: Record
 
 const styles = StyleSheet.create({
   container:   { flex: 1, backgroundColor: Colors.offWhite },
+  errorWrap:   { flex:1, alignItems:'center', justifyContent:'center', padding:24, backgroundColor:Colors.offWhite },
+  errorTitle:  { fontSize:18, fontWeight:'800', color:Colors.textDark, marginTop:12, marginBottom:6 },
+  errorBody:   { fontSize:14, color:Colors.textMuted, textAlign:'center', marginBottom:16 },
+  retryBtn:    { backgroundColor:Colors.delivery, borderRadius:12, paddingHorizontal:18, paddingVertical:12 },
+  retryBtnText:{ color:'#fff', fontSize:14, fontWeight:'700' },
   header:      { flexDirection:'row', alignItems:'center', justifyContent:'space-between', backgroundColor: Colors.delivery, paddingTop: Platform.OS === 'ios' ? 52 : 22, paddingHorizontal: Spacing.lg, paddingBottom: 18 },
   greeting:    { color:'#fff', fontSize:17, fontWeight:'700' },
   role:        { color:'rgba(255,255,255,0.65)', fontSize:12, marginTop:2 },

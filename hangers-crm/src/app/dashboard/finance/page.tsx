@@ -8,6 +8,13 @@ import { PaginationControls } from '@/components/ui/PaginationControls'
 
 const METHOD_ICON = {CASH:Landmark,UPI:Smartphone,CARD:CreditCard,RAZORPAY:WalletCards,OTHER:Tag,ALL:BarChart3}
 const METHOD_COLOR: Record<string,string> = {CASH:'#22c55e',UPI:'#3b82f6',CARD:'#8b5cf6',RAZORPAY:'#f97316',OTHER:'#6b7fa3'}
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
 
 export default function FinancePage() {
   const [tab, setTab] = useState<'daily'|'receivables'>('daily')
@@ -19,6 +26,8 @@ export default function FinancePage() {
   const [loading, setLoading] = useState(true)
   const [filterMethod, setFilterMethod] = useState('ALL')
   const [methodOptions, setMethodOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [methodLabels, setMethodLabels] = useState<Record<string, string>>({ ALL: 'ALL' })
+  const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, { label: string; color: string; bg: string }>>({})
   const [dailyPage, setDailyPage] = useState(1)
   const [receivablesPage, setReceivablesPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
@@ -28,7 +37,7 @@ export default function FinancePage() {
     try {
       const r = await api.get(`/payments/daily?date=${date}`)
       setSummary(r.data?.summary || {})
-      setPayments(r.data?.payments || [])
+      setPayments(asArray(r.data, ['payments', 'items']))
     } catch { toast.error('Failed to load finance data') }
     finally { setLoading(false) }
   }, [date])
@@ -37,7 +46,7 @@ export default function FinancePage() {
     setLoading(true)
     try {
       const r = await api.get('/payments/receivables')
-      setReceivables(r.data?.orders || [])
+      setReceivables(asArray(r.data, ['orders', 'receivables', 'items']))
       setReceivableTotal(r.data?.total || 0)
     } catch { toast.error('Failed to load receivables') }
     finally { setLoading(false) }
@@ -47,8 +56,16 @@ export default function FinancePage() {
   useEffect(() => {
     metadataAPI.getAll().then((r:any) => {
       const metadata = r?.metadata || r?.data?.metadata || {}
-      setMethodOptions((metadata.paymentMethods || []).filter((item:any) => ['CASH','UPI','CARD','RAZORPAY','OTHER'].includes(item.value)))
-    }).catch(() => {})
+      const filteredMethods = (metadata.paymentMethods || []).filter((item:any) => ['CASH','UPI','CARD','RAZORPAY','OTHER'].includes(item.value))
+      setMethodOptions(filteredMethods)
+      setMethodLabels({
+        ALL: 'ALL',
+        ...Object.fromEntries(filteredMethods.map((item: any) => [item.value, item.label || item.value])),
+      })
+      setPaymentStatusMeta(Object.fromEntries((metadata.paymentStatuses || []).map((item: any) => [item.value, { label: item.label || item.value, color: item.color || '#023c62', bg: item.bg || '#f4f7fb' }])))
+    }).catch(() => {
+      toast.error('Failed to load finance metadata')
+    })
   }, [])
 
   const filtered = filterMethod === 'ALL' ? payments : payments.filter(p => p.method === filterMethod)
@@ -111,7 +128,7 @@ export default function FinancePage() {
                   style={{padding:'5px 12px',borderRadius:8,border:`1.5px solid ${filterMethod===m.value?METHOD_COLOR[m.value]||'#023c62':'#dce8f0'}`,background:filterMethod===m.value?'#f7f9fc':'#fff',color:filterMethod===m.value?METHOD_COLOR[m.value]||'#023c62':'#6b7fa3',fontSize:12,fontWeight:600,cursor:'pointer'}}>
                   {(() => {
                     const Icon = METHOD_ICON[m.value as keyof typeof METHOD_ICON] || Tag
-                    return <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Icon size={14} /> {m.label}</span>
+                    return <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Icon size={14} /> {methodLabels[m.value] || m.label}</span>
                   })()}
                 </button>
               ))}
@@ -134,7 +151,7 @@ export default function FinancePage() {
                       <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:'#f0f4f8',color:METHOD_COLOR[p.method]||'#6b7fa3'}}>
                         {(() => {
                           const Icon = METHOD_ICON[(p.method || 'OTHER') as keyof typeof METHOD_ICON] || Tag
-                          return <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Icon size={12} /> {p.method}</span>
+                          return <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Icon size={12} /> {methodLabels[p.method] || p.method}</span>
                         })()}
                       </span>
                     </td>
@@ -195,8 +212,8 @@ export default function FinancePage() {
                     <td style={{padding:'11px 16px',fontSize:14,color:'#22c55e'}}>{S(o.paidAmount)}</td>
                     <td style={{padding:'11px 16px',fontSize:14,fontWeight:700,color:'#dc2626'}}>{S(o.balance)}</td>
                     <td style={{padding:'11px 16px'}}>
-                      <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:o.paymentStatus==='PARTIAL'?'#fef3c7':'#fee2e2',color:o.paymentStatus==='PARTIAL'?'#92400e':'#dc2626'}}>
-                        {o.paymentStatus}
+                      <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:(paymentStatusMeta[o.paymentStatus || 'UNPAID']?.bg) || '#f4f7fb',color:(paymentStatusMeta[o.paymentStatus || 'UNPAID']?.color) || '#023c62'}}>
+                        {(paymentStatusMeta[o.paymentStatus || 'UNPAID']?.label) || o.paymentStatus || 'UNPAID'}
                       </span>
                     </td>
                   </tr>

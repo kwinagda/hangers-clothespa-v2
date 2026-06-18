@@ -8,33 +8,87 @@
 const bcrypt   = require('bcryptjs');
 const prisma   = require('../config/database');
 const { generateStaffToken, getTokenExpiry } = require('../services/jwt.service');
-const { hasPermission, ROLE_PERMISSIONS }    = require('../middleware/rbac');
 const { log, getRequestMeta }                = require('../services/activity.service');
+const { clearAuthThrottle, getAuthThrottleBlock, registerAuthThrottleFailure } = require('../services/authThrottle.service');
 const { success, badRequest, error, unauthorized } = require('../utils/response');
 const { PLANT_PIN_ROLES, STAFF_ROLE_VALUES } = require('../config/master-data');
+const { staffCreateSchema, staffLoginSchema } = require('../validation/auth.schemas');
+const { buildStaffAccessContext } = require('../services/accessControl.service');
+const MAX_ACTIVE_STAFF_SESSIONS = 5;
+const STAFF_LOGIN_MAX_FAILURES = 5;
+const STAFF_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+const setCrmAuthCookie = (res, token, maxAgeMs) => {
+  res.cookie('crm_token', token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: maxAgeMs,
+  });
+};
+
+const clearCrmAuthCookie = (res) => {
+  res.clearCookie('crm_token', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  });
+};
+
+const trimStaffSessions = async (staffId) => {
+  const sessions = await prisma.staffSession.findMany({
+    where: { staffId },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  const staleSessionIds = sessions.slice(MAX_ACTIVE_STAFF_SESSIONS).map((session) => session.id);
+  if (staleSessionIds.length) {
+    await prisma.staffSession.deleteMany({ where: { id: { in: staleSessionIds } } });
+  }
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/staff/auth/login
 // Body: { email: "manager@hangers.in", password: "password123" }
 // ─────────────────────────────────────────────────────────────────────────────
 const staffLoginController = async (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return badRequest(res, 'Email and password are required');
-  }
+  const parsed = staffLoginSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Email and password are required');
+  const { email, password } = parsed.data;
 
   try {
+    const ipScopeKey = (req.ip || req.headers['x-forwarded-for'] || 'unknown').toString().slice(0, 64);
+    const emailScopeKey = email;
+    const [emailBlockedUntil, ipBlockedUntil] = await Promise.all([
+      getAuthThrottleBlock({ scope: 'staff-login:email', scopeKey: emailScopeKey }),
+      getAuthThrottleBlock({ scope: 'staff-login:ip', scopeKey: ipScopeKey }),
+    ]);
+    if (emailBlockedUntil || ipBlockedUntil) {
+      return unauthorized(res, 'Too many failed attempts. Please try again later.');
+    }
+
     const staff = await prisma.staff.findUnique({
-      where:   { email: email.toLowerCase().trim() },
+      where:   { email },
       include: { permissions: true },
     });
 
-    if (!staff) return unauthorized(res, 'Invalid email or password');
+    if (!staff) {
+      await Promise.all([
+        registerAuthThrottleFailure({ scope: 'staff-login:email', scopeKey: emailScopeKey, maxFailures: STAFF_LOGIN_MAX_FAILURES, windowMs: STAFF_LOGIN_WINDOW_MS }),
+        registerAuthThrottleFailure({ scope: 'staff-login:ip', scopeKey: ipScopeKey, maxFailures: STAFF_LOGIN_MAX_FAILURES, windowMs: STAFF_LOGIN_WINDOW_MS }),
+      ]);
+      return unauthorized(res, 'Invalid email or password');
+    }
     if (!staff.isActive) return unauthorized(res, 'Your account has been deactivated. Contact your manager.');
 
     const passwordMatch = await bcrypt.compare(password, staff.passwordHash);
     if (!passwordMatch) {
+      await Promise.all([
+        registerAuthThrottleFailure({ scope: 'staff-login:email', scopeKey: emailScopeKey, maxFailures: STAFF_LOGIN_MAX_FAILURES, windowMs: STAFF_LOGIN_WINDOW_MS }),
+        registerAuthThrottleFailure({ scope: 'staff-login:ip', scopeKey: ipScopeKey, maxFailures: STAFF_LOGIN_MAX_FAILURES, windowMs: STAFF_LOGIN_WINDOW_MS }),
+      ]);
       await log({
         actorType:   'staff',
         actorId:     staff.id,
@@ -48,6 +102,11 @@ const staffLoginController = async (req, res) => {
       return unauthorized(res, 'Invalid email or password');
     }
 
+    await Promise.all([
+      clearAuthThrottle({ scope: 'staff-login:email', scopeKey: emailScopeKey }),
+      clearAuthThrottle({ scope: 'staff-login:ip', scopeKey: ipScopeKey }),
+    ]);
+
     const token  = generateStaffToken(staff);
     const expiry = getTokenExpiry(process.env.JWT_STAFF_EXPIRES_IN || '12h');
 
@@ -60,6 +119,7 @@ const staffLoginController = async (req, res) => {
         expiresAt:  expiry,
       },
     });
+    await trimStaffSessions(staff.id);
 
     await prisma.staff.update({
       where: { id: staff.id },
@@ -77,17 +137,9 @@ const staffLoginController = async (req, res) => {
       ...getRequestMeta(req),
     });
 
-    const rolePerms     = ROLE_PERMISSIONS[staff.role] || [];
-    const customGrants  = staff.permissions.filter(p => p.granted).map(p => p.permission);
-    const customRevokes = staff.permissions.filter(p => !p.granted).map(p => p.permission);
+    const access = await buildStaffAccessContext(staff);
 
-    let effectivePerms;
-    if (rolePerms.includes('*')) {
-      effectivePerms = ['*'];
-    } else {
-      effectivePerms = [...new Set([...rolePerms, ...customGrants])]
-        .filter(p => !customRevokes.includes(p));
-    }
+    setCrmAuthCookie(res, token, Math.max(0, expiry.getTime() - Date.now()));
 
     return success(res, {
       token,
@@ -98,7 +150,9 @@ const staffLoginController = async (req, res) => {
         phone:       staff.phone,
         email:       staff.email,
         role:        staff.role,
-        permissions: effectivePerms,
+        mustChangePassword: staff.mustChangePassword,
+        permissions: access.permissions,
+        serviceAccess: access.services,
       },
     }, `Welcome back, ${staff.name}!`);
 
@@ -120,17 +174,7 @@ const staffMeController = async (req, res) => {
 
     if (!staff) return unauthorized(res, 'Account not found');
 
-    const rolePerms     = ROLE_PERMISSIONS[staff.role] || [];
-    const customGrants  = staff.permissions.filter(p => p.granted).map(p => p.permission);
-    const customRevokes = staff.permissions.filter(p => !p.granted).map(p => p.permission);
-
-    let effectivePerms;
-    if (rolePerms.includes('*')) {
-      effectivePerms = ['*'];
-    } else {
-      effectivePerms = [...new Set([...rolePerms, ...customGrants])]
-        .filter(p => !customRevokes.includes(p));
-    }
+    const access = await buildStaffAccessContext(staff);
 
     return success(res, {
       appType: PLANT_PIN_ROLES.includes(staff.role) ? 'plant' : 'delivery',
@@ -141,9 +185,11 @@ const staffMeController = async (req, res) => {
         email:               staff.email,
         role:                staff.role,
         isActive:            staff.isActive,
+        mustChangePassword:  staff.mustChangePassword,
         lastLoginAt:         staff.lastLoginAt,
         createdAt:           staff.createdAt,
-        effectivePermissions: effectivePerms,
+        effectivePermissions: access.permissions,
+        serviceAccess: access.services,
       },
     });
   } catch (err) {
@@ -157,10 +203,11 @@ const staffMeController = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const staffLogoutController = async (req, res) => {
   try {
-    const token = req.headers.authorization?.substring(7);
+    const token = req.authToken || req.headers.authorization?.substring(7);
     if (token) {
       await prisma.staffSession.deleteMany({ where: { token } });
     }
+    clearCrmAuthCookie(res);
 
     await log({
       actorType:   'staff',
@@ -185,18 +232,14 @@ const staffLogoutController = async (req, res) => {
 // Only SUPER_ADMIN can create staff accounts
 // ─────────────────────────────────────────────────────────────────────────────
 const createStaffController = async (req, res) => {
-  const { name, phone, email, password, role } = req.body;
+  const parsed = staffCreateSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid staff payload');
+  const { name, phone, email, password, role } = parsed.data;
 
   const validRoles = STAFF_ROLE_VALUES;
 
-  if (!name || !phone || !password || !role) {
-    return badRequest(res, 'Name, phone, password and role are required');
-  }
   if (!validRoles.includes(role)) {
     return badRequest(res, `Invalid role. Must be one of: ${validRoles.join(', ')}`);
-  }
-  if (password.length < 8) {
-    return badRequest(res, 'Password must be at least 8 characters');
   }
 
   try {
@@ -209,6 +252,7 @@ const createStaffController = async (req, res) => {
         phone:        phone.replace(/\s/g, ''),
         email:        email?.toLowerCase().trim() || null,
         passwordHash,
+        mustChangePassword: true,
         role,
         pin:          await bcrypt.hash(pin, 10),
         createdBy:    req.staff.id,
