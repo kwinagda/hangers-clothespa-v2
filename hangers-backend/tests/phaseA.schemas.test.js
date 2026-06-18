@@ -1,14 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const {
-  cashEntrySchema,
-  couponCreateSchema,
-  recurringPickupSchema,
-  reportQuerySchema,
-  advancedSearchQuerySchema,
-  automationSchema,
-} = require('../src/validation/phaseA.schemas');
+const { cashEntrySchema }           = require('../src/validation/cashbook.schemas');
+const { couponCreateSchema }        = require('../src/validation/coupons.schemas');
+const { recurringPickupSchema }     = require('../src/validation/recurring.schemas');
+const { reportQuerySchema }         = require('../src/validation/reports.schemas');
+const { advancedSearchQuerySchema } = require('../src/validation/search.schemas');
+const { automationSchema }          = require('../src/validation/automations.schemas');
 
 test('cashEntrySchema rejects negative amount', () => {
   const parsed = cashEntrySchema.safeParse({ type: 'IN', amount: -10, description: 'Bad' });

@@ -48,6 +48,7 @@ const updateAutomation = async (req, res) => {
     });
     return success(res, updated);
   } catch (err) {
+    if (err.code === 'P2025') return notFound(res, 'Automation not found');
     return error(res, 'Failed to update automation');
   }
 };

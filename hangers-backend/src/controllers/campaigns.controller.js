@@ -27,6 +27,7 @@ const sendCampaign = async (req, res) => {
   try {
     const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
     if (!campaign) return notFound(res, 'Campaign not found');
+    if (campaign.status === 'SENT') return badRequest(res, 'Campaign has already been sent');
     if (!campaign.message?.trim()) return badRequest(res, 'Campaign message is empty');
 
     const where = {};

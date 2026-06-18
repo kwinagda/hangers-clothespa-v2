@@ -16,6 +16,7 @@ const { orderStatusUpdateSchema }                  = require('../validation/orde
 const { normalizeOrderItem }                       = require('../utils/line-pricing');
 const { emitOrderUpdate }                          = require('../services/sse.service');
 const { enqueueNotification, NOTIFY_JOB }          = require('../queues');
+const { creditWallet }                             = require('../services/wallet.service');
 
 const WA_NOTIFY_STATUSES = new Set(['PICKED_UP','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED']);
 const ORDER_STATUS_SEQUENCE = ['PENDING', 'PICKED_UP', 'SENT_TO_PLANT', 'PROCESSING', 'WASHING', 'DRYING', 'IRONING', 'QC', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'RETURNED'];
@@ -417,19 +418,7 @@ const createOrder = async (req, res) => {
 
         // Handle overpayment → wallet
         if (overpayment > 0 && customer.id) {
-          await tx.customer.update({
-            where: { id: customer.id },
-            data:  { walletBalance: { increment: overpayment } }
-          });
-          await tx.walletTransaction.create({
-            data: {
-              customerId: customer.id,
-              amount:     overpayment,
-              type:       'CREDIT',
-              reason:     'Overpayment refunded to wallet',
-              orderId:    newOrder.id,
-            }
-          });
+          await creditWallet(customer.id, overpayment, 'Overpayment refunded to wallet', { tx, orderId: newOrder.id });
         }
       }
       // ──────────────────────────────────────────────────────────────
@@ -717,16 +706,6 @@ const addItemsToOrder = async (req, res) => {
   }
 };
 
-module.exports = {
-  listOrders,
-  getOrderStats,
-  getOrder,
-  createOrder,
-  updateOrderStatus,
-  addItemsToOrder,
-  deleteOrder,
-};
-
 // ── Record Payment ─────────────────────────────────────────────────────────────
 const recordPayment = async (req, res) => {
   try {
@@ -812,23 +791,11 @@ const recordPayment = async (req, res) => {
       }
 
       if (overpayment > 0 && order.customerId) {
-        await tx.customer.update({
-          where: { id: order.customerId },
-          data: { walletBalance: { increment: overpayment } },
-        });
-        await tx.walletTransaction.create({
-          data: {
-            customerId: order.customerId,
-            amount: overpayment,
-            type: 'CREDIT',
-            reason: `Overpayment on ${order.orderNumber} refunded to wallet`,
-            orderId: id,
-          },
-        });
+        await creditWallet(order.customerId, overpayment, `Overpayment on ${order.orderNumber} refunded to wallet`, { tx, orderId: id });
       }
 
       return { updatedOrder, overpayment };
-    });
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, { order: updatedOrder, overpayment });
   } catch (err) {
@@ -870,11 +837,10 @@ const createReturnOrder = async (req, res) => {
     });
     if (existingOpenReturn) return badRequest(res, `An active return order already exists: ${existingOpenReturn.orderNumber}`);
 
-    const returnCount = await prisma.order.count({ where: { ...ORDER_ONLY_WHERE, isReturn: true } });
-    const orderNumber = `HCS-${String(returnCount + 1).padStart(3, '0')}-R`;
-
     const originalItems = await prisma.orderItem.findMany({ where: { orderId: original.id } });
     const returnOrder = await prisma.$transaction(async (tx) => {
+      const returnCount = await tx.order.count({ where: { ...ORDER_ONLY_WHERE, isReturn: true } });
+      const orderNumber = `HCS-${String(returnCount + 1).padStart(3, '0')}-R`;
       const createdReturn = await tx.order.create({
         data: {
           orderNumber,

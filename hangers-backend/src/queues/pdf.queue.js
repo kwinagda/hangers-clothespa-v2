@@ -5,7 +5,7 @@
 // Each job returns { filePath } or { buffer } depending on the job type.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const { Queue, Worker } = require('bullmq');
+const { Queue, Worker, QueueEvents } = require('bullmq');
 const { getConnection, isRedisAvailable } = require('./connection');
 
 const QUEUE_NAME = 'pdf';
@@ -50,7 +50,12 @@ async function enqueuePdfJob(type, data) {
     return directFallback(type, data);
   }
   const job = await q.add(type, data, { priority: 10 });
-  return job.waitUntilFinished(queue.opts.connection, 30_000); // 30s timeout
+  const queueEvents = new QueueEvents(QUEUE_NAME, { connection: getConnection() });
+  try {
+    return await job.waitUntilFinished(queueEvents, 30_000);
+  } finally {
+    await queueEvents.close();
+  }
 }
 
 function startPdfWorker() {

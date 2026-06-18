@@ -36,8 +36,14 @@ const advancedSearch = async (req, res) => {
         { customer: { phone: { contains: q } } }
       ];
       if (status) where.status = status;
-      if (paymentStatus) where.paymentStatus = paymentStatus;
-      if (hasOutstanding === 'true') where.paymentStatus = { in: ['UNPAID', 'PARTIAL'] };
+      if (hasOutstanding === 'true') {
+        const outstanding = ['UNPAID', 'PARTIAL'];
+        where.paymentStatus = (paymentStatus && outstanding.includes(paymentStatus))
+          ? paymentStatus
+          : { in: outstanding };
+      } else if (paymentStatus) {
+        where.paymentStatus = paymentStatus;
+      }
       if (from || to) where.createdAt = {};
       if (from) {
         const parsedFrom = new Date(from);

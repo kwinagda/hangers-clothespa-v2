@@ -66,9 +66,9 @@ const clockOut = async (req, res) => {
     today.setHours(0, 0, 0, 0);
 
     const record = await prisma.attendance.findFirst({
-      where: { staffId, date: { gte: today }, clockIn: { not: null } }
+      where: { staffId, date: { gte: today }, clockIn: { not: null }, clockOut: null }
     });
-    if (!record) return badRequest(res, 'No clock-in found for today');
+    if (!record) return badRequest(res, 'No open clock-in found for today');
 
     const clockOutTime = new Date();
     const hours = (clockOutTime - record.clockIn) / (1000 * 60 * 60);

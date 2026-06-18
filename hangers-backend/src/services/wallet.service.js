@@ -56,22 +56,21 @@ async function debitWallet(customerId, amount, reason, opts = {}) {
   }
 
   const run = async (tx) => {
-    const customer = await tx.customer.findUnique({
-      where:  { id: customerId },
-      select: { walletBalance: true },
-    });
-    if (!customer) throw new Error(`Customer ${customerId} not found`);
-    if (customer.walletBalance < amount) {
+    // Atomic: decrement only succeeds if balance >= amount; prevents double-debit races
+    const rows = await tx.$queryRaw`
+      UPDATE "Customer"
+      SET    "walletBalance" = "walletBalance" - ${amount}
+      WHERE  "id" = ${customerId}
+      AND    "walletBalance" >= ${amount}
+      RETURNING "walletBalance"
+    `;
+    if (!rows.length) {
+      const row = await tx.customer.findUnique({ where: { id: customerId }, select: { id: true } });
+      if (!row) throw new Error(`Customer ${customerId} not found`);
       const err = new Error('Insufficient wallet balance');
       err.statusCode = 400;
       throw err;
     }
-
-    const updated = await tx.customer.update({
-      where: { id: customerId },
-      data:  { walletBalance: { decrement: amount } },
-      select: { walletBalance: true },
-    });
     await tx.walletTransaction.create({
       data: {
         customerId,
@@ -81,7 +80,7 @@ async function debitWallet(customerId, amount, reason, opts = {}) {
         orderId: opts.orderId ?? null,
       },
     });
-    return updated.walletBalance;
+    return Number(rows[0].walletBalance);
   };
 
   return opts.tx ? run(opts.tx) : prisma.$transaction(run);
