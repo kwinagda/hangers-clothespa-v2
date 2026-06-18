@@ -18,6 +18,7 @@ const { sendStatusNotification } = require('../services/whatsapp-notifications.s
 const { processReferralQualification } = require('../services/referral.service');
 const { DELIVERY_MANAGER_ROLES, DELIVERY_PIN_ROLES, ORDER_STATUS_LABELS } = require('../config/master-data');
 const { AUTH_CHALLENGE_PURPOSE, createAuthChallenge, verifyAuthChallenge } = require('../services/authChallenge.service');
+const { enqueueNotification, NOTIFY_JOB } = require('../queues');
 
 const isDeliveryManager = (staff) => DELIVERY_MANAGER_ROLES.includes(staff?.role);
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
@@ -197,11 +198,13 @@ const markPickedUp = async (req, res) => {
       ...getRequestMeta(req),
     });
 
-    // Fire-and-forget WhatsApp notification
+    // Queue WhatsApp notification (non-blocking, retried on failure)
     const pickedOrder = await prisma.order.findUnique({
       where: { id }, include: { customer: { select: { name: true, phone: true } } },
     });
-    if (pickedOrder) sendStatusNotification(pickedOrder, 'PICKED_UP').catch(() => {});
+    if (pickedOrder) {
+      enqueueNotification(NOTIFY_JOB.ORDER_STATUS, { order: pickedOrder, status: 'PICKED_UP' }).catch(() => {});
+    }
 
     return success(res, { orderId: id, orderNumber: order.orderNumber, status: 'PICKED_UP' },
       `${order.orderNumber} marked as Picked Up`);
@@ -257,8 +260,8 @@ const markDelivered = async (req, res) => {
       ...getRequestMeta(req),
     });
 
-    // Fire-and-forget WhatsApp notification
-    sendStatusNotification({ ...order, customer: order.customer }, 'DELIVERED').catch(() => {});
+    // Queue notifications (non-blocking, retried on failure)
+    enqueueNotification(NOTIFY_JOB.ORDER_STATUS, { order: { ...order, customer: order.customer }, status: 'DELIVERED' }).catch(() => {});
     processReferralQualification(id).catch(() => {});
 
     return success(res, {
@@ -525,8 +528,8 @@ const verifyDeliveryOtpController = async (req, res) => {
       ...getRequestMeta(req),
     });
 
-    // Fire-and-forget WhatsApp notification
-    sendStatusNotification({ ...order, customer: order.customer }, 'DELIVERED').catch(() => {});
+    // Queue notifications (non-blocking, retried on failure)
+    enqueueNotification(NOTIFY_JOB.ORDER_STATUS, { order: { ...order, customer: order.customer }, status: 'DELIVERED' }).catch(() => {});
     processReferralQualification(id).catch(() => {});
 
     return success(res, {

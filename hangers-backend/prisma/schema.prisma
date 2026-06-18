@@ -314,6 +314,9 @@ model Order {
   @@index([documentType])
   @@index([quotationStatus])
   @@index([createdAt])
+  @@index([assignedToId, status])
+  @@index([status, pickupDate])
+  @@index([customerId, status, createdAt])
 }
 
 model OrderItem {
@@ -352,6 +355,7 @@ model OrderStage {
   order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+  @@index([orderId, createdAt])
 }
 
 model Service {
@@ -413,6 +417,7 @@ model IronLog {
   @@index([customerId])
   @@index([date])
   @@index([billId])
+  @@index([customerId, date])
   @@map("iron_logs")
 }
 
@@ -462,6 +467,8 @@ model Payment {
   order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+  @@index([method, createdAt])
+  @@index([collectedBy, createdAt])
 }
 
 model Referral {
@@ -493,6 +500,7 @@ model WalletTransaction {
   order      Order?   @relation(fields: [orderId], references: [id])
 
   @@index([customerId])
+  @@index([customerId, createdAt])
   @@map("wallet_transactions")
 }
 
@@ -505,6 +513,8 @@ model CashBook {
   staffId     String?
   createdAt   DateTime @default(now())
 
+  @@index([date])
+  @@index([type])
   @@map("cash_book")
 }
 
@@ -519,6 +529,8 @@ model Expense {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([date])
+  @@index([category])
   @@map("expenses")
 }
 
@@ -585,6 +597,7 @@ model Attendance {
   createdAt   DateTime  @default(now())
   staff       Staff     @relation(fields: [staffId], references: [id])
 
+  @@index([staffId, date])
   @@map("attendance")
 }
 
@@ -603,6 +616,8 @@ model RecurringPickup {
   updatedAt  DateTime  @updatedAt
   customer   Customer  @relation(fields: [customerId], references: [id])
 
+  @@index([customerId, isActive])
+  @@index([nextPickup, isActive])
   @@map("recurring_pickups")
 }
 

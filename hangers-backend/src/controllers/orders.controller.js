@@ -14,6 +14,8 @@ const { CORE_PAYMENT_METHODS, ORDER_STATUS_KEYS }  = require('../config/master-d
 const { hasPermission }                            = require('../middleware/rbac');
 const { orderStatusUpdateSchema }                  = require('../validation/orders.schemas');
 const { normalizeOrderItem }                       = require('../utils/line-pricing');
+const { emitOrderUpdate }                          = require('../services/sse.service');
+const { enqueueNotification, NOTIFY_JOB }          = require('../queues');
 
 const WA_NOTIFY_STATUSES = new Set(['PICKED_UP','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED']);
 const ORDER_STATUS_SEQUENCE = ['PENDING', 'PICKED_UP', 'SENT_TO_PLANT', 'PROCESSING', 'WASHING', 'DRYING', 'IRONING', 'QC', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'RETURNED'];
@@ -593,9 +595,12 @@ const updateOrderStatus = async (req, res) => {
       ...getRequestMeta(req),
     });
 
-    // Fire-and-forget WhatsApp + push notifications for key statuses
+    // Emit real-time update to all CRM SSE subscribers immediately
+    emitOrderUpdate(updated.id, { status, orderNumber: updated.orderNumber });
+
+    // Queue WhatsApp + push notifications for key statuses (non-blocking, retried)
     if (WA_NOTIFY_STATUSES.has(status)) {
-      sendStatusNotification(updated, status).catch(() => {});
+      enqueueNotification(NOTIFY_JOB.ORDER_STATUS, { order: updated, status }).catch(() => {});
 
       // Push notification — fetch customer's token + prefs if not already included
       const pushMsg = PUSH_MESSAGES[status];
@@ -605,12 +610,12 @@ const updateOrderStatus = async (req, res) => {
           select: { pushToken: true, notifPush: true },
         });
         if (customerWithPrefs?.notifPush && customerWithPrefs?.pushToken) {
-          sendPushNotification(
-            customerWithPrefs.pushToken,
-            pushMsg.title,
-            pushMsg.body,
-            { orderId: updated.id, status }
-          ).catch(() => {});
+          enqueueNotification(NOTIFY_JOB.PUSH, {
+            token:   customerWithPrefs.pushToken,
+            title:   pushMsg.title,
+            body:    pushMsg.body,
+            payload: { orderId: updated.id, status },
+          }).catch(() => {});
         }
       }
     }

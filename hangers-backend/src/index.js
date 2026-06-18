@@ -5,6 +5,7 @@ const helmet    = require('helmet');
 const morgan    = require('morgan');
 
 const { errorHandler, notFound } = require('./middleware/errorHandler');
+const { randomUUID } = require('crypto');
 const authRoutes          = require('./routes/auth.routes');
 const staffRoutes         = require('./routes/staff.routes');
 const ordersRoutes        = require('./routes/orders.routes');
@@ -72,6 +73,13 @@ app.use(cors({
 
 app.use(express.json({ limit: '1mb', strict: true }));
 app.use(express.urlencoded({ extended: true, limit: '1mb', parameterLimit: 100 }));
+// Stamp every request with a unique ID — surfaced in error logs and response headers
+app.use((req, res, next) => {
+  const id = req.headers['x-request-id'] || randomUUID();
+  req.headers['x-request-id'] = id;
+  res.setHeader('x-request-id', id);
+  next();
+});
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 app.get('/health', (req, res) => res.json({ success: true, message: 'Hangers API is running', version: '4.0.0' }));
@@ -102,10 +110,12 @@ app.use('/api/v1/iron',                        ironRoutes);
 app.use('/api/v1/metadata',                    metadataRoutes);
 app.use('/api/v1',                             phaseARoutes);
 // Refer & Earn
-const referralRoutes = require('./routes/referral.routes');
-const walletRoutes   = require('./routes/wallet.routes');
+const referralRoutes  = require('./routes/referral.routes');
+const walletRoutes    = require('./routes/wallet.routes');
+const realtimeRoutes  = require('./routes/realtime.routes');
 app.use('/api/v1/customer/referral',           referralRoutes);
 app.use('/api/v1/customer/wallet',             walletRoutes);
+app.use('/api/v1/realtime',                    realtimeRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
