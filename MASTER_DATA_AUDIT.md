@@ -1070,3 +1070,87 @@ Current conclusion:
 
 - the previous remaining Afleo advantage on backend governance architecture was materially reduced by this refactor
 - any further move toward Afleo would now be a larger product/organization design choice, not an obviously missing core DB/API governance layer in Hangers
+
+## CTO-Level SaaS Hardening + Domain Decomposition
+
+Date: 2026-06-17
+
+Commits: `1427689` → `36a25ed` → `c4a5945` (HEAD on main)
+
+### Race-Condition and Financial Integrity Fixes
+
+All 15 CONFIRMED findings from the ultra code review patched and verified:
+
+- Razorpay: client-supplied `amount` removed; backend uses server-computed `balanceDue` exclusively
+- Referral qualification: now runs inside `Serializable` transaction
+- Staff wallet `deductWallet` / `applyWalletToOrder`: balance reads moved inside transactions; typed error codes for every path
+- Customer pickup `requestPickup`: wallet balance read moved inside the order-creation transaction
+- Delivery `markFailed`: status guard added (must be `OUT_FOR_DELIVERY` or `READY_FOR_DELIVERY`)
+- Delivery `collectCash`: rewritten with `{ increment: amt }` inside interactive transaction; paymentStatus re-derived post-update
+- Delivery OTP: dead `otpRecord` pre-fetch removed; `updateMany` used to mark OTPs; `verifyAuthChallenge` is authoritative NOT_FOUND
+- Origin middleware: `return fetchSiteAllowed === true` (was `return true` on null)
+- Coupon validation: atomically checks and increments `usedCount` inside a single transaction (TOCTOU fix)
+- Payment state: `currentWriteOff` now included in `balanceDue` and `effectivePaid`
+- Order status sequence: `SENT_TO_PLANT` and `RETURNED` added; backward transitions corrected
+- `addItemsToOrder`: blocked on DELIVERED/CANCELLED/RETURNED orders; recomputes `paymentStatus` after add
+- Referral fallback: `REFERRAL_STATUS.REWARDED` → `REFERRAL_STATUS.PENDING`
+- OTP cooldown: enforced at `AuthChallenge` layer; `OTP_COOLDOWN` typed error with `secondsLeft`
+- Payment route access: `financeAccess` → `crmAccess` so `COUNTER_STAFF` can record payments
+
+### Domain Decomposition — phaseA Deleted
+
+`phaseA.controller.js` (1,037 lines), `phaseA.routes.js`, and `phaseA.schemas.js` were permanently deleted.
+
+13 domain controllers now own those endpoints:
+
+- `cashbook.controller.js` / `expenses.controller.js` / `ar-ledger.controller.js`
+- `transfers.controller.js` / `attendance.controller.js`
+- `coupons.controller.js` / `loyalty.controller.js` / `upcharges.controller.js`
+- `recurring.controller.js` / `campaigns.controller.js` / `automations.controller.js`
+- `reports.controller.js` / `search.controller.js`
+
+All registered in `src/index.js`.
+
+### Infrastructure Added
+
+- `asyncHandler.js` middleware — eliminates try/catch boilerplate in route handlers
+- `idempotency.js` middleware — idempotency key enforcement on payment mutations
+- BullMQ queues: `notifications.queue.js`, `pdf.queue.js`, `connection.js` (Redis with fallback)
+- `sse.service.js` — Server-Sent Events for real-time plant/order board
+- `wallet.service.js` — centralized wallet service; replace any future inline wallet mutations with this
+
+### DB Changes
+
+- 12 composite indexes added to `prisma/schema.prisma`
+- `Serializable` isolation level on referral qualification transaction
+
+### CRM Changes
+
+- React Query v5 installed; `QueryProvider` added to layout
+- Shared UI library: `hangers-crm/src/components/ui/` (Badge, Button, EmptyState, ErrorState, PageHeader, StatCard)
+- `hangers-crm/src/lib/queries.ts` — shared query definitions
+
+### CI/CD
+
+- `.github/workflows/ci.yml` — GitHub Actions pipeline (lint → type-check → test → build)
+- `hangers-backend/tsconfig.json` — TypeScript config for backend
+
+### Source-of-Truth Status After This Batch
+
+Source-of-truth rule: unchanged. All data still flows through the existing backend API into the same master PostgreSQL database. No new store, sidecar, or shadow DB was added.
+
+Remaining open items from original audit (still unresolved):
+
+- Customer app hardcoded order status labels and icon maps (HomeScreen, MyOrdersScreen, OrderTrackingScreen)
+- Staff app hardcoded plant status filters and delivery dashboard status mapping
+- Backend hardcoded delivery failure reasons and plant status labels in controllers
+- RBAC role-permission map still partially config-driven (DB-native tables exist but legacy config still used)
+
+These are lower-priority than the security/correctness fixes completed above. They do not break correctness — they are metadata-drift items to clean up in a future targeted pass.
+
+### Current Recommended Next Steps
+
+1. Pre-launch smoke test — login, order create/update, payments, delivery, CRM critical paths
+2. Push notification wiring — install `expo-server-sdk` and connect backend queue to Expo push gateway
+3. Metadata migration follow-up — move remaining hardcoded status/label maps in customer/staff apps to `/metadata` calls
+4. Targeted feature work — Daily Iron bill PDF share, delivery exception flows, CRM push send action
