@@ -423,4 +423,76 @@ const addCustomerAddress = async (req, res) => {
   }
 };
 
-module.exports = { listCustomers, getCustomer, getReferralReport, createCustomer, updateCustomer, addCustomerAddress };
+// ── GET /api/v1/customers/:id/stats ──────────────────────────────────────────
+const getCustomerStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [orders, payments] = await Promise.all([
+      prisma.order.findMany({
+        where: { customerId: id, ...ORDER_ONLY_WHERE },
+        select: { id: true, totalAmount: true, paidAmount: true, writeOffAmount: true, status: true, createdAt: true, paymentStatus: true }
+      }),
+      prisma.payment.findMany({
+        where: { customerId: id },
+        select: { amount: true, createdAt: true }
+      })
+    ]);
+
+    const totalOrders    = orders.length;
+    const totalSpend     = payments.reduce((s, p) => s + p.amount, 0);
+    const avgOrderValue  = totalOrders > 0 ? totalSpend / totalOrders : 0;
+    const lastOrder      = orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    const outstanding    = orders
+      .filter(o => o.paymentStatus === 'UNPAID' || o.paymentStatus === 'PARTIAL')
+      .reduce((s, o) => s + Math.max(0, (o.totalAmount - (o.paidAmount || 0) - (o.writeOffAmount || 0)) || 0), 0);
+    const completedOrders = orders.filter(o => o.status === 'DELIVERED').length;
+
+    const customer = await prisma.customer.findUnique({
+      where: { id },
+      select: { loyaltyPoints: true }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        totalOrders,
+        totalSpend,
+        avgOrderValue,
+        outstanding,
+        completedOrders,
+        loyaltyPoints:   customer?.loyaltyPoints || 0,
+        lastOrderDate:   lastOrder?.createdAt || null,
+        lastOrderStatus: lastOrder?.status || null,
+      }
+    });
+  } catch (err) {
+    return error(res, 'Failed to fetch customer stats');
+  }
+};
+
+// ── PATCH /api/v1/customers/:id/tag ──────────────────────────────────────────
+const { z } = require('zod');
+const customerTagSchema = z.object({
+  tag:   z.string().trim().max(60).optional().nullable(),
+  notes: z.string().trim().max(500).optional().nullable(),
+}).strict();
+
+const updateCustomerTag = async (req, res) => {
+  try {
+    const parsed = customerTagSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid customer tag payload');
+    const { tag, notes } = parsed.data;
+    const existingCustomer = await prisma.customer.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!existingCustomer) return notFound(res, 'Customer not found');
+    const customer = await prisma.customer.update({
+      where: { id: req.params.id },
+      data:  { tag: tag || null, notes: notes || null }
+    });
+    return success(res, customer);
+  } catch (err) {
+    return error(res, 'Failed to update customer tag');
+  }
+};
+
+module.exports = { listCustomers, getCustomer, getReferralReport, createCustomer, updateCustomer, addCustomerAddress, getCustomerStats, updateCustomerTag };

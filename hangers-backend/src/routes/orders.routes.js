@@ -13,7 +13,7 @@ const express = require('express');
 const router  = express.Router();
 const {
   listOrders, getOrderStats, getOrder,
-  createOrder, updateOrderStatus, addItemsToOrder, deleteOrder, recordPayment,
+  createOrder, updateOrderStatus, addItemsToOrder, deleteOrder, recordPayment, createReturnOrder,
 } = require('../controllers/orders.controller');
 const { staffAuth } = require('../middleware/auth');
 const { requirePermission, requireRole, requireServiceAccess } = require('../middleware/rbac');
@@ -34,5 +34,6 @@ router.patch('/:id/status',  staffAuth, crmAccess, requirePermission('orders.upd
 router.post('/:id/payments', staffAuth, crmAccess, requireRole('SUPER_ADMIN', 'MANAGER', 'ACCOUNTS', 'COUNTER_STAFF'), recordPayment);
 router.patch('/:id/items',   staffAuth, crmAccess, requirePermission('orders.edit'), addItemsToOrder);
 router.delete('/:id',        staffAuth, crmAccess, requireRole('SUPER_ADMIN', 'MANAGER'), deleteOrder);
+router.post('/return',       staffAuth, crmAccess, requirePermission('orders.create'), createReturnOrder);
 
 module.exports = router;

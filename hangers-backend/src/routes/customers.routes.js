@@ -1,6 +1,6 @@
 const express  = require('express');
 const router   = express.Router();
-const { listCustomers, getCustomer, getReferralReport, createCustomer, updateCustomer, addCustomerAddress } = require('../controllers/customers.controller');
+const { listCustomers, getCustomer, getReferralReport, createCustomer, updateCustomer, addCustomerAddress, getCustomerStats, updateCustomerTag } = require('../controllers/customers.controller');
 const { staffAuth } = require('../middleware/auth');
 const { requirePermission, requireServiceAccess } = require('../middleware/rbac');
 const { privateNoStore } = require('../middleware/privateCache');
@@ -15,6 +15,8 @@ router.get('/referrals/report', staffAuth, crmAccess, requirePermission('custome
 router.get('/:id',   staffAuth, crmAccess, requirePermission('customers.view'), getCustomer);
 router.post('/',     staffAuth, crmAccess, requirePermission('customers.edit'), createCustomer);
 router.post('/:id/addresses', staffAuth, crmAccess, requirePermission('customers.edit'), addCustomerAddress);
-router.patch('/:id', staffAuth, crmAccess, requirePermission('customers.edit'), updateCustomer);
+router.patch('/:id',     staffAuth, crmAccess, requirePermission('customers.edit'), updateCustomer);
+router.get('/:id/stats', staffAuth, crmAccess, requirePermission('customers.view'), getCustomerStats);
+router.patch('/:id/tag', staffAuth, crmAccess, requirePermission('customers.edit'), updateCustomerTag);
 
 module.exports = router;

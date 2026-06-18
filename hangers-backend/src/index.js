@@ -17,7 +17,19 @@ const razorpayRoutes      = require('./routes/razorpay.routes');
 const plantRoutes         = require('./routes/plant.routes');
 const deliveryRoutes      = require('./routes/delivery.routes');
 const servicesRoutes      = require('./routes/services.routes');
-const phaseARoutes        = require('./routes/phaseA.routes');
+const cashbookRoutes      = require('./routes/cashbook.routes');
+const expensesRoutes      = require('./routes/expenses.routes');
+const arLedgerRoutes      = require('./routes/ar-ledger.routes');
+const transfersRoutes     = require('./routes/transfers.routes');
+const attendanceRoutes    = require('./routes/attendance.routes');
+const couponsRoutes       = require('./routes/coupons.routes');
+const loyaltyRoutes       = require('./routes/loyalty.routes');
+const upchargesRoutes     = require('./routes/upcharges.routes');
+const recurringRoutes     = require('./routes/recurring.routes');
+const campaignsRoutes     = require('./routes/campaigns.routes');
+const reportsRoutes       = require('./routes/reports.routes');
+const searchRoutes        = require('./routes/search.routes');
+const automationsRoutes   = require('./routes/automations.routes');
 const challanRoutes       = require('./routes/challan.routes');
 const staffWalletRoutes   = require('./routes/staff.wallet.routes');
 const settingsRoutes      = require('./routes/settings.routes');
@@ -108,7 +120,26 @@ app.use('/api/v1/delivery',                    deliveryRoutes);
 app.use('/api/v1/services',                    servicesRoutes);
 app.use('/api/v1/iron',                        ironRoutes);
 app.use('/api/v1/metadata',                    metadataRoutes);
-app.use('/api/v1',                             phaseARoutes);
+// Finance
+app.use('/api/v1/cashbook',                    cashbookRoutes);
+app.use('/api/v1/expenses',                    expensesRoutes);
+app.use('/api/v1/ar-ledger',                   arLedgerRoutes);
+// Plant operations
+app.use('/api/v1/transfers',                   transfersRoutes);
+// Staff
+app.use('/api/v1/attendance',                  attendanceRoutes);
+// Promotions
+app.use('/api/v1/coupons',                     couponsRoutes);
+app.use('/api/v1/loyalty',                     loyaltyRoutes);
+app.use('/api/v1/upcharges',                   upchargesRoutes);
+// Operations
+app.use('/api/v1/recurring-pickups',           recurringRoutes);
+// Marketing
+app.use('/api/v1/campaigns',                   campaignsRoutes);
+// Intelligence
+app.use('/api/v1/reports',                     reportsRoutes);
+app.use('/api/v1/search',                      searchRoutes);
+app.use('/api/v1/automations',                 automationsRoutes);
 // Refer & Earn
 const referralRoutes  = require('./routes/referral.routes');
 const walletRoutes    = require('./routes/wallet.routes');

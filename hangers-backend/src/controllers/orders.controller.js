@@ -839,6 +839,79 @@ const recordPayment = async (req, res) => {
   }
 };
 
+// ── POST /api/v1/orders/return ────────────────────────────────────────────────
+const { z } = require('zod');
+const returnOrderSchema = z.object({
+  originalOrderId: z.string().trim().min(1),
+  reason:          z.string().trim().min(1).max(500),
+}).strict();
+
+const createReturnOrder = async (req, res) => {
+  try {
+    const parsed = returnOrderSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid return order payload');
+    const { originalOrderId, reason } = parsed.data;
+
+    const original = await prisma.order.findFirst({
+      where: {
+        ...ORDER_ONLY_WHERE,
+        OR: [{ id: originalOrderId }, { orderNumber: originalOrderId }],
+      },
+      include: { customer: true }
+    });
+
+    if (!original) return notFound(res, 'Original order not found');
+    if (original.isReturn) return badRequest(res, 'Return orders cannot be re-returned');
+    if (original.status === 'SENT_TO_PLANT') return badRequest(res, 'Cannot return this order — it is currently at the plant.');
+
+    const existingOpenReturn = await prisma.order.findFirst({
+      where: { ...ORDER_ONLY_WHERE, originalOrderId: original.id, isReturn: true, status: { not: 'CANCELLED' } },
+      select: { id: true, orderNumber: true }
+    });
+    if (existingOpenReturn) return badRequest(res, `An active return order already exists: ${existingOpenReturn.orderNumber}`);
+
+    const returnCount = await prisma.order.count({ where: { ...ORDER_ONLY_WHERE, isReturn: true } });
+    const orderNumber = `HCS-${String(returnCount + 1).padStart(3, '0')}-R`;
+
+    const originalItems = await prisma.orderItem.findMany({ where: { orderId: original.id } });
+    const returnOrder = await prisma.$transaction(async (tx) => {
+      const createdReturn = await tx.order.create({
+        data: {
+          orderNumber,
+          documentType: 'ORDER',
+          customerId: original.customerId,
+          status: 'PENDING',
+          items: {
+            create: originalItems.map(i => ({
+              serviceId: i.serviceId, serviceName: i.serviceName,
+              garmentType: i.garmentType, quantity: i.quantity,
+              unitPrice: 0, subtotal: 0
+            }))
+          },
+          totalAmount: 0,
+          subtotal: 0,
+          isReturn: true,
+          returnReason: reason,
+          originalOrderId: original.id,
+          paymentStatus: 'UNPAID',
+          notes: `Return/Re-clean of order ${original.orderNumber}. Reason: ${reason}`
+        }
+      });
+
+      await tx.order.update({
+        where: { id: original.id },
+        data:  { notes: [original.notes, `[RETURN REQUESTED - linked to ${createdReturn.orderNumber}]`].filter(Boolean).join(' ') }
+      });
+
+      return createdReturn;
+    });
+
+    return success(res, returnOrder);
+  } catch (err) {
+    return error(res, 'Failed to create return order');
+  }
+};
+
 module.exports = {
   listOrders,
   getOrderStats,
@@ -848,4 +921,5 @@ module.exports = {
   addItemsToOrder,
   deleteOrder,
   recordPayment,
+  createReturnOrder,
 };
