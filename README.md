@@ -52,6 +52,16 @@ For the strict master-data migration audit context, read:
 - Zod (validation)
 - GitHub Actions (CI)
 
+## Design System
+
+The CRM's 11 UI components are synced to **claude.ai/design** as the "Hangers CRM Design System" project. Designs produced there use real brand components automatically.
+
+- Project ID: `68e80ff6-61ab-4f72-9ea5-facbb2cc753c`
+- Component library source: `hangers-crm/src/components/ui/`
+- Sync config: `.design-sync/config.json`
+- Owned previews: `.design-sync/previews/*.tsx`
+- To re-sync after changes: run `node .ds-sync/package-build.mjs --config .design-sync/config.json --node-modules ./hangers-crm/node_modules --entry ./hangers-crm/src/components/ui/index.ts --out ./ds-bundle` then re-upload
+
 ## Quick Start
 
 ### 1. Install dependencies

@@ -45,3 +45,8 @@ hangers-backend/prisma/migrations/
 # Claude session data
 .claude/
 chat-export.json
+
+# Design sync build artifacts (source of truth is .design-sync/)
+ds-bundle/
+hangers-crm/ds-compiled-styles.css
+.ds-sync/node_modules/

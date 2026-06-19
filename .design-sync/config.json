@@ -1,0 +1,23 @@
+{
+  "projectId": "68e80ff6-61ab-4f72-9ea5-facbb2cc753c",
+  "pkg": "hangers-crm",
+  "globalName": "HangersCRM",
+  "shape": "package",
+  "srcDir": "src/components/ui",
+  "cssEntry": "ds-compiled-styles.css",
+  "runtimeFontPrefixes": ["Inter", "Space Grotesk", "Space Mono"],
+  "tsconfig": "tsconfig.json",
+  "componentSrcMap": {
+    "Button": "src/components/ui/Button.tsx",
+    "Badge": "src/components/ui/Badge.tsx",
+    "StatCard": "src/components/ui/StatCard.tsx",
+    "PageHeader": "src/components/ui/PageHeader.tsx",
+    "EmptyState": "src/components/ui/EmptyState.tsx",
+    "ErrorState": "src/components/ui/ErrorState.tsx",
+    "InlineLoader": "src/components/ui/Feedback.tsx",
+    "SkeletonLine": "src/components/ui/Feedback.tsx",
+    "SkeletonCard": "src/components/ui/Feedback.tsx",
+    "TableLoader": "src/components/ui/Feedback.tsx",
+    "PaginationControls": "src/components/ui/PaginationControls.tsx"
+  }
+}

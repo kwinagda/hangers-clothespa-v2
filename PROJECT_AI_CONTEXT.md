@@ -103,6 +103,11 @@ Key CRM entrypoints:
 
 - API client: `hangers-crm/src/lib/api.ts`
 - dashboard layout: `hangers-crm/src/app/dashboard/layout.tsx`
+- UI component library: `hangers-crm/src/components/ui/` (11 components synced to claude.ai/design)
+
+The CRM has a standalone UI component library (`Button`, `Badge`, `StatCard`, `PageHeader`, `EmptyState`, `ErrorState`, `InlineLoader`, `SkeletonLine`, `SkeletonCard`, `TableLoader`, `PaginationControls`). These are the ONLY shared UI primitives in the CRM — do not create new ad-hoc components if an existing one covers the use case.
+
+The design system is synced to claude.ai/design project `68e80ff6-61ab-4f72-9ea5-facbb2cc753c` ("Hangers CRM Design System"). Config lives in `.design-sync/config.json`. To re-sync: rebuild with `package-build.mjs` and re-upload via DesignSync tool.
 
 ### Staff app
 

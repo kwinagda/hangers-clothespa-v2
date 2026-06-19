@@ -1154,3 +1154,64 @@ These are lower-priority than the security/correctness fixes completed above. Th
 2. Push notification wiring — install `expo-server-sdk` and connect backend queue to Expo push gateway
 3. Metadata migration follow-up — move remaining hardcoded status/label maps in customer/staff apps to `/metadata` calls
 4. Targeted feature work — Daily Iron bill PDF share, delivery exception flows, CRM push send action
+
+---
+
+## Design System Sync — 2026-06-19
+
+### What Was Done
+
+First-time import of the CRM's UI component library into claude.ai/design.
+
+**Project:** "Hangers CRM Design System"
+**Project ID:** `68e80ff6-61ab-4f72-9ea5-facbb2cc753c`
+**URL:** https://claude.ai/design/p/68e80ff6-61ab-4f72-9ea5-facbb2cc753c
+
+### Components Synced (11)
+
+| Component | Preview Stories | Styling |
+|---|---|---|
+| `Button` | AllVariants, AllSizes, States | Tailwind classes |
+| `Badge` | OrderStatuses, CustomColor | Inline styles |
+| `StatCard` | KPIGrid, LoadingState | Inline styles |
+| `PageHeader` | WithActions, Simple | Inline styles |
+| `EmptyState` | WithAction, NoAction | Inline styles |
+| `ErrorState` | WithRetry, NoRetry | Inline styles |
+| `InlineLoader` | DefaultTone, LightTone | Custom CSS classes |
+| `SkeletonLine` | ContentSkeleton | Custom CSS class |
+| `SkeletonCard` | GridLayout | Custom CSS classes |
+| `TableLoader` | Default | Inline + custom CSS |
+| `PaginationControls` | Default | Inline styles |
+
+### Config Files Added
+
+- `.design-sync/config.json` — sync config with projectId, componentSrcMap, cssEntry
+- `.design-sync/previews/*.tsx` — 11 owned preview files (one per component)
+- `.ds-sync/` — converter scripts (not committed to git; staged locally)
+- `hangers-crm/ds-compiled-styles.css` — compiled Tailwind output (gitignored)
+- `ds-bundle/` — build output (gitignored)
+
+### How to Re-sync After Component Changes
+
+```bash
+# 1. Recompile CSS (if globals.css changed)
+cd hangers-crm && npx tailwindcss -i src/app/globals.css -o ds-compiled-styles.css && cd ..
+
+# 2. Rebuild bundle
+node .ds-sync/package-build.mjs \
+  --config .design-sync/config.json \
+  --node-modules ./hangers-crm/node_modules \
+  --entry ./hangers-crm/src/components/ui/index.ts \
+  --out ./ds-bundle
+
+# 3. Validate
+node .ds-sync/package-validate.mjs ./ds-bundle --no-render-check
+
+# 4. Upload via DesignSync tool (in Claude Code session)
+```
+
+### Notes
+
+- The CRM has no `dist/` build step for the component library (it's a Next.js app). The converter runs in synth-entry mode using `componentSrcMap` to discover all 11 exports.
+- The `next-env.d.ts` is the only `.d.ts` file in the project root; `.d.ts` contract generation is weak (stub props). Add `tsc --emitDeclarationOnly` as a future improvement for richer type contracts in the design tool.
+- Fallback fonts (Manrope, Outfit, IBM Plex Mono, DM Mono) in CSS variables produce `[FONT_REMOTE]` validator warnings — non-blocking; they are loaded as system fallbacks only.
