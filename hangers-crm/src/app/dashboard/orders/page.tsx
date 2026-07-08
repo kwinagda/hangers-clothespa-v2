@@ -1,11 +1,11 @@
 'use client'
 import { Suspense, useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { authAPI, ordersAPI, challanAPI, metadataAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
-import { ArrowRight, ClipboardList, IndianRupee, Lock, MoreHorizontal, PackageCheck, Plus, Search, Truck } from 'lucide-react'
+import { ArrowRight, CalendarDays, ClipboardList, IndianRupee, Lock, MoreHorizontal, PackageCheck, Plus, Search, Truck } from 'lucide-react'
 import { InlineLoader, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
@@ -23,11 +23,8 @@ const getStatusLabel = (status: string, source: string, labels: Record<string, s
 const BACKWARD_TRANSITIONS: Record<string, string[]> = {
   PICKED_UP: ['PENDING'],
   PROCESSING: ['PICKED_UP'],
-  WASHING: ['PROCESSING'],
-  DRYING: ['WASHING'],
-  IRONING: ['DRYING'],
-  QC: ['IRONING'],
-  READY_FOR_DELIVERY: ['QC'],
+  IRONING: ['PROCESSING'],
+  READY_FOR_DELIVERY: ['IRONING', 'PROCESSING'],
   OUT_FOR_DELIVERY: ['READY_FOR_DELIVERY'],
   CANCELLED: ['PENDING'],
 }
@@ -37,14 +34,12 @@ const formatCurrency = (value: number) => `₹${(value || 0).toLocaleString('en-
 const NEXT_STATUS: Record<string, string> = {
   PENDING: 'PICKED_UP',
   PICKED_UP: 'PROCESSING',
-  PROCESSING: 'WASHING',
-  WASHING: 'DRYING',
-  DRYING: 'IRONING',
-  IRONING: 'QC',
-  QC: 'READY_FOR_DELIVERY',
+  PROCESSING: 'IRONING',
+  IRONING: 'READY_FOR_DELIVERY',
   READY_FOR_DELIVERY: 'OUT_FOR_DELIVERY',
   OUT_FOR_DELIVERY: 'DELIVERED',
 }
+const HIDDEN_STATUS_CHOICES = new Set(['WASHING', 'DRYING', 'QC', 'RETURNED'])
 
 const getTransitionKind = (currentStatus: string, nextStatus: string) => {
   if (currentStatus === nextStatus) return 'noop'
@@ -93,6 +88,54 @@ const getStatusChoices = (currentStatus: string, baseStatuses: string[], staff: 
   return Array.from(next)
 }
 
+const summarizeItems = (items: any[] = []) => {
+  const totalQty = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
+  const visible = items.slice(0, 3)
+  return {
+    totalQty,
+    visible,
+    extraCount: Math.max(0, items.length - visible.length),
+  }
+}
+
+const paymentTone = (status: string) => {
+  if (status === 'PAID') return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' }
+  if (status === 'PARTIAL') return { bg: '#fff7ed', color: '#c2410c', border: '#fed7aa' }
+  return { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' }
+}
+
+const READY_ALLOWED_STATUSES = new Set(['PROCESSING', 'IRONING', 'WASHING', 'DRYING', 'QC'])
+
+function ItemSummary({ items }: { items: any[] }) {
+  const summary = summarizeItems(items)
+  if (!summary.totalQty) {
+    return (
+      <div style={{fontSize:12,color:'#9dafc8',fontWeight:600}}>
+        No garments added
+      </div>
+    )
+  }
+
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:8,minWidth:0}}>
+      <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',height:28,minWidth:34,padding:'0 8px',borderRadius:999,background:'#eef7ff',border:'1px solid #cfe3f4',color:'#035a8f',fontSize:12,fontWeight:800,flexShrink:0}}>
+        {summary.totalQty}
+      </span>
+      <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',minWidth:0}}>
+        {summary.visible.map((item: any, index: number) => (
+          <span key={`${item.id || item.serviceName || item.garmentType}-${index}`} style={{display:'inline-flex',alignItems:'center',gap:4,maxWidth:128,padding:'4px 8px',borderRadius:8,background:'#f7f9fc',border:'1px solid #e5edf5',fontSize:11,color:'#31445c',fontWeight:700,whiteSpace:'nowrap'}}>
+            {Number(item.quantity) > 1 && <span style={{color:'#035a8f'}}>{item.quantity}x</span>}
+            <span style={{overflow:'hidden',textOverflow:'ellipsis'}}>{item.garmentType || item.serviceName || item.service?.name || 'Item'}</span>
+          </span>
+        ))}
+        {summary.extraCount > 0 && (
+          <span style={{fontSize:11,color:'#6b7fa3',fontWeight:800}}>+{summary.extraCount}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function MetricCard({
   label,
   value,
@@ -113,6 +156,8 @@ function MetricCard({
 
 function OrdersPageContent() {
   const sp                      = useSearchParams()
+  const router                  = useRouter()
+  const pathname                = usePathname()
   const [orders, setOrders]     = useState<any[]>([])
   const [total,  setTotal]      = useState(0)
   const [loading,setLoading]    = useState(true)
@@ -154,14 +199,30 @@ function OrdersPageContent() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
+    const nextStatus = sp.get('status') || ''
+    setStatus((current) => current === nextStatus ? current : nextStatus)
+    setPage(1)
+  }, [sp])
+
+  const applyStatusFilter = (nextStatus: string) => {
+    setStatus(nextStatus)
+    setPage(1)
+    const params = new URLSearchParams(sp.toString())
+    if (nextStatus) params.set('status', nextStatus)
+    else params.delete('status')
+    const query = params.toString()
+    router.push(query ? `${pathname}?${query}` : pathname)
+  }
+
+  useEffect(() => {
     authAPI.me().then((r:any) => setCurrentStaff(r?.staff || r?.data?.staff || null)).catch(() => setCurrentStaff(null))
     metadataAPI.getAll()
       .then((r: any) => {
         const metadata = r?.metadata || r?.data?.metadata || {}
         const orderStatuses = metadata.orderStatuses || []
-        setStatusOptions([{ key: '', label: 'All Statuses' }, ...orderStatuses.map((item: any) => ({ key: item.key, label: item.label }))])
+        setStatusOptions([{ key: '', label: 'All Statuses' }, ...orderStatuses.filter((item: any) => !HIDDEN_STATUS_CHOICES.has(item.key)).map((item: any) => ({ key: item.key, label: item.label }))])
         setPlantStatuses(orderStatuses.filter((item: any) => item.plantManaged).map((item: any) => item.key))
-        setEditableStatuses(orderStatuses.filter((item: any) => item.crmEditable).map((item: any) => item.key))
+        setEditableStatuses(orderStatuses.filter((item: any) => item.crmEditable && !HIDDEN_STATUS_CHOICES.has(item.key)).map((item: any) => item.key))
         setStatusLabels(Object.fromEntries(orderStatuses.map((item: any) => [item.key, item.label])))
         setStatusStyles(Object.fromEntries(orderStatuses.map((item: any) => [item.key, {
           bg: item.bg || '#f7f9fc',
@@ -203,6 +264,11 @@ function OrdersPageContent() {
       toast.success('Status updated')
       load()
     } catch(e:any) { toast.error(e.message) }
+  }
+
+  const markReady = (order: any) => {
+    if (!READY_ALLOWED_STATUSES.has(order.status)) return
+    updateStatus(order.id, order.status, 'READY_FOR_DELIVERY')
   }
 
   const submitStatusModal = async () => {
@@ -271,7 +337,7 @@ function OrdersPageContent() {
           <div>
             <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:32,color:'#fff',margin:'0 0 8px'}}>Orders Workspace</h1>
             <p style={{fontSize:14,color:'rgba(232,240,247,0.88)',margin:'0 0 16px',lineHeight:1.6,maxWidth:720}}>
-              Monitor active queue volume, plant handoffs, missing-item orders, and manual workflow changes from one live operations screen.
+              Monitor created, in-process, pending ironing, ready, and delivered orders from one clean operations screen.
             </p>
             <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
               <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
@@ -280,7 +346,7 @@ function OrdersPageContent() {
               </span>
               <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
                 <Truck size={14} />
-                {plantLockedCount} at plant
+                {plantLockedCount} sent to plant
               </span>
               <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
                 <IndianRupee size={14} />
@@ -310,7 +376,7 @@ function OrdersPageContent() {
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:18,marginBottom:22}}>
         <MetricCard label="Current Results" value={String(total)} note="Orders matching the active filters and search." />
         <MetricCard label="Visible Value" value={formatCurrency(visibleValue)} note="Combined billed amount across the loaded page." />
-        <MetricCard label="At Plant" value={String(plantLockedCount)} note="Orders currently controlled by plant-side movement." />
+        <MetricCard label="Sent to Plant" value={String(plantLockedCount)} note="Orders locked until they are received back." />
         <MetricCard label="Needs Items" value={String(noItemsCount)} note="Orders on this page with no garment lines yet." />
       </div>
 
@@ -328,7 +394,7 @@ function OrdersPageContent() {
             <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} placeholder="Search order #, name, phone..."
               style={{width:'100%',border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 14px 10px 38px',fontSize:14,outline:'none',background:'#fff'}}/>
           </div>
-          <select value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}}
+          <select value={status} onChange={e=>applyStatusFilter(e.target.value)}
             style={{border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 14px',fontSize:14,outline:'none',background:'#fff',color:'#1a2332',minWidth:160}}>
             {statusOptions.map((item)=><option key={item.key} value={item.key}>{item.label}</option>)}
           </select>
@@ -357,23 +423,23 @@ function OrdersPageContent() {
       )}
 
       {/* Table */}
-      <div className="crm-surface crm-card-hover" style={{borderRadius:24,overflow:'hidden',boxShadow:'0 12px 28px rgba(2,60,98,0.06)'}}>
+      <div className="crm-surface orders-table-surface" style={{borderRadius:24,overflow:'visible',boxShadow:'0 12px 28px rgba(2,60,98,0.06)'}}>
         <div style={{padding:'18px 22px',borderBottom:'1px solid #edf3f8',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',background:'#fff'}}>
           <div>
             <h2 style={{margin:'0 0 4px',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:19,color:'#023c62'}}>Order Queue</h2>
-            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>Live operational list with quick status control, print actions, and challan selection.</p>
+            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>Order ID, customer, garment summary, amount, payment, dates, and actions in one view.</p>
           </div>
           <Link href="/dashboard/orders/new" style={{display:'inline-flex',alignItems:'center',gap:6,textDecoration:'none',color:'#035a8f',fontSize:13,fontWeight:700}}>
             Create new order <ArrowRight size={14} />
           </Link>
         </div>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',overflow:'visible'}}>
           <thead><tr style={{background:'#f7f9fc'}}>
             <th style={{padding:'11px 16px',borderBottom:'1px solid #e8f0f7',width:40}}>
               <input type="checkbox" checked={selected.size === orders.length && orders.length > 0}
                 onChange={toggleAll} style={{cursor:'pointer'}}/>
             </th>
-            {['Order #','Customer','Items','Status','Amount','Date','Actions'].map(h=>(
+            {['Order','Customer','Garments / Service','Status','Payment','Dates','Actions'].map(h=>(
               <th key={h} style={{padding:'11px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#6b7fa3',letterSpacing:'0.08em',textTransform:'uppercase' as const,borderBottom:'1px solid #e8f0f7'}}>{h}</th>
             ))}
           </tr></thead>
@@ -391,24 +457,28 @@ function OrdersPageContent() {
                     const isLockedToPlantOnly = plantStatuses.includes(o.status) && statusChoices.length <= 1
                     const statusStyle = statusStyles[o.status] || { bg: '#f7f9fc', text: '#023c62', border: '#dce8f0' }
                     return (
-                      <tr key={o.id} className="crm-table-row" style={{borderBottom:'1px solid #f0f4f8',background:selected.has(o.id)?'#eff6ff':i%2===0?'#fff':'#fafbfd'}}>
+                      <tr key={o.id} className="crm-table-row" style={{borderBottom:'1px solid #f0f4f8',background:selected.has(o.id)?'#eff6ff':i%2===0?'#fff':'#fafbfd',position:'relative'}}>
                         <td style={{padding:'13px 16px'}}>
                           <input type="checkbox" checked={selected.has(o.id)}
                             onChange={() => toggleSelect(o.id)} style={{cursor:'pointer'}}
                             disabled={isSentToPlant}/>
                         </td>
-                        <td style={{padding:'13px 16px'}}>
+                        <td style={{padding:'13px 16px',minWidth:150}}>
                           <Link href={`/dashboard/orders/${o.id}`}
                             style={{fontFamily:"var(--crm-font-mono)",fontSize:13,fontWeight:600,color:'#023c62',textDecoration:'none'}}>
                             {o.orderNumber}
                           </Link>
                           {isSentToPlant && <span style={{fontSize:10,background:'#fef9c3',color:'#854d0e',padding:'2px 6px',borderRadius:4,marginLeft:6,fontWeight:600}}>AT PLANT</span>}
+                          <div style={{fontSize:11,color:'#8ba0bb',marginTop:5}}>#{(page - 1) * pageSize + i + 1}</div>
                         </td>
                         <td style={{padding:'13px 16px'}}>
                           <div style={{fontSize:14,fontWeight:500,color:'#1a2332'}}>{o.customer?.name||'—'}</div>
                           <div style={{fontSize:12,color:'#9dafc8'}}>+91 {o.customer?.phone}</div>
                         </td>
-                        <td style={{padding:'13px 16px',fontSize:13,color:'#6b7fa3'}}>{o.items?.length||0} item{o.items?.length!==1?'s':''}</td>
+                        <td style={{padding:'13px 16px',fontSize:13,color:'#31445c',minWidth:270}}>
+                          <ItemSummary items={o.items || []} />
+                          <div style={{fontSize:11,color:'#8ba0bb'}}>{o.source || 'COUNTER'}{o.assignedTo?.name ? ` • ${o.assignedTo.name}` : ''}</div>
+                        </td>
                         <td style={{padding:'13px 16px'}}>
                           {isLockedToPlantOnly
                             ? <span style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:6,color:statusStyle.text,background:statusStyle.bg,border:`1px solid ${statusStyle.border}`}}>
@@ -420,26 +490,44 @@ function OrdersPageContent() {
                               </select>
                           }
                         </td>
-                        <td style={{padding:'13px 16px',fontWeight:600,color:'#023c62',fontSize:14}}>₹{o.totalAmount?.toLocaleString('en-IN')}</td>
-                        <td style={{padding:'13px 16px',fontSize:12,color:'#6b7fa3'}}>
-                          {format(new Date(o.createdAt),'dd MMM yy')}<br/>
-                          {format(new Date(o.createdAt),'h:mm a')}
+                        <td style={{padding:'13px 16px',minWidth:140}}>
+                          <div style={{fontWeight:800,color:'#023c62',fontSize:14}}>₹{o.totalAmount?.toLocaleString('en-IN')}</div>
+                          <span style={{display:'inline-flex',marginTop:5,fontSize:10,fontWeight:800,padding:'3px 8px',borderRadius:999,border:`1px solid ${paymentTone(o.paymentStatus).border}`,background:paymentTone(o.paymentStatus).bg,color:paymentTone(o.paymentStatus).color}}>
+                            {o.paymentStatus || 'UNPAID'}
+                          </span>
                         </td>
-                        <td style={{padding:'13px 16px'}}>
-                          <div style={{display:'flex',alignItems:'center',gap:10}}>
+                        <td style={{padding:'13px 16px',fontSize:12,color:'#6b7fa3',minWidth:132}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6,color:'#31445c',fontWeight:700}}><CalendarDays size={13} /> {format(new Date(o.createdAt),'dd MMM yy')}</div>
+                          <div style={{marginTop:4}}>{format(new Date(o.createdAt),'h:mm a')}</div>
+                          {o.deliveryDate && <div style={{marginTop:4,color:'#0f766e'}}>Due {format(new Date(o.deliveryDate),'dd MMM')}</div>}
+                        </td>
+                        <td style={{padding:'13px 16px',position:'relative',overflow:'visible'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:10,position:'relative',zIndex:2}}>
+                            {READY_ALLOWED_STATUSES.has(o.status) && (
+                              <button
+                                onClick={() => markReady(o)}
+                                style={{height:30,padding:'0 12px',borderRadius:8,border:'1px solid #b7ead4',background:'#ecfdf5',color:'#047857',fontSize:12,fontWeight:800,cursor:'pointer'}}
+                              >
+                                Clean
+                              </button>
+                            )}
                             <Link href={`/dashboard/orders/${o.id}`}
                               style={{fontSize:12,color:'#035a8f',fontWeight:500,textDecoration:'none'}}>
                               View
                             </Link>
-                            <details style={{position:'relative'}}>
-                              <summary style={{listStyle:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',justifyContent:'center',width:28,height:28,borderRadius:8,border:'1px solid #dce8f0',background:'#fff',color:'#6b7fa3'}}>
-                                <MoreHorizontal size={14} />
+                            <details className="crm-action-menu" style={{position:'relative',zIndex:1000}}>
+                              <summary
+                                title="More order actions"
+                                aria-label="More order actions"
+                                style={{listStyle:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',justifyContent:'center',width:30,height:30,borderRadius:8,border:'1px solid #dce8f0',background:'#fff',color:'#6b7fa3'}}
+                              >
+                                <MoreHorizontal size={16} strokeWidth={2.6} />
                               </summary>
-                              <div style={{position:'absolute',right:0,top:34,minWidth:170,background:'#fff',border:'1px solid #dce8f0',borderRadius:12,boxShadow:'0 16px 34px rgba(2,60,98,0.14)',padding:8,zIndex:20}}>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=receipt`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>Print A4 Receipt</Link>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=thermal`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>Print 80mm Thermal</Link>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=garment`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>Print Garment Tags</Link>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=bag`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>Print Bag Tags</Link>
+                              <div style={{position:'absolute',right:0,top:36,minWidth:190,background:'#fff',border:'1px solid #dce8f0',borderRadius:12,boxShadow:'0 16px 34px rgba(2,60,98,0.18)',padding:8,zIndex:9999}}>
+                                <Link href={`/dashboard/print?orderId=${o.id}&type=receipt`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print A4 Receipt</Link>
+                                <Link href={`/dashboard/print?orderId=${o.id}&type=thermal`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print 80mm Thermal</Link>
+                                <Link href={`/dashboard/print?orderId=${o.id}&type=garment`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print Garment Tags</Link>
+                                <Link href={`/dashboard/print?orderId=${o.id}&type=bag`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print Bag Tags</Link>
                               </div>
                             </details>
                           </div>

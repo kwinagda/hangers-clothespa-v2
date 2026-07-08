@@ -17,9 +17,11 @@ const { normalizeOrderItem }                       = require('../utils/line-pric
 const { emitOrderUpdate }                          = require('../services/sse.service');
 const { enqueueNotification, NOTIFY_JOB }          = require('../queues');
 const { creditWallet }                             = require('../services/wallet.service');
+const { buildOrderSearchOr }                       = require('../utils/order-search');
+const { normalizePaymentMethod }                   = require('../utils/payment-method');
 
 const WA_NOTIFY_STATUSES = new Set(['PICKED_UP','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED']);
-const ORDER_STATUS_SEQUENCE = ['PENDING', 'PICKED_UP', 'SENT_TO_PLANT', 'PROCESSING', 'WASHING', 'DRYING', 'IRONING', 'QC', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'RETURNED'];
+const ORDER_STATUS_SEQUENCE = ['PENDING', 'PICKED_UP', 'SENT_TO_PLANT', 'PROCESSING', 'IRONING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'RETURNED'];
 const STATUS_CORRECTION_ROLES = ['SUPER_ADMIN', 'MANAGER'];
 const HIGH_RISK_STATUS_CORRECTION_ROLES = ['SUPER_ADMIN'];
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
@@ -27,13 +29,19 @@ const BACKWARD_TRANSITIONS = {
   PICKED_UP: ['PENDING'],
   SENT_TO_PLANT: ['PICKED_UP'],
   PROCESSING: ['PICKED_UP', 'SENT_TO_PLANT'],
-  WASHING: ['PROCESSING'],
-  DRYING: ['WASHING'],
-  IRONING: ['DRYING'],
-  QC: ['IRONING'],
-  READY_FOR_DELIVERY: ['QC'],
+  IRONING: ['PROCESSING', 'SENT_TO_PLANT'],
+  READY_FOR_DELIVERY: ['IRONING', 'PROCESSING'],
   OUT_FOR_DELIVERY: ['READY_FOR_DELIVERY'],
   CANCELLED: ['PENDING'],
+};
+const FORWARD_TRANSITIONS = {
+  PENDING: ['PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT'],
+  PICKED_UP: ['PROCESSING', 'SENT_TO_PLANT'],
+  SENT_TO_PLANT: ['IRONING'],
+  PROCESSING: ['IRONING', 'READY_FOR_DELIVERY'],
+  IRONING: ['READY_FOR_DELIVERY'],
+  READY_FOR_DELIVERY: ['OUT_FOR_DELIVERY'],
+  OUT_FOR_DELIVERY: ['DELIVERED'],
 };
 const CANCELLABLE_STATUSES = new Set(['PENDING', 'PICKED_UP', 'PROCESSING', 'READY_FOR_DELIVERY']);
 const DELIVERED_CORRECTION_TARGETS = new Set(['READY_FOR_DELIVERY']);
@@ -71,6 +79,12 @@ const getTransitionContext = (currentStatus, nextStatus) => {
 
   const currentIndex = ORDER_STATUS_SEQUENCE.indexOf(currentStatus);
   const nextIndex = ORDER_STATUS_SEQUENCE.indexOf(nextStatus);
+
+  if (currentIndex !== -1 && nextIndex !== -1 && nextIndex > currentIndex) {
+    return FORWARD_TRANSITIONS[currentStatus]?.includes(nextStatus)
+      ? { kind: 'forward' }
+      : { kind: 'forbidden_forward' };
+  }
 
   if (currentIndex !== -1 && nextIndex !== -1 && nextIndex < currentIndex) {
     if (BACKWARD_TRANSITIONS[currentStatus]?.includes(nextStatus)) {
@@ -134,7 +148,11 @@ const listOrders = async (req, res) => {
     if (!parsedPage) return badRequest(res, 'page must be a positive integer');
     if (!parsedLimit || parsedLimit > 100) return badRequest(res, 'limit must be an integer between 1 and 100');
     const where = { ...ORDER_ONLY_WHERE };
-    if (status) where.status = status;
+    if (status === 'PROCESSING') {
+      where.status = { in: ['PROCESSING', 'SENT_TO_PLANT', 'IRONING', 'WASHING', 'DRYING', 'QC'] };
+    } else if (status) {
+      where.status = status;
+    }
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) {
@@ -149,11 +167,7 @@ const listOrders = async (req, res) => {
       }
     }
     if (search) {
-      where.OR = [
-        { orderNumber: { contains: search, mode: 'insensitive' } },
-        { customer: { name:  { contains: search, mode: 'insensitive' } } },
-        { customer: { phone: { contains: search } } },
-      ];
+      where.OR = buildOrderSearchOr(search);
     }
 
     const [orders, total] = await Promise.all([
@@ -492,6 +506,9 @@ const updateOrderStatus = async (req, res) => {
     if (transition.kind === 'forbidden_backward') {
       return badRequest(res, 'That backward status change is not allowed. Use the approved correction steps only.');
     }
+    if (transition.kind === 'forbidden_forward') {
+      return badRequest(res, 'That status change is not allowed in the current workflow.');
+    }
     if (transition.kind === 'forbidden_cancel') {
       return badRequest(res, 'This order can no longer be cancelled from its current workflow state');
     }
@@ -508,8 +525,7 @@ const updateOrderStatus = async (req, res) => {
     // ── ITEM GUARD: Block moving past PICKED_UP with zero items ──────────────
     // Industry standard: garments must be logged before plant work begins.
     // PENDING→PICKED_UP is always allowed. Beyond that, items must exist.
-    const REQUIRES_ITEMS = ['PROCESSING','WASHING','DRYING','IRONING','QC',
-                            'READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED'];
+    const REQUIRES_ITEMS = ['PROCESSING','IRONING','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED'];
     if (REQUIRES_ITEMS.includes(status) && order.items.length === 0) {
       return res.status(422).json({
         error:       'ITEMS_REQUIRED',
@@ -711,11 +727,12 @@ const recordPayment = async (req, res) => {
   try {
     const { id } = req.params;
     const { amount, method = 'CASH', reference, notes, writeOffAmount } = req.body;
+    const normalizedMethod = normalizePaymentMethod(method);
 
     if (!amount || parseFloat(amount) <= 0) {
       return badRequest(res, 'Valid amount is required');
     }
-    if (!CORE_PAYMENT_METHODS.includes(method)) {
+    if (!CORE_PAYMENT_METHODS.includes(normalizedMethod)) {
       return badRequest(res, `Payment method must be one of: ${CORE_PAYMENT_METHODS.join(', ')}`);
     }
 
@@ -751,7 +768,7 @@ const recordPayment = async (req, res) => {
           data: {
             orderId: id,
             amount: appliedAmount,
-            method,
+            method: normalizedMethod,
             reference: reference || null,
             notes: notes || null,
             collectedBy: req.staff?.id || null,
@@ -784,7 +801,7 @@ const recordPayment = async (req, res) => {
           data: {
             orderId: id,
             stage: 'PAYMENT_RECORDED',
-            notes: `₹${appliedAmount} received via ${method}${reference ? ` (Ref: ${reference})` : ''}${overpayment > 0 ? `. ₹${overpayment} credited to wallet` : ''}`,
+            notes: `₹${appliedAmount} received via ${normalizedMethod}${reference ? ` (Ref: ${reference})` : ''}${overpayment > 0 ? `. ₹${overpayment} credited to wallet` : ''}`,
             changedById: req.staff?.id || null,
           },
         });

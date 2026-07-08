@@ -20,22 +20,23 @@ const getStatusLabel = (status: string, source?: string, labels: Record<string, 
   return labels[status] || status
 }
 const NEXT_STATUS: Record<string,string> = {
-  PENDING:'PICKED_UP', PICKED_UP:'PROCESSING', PROCESSING:'WASHING',
-  WASHING:'DRYING', DRYING:'IRONING', IRONING:'QC',
-  QC:'READY_FOR_DELIVERY', READY_FOR_DELIVERY:'OUT_FOR_DELIVERY', OUT_FOR_DELIVERY:'DELIVERED',
+  PENDING:'PICKED_UP',
+  PICKED_UP:'PROCESSING',
+  PROCESSING:'IRONING',
+  IRONING:'READY_FOR_DELIVERY',
+  READY_FOR_DELIVERY:'OUT_FOR_DELIVERY',
+  OUT_FOR_DELIVERY:'DELIVERED',
 }
-const REQUIRES_ITEMS = ['PROCESSING','WASHING','DRYING','IRONING','QC','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED']
+const REQUIRES_ITEMS = ['PROCESSING','IRONING','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED']
 const BACKWARD_TRANSITIONS: Record<string, string[]> = {
   PICKED_UP: ['PENDING'],
   PROCESSING: ['PICKED_UP'],
-  WASHING: ['PROCESSING'],
-  DRYING: ['WASHING'],
-  IRONING: ['DRYING'],
-  QC: ['IRONING'],
-  READY_FOR_DELIVERY: ['QC'],
+  IRONING: ['PROCESSING'],
+  READY_FOR_DELIVERY: ['IRONING', 'PROCESSING'],
   OUT_FOR_DELIVERY: ['READY_FOR_DELIVERY'],
   CANCELLED: ['PENDING'],
 }
+const HIDDEN_STATUS_CHOICES = new Set(['WASHING', 'DRYING', 'QC', 'RETURNED'])
 const DELIVERED_CORRECTION_TARGETS = ['READY_FOR_DELIVERY']
 const CANCELLABLE_STATUSES = ['PENDING', 'PICKED_UP', 'PROCESSING', 'READY_FOR_DELIVERY']
 const formatCurrency = (value: number) => `₹${(value || 0).toLocaleString('en-IN')}`
@@ -424,7 +425,7 @@ export default function OrderDetailPage() {
         return acc
       }, {}))
       setPlantStatuses(orderStatuses.filter((item: any) => item.plantManaged).map((item: any) => item.key))
-      setCrmStatuses(orderStatuses.filter((item: any) => item.crmEditable && item.key !== 'RETURNED' && item.key !== 'SENT_TO_PLANT').map((item: any) => item.key))
+      setCrmStatuses(orderStatuses.filter((item: any) => item.crmEditable && item.key !== 'SENT_TO_PLANT' && !HIDDEN_STATUS_CHOICES.has(item.key)).map((item: any) => item.key))
       setDeliveryRoles((metadata.staffRoles || []).filter((item: any) => String(item.value || '').startsWith('DELIVERY_')).map((item: any) => item.value))
     }).catch(() => {
       setStatusLabels({})

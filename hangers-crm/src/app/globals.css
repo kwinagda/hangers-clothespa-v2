@@ -115,6 +115,39 @@ textarea:focus {
   background: #fbfdff !important;
 }
 
+.orders-table-surface,
+.orders-table-surface:hover,
+.orders-table-surface .crm-table-row,
+.orders-table-surface .crm-table-row:hover,
+.orders-table-surface a,
+.orders-table-surface a:hover,
+.orders-table-surface button,
+.orders-table-surface button:hover {
+  transform: none !important;
+  will-change: auto !important;
+}
+
+.orders-table-surface .crm-table-row:hover {
+  background: inherit !important;
+}
+
+.crm-action-menu summary,
+.crm-action-menu a {
+  transform: none !important;
+  will-change: auto !important;
+}
+
+.crm-action-menu summary:hover,
+.crm-action-menu summary:active,
+.crm-action-menu a:hover,
+.crm-action-menu a:active {
+  transform: none !important;
+}
+
+.crm-action-menu a:hover {
+  background: #eef7ff;
+}
+
 .crm-inline-loader {
   display: inline-flex;
   align-items: center;

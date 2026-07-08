@@ -151,8 +151,9 @@ const createChallan = async (req, res) => {
     });
 
     if (orders.length !== normalizedOrderIds.length) return badRequest(res, 'One or more orders not found');
-    const invalidOrders = orders.filter((order) => order.status !== 'READY_FOR_DELIVERY');
-    if (invalidOrders.length) return badRequest(res, 'Only ready-for-delivery orders can be sent to plant challans');
+    const sendableStatuses = new Set(['PENDING', 'PICKED_UP', 'PROCESSING']);
+    const invalidOrders = orders.filter((order) => !sendableStatuses.has(order.status));
+    if (invalidOrders.length) return badRequest(res, 'Only created, received, or in-process orders can be sent to plant challans');
     const alreadyLinked = await prisma.challanOrder.findMany({
       where: { orderId: { in: normalizedOrderIds }, challan: { status: { in: ['DISPATCHED', 'PARTIAL', 'PROCESSED'] } } },
       select: { orderId: true }
@@ -241,12 +242,12 @@ const updateChallanStatus = async (req, res) => {
       include: { challanOrders: true }
     });
 
-    // If fully received — move all orders to PROCESSING
+    // If fully received — move all orders to shop ironing queue
     if (status === 'RECEIVED') {
       const orderIds = challan.challanOrders.map(co => co.orderId);
       await prisma.order.updateMany({
         where: { id: { in: orderIds } },
-        data:  { status: 'PROCESSING' }
+        data:  { status: 'IRONING' }
       });
     }
 
@@ -311,7 +312,7 @@ const receiveItems = async (req, res) => {
       if (allOrderItemsReceived && orderChallanItems.length > 0) {
         await prisma.order.update({
           where: { id: co.orderId },
-          data:  { status: 'PROCESSING' }
+          data:  { status: 'IRONING' }
         });
       }
     }

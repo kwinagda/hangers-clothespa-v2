@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const { badRequest, error } = require('../utils/response');
 const { advancedSearchQuerySchema } = require('../validation/search.schemas');
+const { buildOrderSearchOr } = require('../utils/order-search');
 
 const advancedSearch = async (req, res) => {
   try {
@@ -30,11 +31,7 @@ const advancedSearch = async (req, res) => {
 
     if (type === 'orders' || !type) {
       const where = {};
-      if (q) where.OR = [
-        { orderNumber: { contains: q, mode: 'insensitive' } },
-        { customer: { name: { contains: q, mode: 'insensitive' } } },
-        { customer: { phone: { contains: q } } }
-      ];
+      if (q) where.OR = buildOrderSearchOr(q);
       if (status) where.status = status;
       if (hasOutstanding === 'true') {
         const outstanding = ['UNPAID', 'PARTIAL'];

@@ -5,6 +5,7 @@ const prisma = require('../config/database');
 const { processReferralQualification } = require('../services/referral.service');
 const { success, created, badRequest, error, notFound } = require('../utils/response');
 const { recordPaymentSchema } = require('../validation/finance.schemas');
+const { normalizePaymentMethod } = require('../utils/payment-method');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 const calculatePaymentState = (order, incomingAmount) => {
@@ -28,6 +29,7 @@ const recordPayment = async (req, res) => {
     const parsed = recordPaymentSchema.safeParse(req.body);
     if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid payment payload');
     const { orderId, amount, method, reference, notes } = parsed.data;
+    const normalizedMethod = normalizePaymentMethod(method);
     const amountNum = amount;
 
     const { payment, updatedOrder, overpayment } = await prisma.$transaction(async (tx) => {
@@ -49,7 +51,7 @@ const recordPayment = async (req, res) => {
         data: {
           orderId,
           amount: appliedAmount,
-          method,
+          method: normalizedMethod,
           reference: reference || null,
           notes: notes || null,
           collectedBy: req.staff?.id || null,
@@ -81,7 +83,7 @@ const recordPayment = async (req, res) => {
         data: {
           orderId,
           stage: 'PAYMENT_RECORDED',
-          notes: `₹${appliedAmount} received via ${method}${reference ? ` (Ref: ${reference})` : ''}${overpayment > 0 ? `. ₹${overpayment} credited to wallet` : ''}`,
+          notes: `₹${appliedAmount} received via ${normalizedMethod}${reference ? ` (Ref: ${reference})` : ''}${overpayment > 0 ? `. ₹${overpayment} credited to wallet` : ''}`,
           changedById: req.staff?.id || null,
         },
       });
@@ -146,6 +148,7 @@ const getDailySummary = async (req, res) => {
       upi:    payments.filter(p => p.method === 'UPI').reduce((s, p) => s + p.amount, 0),
       card:   payments.filter(p => p.method === 'CARD').reduce((s, p) => s + p.amount, 0),
       online: payments.filter(p => p.method === 'RAZORPAY').reduce((s, p) => s + p.amount, 0),
+      other:  payments.filter(p => !['CASH', 'UPI', 'CARD', 'RAZORPAY'].includes(p.method)).reduce((s, p) => s + p.amount, 0),
       count:  payments.length,
     };
 

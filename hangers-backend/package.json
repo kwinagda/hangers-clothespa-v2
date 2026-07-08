@@ -8,6 +8,8 @@
     "dev": "nodemon src/index.js",
     "test": "node --test tests/*.test.js",
     "type:check": "tsc --noEmit",
+    "postinstall": "npx prisma generate",
+    "start:prod": "npx prisma migrate deploy && node src/index.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
@@ -28,7 +30,6 @@
     "morgan": "^1.10.0",
     "puppeteer": "^24.39.1",
     "razorpay": "^2.9.6",
-    "uuid": "^9.0.0",
     "zod": "^4.4.1"
   },
   "devDependencies": {

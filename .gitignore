@@ -39,14 +39,18 @@ npm-debug.log*
 *.msg91backup
 **/*.msg91backup
 
-# Prisma migrations (local only)
-hangers-backend/prisma/migrations/
+# Prisma migrations (local only - committed for deployment)
+#hangers-backend/prisma/migrations/
 
 # Claude session data
 .claude/
 chat-export.json
 
 # Design sync build artifacts (source of truth is .design-sync/)
+.ds-sync/
 ds-bundle/
 hangers-crm/ds-compiled-styles.css
-.ds-sync/node_modules/
+
+# Local migration source data / backups contain customer and payment records.
+migration/fabklean/raw/
+migration/fabklean/local-backups/

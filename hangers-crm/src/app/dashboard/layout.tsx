@@ -12,6 +12,7 @@ import {
   ChevronRight,
   ClipboardList,
   Clock3,
+  CheckCircle2,
   FileStack,
   FolderTree,
   IndianRupee,
@@ -26,6 +27,7 @@ import {
   Search,
   Share2,
   Shirt,
+  Sparkles,
   FileText,
   TicketPercent,
   Users,
@@ -45,9 +47,17 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    label: 'Orders',
+    items: [
+      { href: '/dashboard/orders', icon: Package, label: 'All Orders', note: 'Queue' },
+      { href: '/dashboard/orders?status=PROCESSING', icon: Clock3, label: 'In Process', note: 'Working' },
+      { href: '/dashboard/orders?status=READY_FOR_DELIVERY', icon: Sparkles, label: 'Cleaned', note: 'Ready' },
+      { href: '/dashboard/orders?status=DELIVERED', icon: CheckCircle2, label: 'Delivered', note: 'Done' },
+    ],
+  },
+  {
     label: 'Operations',
     items: [
-      { href: '/dashboard/orders', icon: Package, label: 'Orders', note: 'Queue' },
       { href: '/dashboard/quotations', icon: FileText, label: 'Quotations', note: 'Estimates' },
       { href: '/dashboard/customers', icon: Users, label: 'Customers', note: 'Directory' },
       { href: '/dashboard/recurring', icon: RefreshCw, label: 'Recurring', note: 'Schedules' },
@@ -86,7 +96,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const [staff,    setStaff]    = useState<any>(null)
   const [roleColors, setRoleColors] = useState<Record<string, string>>({})
-  const [sideOpen, setSideOpen] = useState(true)
+  const [sideOpen, setSideOpen] = useState(false)
   const [authLoading, setAuthLoading] = useState(true)
   const asArray = (value: any, keys: string[] = []) => {
     if (Array.isArray(value)) return value
@@ -129,7 +139,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div style={{ display:'flex', minHeight:'100vh', fontFamily:"var(--crm-font-ui)" }}>
 
       {/* ── Sidebar ────────────────────────────────────────────────── */}
-      <aside style={{
+      <aside
+      onMouseEnter={() => setSideOpen(true)}
+      onMouseLeave={() => setSideOpen(false)}
+      style={{
         width:        sideOpen ? 286 : 84,
         height:       '100vh',
         background:   'linear-gradient(180deg,#022d4d 0%,#012643 52%,#011f36 100%)',

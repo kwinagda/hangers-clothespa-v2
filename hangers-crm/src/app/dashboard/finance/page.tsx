@@ -6,8 +6,8 @@ import { AlertTriangle, BarChart3, CalendarDays, CreditCard, IndianRupee, Landma
 import api, { metadataAPI } from '@/lib/api'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 
-const METHOD_ICON = {CASH:Landmark,UPI:Smartphone,CARD:CreditCard,RAZORPAY:WalletCards,OTHER:Tag,ALL:BarChart3}
-const METHOD_COLOR: Record<string,string> = {CASH:'#22c55e',UPI:'#3b82f6',CARD:'#8b5cf6',RAZORPAY:'#f97316',OTHER:'#6b7fa3'}
+const METHOD_ICON = {CASH:Landmark,UPI:Smartphone,CARD:CreditCard,RAZORPAY:WalletCards,ONLINE:WalletCards,COD:Landmark,WALLET:WalletCards,OTHER:Tag,ALL:BarChart3}
+const METHOD_COLOR: Record<string,string> = {CASH:'#22c55e',UPI:'#3b82f6',CARD:'#8b5cf6',RAZORPAY:'#f97316',ONLINE:'#0ea5e9',COD:'#14b8a6',WALLET:'#6366f1',OTHER:'#6b7fa3'}
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -56,7 +56,7 @@ export default function FinancePage() {
   useEffect(() => {
     metadataAPI.getAll().then((r:any) => {
       const metadata = r?.metadata || r?.data?.metadata || {}
-      const filteredMethods = (metadata.paymentMethods || []).filter((item:any) => ['CASH','UPI','CARD','RAZORPAY','OTHER'].includes(item.value))
+      const filteredMethods = (metadata.paymentMethods || []).filter((item:any) => ['CASH','UPI','CARD','RAZORPAY','ONLINE','COD','WALLET','OTHER'].includes(item.value))
       setMethodOptions(filteredMethods)
       setMethodLabels({
         ALL: 'ALL',
@@ -102,13 +102,14 @@ export default function FinancePage() {
           </div>
 
           {summary && (
-            <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14,marginBottom:24}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:14,marginBottom:24}}>
               {[
                 {l:'Total Collected',v:summary.total,color:'#023c62',big:true},
                 {l:'Cash',v:summary.cash,color:'#22c55e',method:'CASH'},
                 {l:'UPI',v:summary.upi,color:'#3b82f6',method:'UPI'},
                 {l:'Card',v:summary.card,color:'#8b5cf6',method:'CARD'},
                 {l:'Razorpay',v:summary.online,color:'#f97316',method:'RAZORPAY'},
+                {l:'Other',v:summary.other,color:'#6b7fa3',method:'OTHER'},
               ].map(card=>(
                 <div key={card.l} style={{background:card.big?'linear-gradient(135deg,#023c62,#035a8f)':'#fff',borderRadius:16,padding:20,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
                   <div style={{fontSize:11,fontWeight:600,color:card.big?'rgba(184,208,232,0.7)':'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>{card.l}</div>
