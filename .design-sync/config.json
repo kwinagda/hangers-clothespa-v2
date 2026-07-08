@@ -7,6 +7,7 @@
   "cssEntry": "ds-compiled-styles.css",
   "runtimeFontPrefixes": ["Inter", "Space Grotesk", "Space Mono"],
   "tsconfig": "tsconfig.json",
+  "readmeHeader": ".design-sync/conventions.md",
   "componentSrcMap": {
     "Button": "src/components/ui/Button.tsx",
     "Badge": "src/components/ui/Badge.tsx",
