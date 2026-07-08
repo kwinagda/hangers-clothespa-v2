@@ -143,8 +143,8 @@ function MiniBars({ rows, formatValue }: { rows: Array<[string, number]>; format
   const max = Math.max(...rows.map((r) => Math.abs(Number(r[1]) || 0)), 1)
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      {rows.slice(0, 8).map(([label, value]) => (
-        <div key={label}>
+      {rows.slice(0, 8).map(([label, value], index) => (
+        <div key={`${label}-${index}`}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, color: '#52677f', marginBottom: 5 }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label.replace(/_/g, ' ')}</span>
             <strong style={{ color: '#142033' }}>{formatValue(label, value)}</strong>

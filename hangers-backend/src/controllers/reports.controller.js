@@ -206,13 +206,17 @@ const getReport = async (req, res) => {
           count: payments.length,
           byMode,
           payments,
-          rows: payments.map((payment) => ({
-            label: payment.order?.orderNumber || payment.id,
+          rows: payments.map((payment) => {
+            const method = payment.method || payment.mode || 'OTHER';
+            return {
+            label: `${payment.order?.orderNumber || payment.id} - ${method}`,
             value: rupees(payment.amount),
-            method: payment.method || payment.mode || 'OTHER',
+            orderNumber: payment.order?.orderNumber || null,
+            method,
             staff: payment.collectedByStaff?.name || 'Unassigned',
             date: payment.createdAt,
-          })),
+          };
+          }),
         } });
       }
       case 'pending_payments': {
