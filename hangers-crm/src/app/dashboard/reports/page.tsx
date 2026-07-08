@@ -415,8 +415,8 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {detailRows.map((row) => (
-                    <tr key={String(row.label)} style={{ borderTop: '1px solid #edf3f8' }}>
+                  {detailRows.map((row, index) => (
+                    <tr key={`${String(row.label)}-${index}`} style={{ borderTop: '1px solid #edf3f8' }}>
                       <td style={{ padding: '12px 16px', fontWeight: 800, color: '#142033' }}>
                         {String(row.label).replace(/_/g, ' ')}
                         {row.customer && <div style={{ fontSize: 11, color: '#8da2bc', marginTop: 3 }}>{row.customer}</div>}
