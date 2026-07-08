@@ -229,13 +229,30 @@ const RETURN_REASONS = [
 ];
 
 const REPORT_TYPES = [
-  { value: 'sales', label: 'Sales' },
-  { value: 'orders', label: 'Orders' },
-  { value: 'customers', label: 'Customers' },
-  { value: 'payments', label: 'Payments' },
-  { value: 'expenses', label: 'Expenses' },
-  { value: 'staff', label: 'Staff' },
-  { value: 'garments', label: 'Garments' },
+  { value: 'overview', label: 'Overview', group: 'DASHBOARDS' },
+  { value: 'orders', label: 'Orders', group: 'DASHBOARDS' },
+  { value: 'sales', label: 'Sales Summary', group: 'SALES' },
+  { value: 'sales_by_item', label: 'Sales By Item', group: 'SALES' },
+  { value: 'sales_by_service', label: 'Sales By Service', group: 'SALES' },
+  { value: 'sales_by_date', label: 'Sales By Date', group: 'SALES' },
+  { value: 'sales_by_order', label: 'Sales By Order', group: 'SALES' },
+  { value: 'sales_by_customer', label: 'Sales By Customer', group: 'SALES' },
+  { value: 'payments', label: 'Payment Transactions', group: 'FINANCE' },
+  { value: 'pending_payments', label: 'Pending Payments', group: 'FINANCE' },
+  { value: 'income', label: 'Income Report', group: 'FINANCE' },
+  { value: 'discounts', label: 'Discounts', group: 'FINANCE' },
+  { value: 'adjustments', label: 'Adjustments', group: 'FINANCE' },
+  { value: 'cash_ups', label: 'Cash Ups', group: 'FINANCE' },
+  { value: 'staff_collection', label: 'Staff Collection Report', group: 'FINANCE' },
+  { value: 'expenses', label: 'Expenses', group: 'FINANCE' },
+  { value: 'customers', label: 'Mobile Customers', group: 'CUSTOMERS' },
+  { value: 'customer_vs_sale', label: 'Customer Vs Sale', group: 'CUSTOMERS' },
+  { value: 'customer_wallet', label: 'Customer Wallet', group: 'CUSTOMERS' },
+  { value: 'cancellations', label: 'Cancellations', group: 'OPERATIONS' },
+  { value: 'staff', label: 'Staff Performance', group: 'OPERATIONS' },
+  { value: 'garments', label: 'Garment Movement', group: 'CATALOG' },
+  { value: 'catalog_vs_sales', label: 'Catalog Vs Sales', group: 'CATALOG' },
+  { value: 'loyalty', label: 'Loyalty Points', group: 'OTHERS' },
 ];
 
 const RECURRING_FREQUENCIES = [

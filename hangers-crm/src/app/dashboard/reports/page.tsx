@@ -1,14 +1,16 @@
 'use client'
 
-import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import {
-  ArrowRight,
+  ArrowDownRight,
+  ArrowUpRight,
   Banknote,
   BarChart3,
-  CalendarRange,
+  CalendarDays,
   Download,
   Receipt,
+  Search,
   Shirt,
   TrendingUp,
   UserCog,
@@ -16,924 +18,420 @@ import {
 } from 'lucide-react'
 import { metadataAPI, reportsAPI } from '@/lib/api'
 
-const fmtCurrency = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const fmtNumber = (n: number) => (n || 0).toLocaleString('en-IN')
 const HISTORY_START_DATE = '2025-01-01'
-const formatLocalDateInput = (value: Date) => {
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+const fmtCurrency = (n: number) => `₹${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const fmtNumber = (n: number) => (Number(n) || 0).toLocaleString('en-IN')
+const formatDate = (value: Date) => {
+  const y = value.getFullYear()
+  const m = String(value.getMonth() + 1).padStart(2, '0')
+  const d = String(value.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+const daysBetween = (from: string, to: string) => {
+  const start = new Date(`${from}T00:00:00`)
+  const end = new Date(`${to}T00:00:00`)
+  return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1)
+}
+const previousRange = (from: string, to: string) => {
+  const length = daysBetween(from, to)
+  const end = new Date(`${from}T00:00:00`)
+  end.setDate(end.getDate() - 1)
+  const start = new Date(end)
+  start.setDate(start.getDate() - length + 1)
+  return { from: formatDate(start), to: formatDate(end) }
+}
+const pct = (current: number, previous: number) => {
+  if (!previous && !current) return 0
+  if (!previous) return 100
+  return ((current - previous) / previous) * 100
 }
 
-const REPORT_META: Record<
-  string,
+type ReportType = { value: string; label: string; group?: string }
+type ReportRow = { label: string; value: number; [key: string]: any }
+
+const REPORT_META: Record<string, { icon: any; group: string; description: string; currency?: boolean; hours?: boolean }> = {
+  overview: { icon: BarChart3, group: 'DASHBOARDS', description: 'Orders, revenue, collections, customers, and payments in one view.' },
+  sales: { icon: TrendingUp, group: 'SALES', description: 'Revenue, paid amount, and outstanding balance.' },
+  orders: { icon: BarChart3, group: 'DASHBOARDS', description: 'Order count and workflow status split.' },
+  sales_by_item: { icon: Shirt, group: 'SALES', description: 'Garment and item quantity movement.' },
+  sales_by_service: { icon: TrendingUp, group: 'SALES', description: 'Revenue split by service name.', currency: true },
+  sales_by_date: { icon: CalendarDays, group: 'SALES', description: 'Daily sales total for the selected period.', currency: true },
+  sales_by_order: { icon: Receipt, group: 'SALES', description: 'Order-wise billed value and paid amount.', currency: true },
+  sales_by_customer: { icon: Users, group: 'SALES', description: 'Customer-wise billed value and order count.', currency: true },
+  customers: { icon: Users, group: 'CUSTOMERS', description: 'New customers and customer tag movement.' },
+  payments: { icon: Banknote, group: 'FINANCE', description: 'Collection amount and payment mode split.' },
+  pending_payments: { icon: Receipt, group: 'FINANCE', description: 'Orders with unpaid balances.', currency: true },
+  income: { icon: TrendingUp, group: 'FINANCE', description: 'Order sales, collections, and balance.', currency: true },
+  discounts: { icon: Receipt, group: 'FINANCE', description: 'Explicit and imported discounts from order totals.', currency: true },
+  adjustments: { icon: Receipt, group: 'FINANCE', description: 'Zero bills and positive order adjustments. Returns stay under cancellations.', currency: true },
+  cash_ups: { icon: Banknote, group: 'FINANCE', description: 'Cash book entries grouped by type.', currency: true },
+  staff_collection: { icon: UserCog, group: 'FINANCE', description: 'Collections grouped by staff.', currency: true },
+  expenses: { icon: Receipt, group: 'FINANCE', description: 'Expense total and category split.' },
+  customer_vs_sale: { icon: Users, group: 'CUSTOMERS', description: 'Customer-wise sales and collections.', currency: true },
+  customer_wallet: { icon: Banknote, group: 'CUSTOMERS', description: 'Current customer wallet balances.', currency: true },
+  cancellations: { icon: Receipt, group: 'OPERATIONS', description: 'Cancelled and return order count by reason.' },
+  staff: { icon: UserCog, group: 'OPERATIONS', description: 'Attendance records and staff working hours.' },
+  garments: { icon: Shirt, group: 'CATALOG', description: 'Top garments and services by quantity.' },
+  catalog_vs_sales: { icon: Shirt, group: 'CATALOG', description: 'Catalog service revenue movement.', currency: true },
+  loyalty: { icon: Users, group: 'OTHERS', description: 'Loyalty points movement by transaction type.' },
+}
+
+const QUICK_RANGES = [
   {
-    icon: any
-    tone: 'blue' | 'amber' | 'green' | 'violet'
-    title: string
-    description: string
-  }
-> = {
-  sales: {
-    icon: TrendingUp,
-    tone: 'blue',
-    title: 'Sales',
-    description: 'Revenue, collection, and outstanding picture for the selected period, excluding cancelled orders.',
+    label: 'This Month vs Last Month',
+    range: () => {
+      const now = new Date()
+      return { from: formatDate(new Date(now.getFullYear(), now.getMonth(), 1)), to: formatDate(now) }
+    },
   },
-  orders: {
-    icon: BarChart3,
-    tone: 'amber',
-    title: 'Orders',
-    description: 'Status mix and operational volume across the date range.',
+  {
+    label: 'Today',
+    range: () => {
+      const today = formatDate(new Date())
+      return { from: today, to: today }
+    },
   },
-  customers: {
-    icon: Users,
-    tone: 'green',
-    title: 'Customers',
-    description: 'New customer intake and tag distribution for the selected window.',
+  {
+    label: 'Last Month',
+    range: () => {
+      const now = new Date()
+      return { from: formatDate(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: formatDate(new Date(now.getFullYear(), now.getMonth(), 0)) }
+    },
   },
-  payments: {
-    icon: Banknote,
-    tone: 'violet',
-    title: 'Payments',
-    description: 'Collection volume and payment mode split from the same master records.',
+  {
+    label: 'All History',
+    range: () => ({ from: HISTORY_START_DATE, to: formatDate(new Date()) }),
   },
-  expenses: {
-    icon: Receipt,
-    tone: 'amber',
-    title: 'Expenses',
-    description: 'Expense outflow and category-level spend visibility.',
-  },
-  staff: {
-    icon: UserCog,
-    tone: 'blue',
-    title: 'Staff',
-    description: 'Attendance and working-hours view using the existing staff records.',
-  },
-  garments: {
-    icon: Shirt,
-    tone: 'green',
-    title: 'Garments',
-    description: 'Most common garment/service movement from current order item history.',
-  },
-}
-
-const TONE = {
-  blue: { color: '#023c62', soft: '#e8f0f7', border: '#d5e3ee' },
-  amber: { color: '#9a4d00', soft: '#fff4e5', border: '#f1dcc0' },
-  green: { color: '#0d7a4e', soft: '#e8f7f0', border: '#cdebdc' },
-  violet: { color: '#5b2fb0', soft: '#f0ebff', border: '#dfd3fb' },
-} as const
-
-const FUTURE_REPORTS = [
-  { title: 'AR Aging', description: 'Outstanding buckets by age using current unpaid and partially paid order balances.' },
-  { title: 'Delivery Performance', description: 'Completion rate, failed delivery reasons, and rider-level workload from current order and delivery history.' },
-  { title: 'Plant Throughput', description: 'How long garments spend in plant stages and where bottlenecks appear in the current workflow.' },
-  { title: 'Service Mix', description: 'Revenue and volume split by service category using existing order items and service master records.' },
-  { title: 'Coupon And Loyalty Impact', description: 'How discounts, loyalty redemptions, and write-offs affect realized collection and margins.' },
-  { title: 'Daily Iron Billing', description: 'Subscriber growth, billed vs paid amount, and pending Daily Iron collections.' },
-  { title: 'Customer Retention', description: 'Repeat ordering behavior, dormant customers, and reactivation windows from current customer and order history.' },
-  { title: 'Pickup Slot Demand', description: 'Most-used pickup slots and dates to help plan staffing and route load.' },
-  { title: 'Payment Recovery', description: 'Write-off trends, collection lag, and follow-up candidates from receivables and payment history.' },
 ]
 
-const reportCacheKey = (type: string, from: string, to: string) => `${type}:${from}:${to}`
-
-function SectionCard({
-  title,
-  subtitle,
-  action,
-  children,
-}: {
-  title: string
-  subtitle: string
-  action?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <section
-      style={{
-        background: '#fff',
-        borderRadius: 24,
-        border: '1px solid #e4edf5',
-        boxShadow: '0 10px 28px rgba(2,60,98,0.06)',
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          padding: '20px 24px 18px',
-          borderBottom: '1px solid #edf3f8',
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}
-      >
-        <div>
-          <h1
-            style={{
-              fontFamily: 'var(--crm-font-display)',
-              fontWeight: 700,
-              fontSize: 19,
-              color: '#023c62',
-              margin: '0 0 4px',
-            }}
-          >
-            {title}
-          </h1>
-          <p style={{ margin: 0, fontSize: 13, color: '#6b7fa3', lineHeight: 1.45 }}>{subtitle}</p>
-        </div>
-        {action}
-      </div>
-      <div style={{ padding: 24 }}>{children}</div>
-    </section>
-  )
+function mainValue(type: string, data: any) {
+  if (!data) return 0
+  if (typeof data.total === 'number') return Number(data.total || 0)
+  if (typeof data.revenue === 'number') return Number(data.revenue || 0)
+  if (type === 'sales') return Number(data.revenue || 0)
+  if (type === 'orders') return Number(data.total || 0)
+  if (type === 'customers') return Number(data.total || 0)
+  if (type === 'payments') return Number(data.total || 0)
+  if (type === 'expenses') return Number(data.total || 0)
+  if (type === 'staff') return Number(data.records || 0)
+  if (Array.isArray(data.rows)) return data.rows.reduce((sum: number, item: any) => sum + Number(item.value || 0), 0)
+  if (type === 'garments') return (data.topItems || []).reduce((sum: number, item: any) => sum + Number(item[1] || 0), 0)
+  return 0
 }
 
-function MetricCard({
-  label,
-  value,
-  note,
-  tone = 'blue',
-}: {
-  label: string
-  value: string | number
-  note: string
-  tone?: keyof typeof TONE
-}) {
-  const palette = TONE[tone]
+function valueFor(type: string, value: number) {
+  return REPORT_META[type]?.currency || ['sales', 'payments', 'expenses'].includes(type) ? fmtCurrency(value) : fmtNumber(value)
+}
+
+function lineValueFor(type: string, label: string, value: number) {
+  if (type === 'sales' && label.toLowerCase() === 'orders') return fmtNumber(value)
+  if (type === 'overview' && ['order sales', 'collected', 'outstanding'].includes(label.toLowerCase())) return fmtCurrency(value)
+  if (REPORT_META[type]?.hours || type === 'staff') return `${Number(value || 0).toFixed(1)}h`
+  if (REPORT_META[type]?.currency || ['sales', 'payments', 'expenses'].includes(type)) return fmtCurrency(value)
+  return fmtNumber(value)
+}
+
+function detailValueFor(type: string, row: ReportRow) {
+  if (type === 'cancellations') {
+    const amount = Number(row.amount || 0)
+    return amount ? `${fmtNumber(row.value)} / ${fmtCurrency(amount)}` : fmtNumber(row.value)
+  }
+  return lineValueFor(type, String(row.label), Number(row.value) || 0)
+}
+
+function MiniBars({ rows, formatValue }: { rows: Array<[string, number]>; formatValue: (label: string, value: number) => string }) {
+  const max = Math.max(...rows.map((r) => Math.abs(Number(r[1]) || 0)), 1)
   return (
-    <div
-      style={{
-        background: '#fff',
-        borderRadius: 20,
-        padding: '18px 18px 16px',
-        border: `1px solid ${palette.border}`,
-        boxShadow: '0 8px 22px rgba(2,60,98,0.04)',
-      }}
-    >
-      <div style={{ fontSize: 11, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>{label}</div>
-      <div style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 30, color: '#142033', lineHeight: 1 }}>{value}</div>
-      <div style={{ marginTop: 8, fontSize: 12, color: '#8ba0bb', lineHeight: 1.45 }}>{note}</div>
+    <div style={{ display: 'grid', gap: 10 }}>
+      {rows.slice(0, 8).map(([label, value]) => (
+        <div key={label}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, color: '#52677f', marginBottom: 5 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label.replace(/_/g, ' ')}</span>
+            <strong style={{ color: '#142033' }}>{formatValue(label, value)}</strong>
+          </div>
+          <div style={{ height: 8, borderRadius: 999, background: '#edf3f8', overflow: 'hidden' }}>
+            <div style={{ width: `${Math.max(5, (Math.abs(Number(value)) / max) * 100)}%`, height: '100%', borderRadius: 999, background: 'linear-gradient(90deg,#23a6d5,#023c62)' }} />
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
 
+function Sparkline({ points }: { points: number[] }) {
+  const max = Math.max(...points, 1)
+  const width = 320
+  const height = 118
+  const path = points
+    .map((point, index) => {
+      const x = points.length === 1 ? 0 : (index / (points.length - 1)) * width
+      const y = height - (point / max) * (height - 18) - 9
+      return `${index ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 150, display: 'block' }}>
+      {[0, 1, 2, 3].map((i) => <line key={i} x1="0" x2={width} y1={18 + i * 28} y2={18 + i * 28} stroke="#edf3f8" />)}
+      <path d={path} fill="none" stroke="#23a6d5" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      {points.map((point, index) => {
+        const x = points.length === 1 ? 0 : (index / (points.length - 1)) * width
+        const y = height - (point / max) * (height - 18) - 9
+        return <circle key={index} cx={x} cy={y} r="4" fill="#fff" stroke="#023c62" strokeWidth="2" />
+      })}
+    </svg>
+  )
+}
+
 export default function ReportsPage() {
-  const [selectedType, setSelectedType] = useState('sales')
-  const [displayType, setDisplayType] = useState('sales')
-  const [reportTypes, setReportTypes] = useState<Array<{ value: string; label: string }>>([])
-  const [from, setFrom] = useState(HISTORY_START_DATE)
-  const [to, setTo] = useState(() => formatLocalDateInput(new Date()))
-  const [data, setData] = useState<any>(null)
-  const [loading, setLoading] = useState(false)
-  const [loadedOnce, setLoadedOnce] = useState(false)
-  const reportCache = useRef<Record<string, any>>({})
+  const [reportTypes, setReportTypes] = useState<ReportType[]>([])
+  const [selectedType, setSelectedType] = useState('overview')
+  const [rangeLabel, setRangeLabel] = useState(QUICK_RANGES[0].label)
+  const initial = QUICK_RANGES[0].range()
+  const [from, setFrom] = useState(initial.from)
+  const [to, setTo] = useState(initial.to)
+  const [dataByType, setDataByType] = useState<Record<string, any>>({})
+  const [previousData, setPreviousData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
-    metadataAPI
-      .getAll()
+    metadataAPI.getAll()
       .then((r: any) => {
         const metadata = r?.metadata || r?.data?.metadata || {}
         const nextTypes = metadata.reportTypes || []
         setReportTypes(nextTypes)
-        if (nextTypes.length) {
-          setSelectedType((current) => (nextTypes.some((item: any) => item.value === current) ? current : nextTypes[0].value))
-        }
+        if (nextTypes.length) setSelectedType((current) => nextTypes.some((item: ReportType) => item.value === current) ? current : nextTypes[0].value)
       })
-      .catch(() => {
-        toast.error('Failed to load report types')
-      })
+      .catch(() => toast.error('Failed to load report types'))
   }, [])
 
   useEffect(() => {
-    const cached = reportCache.current[reportCacheKey(selectedType, from, to)]
-
-    if (cached) {
-      startTransition(() => {
-        setDisplayType(selectedType)
-        setData(cached)
-        setLoadedOnce(true)
-      })
-    }
-  }, [from, selectedType, to])
-
-  useEffect(() => {
     if (!reportTypes.length) return
-
-    const loadAll = async () => {
+    const loadReports = async () => {
       setLoading(true)
       try {
-        const results = await Promise.all(
-          reportTypes.map(async (report) => {
-            const key = reportCacheKey(report.value, from, to)
-            if (reportCache.current[key]) {
-              return [report.value, reportCache.current[key]] as const
-            }
-            const result = await reportsAPI.get(report.value, from, to)
-            return [report.value, result.data] as const
-          })
-        )
-
-        results.forEach(([type, reportData]) => {
-          reportCache.current[reportCacheKey(type, from, to)] = reportData
-        })
-
-        const nextData = reportCache.current[reportCacheKey(selectedType, from, to)]
-        startTransition(() => {
-          setDisplayType(selectedType)
-          setData(nextData || null)
-          setLoadedOnce(true)
-        })
+        const entries = await Promise.all(reportTypes.map(async (report) => {
+          const result = await reportsAPI.get(report.value, from, to)
+          return [report.value, result.data] as const
+        }))
+        setDataByType(Object.fromEntries(entries))
+        const prev = previousRange(from, to)
+        const prevResult = await reportsAPI.get(selectedType, prev.from, prev.to)
+        setPreviousData(prevResult.data)
       } catch (e: any) {
-        toast.error(e.message || 'Failed to load report')
+        toast.error(e.message || 'Failed to load reports')
       } finally {
         setLoading(false)
       }
     }
-
-    loadAll()
+    loadReports()
   }, [from, reportTypes, selectedType, to])
 
-  const activeMeta = REPORT_META[displayType] || REPORT_META.sales
+  const selectedData = dataByType[selectedType]
+  const selectedMeta = REPORT_META[selectedType] || REPORT_META.overview
+  const selectedLabel = reportTypes.find((item) => item.value === selectedType)?.label || selectedType
+  const currentMain = mainValue(selectedType, selectedData)
+  const previousMain = mainValue(selectedType, previousData)
+  const change = pct(currentMain, previousMain)
+  const ChangeIcon = change >= 0 ? ArrowUpRight : ArrowDownRight
 
-  const withFourMetrics = (metrics: Array<{ label: string; value: string; note?: string; tone?: keyof typeof TONE }>) => metrics.slice(0, 4)
+  const overviewCards = useMemo(() => {
+    const sales = dataByType.sales || dataByType.overview || {}
+    const orders = dataByType.orders || {}
+    const customers = dataByType.customers || {}
+    const payments = dataByType.payments || {}
+    return [
+      { label: 'Orders', value: fmtNumber(orders.total || sales.orders || 0), subLeft: 'Live order count', subRight: 'Status tracked', tone: 'linear-gradient(135deg,#ffe9f2,#f7d8ff)' },
+      { label: 'Order Sales', value: fmtCurrency(sales.revenue || 0), subLeft: `${fmtCurrency(sales.paid || 0)} collected`, subRight: `${fmtCurrency(sales.outstanding || 0)} due`, tone: 'linear-gradient(135deg,#dffbe8,#fff1a8)' },
+      { label: 'New Customers', value: fmtNumber(customers.total || 0), subLeft: `${Object.keys(customers.byTag || {}).length} tags`, subRight: `${fmtNumber(payments.count || 0)} payments`, tone: 'linear-gradient(135deg,#d5f3ff,#c4f0ed)' },
+    ]
+  }, [dataByType])
 
-  const headlineMetrics = useMemo(() => {
-    if (!data) return []
-
-    if (displayType === 'sales') {
-      return withFourMetrics([
-        { label: 'Orders', value: fmtNumber(data.orders || 0) },
-        { label: 'Revenue', value: fmtCurrency(data.revenue || 0) },
-        { label: 'Collected', value: fmtCurrency(data.paid || 0) },
-        { label: 'Outstanding', value: fmtCurrency(data.outstanding || 0) },
-      ])
-    }
-
-    if (displayType === 'orders') {
-      const topStatus = Object.entries(data.byStatus || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0] as [string, number] | undefined
-      const activeStatuses = Object.values(data.byStatus || {}).filter((count) => Number(count) > 0).length
-      return withFourMetrics([
-        { label: 'Total Orders', value: fmtNumber(data.total || 0) },
-        { label: 'Active Statuses', value: fmtNumber(activeStatuses) },
-        { label: 'Top Status', value: topStatus?.[0]?.replace(/_/g, ' ') || '—' },
-        { label: 'Top Status Qty', value: fmtNumber(topStatus?.[1] || 0) },
-      ])
-    }
-
-    if (displayType === 'customers') {
-      const topTag = Object.entries(data.byTag || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0] as [string, number] | undefined
-      return withFourMetrics([
-        { label: 'New Customers', value: fmtNumber(data.total || 0) },
-        { label: 'Tags Seen', value: fmtNumber(Object.keys(data.byTag || {}).length) },
-        { label: 'Top Tag', value: topTag?.[0] || '—' },
-        { label: 'Top Tag Qty', value: fmtNumber(topTag?.[1] || 0) },
-      ])
-    }
-
-    if (displayType === 'payments') {
-      const topModes = Object.entries(data.byMode || {}).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 2)
-      return withFourMetrics([
-        { label: 'Total Collected', value: fmtCurrency(data.total || 0) },
-        { label: 'Transactions', value: fmtNumber(data.count || 0) },
-        ...topModes.map(([mode, amount]) => ({ label: mode, value: fmtCurrency(amount as number) })),
-      ])
-    }
-
-    if (displayType === 'expenses') {
-      const topCategory = Object.entries(data.byCategory || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0] as [string, number] | undefined
-      return withFourMetrics([
-        { label: 'Total Expense', value: fmtCurrency(data.total || 0) },
-        { label: 'Categories Seen', value: fmtNumber(Object.keys(data.byCategory || {}).length) },
-        { label: 'Top Category', value: topCategory?.[0] || '—' },
-        { label: 'Top Category Spend', value: fmtCurrency(topCategory?.[1] || 0) },
-      ])
-    }
-
-    if (displayType === 'staff') {
-      const staffEntries = Object.values(data.byStaff || {}) as Array<any>
-      const totalDays = staffEntries.reduce((sum, item) => sum + Number(item.days || 0), 0)
-      const totalHours = staffEntries.reduce((sum, item) => sum + Number(item.totalHours || 0), 0)
-      return withFourMetrics([
-        { label: 'Records', value: fmtNumber(data.records || 0) },
-        { label: 'Staff Seen', value: fmtNumber(staffEntries.length) },
-        { label: 'Staff Days', value: fmtNumber(totalDays) },
-        { label: 'Hours Worked', value: totalHours.toFixed(1) },
-      ])
-    }
-
-    if (displayType === 'garments') {
-      const topItems = data.topItems || []
-      const topItem = topItems[0]
-      const totalQty = topItems.reduce((sum: number, item: any) => sum + Number(item[1] || 0), 0)
-      return withFourMetrics([
-        { label: 'Ranked Items', value: fmtNumber(topItems.length) },
-        { label: 'Pieces Counted', value: fmtNumber(totalQty) },
-        { label: 'Top Item', value: topItem?.[0] || '—' },
-        { label: 'Top Qty', value: fmtNumber(topItem?.[1] || 0) },
-      ])
-    }
-
+  const detailRows = useMemo<ReportRow[]>(() => {
+    if (!selectedData) return []
+    if (Array.isArray(selectedData.rows)) return selectedData.rows.map((row: any) => ({
+      label: String(row.label || 'Unknown'),
+      value: Number(row.value || 0),
+      ...row,
+    }))
+    if (selectedType === 'orders') return Object.entries(selectedData.byStatus || {}).map(([label, value]) => ({ label, value: Number(value || 0) }))
+    if (selectedType === 'customers') return Object.entries(selectedData.byTag || {}).map(([label, value]) => ({ label, value: Number(value || 0) }))
+    if (selectedType === 'payments') return Object.entries(selectedData.byMode || {}).map(([label, value]) => ({ label, value: Number(value || 0) }))
+    if (selectedType === 'expenses') return Object.entries(selectedData.byCategory || {}).map(([label, value]) => ({ label, value: Number(value || 0) }))
+    if (selectedType === 'garments') return (selectedData.topItems || []).map(([label, value]: [string, number]) => ({ label, value: Number(value || 0) }))
+    if (selectedType === 'staff') return Object.entries(selectedData.byStaff || {}).map(([id, info]: any) => ({ label: info.name || id, value: Number(info.totalHours || 0), days: info.days }))
     return []
-  }, [data, displayType])
+  }, [selectedData, selectedType])
+
+  const chartRows = detailRows.map((row) => [String(row.label), Number(row.value) || 0] as [string, number])
+  const sparkPoints = overviewCards.map((item) => Number(String(item.value).replace(/[₹,\s]/g, '')) || 0)
+  const visibleCatalog = reportTypes.reduce<Record<string, ReportType[]>>((groups, report) => {
+    const group = report.group || REPORT_META[report.value]?.group || 'OTHERS'
+    if (search && !report.label.toLowerCase().includes(search.toLowerCase())) return groups
+    groups[group] = groups[group] || []
+    groups[group].push(report)
+    return groups
+  }, {})
+
+  const selectQuickRange = (label: string) => {
+    const item = QUICK_RANGES.find((range) => range.label === label)
+    if (!item) return
+    const next = item.range()
+    setRangeLabel(label)
+    setFrom(next.from)
+    setTo(next.to)
+  }
 
   const exportCsv = () => {
-    if (!data) return
-
-    const rows: string[][] = []
-
-    if (displayType === 'sales') {
-      rows.push(['Metric', 'Value'])
-      rows.push(['Orders', String(data.orders || 0)])
-      rows.push(['Revenue', String(data.revenue || 0)])
-      rows.push(['Collected', String(data.paid || 0)])
-      rows.push(['Outstanding', String(data.outstanding || 0)])
-    } else if (displayType === 'orders' && data.byStatus) {
-      rows.push(['Status', 'Count'])
-      Object.entries(data.byStatus).forEach(([status, count]) => rows.push([status, String(count)]))
-    } else if (displayType === 'customers' && data.byTag) {
-      rows.push(['Tag', 'Count'])
-      Object.entries(data.byTag).forEach(([tag, count]) => rows.push([tag, String(count)]))
-    } else if (displayType === 'payments' && data.byMode) {
-      rows.push(['Mode', 'Amount'])
-      Object.entries(data.byMode).forEach(([mode, amount]) => rows.push([mode, String(amount)]))
-    } else if (displayType === 'expenses' && data.byCategory) {
-      rows.push(['Category', 'Amount'])
-      Object.entries(data.byCategory).forEach(([category, amount]) => rows.push([category, String(amount)]))
-    } else if (displayType === 'garments' && data.topItems) {
-      rows.push(['Item', 'Quantity'])
-      data.topItems.forEach(([name, qty]: [string, number]) => rows.push([name, String(qty)]))
-    } else if (displayType === 'staff' && data.byStaff) {
-      rows.push(['Staff', 'Days', 'Total Hours'])
-      Object.entries(data.byStaff).forEach(([id, info]: any) =>
-        rows.push([(info as any).name || id, String(info.days || 0), String(Number(info.totalHours || 0).toFixed(1))])
-      )
-    }
-
-    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
+    if (!selectedData) return
+    const hasAmounts = detailRows.some((row) => row.amount !== undefined)
+    const rows: string[][] = [
+      ['Report', selectedLabel],
+      ['From', from],
+      ['To', to],
+      [],
+      hasAmounts ? ['Name', 'Count', 'Amount'] : ['Name', 'Value'],
+      ...detailRows.map((row) => hasAmounts ? [String(row.label), String(row.value), String(row.amount || 0)] : [String(row.label), String(row.value)]),
+    ]
+    const csv = rows.map((row: string[]) => row.map((cell: string) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `hangers_${displayType}_${from}_${to}.csv`
+    anchor.download = `hangers_${selectedType}_${from}_${to}.csv`
     anchor.click()
     URL.revokeObjectURL(url)
   }
 
-  const quickRanges = [
-    {
-      label: 'All History',
-      apply: () => {
-        setFrom(HISTORY_START_DATE)
-        setTo(formatLocalDateInput(new Date()))
-      },
-    },
-    {
-      label: 'Today',
-      apply: () => {
-        const current = formatLocalDateInput(new Date())
-        setFrom(current)
-        setTo(current)
-      },
-    },
-    {
-      label: 'This Month',
-      apply: () => {
-        const now = new Date()
-        const start = new Date(now.getFullYear(), now.getMonth(), 1)
-        setFrom(formatLocalDateInput(start))
-        setTo(formatLocalDateInput(now))
-      },
-    },
-    {
-      label: 'Last Month',
-      apply: () => {
-        const now = new Date()
-        const start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-        const end = new Date(now.getFullYear(), now.getMonth(), 0)
-        setFrom(formatLocalDateInput(start))
-        setTo(formatLocalDateInput(end))
-      },
-    },
-    {
-      label: 'Quarter To Date',
-      apply: () => {
-        const now = new Date()
-        const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3
-        const start = new Date(now.getFullYear(), quarterStartMonth, 1)
-        setFrom(formatLocalDateInput(start))
-        setTo(formatLocalDateInput(now))
-      },
-    },
-  ]
-
-  const narrative = useMemo(() => {
-    if (!data || loading) return 'Loading report summary…'
-
-    if (displayType === 'sales') {
-      return `${fmtNumber(data.orders || 0)} orders generated ${fmtCurrency(data.revenue || 0)} in billed value for this period, with ${fmtCurrency(data.outstanding || 0)} still outstanding.`
-    }
-    if (displayType === 'orders') {
-      return `${fmtNumber(data.total || 0)} orders were created in this range, broken down by the current workflow statuses below.`
-    }
-    if (displayType === 'customers') {
-      return `${fmtNumber(data.total || 0)} customers were created in the selected period, with distribution across the current customer tags.`
-    }
-    if (displayType === 'payments') {
-      return `${fmtCurrency(data.total || 0)} was collected across ${fmtNumber(data.count || 0)} payment records, split by the available payment modes.`
-    }
-    if (displayType === 'expenses') {
-      return `${fmtCurrency(data.total || 0)} of expense was recorded in this period, with the largest categories shown below.`
-    }
-    if (displayType === 'staff') {
-      return `${fmtNumber(data.records || 0)} attendance records were logged for the date range, summarized by staff days and hours worked.`
-    }
-    if (displayType === 'garments') {
-      return `The ranking below shows the most frequently processed garment/service items from the current order history for this time window.`
-    }
-    return activeMeta.description
-  }, [activeMeta.description, data, displayType, loading])
-
-  const detailConfig = useMemo(() => {
-    if (displayType === 'sales') {
-      return {
-        title: 'Sales Snapshot',
-        subtitle: 'Primary commercial numbers for the selected date range, excluding cancelled orders from revenue and balance.',
-      }
-    }
-    if (displayType === 'orders') {
-      return {
-        title: 'Order Status Mix',
-        subtitle: 'How the selected period breaks down across the current workflow statuses.',
-      }
-    }
-    if (displayType === 'customers') {
-      return {
-        title: 'Customer Intake And Tags',
-        subtitle: 'New customers recorded in the range and how they are tagged in the master customer table.',
-      }
-    }
-    if (displayType === 'payments') {
-      return {
-        title: 'Payment Collection Mix',
-        subtitle: 'Collection performance and mode distribution from the existing payment records.',
-      }
-    }
-    if (displayType === 'expenses') {
-      return {
-        title: 'Expense Breakdown',
-        subtitle: 'Total expense and category split using the current expense rows in the master database.',
-      }
-    }
-    if (displayType === 'garments') {
-      return {
-        title: 'Top Garments And Services',
-        subtitle: 'Most processed garment and service items from existing order item history for this period.',
-      }
-    }
-    return {
-      title: 'Staff Attendance Summary',
-      subtitle: 'Attendance records grouped by staff name, day count, and total hours worked.',
-    }
-  }, [displayType])
-
-  const detailMetrics = useMemo(() => {
-    if (!data) return []
-
-    if (displayType === 'sales') {
-      return [
-        { label: 'Orders', value: fmtNumber(data.orders || 0), note: 'Orders included in the selected range', tone: 'blue' as const },
-        { label: 'Revenue', value: fmtCurrency(data.revenue || 0), note: 'Billed order value, excluding cancelled orders', tone: 'blue' as const },
-        { label: 'Collected', value: fmtCurrency(data.paid || 0), note: 'Paid plus write-off effect captured in current records', tone: 'green' as const },
-        { label: 'Outstanding', value: fmtCurrency(data.outstanding || 0), note: 'Current unpaid balance from the same order records', tone: 'amber' as const },
-      ]
-    }
-    if (displayType === 'orders') {
-      return [
-        { label: 'Total Orders', value: fmtNumber(data.total || 0), note: 'Orders created in the selected range', tone: 'blue' as const },
-        ...Object.entries(data.byStatus || {}).map(([status, count]) => ({
-          label: status.replace(/_/g, ' '),
-          value: fmtNumber(count as number),
-          note: 'Orders in this workflow status',
-          tone: 'amber' as const,
-        })),
-      ]
-    }
-    if (displayType === 'customers') {
-      return [
-        { label: 'New Customers', value: fmtNumber(data.total || 0), note: 'Customer records created during the selected period', tone: 'green' as const },
-        ...Object.entries(data.byTag || {}).map(([tag, count]) => ({
-          label: tag,
-          value: fmtNumber(count as number),
-          note: 'Customers tagged this way in current records',
-          tone: 'blue' as const,
-        })),
-      ]
-    }
-    if (displayType === 'payments') {
-      return [
-        { label: 'Total Collected', value: fmtCurrency(data.total || 0), note: 'All payment rows in the selected period', tone: 'green' as const },
-        { label: 'Transactions', value: fmtNumber(data.count || 0), note: 'Number of payment entries recorded', tone: 'blue' as const },
-        ...Object.entries(data.byMode || {}).map(([mode, amount]) => ({
-          label: mode,
-          value: fmtCurrency(amount as number),
-          note: 'Collection through this payment mode',
-          tone: 'violet' as const,
-        })),
-      ]
-    }
-    if (displayType === 'expenses') {
-      return [
-        { label: 'Total Expense', value: fmtCurrency(data.total || 0), note: 'Expense recorded in the selected period', tone: 'amber' as const },
-        ...Object.entries(data.byCategory || {}).map(([category, amount]) => ({
-          label: category,
-          value: fmtCurrency(amount as number),
-          note: 'Spend in this expense category',
-          tone: 'blue' as const,
-        })),
-      ]
-    }
-    if (displayType === 'staff') {
-      return [
-        { label: 'Attendance Records', value: fmtNumber(data.records || 0), note: 'Total attendance rows in the selected range', tone: 'blue' as const },
-        { label: 'Tracked Staff', value: fmtNumber(Object.keys(data.byStaff || {}).length), note: 'Unique staff members in attendance data', tone: 'green' as const },
-        {
-          label: 'Total Hours',
-          value: fmtNumber(Object.values(data.byStaff || {}).reduce((sum: number, info: any) => sum + Number(info.totalHours || 0), 0)),
-          note: 'Combined hours from current attendance records',
-          tone: 'violet' as const,
-        },
-      ]
-    }
-    return []
-  }, [data, displayType])
-
   return (
-    <div style={{ padding: '30px 34px', maxWidth: 1380, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
-      <section
-        style={{
-          background: 'linear-gradient(135deg,#022f50 0%,#035a8f 55%,#0b6f84 100%)',
-          borderRadius: 28,
-          padding: '26px 28px',
-          color: '#fff',
-          boxShadow: '0 22px 52px rgba(2,60,98,0.18)',
-          marginBottom: 22,
-        }}
-      >
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.45fr) minmax(320px,0.85fr)', gap: 20, alignItems: 'stretch' }}>
-          <div>
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                background: 'rgba(255,255,255,0.12)',
-                border: '1px solid rgba(255,255,255,0.16)',
-                borderRadius: 999,
-                padding: '7px 12px',
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                marginBottom: 16,
-              }}
-            >
-              <CalendarRange size={14} />
-              Business Reports
-            </div>
-            <h1 style={{ fontFamily: 'var(--crm-font-display)', fontWeight: 800, fontSize: 34, lineHeight: 1.05, margin: '0 0 8px' }}>
-              KPI-first reporting from the live master database.
-            </h1>
-            <p style={{ margin: '0 0 16px', fontSize: 14, color: 'rgba(230,241,250,0.78)', maxWidth: 700, lineHeight: 1.6 }}>
-              Select a report and date range, then read the top numbers immediately before drilling into the detailed split below.
-            </p>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'rgba(230,241,250,0.72)' }}>
-              <activeMeta.icon size={16} />
-              <span>{activeMeta.title}</span>
-              {loading && selectedType !== displayType && (
-                <>
-                  <span style={{ width: 4, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.5)' }} />
-                  <span>Switching to {REPORT_META[selectedType]?.title || selectedType}</span>
-                </>
-              )}
-              <span style={{ width: 4, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.5)' }} />
-              <span>{from}</span>
-              <ArrowRight size={14} />
-              <span>{to}</span>
+    <div style={{ padding: '22px 24px', fontFamily: 'var(--crm-font-ui)', background: '#f3f6fb', minHeight: '100vh' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '250px minmax(0,1fr)', gap: 18, alignItems: 'start' }}>
+        <aside style={{ background: '#fff', border: '1px solid #dce8f0', borderRadius: 14, overflow: 'hidden', position: 'sticky', top: 18, maxHeight: 'calc(100vh - 36px)' }}>
+          <div style={{ padding: 14, borderBottom: '1px solid #edf3f8' }}>
+            <div style={{ fontWeight: 900, color: '#023c62', fontSize: 15 }}>Reports</div>
+            <div style={{ position: 'relative', marginTop: 10 }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#8da2bc' }} />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search report" style={{ width: '100%', border: '1px solid #dce8f0', borderRadius: 9, padding: '8px 10px 8px 30px', fontSize: 12, outline: 'none' }} />
             </div>
           </div>
-
-            <div
-              style={{
-                background: 'rgba(255,255,255,0.1)',
-              borderRadius: 24,
-              border: '1px solid rgba(255,255,255,0.14)',
-              padding: '22px 22px 18px',
-            }}
-          >
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(230,241,250,0.66)', marginBottom: 8 }}>
-              Active Report
-            </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-              <span
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 14,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'rgba(255,255,255,0.12)',
-                  color: '#fff',
-                  flexShrink: 0,
-                }}
-              >
-                <activeMeta.icon size={20} />
-              </span>
-              <div>
-                <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.1 }}>{activeMeta.title}</div>
-                <div style={{ fontSize: 13, color: 'rgba(230,241,250,0.72)', marginTop: 4, lineHeight: 1.45 }}>{activeMeta.description}</div>
-              </div>
-              </div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: headlineMetrics.length <= 2 ? '1fr' : '1fr 1fr',
-                gap: 10,
-                marginTop: 8,
-                alignContent: 'start',
-              }}
-            >
-              {headlineMetrics.map((metric) => (
-                <div key={metric.label} style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: '12px 12px 11px' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(230,241,250,0.64)', marginBottom: 6 }}>{metric.label}</div>
-                  <div style={{ fontSize: metric.value.length > 16 ? 15 : 22, fontWeight: 800, lineHeight: 1.15 }}>{metric.value}</div>
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={exportCsv}
-              disabled={!data || loading}
-              style={{
-                width: '100%',
-                background: !data || loading ? 'rgba(255,255,255,0.12)' : '#fff',
-                color: !data || loading ? 'rgba(255,255,255,0.6)' : '#023c62',
-                border: 'none',
-                borderRadius: 16,
-                padding: '13px 14px',
-                fontSize: 14,
-                fontWeight: 800,
-                cursor: !data || loading ? 'not-allowed' : 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                marginTop: 12,
-              }}
-            >
-              <Download size={16} />
-              Export Current Report
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(340px,0.8fr)', gap: 18, marginBottom: 22 }}>
-        <SectionCard title="Report Types" subtitle="The tabs below are backed by the report types already exposed from metadata and the current report API.">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12 }}>
-            {reportTypes.map((report) => {
-              const meta = REPORT_META[report.value] || REPORT_META.sales
-              const palette = TONE[meta.tone]
-              const active = selectedType === report.value
-              return (
-                <button
-                  key={report.value}
-                  onClick={() => setSelectedType(report.value)}
-                  style={{
-                    textAlign: 'left',
-                    padding: '16px 16px 15px',
-                    borderRadius: 20,
-                    border: active ? `2px solid ${palette.color}` : `1px solid ${palette.border}`,
-                    background: active ? palette.soft : '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <span
-                      style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 13,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: active ? '#fff' : palette.soft,
-                        color: palette.color,
-                      }}
-                    >
-                      <meta.icon size={18} />
-                    </span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: active ? palette.color : '#8ca1bc', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                      {active && loading ? 'Loading' : active ? 'Selected' : 'Available'}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#142033', marginBottom: 5 }}>{report.label}</div>
-                  <div style={{ fontSize: 12, color: '#6b7fa3', lineHeight: 1.45 }}>{meta.description}</div>
-                </button>
-              )
-            })}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Date Range" subtitle="Switch between quick periods or set the exact report window you want.">
-          <div style={{ display: 'grid', gap: 14 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.08em' }}>From</span>
-                <input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  style={{ border: '1px solid #dce8f0', borderRadius: 12, padding: '11px 12px', fontSize: 14, background: '#fbfdff' }}
-                />
-              </label>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.08em' }}>To</span>
-                <input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  style={{ border: '1px solid #dce8f0', borderRadius: 12, padding: '11px 12px', fontSize: 14, background: '#fbfdff' }}
-                />
-              </label>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {quickRanges.map((range) => (
-                <button
-                  key={range.label}
-                  onClick={range.apply}
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: 999,
-                    border: '1px solid #dce8f0',
-                    background: '#fff',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: '#35506f',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {range.label}
-                </button>
-              ))}
-            </div>
-            <div style={{ borderRadius: 16, border: '1px solid #e7eef5', background: '#fbfdff', padding: '14px 16px' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7fa3', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Snapshot</div>
-              <div style={{ fontSize: 13, color: '#5e7592', lineHeight: 1.55 }}>{narrative}</div>
-            </div>
-          </div>
-        </SectionCard>
-      </section>
-
-      <div
-        style={{
-          position: 'relative',
-          transition: 'opacity 220ms ease, transform 220ms ease, filter 220ms ease',
-          opacity: 1,
-          transform: 'translateY(0)',
-          filter: 'none',
-        }}
-      >
-      {data ? (
-        <SectionCard title={detailConfig.title} subtitle={detailConfig.subtitle}>
-          {detailMetrics.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(Math.max(detailMetrics.length, 1), 5)},minmax(0,1fr))`, gap: 12, marginBottom: displayType === 'garments' ? 18 : 0 }}>
-              {detailMetrics.map((metric) => (
-                <MetricCard key={metric.label} label={metric.label} value={metric.value} note={metric.note} tone={metric.tone} />
-              ))}
-            </div>
-          )}
-
-          {displayType === 'garments' && (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
-                <thead>
-                  <tr style={{ background: '#f7fafc' }}>
-                    {['Item', 'Quantity'].map((heading) => (
-                      <th
-                        key={heading}
-                        style={{
-                          padding: '12px 16px',
-                          textAlign: heading === 'Quantity' ? 'right' : 'left',
-                          fontSize: 11,
-                          color: '#8da2bc',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.08em',
-                          borderBottom: '1px solid #e8f0f7',
-                        }}
-                      >
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data.topItems || []).map(([name, qty]: [string, number]) => (
-                    <tr key={name} style={{ borderBottom: '1px solid #f0f4f8' }}>
-                      <td style={{ padding: '12px 16px', fontSize: 14, color: '#162235', fontWeight: 700 }}>{name}</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: 14, color: '#023c62', fontWeight: 800 }}>{fmtNumber(qty)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {displayType === 'staff' && (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
-                <thead>
-                  <tr style={{ background: '#f7fafc' }}>
-                    {['Staff', 'Days', 'Total Hours'].map((heading) => (
-                      <th
-                        key={heading}
-                        style={{
-                          padding: '12px 16px',
-                          textAlign: 'left',
-                          fontSize: 11,
-                          color: '#8da2bc',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.08em',
-                          borderBottom: '1px solid #e8f0f7',
-                        }}
-                      >
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(data.byStaff || {}).map(([id, info]: any) => (
-                    <tr key={id} style={{ borderBottom: '1px solid #f0f4f8' }}>
-                      <td style={{ padding: '12px 16px', fontSize: 14, color: '#162235', fontWeight: 700 }}>{info.name || id}</td>
-                      <td style={{ padding: '12px 16px', fontSize: 14, color: '#35506f' }}>{fmtNumber(info.days || 0)}</td>
-                      <td style={{ padding: '12px 16px', fontSize: 14, color: '#023c62', fontWeight: 800 }}>{Number(info.totalHours || 0).toFixed(1)}h</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </SectionCard>
-      ) : (
-        !loadedOnce ? <div style={{ padding: 64, textAlign: 'center', color: '#9dafc8', fontSize: 14 }}>Loading report workspace…</div> : null
-      )}
-
-      {loading && loadedOnce && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'linear-gradient(180deg, rgba(244,247,251,0.18), rgba(244,247,251,0.42))',
-            pointerEvents: 'none',
-            borderRadius: 24,
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'flex-end',
-            padding: 16,
-          }}
-        >
-          <div style={{ background: 'rgba(255,255,255,0.92)', border: '1px solid #e4edf5', borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 700, color: '#4d6787', boxShadow: '0 8px 20px rgba(2,60,98,0.08)' }}>
-            Updating report...
-          </div>
-        </div>
-      )}
-      </div>
-
-      <section style={{ marginTop: 22 }}>
-        <SectionCard title="Planned Reports From Existing Master Data" subtitle="These are realistic reports we can implement later on the same database and report API, but they are not live numeric reports yet.">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12 }}>
-            {FUTURE_REPORTS.map((item) => (
-              <div
-                key={item.title}
-                style={{
-                  borderRadius: 20,
-                  border: '1px solid #e4edf5',
-                  background: '#fbfdff',
-                  padding: '18px 18px 16px',
-                }}
-              >
-                <div style={{ fontSize: 15, fontWeight: 800, color: '#142033', marginBottom: 8 }}>{item.title}</div>
-                <div style={{ fontSize: 12.5, color: '#607895', lineHeight: 1.55 }}>{item.description}</div>
+          <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 112px)', padding: '10px 0' }}>
+            {Object.entries(visibleCatalog).map(([group, items]) => (
+              <div key={group} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: '#6b7fa3', fontWeight: 900, padding: '7px 18px', letterSpacing: '0.05em' }}>{group}</div>
+                {items.map((report) => {
+                  const active = report.value === selectedType
+                  return (
+                    <button key={report.value} onClick={() => setSelectedType(report.value)}
+                      style={{ width: '100%', border: 'none', background: active ? '#e8f0f7' : '#fff', color: '#142033', padding: '7px 18px', textAlign: 'left', fontSize: 12.5, fontWeight: active ? 800 : 600, cursor: 'pointer' }}>
+                      {report.label}
+                    </button>
+                  )
+                })}
               </div>
             ))}
           </div>
-        </SectionCard>
-      </section>
+        </aside>
 
+        <main>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', marginBottom: 14 }}>
+            <div>
+              <h1 style={{ margin: 0, color: '#023c62', fontSize: 26, fontFamily: 'var(--crm-font-display)', fontWeight: 900 }}>Insights</h1>
+              <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{selectedMeta.description}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select value={rangeLabel} onChange={(e) => selectQuickRange(e.target.value)} style={{ border: '1px solid #dce8f0', borderRadius: 10, padding: '9px 12px', background: '#fff', color: '#142033', minWidth: 220 }}>
+                {QUICK_RANGES.map((range) => <option key={range.label}>{range.label}</option>)}
+              </select>
+              <input type="date" value={from} onChange={(e) => { setRangeLabel('Custom'); setFrom(e.target.value) }} style={{ border: '1px solid #dce8f0', borderRadius: 10, padding: '8px 10px', background: '#fff' }} />
+              <input type="date" value={to} onChange={(e) => { setRangeLabel('Custom'); setTo(e.target.value) }} style={{ border: '1px solid #dce8f0', borderRadius: 10, padding: '8px 10px', background: '#fff' }} />
+              <button onClick={exportCsv} disabled={!selectedData} style={{ border: 'none', borderRadius: 10, padding: '10px 13px', background: '#023c62', color: '#fff', fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                <Download size={15} /> Export
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 14, marginBottom: 14 }}>
+            {overviewCards.map((card) => (
+              <div key={card.label} style={{ background: card.tone, borderRadius: 10, border: '1px solid rgba(2,60,98,0.08)', minHeight: 128, padding: 18, boxShadow: '0 10px 24px rgba(2,60,98,0.06)' }}>
+                <div style={{ fontSize: 15, fontWeight: 900, color: '#023c62' }}>{card.label}</div>
+                <div style={{ marginTop: 8, fontSize: 23, fontWeight: 900, color: '#0f2336' }}>{card.value}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid rgba(2,60,98,0.10)', marginTop: 16, paddingTop: 12, gap: 10, color: '#52677f', fontSize: 12 }}>
+                  <span>{card.subLeft}</span>
+                  <span>{card.subRight}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.1fr) minmax(340px,0.9fr)', gap: 14, marginBottom: 14 }}>
+            <section style={{ background: '#fff', border: '1px solid #dce8f0', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ padding: '16px 18px', borderBottom: '1px solid #edf3f8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 900, color: '#142033' }}>{selectedLabel} Comparison</div>
+                  <div style={{ color: '#6b7fa3', fontSize: 12, marginTop: 3 }}>{from} to {to}</div>
+                </div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: change >= 0 ? '#0d7a4e' : '#b42318', fontWeight: 900, fontSize: 13 }}>
+                  <ChangeIcon size={16} /> {Math.abs(change).toFixed(2)}%
+                </div>
+              </div>
+              <div style={{ padding: 18 }}>
+                <Sparkline points={sparkPoints} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 6 }}>
+                  <div style={{ border: '1px solid #edf3f8', borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: '#6b7fa3', fontSize: 11, fontWeight: 900 }}>THIS PERIOD</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: '#023c62', marginTop: 4 }}>{valueFor(selectedType, currentMain)}</div>
+                  </div>
+                  <div style={{ border: '1px solid #edf3f8', borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: '#6b7fa3', fontSize: 11, fontWeight: 900 }}>PREVIOUS PERIOD</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: '#64748b', marginTop: 4 }}>{valueFor(selectedType, previousMain)}</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section style={{ background: '#fff', border: '1px solid #dce8f0', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ padding: '16px 18px', borderBottom: '1px solid #edf3f8' }}>
+                <div style={{ fontWeight: 900, color: '#142033' }}>{selectedLabel} Split</div>
+                <div style={{ color: '#6b7fa3', fontSize: 12, marginTop: 3 }}>Top categories from live records</div>
+              </div>
+              <div style={{ padding: 18 }}>{chartRows.length ? <MiniBars rows={chartRows} formatValue={(label, value) => lineValueFor(selectedType, label, value)} /> : <div style={{ color: '#9dafc8', padding: 24, textAlign: 'center' }}>No data for this period</div>}</div>
+            </section>
+          </div>
+
+          <section style={{ background: '#fff', border: '1px solid #dce8f0', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ padding: '15px 18px', borderBottom: '1px solid #edf3f8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 900, color: '#142033' }}>Report Details</div>
+                <div style={{ color: '#6b7fa3', fontSize: 12, marginTop: 3 }}>Same data, table view for checking and export.</div>
+              </div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: '#6b7fa3', fontSize: 12 }}><CalendarDays size={14} /> {loading ? 'Loading...' : `${detailRows.length} rows`}</div>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+                <thead>
+                  <tr style={{ background: '#f7fafc' }}>
+                    <th style={{ textAlign: 'left', padding: '12px 16px', fontSize: 11, color: '#8da2bc', letterSpacing: '0.08em' }}>REPORT LINE</th>
+                    <th style={{ textAlign: 'right', padding: '12px 16px', fontSize: 11, color: '#8da2bc', letterSpacing: '0.08em' }}>VALUE</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detailRows.map((row) => (
+                    <tr key={String(row.label)} style={{ borderTop: '1px solid #edf3f8' }}>
+                      <td style={{ padding: '12px 16px', fontWeight: 800, color: '#142033' }}>
+                        {String(row.label).replace(/_/g, ' ')}
+                        {row.customer && <div style={{ fontSize: 11, color: '#8da2bc', marginTop: 3 }}>{row.customer}</div>}
+                        {row.method && <div style={{ fontSize: 11, color: '#8da2bc', marginTop: 3 }}>{row.method}</div>}
+                      </td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right', color: '#023c62', fontWeight: 900 }}>{detailValueFor(selectedType, row)}</td>
+                    </tr>
+                  ))}
+                  {!detailRows.length && <tr><td colSpan={2} style={{ padding: 36, textAlign: 'center', color: '#9dafc8' }}>No report data found.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
   )
 }
