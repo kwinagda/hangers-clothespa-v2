@@ -3,6 +3,7 @@ const { badRequest, error } = require('../utils/response');
 const { reportQuerySchema } = require('../validation/reports.schemas');
 
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
+const FINANCE_ORDER_WHERE = { ...ORDER_ONLY_WHERE, status: { not: 'CANCELLED' } };
 
 const parseLocalDateBoundary = (value, boundary) => {
   if (!value) return null;
@@ -33,7 +34,7 @@ const getReport = async (req, res) => {
     switch (type) {
       case 'sales': {
         const orders = await prisma.order.findMany({
-          where: { ...dateFilter, ...ORDER_ONLY_WHERE },
+          where: { ...dateFilter, ...FINANCE_ORDER_WHERE },
           select: { totalAmount: true, paidAmount: true, writeOffAmount: true, status: true, createdAt: true, paymentStatus: true }
         });
         const revenue = orders.reduce((s, o) => s + (o.totalAmount || 0), 0);
@@ -90,7 +91,7 @@ const getReport = async (req, res) => {
       }
       case 'garments': {
         const orders = await prisma.order.findMany({
-          where: { ...dateFilter, ...ORDER_ONLY_WHERE },
+          where: { ...dateFilter, ...FINANCE_ORDER_WHERE },
           include: { items: true }
         });
         const itemCounts = {};

@@ -17,6 +17,8 @@ const TYPE_STYLE: Record<string, { bg: string, color: string }> = {
   CLOSE: { bg: '#f3f4f6', color: '#374151' },
 }
 
+const sourceLabel = (entry: any) => entry.source === 'PAYMENT' ? 'Order Payment' : 'Manual Entry'
+
 export default function CashBookPage() {
   const [entries, setEntries] = useState<any[]>([])
   const [summary, setSummary] = useState({ totalIn: 0, totalOut: 0, balance: 0 })
@@ -34,7 +36,10 @@ export default function CashBookPage() {
     })
   }
 
-  useEffect(() => { load() }, [date])
+  useEffect(() => {
+    setPage(1)
+    load()
+  }, [date])
 
   const add = async () => {
     if (!form.amount) return
@@ -102,7 +107,10 @@ export default function CashBookPage() {
                       {e.type}
                     </span>
                   </td>
-                  <td style={{ padding: '10px 16px' }}>{e.description || '—'}</td>
+                  <td style={{ padding: '10px 16px' }}>
+                    <div style={{ color: '#1f2937', fontWeight: 600 }}>{e.description || '—'}</div>
+                    <div style={{ color: '#9dafc8', fontSize: 11, marginTop: 3 }}>{sourceLabel(e)}</div>
+                  </td>
                   <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, color: e.type === 'OUT' || e.type === 'CLOSE' ? '#991b1b' : '#166534' }}>
                     {e.type === 'OUT' || e.type === 'CLOSE' ? '-' : '+'}{fmt(e.amount)}
                   </td>

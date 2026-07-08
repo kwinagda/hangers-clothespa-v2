@@ -2,6 +2,8 @@ const prisma = require('../config/database');
 const { success, badRequest, error } = require('../utils/response');
 const { cashEntrySchema } = require('../validation/cashbook.schemas');
 
+const CASH_PAYMENT_STATUSES_TO_EXCLUDE = ['FAILED', 'CANCELLED', 'VOID'];
+
 const getCashBook = async (req, res) => {
   try {
     const { date } = req.query;
@@ -10,15 +12,73 @@ const getCashBook = async (req, res) => {
     const end = new Date(start);
     end.setHours(23, 59, 59, 999);
 
-    const entries = await prisma.cashBook.findMany({
-      where: { date: { gte: start, lte: end } },
-      orderBy: { date: 'asc' }
+    const [manualEntries, cashPayments] = await Promise.all([
+      prisma.cashBook.findMany({
+        where: { date: { gte: start, lte: end } },
+        orderBy: { date: 'asc' }
+      }),
+      prisma.payment.findMany({
+        where: {
+          method: 'CASH',
+          createdAt: { gte: start, lte: end },
+          status: { notIn: CASH_PAYMENT_STATUSES_TO_EXCLUDE },
+          order: { documentType: 'ORDER' }
+        },
+        include: {
+          order: {
+            select: {
+              orderNumber: true,
+              customer: { select: { name: true, phone: true } }
+            }
+          },
+          collectedByStaff: { select: { name: true } }
+        },
+        orderBy: { createdAt: 'asc' }
+      })
+    ]);
+
+    const paymentEntries = cashPayments.map((payment) => ({
+      id: `payment:${payment.id}`,
+      date: payment.createdAt,
+      type: 'IN',
+      amount: payment.amount,
+      description: [
+        'Cash payment',
+        payment.order?.orderNumber,
+        payment.order?.customer?.name
+      ].filter(Boolean).join(' - '),
+      staffId: payment.collectedBy || null,
+      staffName: payment.collectedByStaff?.name || null,
+      source: 'PAYMENT',
+      paymentId: payment.id,
+      orderNumber: payment.order?.orderNumber || null,
+      customerName: payment.order?.customer?.name || null,
+      customerPhone: payment.order?.customer?.phone || null
+    }));
+
+    const entries = [
+      ...manualEntries.map((entry) => ({ ...entry, source: 'MANUAL' })),
+      ...paymentEntries
+    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const manualIn = manualEntries.filter(e => e.type === 'IN' || e.type === 'OPEN').reduce((s, e) => s + e.amount, 0);
+    const totalOut = manualEntries.filter(e => e.type === 'OUT' || e.type === 'CLOSE').reduce((s, e) => s + e.amount, 0);
+    const cashPaymentIn = paymentEntries.reduce((s, e) => s + e.amount, 0);
+    const totalIn = manualIn + cashPaymentIn;
+
+    res.json({
+      success: true,
+      data: {
+        entries,
+        manualEntries,
+        paymentEntries,
+        totalIn,
+        totalOut,
+        balance: totalIn - totalOut,
+        cashPaymentIn,
+        manualIn
+      }
     });
-
-    const totalIn  = entries.filter(e => e.type === 'IN' || e.type === 'OPEN').reduce((s, e) => s + e.amount, 0);
-    const totalOut = entries.filter(e => e.type === 'OUT' || e.type === 'CLOSE').reduce((s, e) => s + e.amount, 0);
-
-    res.json({ success: true, data: { entries, totalIn, totalOut, balance: totalIn - totalOut } });
   } catch (err) {
     return error(res, 'Failed to fetch cash book');
   }

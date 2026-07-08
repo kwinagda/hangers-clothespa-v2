@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import {
   ArrowRight,
+  BarChart3,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
@@ -489,6 +490,12 @@ export default function DashboardPage() {
                 icon: Receipt,
                 title: 'Review Finance',
                 note: 'Check collections, balances, and open receivables',
+              },
+              {
+                href: '/dashboard/reports',
+                icon: BarChart3,
+                title: 'Open Reports',
+                note: 'View imported orders, payments, garments, and sales history',
               },
             ].map((action) => (
               <Link

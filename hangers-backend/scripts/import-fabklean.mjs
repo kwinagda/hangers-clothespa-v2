@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
@@ -63,14 +64,27 @@ const splitItemName = (name) => {
 };
 
 const loadOrders = () => {
+  const pageOrderMap = loadPageOrderMap();
   const orders = [];
   for (const file of listFiles(path.join(RAW_DIR, 'order_details'))) {
     const data = readJson(path.join(RAW_DIR, 'order_details', file));
     const order = data.detail?.objectList?.[0];
-    if (order?.id && order?.orderId) orders.push(order);
+    const pageOrder = pageOrderMap.get(String(order?.id || ''));
+    if (order?.id && order?.orderId) orders.push({ ...pageOrder, ...order });
   }
   orders.sort((a, b) => num(a.id) - num(b.id));
   return LIMIT ? orders.slice(0, LIMIT) : orders;
+};
+
+const loadPageOrderMap = () => {
+  const map = new Map();
+  for (const file of listFiles(path.join(RAW_DIR, 'order_pages'))) {
+    const data = readJson(path.join(RAW_DIR, 'order_pages', file));
+    for (const order of data.objectList || []) {
+      if (order?.id) map.set(String(order.id), order);
+    }
+  }
+  return map;
 };
 
 const loadCustomerMap = () => {
@@ -208,7 +222,7 @@ for (const raw of rawOrders) {
   const payments = loadPayments(raw.id);
   const paidAmount = payments.reduce((sum, payment) => sum + num(payment.amount), 0);
   const totalAmount = num(raw.invoiceTotal ?? raw.grandTotal ?? raw.totalAmount);
-  const orderCreatedAt = parseDate(raw.orderDate || raw.createdTime) || new Date();
+  const orderCreatedAt = parseDate(raw.actualPickupDate || raw.orderDate || raw.createdTime) || new Date();
   const status = mapStatus(raw.workflowStatus);
   const paymentStatus = mapPaymentStatus(raw.invoiceStatus, totalAmount, paidAmount);
   const notes = compact({

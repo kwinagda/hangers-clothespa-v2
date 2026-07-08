@@ -16,8 +16,9 @@ import {
 } from 'lucide-react'
 import { metadataAPI, reportsAPI } from '@/lib/api'
 
-const fmtCurrency = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+const fmtCurrency = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const fmtNumber = (n: number) => (n || 0).toLocaleString('en-IN')
+const HISTORY_START_DATE = '2025-01-01'
 const formatLocalDateInput = (value: Date) => {
   const year = value.getFullYear()
   const month = String(value.getMonth() + 1).padStart(2, '0')
@@ -38,7 +39,7 @@ const REPORT_META: Record<
     icon: TrendingUp,
     tone: 'blue',
     title: 'Sales',
-    description: 'Revenue, collection, and outstanding picture for the selected period.',
+    description: 'Revenue, collection, and outstanding picture for the selected period, excluding cancelled orders.',
   },
   orders: {
     icon: BarChart3,
@@ -184,11 +185,7 @@ export default function ReportsPage() {
   const [selectedType, setSelectedType] = useState('sales')
   const [displayType, setDisplayType] = useState('sales')
   const [reportTypes, setReportTypes] = useState<Array<{ value: string; label: string }>>([])
-  const [from, setFrom] = useState(() => {
-    const d = new Date()
-    d.setDate(1)
-    return formatLocalDateInput(d)
-  })
+  const [from, setFrom] = useState(HISTORY_START_DATE)
   const [to, setTo] = useState(() => formatLocalDateInput(new Date()))
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -388,6 +385,13 @@ export default function ReportsPage() {
 
   const quickRanges = [
     {
+      label: 'All History',
+      apply: () => {
+        setFrom(HISTORY_START_DATE)
+        setTo(formatLocalDateInput(new Date()))
+      },
+    },
+    {
       label: 'Today',
       apply: () => {
         const current = formatLocalDateInput(new Date())
@@ -457,7 +461,7 @@ export default function ReportsPage() {
     if (displayType === 'sales') {
       return {
         title: 'Sales Snapshot',
-        subtitle: 'Primary commercial numbers for the selected date range, using current order totals and payment state.',
+        subtitle: 'Primary commercial numbers for the selected date range, excluding cancelled orders from revenue and balance.',
       }
     }
     if (displayType === 'orders') {
@@ -502,7 +506,7 @@ export default function ReportsPage() {
     if (displayType === 'sales') {
       return [
         { label: 'Orders', value: fmtNumber(data.orders || 0), note: 'Orders included in the selected range', tone: 'blue' as const },
-        { label: 'Revenue', value: fmtCurrency(data.revenue || 0), note: 'Billed order value before outstanding balance', tone: 'blue' as const },
+        { label: 'Revenue', value: fmtCurrency(data.revenue || 0), note: 'Billed order value, excluding cancelled orders', tone: 'blue' as const },
         { label: 'Collected', value: fmtCurrency(data.paid || 0), note: 'Paid plus write-off effect captured in current records', tone: 'green' as const },
         { label: 'Outstanding', value: fmtCurrency(data.outstanding || 0), note: 'Current unpaid balance from the same order records', tone: 'amber' as const },
       ]
