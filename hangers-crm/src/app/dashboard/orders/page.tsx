@@ -110,27 +110,31 @@ function ItemSummary({ items }: { items: any[] }) {
   const summary = summarizeItems(items)
   if (!summary.totalQty) {
     return (
-      <div style={{fontSize:12,color:'#9dafc8',fontWeight:600}}>
+      <div style={{fontSize:12,color:'#9dafc8',fontWeight:600,lineHeight:1.35}}>
         No garments added
       </div>
     )
   }
 
+  const itemNames = summary.visible
+    .map((item: any) => {
+      const name = item.garmentType || item.serviceName || item.service?.name || 'Item'
+      return Number(item.quantity) > 1 ? `${item.quantity}x ${name}` : name
+    })
+    .join(', ')
+
   return (
-    <div style={{display:'flex',alignItems:'center',gap:8,minWidth:0}}>
-      <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',height:28,minWidth:34,padding:'0 8px',borderRadius:999,background:'#eef7ff',border:'1px solid #cfe3f4',color:'#035a8f',fontSize:12,fontWeight:800,flexShrink:0}}>
+    <div style={{display:'grid',gridTemplateColumns:'46px minmax(0,1fr)',gap:10,alignItems:'center',minWidth:0}}>
+      <div style={{height:34,width:34,borderRadius:10,background:'#eef7ff',border:'1px solid #cfe3f4',color:'#035a8f',display:'grid',placeItems:'center',fontSize:13,fontWeight:800}}>
         {summary.totalQty}
-      </span>
-      <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',minWidth:0}}>
-        {summary.visible.map((item: any, index: number) => (
-          <span key={`${item.id || item.serviceName || item.garmentType}-${index}`} style={{display:'inline-flex',alignItems:'center',gap:4,maxWidth:128,padding:'4px 8px',borderRadius:8,background:'#f7f9fc',border:'1px solid #e5edf5',fontSize:11,color:'#31445c',fontWeight:700,whiteSpace:'nowrap'}}>
-            {Number(item.quantity) > 1 && <span style={{color:'#035a8f'}}>{item.quantity}x</span>}
-            <span style={{overflow:'hidden',textOverflow:'ellipsis'}}>{item.garmentType || item.serviceName || item.service?.name || 'Item'}</span>
-          </span>
-        ))}
-        {summary.extraCount > 0 && (
-          <span style={{fontSize:11,color:'#6b7fa3',fontWeight:800}}>+{summary.extraCount}</span>
-        )}
+      </div>
+      <div style={{minWidth:0}}>
+        <div style={{fontSize:13,color:'#26364a',fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:1.35}}>
+          {itemNames}{summary.extraCount > 0 ? ` +${summary.extraCount} more` : ''}
+        </div>
+        <div style={{fontSize:11,color:'#8ba0bb',marginTop:2}}>
+          {summary.totalQty === 1 ? '1 garment' : `${summary.totalQty} garments`}
+        </div>
       </div>
     </div>
   )
@@ -427,20 +431,20 @@ function OrdersPageContent() {
         <div style={{padding:'18px 22px',borderBottom:'1px solid #edf3f8',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',background:'#fff'}}>
           <div>
             <h2 style={{margin:'0 0 4px',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:19,color:'#023c62'}}>Order Queue</h2>
-            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>Order ID, customer, garment summary, amount, payment, dates, and actions in one view.</p>
+            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>Clean operational list with customer, garments, status, amount, and due date.</p>
           </div>
           <Link href="/dashboard/orders/new" style={{display:'inline-flex',alignItems:'center',gap:6,textDecoration:'none',color:'#035a8f',fontSize:13,fontWeight:700}}>
             Create new order <ArrowRight size={14} />
           </Link>
         </div>
         <table style={{width:'100%',borderCollapse:'collapse',overflow:'visible'}}>
-          <thead><tr style={{background:'#f7f9fc'}}>
-            <th style={{padding:'11px 16px',borderBottom:'1px solid #e8f0f7',width:40}}>
+          <thead><tr style={{background:'#fbfcfe'}}>
+            <th style={{padding:'12px 12px 12px 18px',borderBottom:'1px solid #e8f0f7',width:34}}>
               <input type="checkbox" checked={selected.size === orders.length && orders.length > 0}
                 onChange={toggleAll} style={{cursor:'pointer'}}/>
             </th>
             {['Order','Customer','Garments / Service','Status','Payment','Dates','Actions'].map(h=>(
-              <th key={h} style={{padding:'11px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#6b7fa3',letterSpacing:'0.08em',textTransform:'uppercase' as const,borderBottom:'1px solid #e8f0f7'}}>{h}</th>
+              <th key={h} style={{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:800,color:'#7c8da5',letterSpacing:'0.08em',textTransform:'uppercase' as const,borderBottom:'1px solid #e8f0f7'}}>{h}</th>
             ))}
           </tr></thead>
           <tbody>
@@ -457,62 +461,59 @@ function OrdersPageContent() {
                     const isLockedToPlantOnly = plantStatuses.includes(o.status) && statusChoices.length <= 1
                     const statusStyle = statusStyles[o.status] || { bg: '#f7f9fc', text: '#023c62', border: '#dce8f0' }
                     return (
-                      <tr key={o.id} className="crm-table-row" style={{borderBottom:'1px solid #f0f4f8',background:selected.has(o.id)?'#eff6ff':i%2===0?'#fff':'#fafbfd',position:'relative'}}>
-                        <td style={{padding:'13px 16px'}}>
+                      <tr key={o.id} className="crm-table-row" style={{borderBottom:'1px solid #edf3f8',background:selected.has(o.id)?'#eff6ff':'#fff',position:'relative'}}>
+                        <td style={{padding:'16px 12px 16px 18px'}}>
                           <input type="checkbox" checked={selected.has(o.id)}
                             onChange={() => toggleSelect(o.id)} style={{cursor:'pointer'}}
                             disabled={isSentToPlant}/>
                         </td>
-                        <td style={{padding:'13px 16px',minWidth:150}}>
+                        <td style={{padding:'16px 14px',minWidth:132}}>
                           <Link href={`/dashboard/orders/${o.id}`}
-                            style={{fontFamily:"var(--crm-font-mono)",fontSize:13,fontWeight:600,color:'#023c62',textDecoration:'none'}}>
+                            style={{fontFamily:"var(--crm-font-mono)",fontSize:14,fontWeight:800,color:'#023c62',textDecoration:'none'}}>
                             {o.orderNumber}
                           </Link>
                           {isSentToPlant && <span style={{fontSize:10,background:'#fef9c3',color:'#854d0e',padding:'2px 6px',borderRadius:4,marginLeft:6,fontWeight:600}}>AT PLANT</span>}
-                          <div style={{fontSize:11,color:'#8ba0bb',marginTop:5}}>#{(page - 1) * pageSize + i + 1}</div>
                         </td>
-                        <td style={{padding:'13px 16px'}}>
-                          <div style={{fontSize:14,fontWeight:500,color:'#1a2332'}}>{o.customer?.name||'—'}</div>
-                          <div style={{fontSize:12,color:'#9dafc8'}}>+91 {o.customer?.phone}</div>
+                        <td style={{padding:'16px 14px',minWidth:180}}>
+                          <div style={{fontSize:14,fontWeight:700,color:'#1a2332',lineHeight:1.35}}>{o.customer?.name||'—'}</div>
+                          <div style={{fontSize:12,color:'#8ba0bb',marginTop:3}}>+91 {o.customer?.phone}</div>
                         </td>
-                        <td style={{padding:'13px 16px',fontSize:13,color:'#31445c',minWidth:270}}>
+                        <td style={{padding:'16px 14px',fontSize:13,color:'#31445c',minWidth:280,maxWidth:340}}>
                           <ItemSummary items={o.items || []} />
-                          <div style={{fontSize:11,color:'#8ba0bb'}}>{o.source || 'COUNTER'}{o.assignedTo?.name ? ` • ${o.assignedTo.name}` : ''}</div>
                         </td>
-                        <td style={{padding:'13px 16px'}}>
+                        <td style={{padding:'16px 14px',minWidth:160}}>
                           {isLockedToPlantOnly
-                            ? <span style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:6,color:statusStyle.text,background:statusStyle.bg,border:`1px solid ${statusStyle.border}`}}>
+                            ? <span style={{fontSize:12,fontWeight:800,padding:'7px 10px',borderRadius:10,color:statusStyle.text,background:statusStyle.bg,border:`1px solid ${statusStyle.border}`}}>
                                 <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Lock size={12} /> {getStatusLabel(o.status, o.source, statusLabels)}</span>
                               </span>
                             : <select value={o.status} onChange={e=>updateStatus(o.id, o.status, e.target.value)}
-                                style={{border:`1px solid ${statusStyle.border}`,cursor:'pointer',fontFamily:"var(--crm-font-ui)",fontWeight:600,fontSize:11,letterSpacing:'0.03em',outline:'none',borderRadius:999,padding:'4px 10px',background:statusStyle.bg,color:statusStyle.text}}>
+                                style={{border:`1px solid ${statusStyle.border}`,cursor:'pointer',fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:12,outline:'none',borderRadius:10,padding:'7px 10px',background:statusStyle.bg,color:statusStyle.text,maxWidth:150}}>
                                 {statusChoices.map(s=><option key={s} value={s}>{getStatusLabel(s, o.source, statusLabels)}</option>)}
                               </select>
                           }
                         </td>
-                        <td style={{padding:'13px 16px',minWidth:140}}>
-                          <div style={{fontWeight:800,color:'#023c62',fontSize:14}}>₹{o.totalAmount?.toLocaleString('en-IN')}</div>
-                          <span style={{display:'inline-flex',marginTop:5,fontSize:10,fontWeight:800,padding:'3px 8px',borderRadius:999,border:`1px solid ${paymentTone(o.paymentStatus).border}`,background:paymentTone(o.paymentStatus).bg,color:paymentTone(o.paymentStatus).color}}>
+                        <td style={{padding:'16px 14px',minWidth:118}}>
+                          <div style={{fontWeight:900,color:'#023c62',fontSize:15,lineHeight:1.2}}>₹{o.totalAmount?.toLocaleString('en-IN')}</div>
+                          <span style={{display:'inline-flex',marginTop:6,fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:7,border:`1px solid ${paymentTone(o.paymentStatus).border}`,background:paymentTone(o.paymentStatus).bg,color:paymentTone(o.paymentStatus).color}}>
                             {o.paymentStatus || 'UNPAID'}
                           </span>
                         </td>
-                        <td style={{padding:'13px 16px',fontSize:12,color:'#6b7fa3',minWidth:132}}>
-                          <div style={{display:'flex',alignItems:'center',gap:6,color:'#31445c',fontWeight:700}}><CalendarDays size={13} /> {format(new Date(o.createdAt),'dd MMM yy')}</div>
-                          <div style={{marginTop:4}}>{format(new Date(o.createdAt),'h:mm a')}</div>
-                          {o.deliveryDate && <div style={{marginTop:4,color:'#0f766e'}}>Due {format(new Date(o.deliveryDate),'dd MMM')}</div>}
+                        <td style={{padding:'16px 14px',fontSize:12,color:'#6b7fa3',minWidth:124}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6,color:'#31445c',fontWeight:800}}><CalendarDays size={13} /> {format(new Date(o.createdAt),'dd MMM yy')}</div>
+                          {o.deliveryDate && <div style={{marginTop:5,color:'#0f766e',fontWeight:700}}>Due {format(new Date(o.deliveryDate),'dd MMM')}</div>}
                         </td>
-                        <td style={{padding:'13px 16px',position:'relative',overflow:'visible'}}>
-                          <div style={{display:'flex',alignItems:'center',gap:10,position:'relative',zIndex:2}}>
+                        <td style={{padding:'16px 18px 16px 14px',position:'relative',overflow:'visible',minWidth:166}}>
+                          <div style={{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:8,position:'relative',zIndex:2}}>
                             {READY_ALLOWED_STATUSES.has(o.status) && (
                               <button
                                 onClick={() => markReady(o)}
-                                style={{height:30,padding:'0 12px',borderRadius:8,border:'1px solid #b7ead4',background:'#ecfdf5',color:'#047857',fontSize:12,fontWeight:800,cursor:'pointer'}}
+                                style={{height:32,padding:'0 13px',borderRadius:9,border:'1px solid #b7ead4',background:'#ecfdf5',color:'#047857',fontSize:12,fontWeight:900,cursor:'pointer'}}
                               >
                                 Clean
                               </button>
                             )}
                             <Link href={`/dashboard/orders/${o.id}`}
-                              style={{fontSize:12,color:'#035a8f',fontWeight:500,textDecoration:'none'}}>
+                              style={{fontSize:12,color:'#035a8f',fontWeight:800,textDecoration:'none',padding:'0 4px'}}>
                               View
                             </Link>
                             <details className="crm-action-menu" style={{position:'relative',zIndex:1000}}>

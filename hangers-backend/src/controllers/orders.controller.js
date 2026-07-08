@@ -218,7 +218,7 @@ const getOrderStats = async (req, res) => {
       recentOrders,
     ] = await Promise.all([
       prisma.order.count({ where: { ...ORDER_ONLY_WHERE, createdAt: { gte: todayStart, lte: todayEnd } } }),
-      prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: { in: ['PENDING','PROCESSING','WASHING','IRONING','QC'] } } }),
+      prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: { in: ['PENDING','PROCESSING','SENT_TO_PLANT','WASHING','IRONING','QC'] } } }),
       prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'READY_FOR_DELIVERY' } }),
       prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'DELIVERED', createdAt: { gte: todayStart, lte: todayEnd } } }),
       prisma.payment.aggregate({

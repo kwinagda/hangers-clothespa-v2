@@ -11,7 +11,6 @@ export default function LoginPage() {
   const [pw,      setPw]      = useState('')
   const [err,     setErr]     = useState('')
   const [loading, setLoading] = useState(false)
-  const [checkingSession, setCheckingSession] = useState(true)
 
   useEffect(() => {
     let active = true
@@ -20,10 +19,7 @@ export default function LoginPage() {
         if (!active) return
         router.replace('/dashboard')
       })
-      .catch(() => {
-        if (!active) return
-        setCheckingSession(false)
-      })
+      .catch(() => {})
     return () => { active = false }
   }, [router])
 
@@ -38,14 +34,6 @@ export default function LoginPage() {
   }
 
   const s = { fontFamily:"var(--crm-font-ui)", minHeight:'100vh', background:'linear-gradient(135deg,#023c62 0%,#035a8f 100%)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }
-
-  if (checkingSession) {
-    return (
-      <div style={s}>
-        <div style={{color:'#fff',fontSize:14,opacity:0.9}}>Checking session...</div>
-      </div>
-    )
-  }
 
   return (
     <div style={s}>
