@@ -1,6 +1,6 @@
 const prisma = require('../config/database');
 const { success, badRequest, error } = require('../utils/response');
-const { SERVICE_CODES } = require('../config/master-data');
+const { ROLE_SERVICE_ACCESS, SERVICE_CODES } = require('../config/master-data');
 const { log, getRequestMeta } = require('../services/activity.service');
 
 const listAuditLogs = async (req, res) => {
@@ -48,7 +48,7 @@ const listAuthThrottles = async (req, res) => {
 
 const getAccessCatalog = async (req, res) => {
   try {
-    const [permissions, serviceAllowances] = await Promise.all([
+    const [permissions, serviceAllowances, staffPermissions] = await Promise.all([
       prisma.permissionCatalog.findMany({
         include: { roleBindings: true },
         orderBy: [{ category: 'asc' }, { code: 'asc' }],
@@ -56,12 +56,17 @@ const getAccessCatalog = async (req, res) => {
       prisma.staffServiceAllowance.findMany({
         orderBy: [{ staffId: 'asc' }, { serviceCode: 'asc' }],
       }),
+      prisma.staffPermission.findMany({
+        orderBy: [{ staffId: 'asc' }, { permission: 'asc' }],
+      }),
     ]);
 
     return success(res, {
       permissions,
       services: SERVICE_CODES,
+      roleServiceAccess: ROLE_SERVICE_ACCESS,
       serviceAllowances,
+      staffPermissions,
     });
   } catch (err) {
     return error(res, 'Failed to fetch access catalog');
@@ -81,11 +86,15 @@ const updateStaffServiceAccess = async (req, res) => {
     if (!staff) return badRequest(res, 'Staff not found');
 
     await prisma.$transaction(async (tx) => {
-      for (const entry of services) {
-        await tx.staffServiceAllowance.upsert({
-          where: { staffId_serviceCode: { staffId, serviceCode: entry.serviceCode } },
-          update: { allowed: entry.allowed },
-          create: { staffId, serviceCode: entry.serviceCode, allowed: entry.allowed },
+      await tx.staffServiceAllowance.deleteMany({ where: { staffId } });
+      if (services.length) {
+        await tx.staffServiceAllowance.createMany({
+          data: services.map((entry) => ({
+            staffId,
+            serviceCode: entry.serviceCode,
+            allowed: entry.allowed,
+          })),
+          skipDuplicates: true,
         });
       }
     });
@@ -108,9 +117,60 @@ const updateStaffServiceAccess = async (req, res) => {
   }
 };
 
+const updateStaffPermissions = async (req, res) => {
+  const { id: staffId } = req.params;
+  const permissions = Array.isArray(req.body?.permissions) ? req.body.permissions : null;
+  if (!permissions) return badRequest(res, 'permissions array is required');
+
+  try {
+    const [staff, catalog] = await Promise.all([
+      prisma.staff.findUnique({ where: { id: staffId }, select: { id: true, name: true } }),
+      prisma.permissionCatalog.findMany({ select: { code: true } }),
+    ]);
+    if (!staff) return badRequest(res, 'Staff not found');
+
+    const validCodes = new Set(catalog.map((item) => item.code));
+    const invalid = permissions.find(
+      (entry) => !validCodes.has(String(entry?.permission || '')) || typeof entry?.granted !== 'boolean'
+    );
+    if (invalid) return badRequest(res, 'Each permission entry must include a valid permission and boolean granted value');
+
+    await prisma.$transaction(async (tx) => {
+      await tx.staffPermission.deleteMany({ where: { staffId } });
+      if (permissions.length) {
+        await tx.staffPermission.createMany({
+          data: permissions.map((entry) => ({
+            staffId,
+            permission: entry.permission,
+            granted: entry.granted,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    });
+
+    await log({
+      actorType: 'staff',
+      actorId: req.staff?.id,
+      actorName: req.staff?.name,
+      action: 'STAFF_PERMISSIONS_UPDATED',
+      resource: 'staff',
+      resourceId: staffId,
+      description: `Updated permissions for ${staff.name}`,
+      metadata: { permissions },
+      ...getRequestMeta(req),
+    });
+
+    return success(res, { staffId, permissions }, 'Staff permissions updated');
+  } catch (err) {
+    return error(res, 'Failed to update staff permissions');
+  }
+};
+
 module.exports = {
   getAccessCatalog,
   listAuditLogs,
   listAuthThrottles,
+  updateStaffPermissions,
   updateStaffServiceAccess,
 };

@@ -255,6 +255,14 @@ export const staffListAPI = {
   getAll: () => api.get(`/staff/list`),
 }
 
+export const securityAPI = {
+  accessCatalog: () => api.get('/security/access-catalog') as any,
+  updateStaffPermissions: (staffId: string, permissions: Array<{ permission: string; granted: boolean }>) =>
+    api.put(`/security/staff/${staffId}/permissions`, { permissions }) as any,
+  updateStaffServiceAccess: (staffId: string, services: Array<{ serviceCode: string; allowed: boolean }>) =>
+    api.put(`/security/staff/${staffId}/service-access`, { services }) as any,
+}
+
 export const walletAPI = {
   get:    (customerId: string)                        => api.get(`/wallet/${customerId}`) as any,
   credit: (customerId: string, data: any)             => api.post(`/wallet/${customerId}/credit`, data) as any,

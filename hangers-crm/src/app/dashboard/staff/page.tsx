@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { staffAPI, metadataAPI } from '@/lib/api'
+import { staffAPI, metadataAPI, securityAPI, authAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import {
@@ -15,6 +15,7 @@ import {
   PenSquare,
   ShieldCheck,
   ShieldX,
+  SlidersHorizontal,
   Truck,
   User,
   UserCog,
@@ -47,7 +48,26 @@ const roleInfo = (roles: any[], role: string) => {
 }
 
 type Staff = { id:string; name:string; phone:string; email:string|null; role:string; isActive:boolean; lastLoginAt:string|null; createdAt:string; hasPin:boolean }
+type PermissionItem = { code: string; category?: string | null; description?: string | null; roleBindings?: Array<{ role: string }> }
 const BLANK = { name:'', phone:'', email:'', password:'', role:'COUNTER_STAFF' }
+const SERVICE_LABELS: Record<string, string> = {
+  CRM: 'CRM',
+  CUSTOMER_APP: 'Customer App',
+  STAFF_APP: 'Staff App',
+  DELIVERY: 'Delivery',
+  PLANT: 'Plant',
+  FINANCE: 'Finance',
+  MARKETING: 'Marketing',
+  REPORTS: 'Reports',
+}
+const SERVICE_PERMISSION_PREFIXES: Record<string, string[]> = {
+  CRM: ['dashboard.', 'orders.', 'customers.', 'pricing.', 'staff.', 'whatsapp.', 'print.'],
+  DELIVERY: ['delivery.'],
+  PLANT: ['plant.'],
+  FINANCE: ['finance.'],
+  MARKETING: ['marketing.'],
+  REPORTS: ['reports.'],
+}
 
 export default function StaffPage() {
   const [staff,      setStaff]      = useState<Staff[]>([])
@@ -62,6 +82,17 @@ export default function StaffPage() {
   const [filterRole, setFilterRole] = useState('ALL')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
+  const [view, setView] = useState<'staff'|'access'>('staff')
+  const [currentStaff, setCurrentStaff] = useState<any>(null)
+  const [services, setServices] = useState<string[]>([])
+  const [roleServiceAccess, setRoleServiceAccess] = useState<Record<string, string[]>>({})
+  const [serviceAllowances, setServiceAllowances] = useState<Array<{ staffId: string; serviceCode: string; allowed: boolean }>>([])
+  const [permissionCatalog, setPermissionCatalog] = useState<PermissionItem[]>([])
+  const [staffPermissions, setStaffPermissions] = useState<Array<{ staffId: string; permission: string; granted: boolean }>>([])
+  const [accessStaffId, setAccessStaffId] = useState('')
+  const [accessDraft, setAccessDraft] = useState<Record<string, boolean>>({})
+  const [permissionDraft, setPermissionDraft] = useState<Record<string, boolean>>({})
+  const [savingAccess, setSavingAccess] = useState(false)
 
   const load = useCallback(async () => {
     try { const r:any = await staffAPI.list(); setStaff(asArray(r.data, ['staff', 'items'])) }
@@ -79,6 +110,22 @@ export default function StaffPage() {
         setRoles([])
         toast.error(e.message || 'Failed to load staff roles')
       })
+  }, [])
+  const loadAccessCatalog = useCallback(async () => {
+    try {
+      const r: any = await securityAPI.accessCatalog()
+      const data = r?.data || r || {}
+      setServices(data.services || [])
+      setRoleServiceAccess(data.roleServiceAccess || {})
+      setServiceAllowances(data.serviceAllowances || [])
+      setPermissionCatalog(data.permissions || [])
+      setStaffPermissions(data.staffPermissions || [])
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load access controls')
+    }
+  }, [])
+  useEffect(() => {
+    authAPI.me().then((r: any) => setCurrentStaff(r?.staff || r?.data?.staff || null)).catch(() => setCurrentStaff(null))
   }, [])
 
   const handleCreate = async () => {
@@ -117,12 +164,107 @@ export default function StaffPage() {
   }
   const openEdit = (s:Staff) => { setEditStaff(s); setForm({ name:s.name, phone:s.phone, email:s.email||'', password:'', role:s.role }) }
   const F = (field:string,val:string) => setForm((p:any)=>({...p,[field]:val}))
+  const selectedAccessStaff = staff.find((s) => s.id === accessStaffId) || staff[0] || null
+  const allowanceFor = (staffId: string, serviceCode: string) =>
+    serviceAllowances.find((item) => item.staffId === staffId && item.serviceCode === serviceCode)
+  const permissionFor = (staffId: string, permission: string) =>
+    staffPermissions.find((item) => item.staffId === staffId && item.permission === permission)
+  const defaultAllowedFor = (s: Staff, serviceCode: string) =>
+    s.role === 'SUPER_ADMIN' || (roleServiceAccess[s.role] || []).includes(serviceCode)
+  const defaultPermissionFor = (s: Staff, permission: PermissionItem) =>
+    s.role === 'SUPER_ADMIN' || (permission.roleBindings || []).some((binding) => binding.role === s.role)
+  const effectiveAllowedFor = (s: Staff, serviceCode: string) => {
+    const draftValue = accessDraft[serviceCode]
+    if (draftValue !== undefined) return draftValue
+    const override = allowanceFor(s.id, serviceCode)
+    if (override) return override.allowed
+    return defaultAllowedFor(s, serviceCode)
+  }
+  const effectivePermissionFor = (s: Staff, permission: PermissionItem) => {
+    const draftValue = permissionDraft[permission.code]
+    if (draftValue !== undefined) return draftValue
+    const override = permissionFor(s.id, permission.code)
+    if (override) return override.granted
+    return defaultPermissionFor(s, permission)
+  }
+  const permissionBelongsToService = (permissionCode: string, serviceCode: string) =>
+    (SERVICE_PERMISSION_PREFIXES[serviceCode] || []).some((prefix) => permissionCode.startsWith(prefix))
+  const toggleServiceAccess = (serviceCode: string, allowed: boolean) => {
+    setAccessDraft((draft) => ({ ...draft, [serviceCode]: allowed }))
+    const relatedPermissions = permissionCatalog.filter((permission) => permissionBelongsToService(permission.code, serviceCode))
+    if (!relatedPermissions.length) return
+    setPermissionDraft((draft) => ({
+      ...draft,
+      ...Object.fromEntries(relatedPermissions.map((permission) => [permission.code, allowed])),
+    }))
+  }
+  const openAccessFor = (staffId: string) => {
+    const s = staff.find((item) => item.id === staffId)
+    if (!s) return
+    setAccessStaffId(staffId)
+    setAccessDraft({})
+    setPermissionDraft({})
+  }
+  useEffect(() => {
+    if (view !== 'access' || !services.length || !staff.length) return
+    openAccessFor(accessStaffId || staff[0].id)
+  }, [view, services.length, staff.length])
+  const saveAccess = async () => {
+    if (!selectedAccessStaff) return
+    if (!canManageAccess) {
+      toast.error('Only super admin can change access')
+      return
+    }
+    setSavingAccess(true)
+    try {
+      const serviceOverrides = services
+        .map((serviceCode) => ({
+          serviceCode,
+          allowed: effectiveAllowedFor(selectedAccessStaff, serviceCode),
+          defaultAllowed: defaultAllowedFor(selectedAccessStaff, serviceCode),
+        }))
+        .filter((entry) => entry.allowed !== entry.defaultAllowed)
+        .map(({ serviceCode, allowed }) => ({ serviceCode, allowed }))
+      const permissionOverrides = permissionCatalog
+        .map((permission) => ({
+          permission: permission.code,
+          granted: effectivePermissionFor(selectedAccessStaff, permission),
+          defaultGranted: defaultPermissionFor(selectedAccessStaff, permission),
+        }))
+        .filter((entry) => entry.granted !== entry.defaultGranted)
+        .map(({ permission, granted }) => ({ permission, granted }))
+      await Promise.all([
+        securityAPI.updateStaffServiceAccess(selectedAccessStaff.id, serviceOverrides),
+        securityAPI.updateStaffPermissions(selectedAccessStaff.id, permissionOverrides),
+      ])
+      toast.success('Access updated')
+      await loadAccessCatalog()
+      setAccessDraft({})
+      setPermissionDraft({})
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to save access')
+    } finally {
+      setSavingAccess(false)
+    }
+  }
 
   const filtered = staff.filter(s => {
     const q=search.toLowerCase()
     return (!q||s.name.toLowerCase().includes(q)||s.phone.includes(q)||(s.email||'').includes(q)) &&
            (filterRole==='ALL'||s.role===filterRole)
   })
+  const permissionGroups = permissionCatalog.reduce<Record<string, PermissionItem[]>>((groups, permission) => {
+    const category = permission.category || 'general'
+    groups[category] = groups[category] || []
+    groups[category].push(permission)
+    return groups
+  }, {})
+  const canManageAccess = currentStaff?.role === 'SUPER_ADMIN'
+  useEffect(() => {
+    if (!currentStaff) return
+    if (currentStaff.role === 'SUPER_ADMIN') loadAccessCatalog()
+    else if (view === 'access') setView('staff')
+  }, [currentStaff, loadAccessCatalog, view])
   const pagedFiltered = filtered.slice((page - 1) * pageSize, page * pageSize)
   const active=pagedFiltered.filter(s=>s.isActive), inactive=pagedFiltered.filter(s=>!s.isActive)
 
@@ -139,6 +281,19 @@ export default function StaffPage() {
         </button>
       </div>
 
+      <div style={{display:'flex',gap:8,marginBottom:20}}>
+        {[
+          { key:'staff', label:'Staff Directory', icon: UserCog },
+          ...(canManageAccess ? [{ key:'access', label:'Access Control', icon: SlidersHorizontal }] : []),
+        ].map((item:any) => (
+          <button key={item.key} onClick={() => setView(item.key)}
+            style={{padding:'9px 16px',borderRadius:10,border:`1.5px solid ${view===item.key?'#023c62':'#dce8f0'}`,background:view===item.key?'#023c62':'#fff',color:view===item.key?'#fff':'#6b7fa3',fontWeight:700,cursor:'pointer',fontSize:13,display:'inline-flex',alignItems:'center',gap:8}}>
+            <item.icon size={15} />
+            {item.label}
+          </button>
+        ))}
+      </div>
+
       {/* PIN Banner */}
       {pinResult && (
         <div style={{background:'#e8f0f7',border:'1.5px solid #b8d0e8',borderRadius:12,padding:'14px 18px',marginBottom:20,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -151,6 +306,7 @@ export default function StaffPage() {
         </div>
       )}
 
+      {view === 'staff' && <>
       {/* Filters */}
       <div style={{display:'flex',gap:12,marginBottom:20}}>
         <input style={{flex:1,border:'1.5px solid #dce8f0',borderRadius:12,padding:'10px 16px',fontSize:14,outline:'none',background:'#fff',color:'#1a2332'}}
@@ -186,6 +342,105 @@ export default function StaffPage() {
         onPageSizeChange={(size) => { setPageSize(size); setPage(1) }}
         pageSizeOptions={[10, 20, 30, 50]}
       />
+      </>}
+
+      {view === 'access' && canManageAccess && (
+        <div style={{display:'grid',gridTemplateColumns:'minmax(260px,0.4fr) minmax(0,1fr)',gap:18}}>
+          <div style={{background:'#fff',border:'1px solid #dce8f0',borderRadius:18,overflow:'hidden'}}>
+            <div style={{padding:'14px 16px',borderBottom:'1px solid #edf3f8'}}>
+              <div style={{fontWeight:800,color:'#023c62',fontSize:15}}>Select Staff</div>
+              <div style={{fontSize:12,color:'#6b7fa3',marginTop:3}}>Role defaults can be overridden per person.</div>
+            </div>
+            <div style={{maxHeight:560,overflowY:'auto'}}>
+              {staff.map((s) => {
+                const active = selectedAccessStaff?.id === s.id
+                const ri = roleInfo(roles, s.role)
+                return (
+                  <button key={s.id} onClick={() => openAccessFor(s.id)}
+                    style={{width:'100%',border:'none',borderBottom:'1px solid #f0f4f8',background:active?'#e8f0f7':'#fff',padding:'12px 14px',textAlign:'left',cursor:'pointer',opacity:s.isActive?1:0.55}}>
+                    <div style={{fontWeight:800,color:'#1a2332',fontSize:13.5}}>{s.name}</div>
+                    <div style={{fontSize:11.5,color:ri.color,marginTop:3,fontWeight:700}}>{ri.label}</div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div style={{background:'#fff',border:'1px solid #dce8f0',borderRadius:18,overflow:'hidden'}}>
+            {!selectedAccessStaff ? (
+              <div style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No staff selected</div>
+            ) : (
+              <>
+                <div style={{padding:'18px 22px',borderBottom:'1px solid #edf3f8',display:'flex',alignItems:'center',justifyContent:'space-between',gap:14}}>
+                  <div>
+                    <div style={{fontFamily:"var(--crm-font-display)",fontWeight:800,color:'#023c62',fontSize:18}}>{selectedAccessStaff.name}</div>
+                    <div style={{fontSize:12,color:'#6b7fa3',marginTop:4}}>Role: {roleInfo(roles, selectedAccessStaff.role).label}</div>
+                  </div>
+                  <button onClick={saveAccess} disabled={savingAccess}
+                    style={{background:'#023c62',color:'#fff',border:'none',borderRadius:10,padding:'10px 18px',fontSize:13,fontWeight:800,cursor:'pointer',opacity:savingAccess?0.65:1}}>
+                    {savingAccess ? 'Saving...' : 'Save Access'}
+                  </button>
+                </div>
+                <div style={{padding:22,display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:12}}>
+                  {services.map((serviceCode) => {
+                    const defaultAllowed = defaultAllowedFor(selectedAccessStaff, serviceCode)
+                    const allowed = effectiveAllowedFor(selectedAccessStaff, serviceCode)
+                    const overridden = allowanceFor(selectedAccessStaff.id, serviceCode) !== undefined || accessDraft[serviceCode] !== undefined
+                    return (
+                      <button key={serviceCode} onClick={() => toggleServiceAccess(serviceCode, !allowed)}
+                        style={{border:`1.5px solid ${allowed?'#9ad7b5':'#e6b5b5'}`,background:allowed?'#f0fdf4':'#fff5f5',borderRadius:14,padding:'14px 16px',textAlign:'left',cursor:'pointer'}}>
+                        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+                          <span style={{fontWeight:800,color:'#1a2332',fontSize:14}}>{SERVICE_LABELS[serviceCode] || serviceCode}</span>
+                          <span style={{fontSize:11,fontWeight:800,borderRadius:999,padding:'4px 9px',background:allowed?'#dcfce7':'#fee2e2',color:allowed?'#166534':'#991b1b'}}>
+                            {allowed ? 'Allowed' : 'Blocked'}
+                          </span>
+                        </div>
+                        <div style={{fontSize:11.5,color:'#6b7fa3',marginTop:8,lineHeight:1.45}}>
+                          Role default: {defaultAllowed ? 'Allowed' : 'Blocked'}{overridden ? ' · Custom override set' : ''}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div style={{padding:'0 22px 22px'}}>
+                  <div style={{fontWeight:800,color:'#023c62',fontSize:15,marginBottom:4}}>Action Permissions</div>
+                  <div style={{fontSize:12,color:'#6b7fa3',marginBottom:14}}>Use these for exact controls like delete order, edit pricing, finance edit, reports, delivery assign, and plant stage updates.</div>
+                  <div style={{display:'grid',gap:14}}>
+                    {Object.entries(permissionGroups).map(([category, items]) => (
+                      <div key={category} style={{border:'1px solid #edf3f8',borderRadius:14,overflow:'hidden'}}>
+                        <div style={{padding:'10px 14px',background:'#f7fafc',borderBottom:'1px solid #edf3f8',fontSize:12,fontWeight:900,color:'#023c62',textTransform:'uppercase',letterSpacing:0.5}}>
+                          {category}
+                        </div>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))'}}>
+                          {items.map((permission) => {
+                            const defaultGranted = defaultPermissionFor(selectedAccessStaff, permission)
+                            const granted = effectivePermissionFor(selectedAccessStaff, permission)
+                            const overridden = permissionFor(selectedAccessStaff.id, permission.code) !== undefined || permissionDraft[permission.code] !== undefined
+                            return (
+                              <button key={permission.code} onClick={() => setPermissionDraft((draft) => ({ ...draft, [permission.code]: !granted }))}
+                                style={{border:'none',borderRight:'1px solid #edf3f8',borderBottom:'1px solid #edf3f8',background:granted?'#fff':'#fff7f7',padding:'12px 14px',textAlign:'left',cursor:'pointer'}}>
+                                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+                                  <span style={{fontSize:13,fontWeight:800,color:'#1a2332'}}>{permission.code}</span>
+                                  <span style={{fontSize:10.5,fontWeight:900,borderRadius:999,padding:'3px 8px',background:granted?'#dcfce7':'#fee2e2',color:granted?'#166534':'#991b1b'}}>
+                                    {granted ? 'Allowed' : 'Blocked'}
+                                  </span>
+                                </div>
+                                <div style={{fontSize:11,color:'#6b7fa3',marginTop:6,lineHeight:1.4}}>
+                                  Default: {defaultGranted ? 'Allowed' : 'Blocked'}{overridden ? ' · Custom override' : ''}
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Create Modal */}
       {showCreate && <StaffModal title="Add New Staff Member" onClose={()=>setShowCreate(false)} onConfirm={handleCreate} saving={saving} confirmLabel="Create Staff">
