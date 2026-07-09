@@ -41,8 +41,9 @@ const normalizeHeader = (value: string) => value.trim().toLowerCase().replace(/[
 const normalizeServiceName = (value: string) => String(value || '')
   .toLowerCase()
   .replace(/\u2014/g, '-')
-  .replace(/\((dc|dry clean|iron|laundry|roll|shoe|sofa|ni|si|rp)[^)]+\)/gi, '')
+  .replace(/\(([a-z]{1,4})\s*(?:\/+\s*[a-z]{1,4})?\)/gi, '')
   .replace(/\bnomal\b/g, 'normal')
+  .replace(/\blehanga\b/g, 'lehenga')
   .replace(/\s*\/\s*/g, '/')
   .replace(/\s*-\s*/g, '-')
   .replace(/\s+/g, ' ')
@@ -51,6 +52,15 @@ const getServiceMatchKeys = (value: string) => {
   const normalized = normalizeServiceName(value)
   const keys = new Set([String(value || ''), normalized])
   if (normalized) keys.add(normalized.replace(/[^a-z0-9]/g, ''))
+  const addKey = (key: string) => {
+    if (!key) return
+    keys.add(key)
+    keys.add(key.replace(/[^a-z0-9]/g, ''))
+  }
+  ;['normal', 'plain'].forEach((suffix) => addKey(`${normalized}-${suffix}`))
+  if (normalized.endsWith('s')) addKey(normalized.slice(0, -1))
+  else if (normalized) addKey(`${normalized}s`)
+  if (normalized.includes('/')) addKey(normalized.split('/').reverse().join('/'))
   const curtainBase = normalized
     .replace(/\s+\d+(?:\.\d+)?\.?p$/i, '')
     .replace(/\s+large$/i, '')
@@ -58,17 +68,35 @@ const getServiceMatchKeys = (value: string) => {
     .replace(/\s+small$/i, '')
     .trim()
   if (curtainBase !== normalized && /^curtain-/.test(curtainBase)) {
-    keys.add(curtainBase)
-    keys.add(curtainBase.replace(/[^a-z0-9]/g, ''))
+    addKey(curtainBase)
+  }
+  if (/^curtain\s+/.test(normalized)) {
+    addKey(normalized.replace(/^curtain\s+/, 'curtain-door '))
   }
   if (/^dress-long(?:-|\s|$)/.test(normalized) || /\blong dress\b/.test(normalized)) {
-    keys.add('long dress')
-    keys.add('longdress')
+    addKey('long dress')
   }
   if (normalized === 'tshirt' || normalized === 't-shirt') {
-    keys.add('tshirt')
-    keys.add('t-shirt')
+    addKey('tshirt')
+    addKey('t-shirt')
   }
+  if (normalized === 'dhoti') addKey('dhoti-normal')
+  if (normalized === 'kurta') addKey('kurta-normal')
+  if (normalized === 'blouse') addKey('blouse-normal')
+  if (normalized === 'kurti') addKey('kurti/kameez-plain')
+  if (normalized === 'top') addKey('top-plain')
+  if (normalized === 'long coat') addKey('long coat-normal')
+  if (normalized === 'trouser') addKey('pants')
+  if (normalized === 'pillow') addKey('pillow covers')
+  if (normalized === 'duvet') addKey('duvet-single')
+  if (normalized === 'normal iron') addKey('normal ironing')
+  if (normalized === 'blazer') addKey('suit-(1 pcs-blazer)')
+  if (normalized === 'coat') addKey('coat/blazer')
+  if (normalized === 'sweater') addKey('sweater-full sleeves-plain')
+  if (normalized === 'sweater with hoodie') addKey('sweater-full sleeves-heavy')
+  if (normalized === 'jackettop') addKey('jacket-full sleeves')
+  if (normalized === 'bottom') addKey('pants')
+  if (normalized === 'night wear') addKey('night suit')
   return Array.from(keys).filter(Boolean)
 }
 type VendorPriceMatch = { costPrice: number; updatedAt: number }
