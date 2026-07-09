@@ -41,9 +41,7 @@ const NAV_SECTIONS = [
     label: 'Overview',
     items: [
       { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', note: 'Today' },
-      { href: '/dashboard/search', icon: Search, label: 'Search', note: 'Quick find' },
       { href: '/dashboard/reports', icon: BarChart3, label: 'Reports', note: 'Insights' },
-      { href: '/dashboard/referrals', icon: Share2, label: 'Referrals', note: 'Growth' },
     ],
   },
   {
@@ -51,18 +49,25 @@ const NAV_SECTIONS = [
     items: [
       { href: '/dashboard/orders', icon: Package, label: 'All Orders', note: 'Queue' },
       { href: '/dashboard/orders?view=in_process', icon: Clock3, label: 'In Process', note: 'Working' },
-      { href: '/dashboard/orders?view=ready', icon: Sparkles, label: 'Cleaned', note: 'Ready' },
+      { href: '/dashboard/orders?view=ready', icon: Sparkles, label: 'Ready For Delivery', note: 'Dispatch' },
       { href: '/dashboard/orders?view=delivered', icon: CheckCircle2, label: 'Delivered', note: 'Done' },
-      { href: '/dashboard/orders?view=cancelled', icon: Receipt, label: 'Cancelled', note: 'Returns' },
     ],
   },
   {
-    label: 'Operations',
+    label: 'Workflow',
     items: [
       { href: '/dashboard/quotations', icon: FileText, label: 'Quotations', note: 'Estimates' },
-      { href: '/dashboard/customers', icon: Users, label: 'Customers', note: 'Directory' },
-      { href: '/dashboard/recurring', icon: RefreshCw, label: 'Recurring', note: 'Schedules' },
       { href: '/dashboard/plantchallans', icon: ClipboardList, label: 'Plant Challans', note: 'Transfers' },
+      { href: '/dashboard/recurring', icon: RefreshCw, label: 'Recurring Pickups', note: 'Schedules' },
+    ],
+  },
+  {
+    label: 'Customers & Growth',
+    items: [
+      { href: '/dashboard/customers', icon: Users, label: 'Customer Directory', note: 'Profiles' },
+      { href: '/dashboard/referrals', icon: Share2, label: 'Referrals', note: 'Growth' },
+      { href: '/dashboard/promotions', icon: TicketPercent, label: 'Promotions', note: 'Offers' },
+      { href: '/dashboard/marketing', icon: Megaphone, label: 'Campaigns', note: 'Messaging' },
     ],
   },
   {
@@ -73,7 +78,7 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    label: 'Money',
+    label: 'Finance',
     items: [
       { href: '/dashboard/pricing', icon: IndianRupee, label: 'Pricing', note: 'Rate cards' },
       { href: '/dashboard/finance', icon: Receipt, label: 'Finance', note: 'Collections' },
@@ -82,12 +87,10 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    label: 'Admin',
+    label: 'Team',
     items: [
-      { href: '/dashboard/attendance', icon: Clock3, label: 'Attendance', note: 'Staff time' },
-      { href: '/dashboard/promotions', icon: TicketPercent, label: 'Promotions', note: 'Offers' },
-      { href: '/dashboard/marketing', icon: Megaphone, label: 'Campaigns', note: 'Messaging' },
       { href: '/dashboard/staff', icon: BadgeIcon, label: 'Staff', note: 'Access' },
+      { href: '/dashboard/attendance', icon: Clock3, label: 'Attendance', note: 'Staff time' },
     ],
   },
 ]
