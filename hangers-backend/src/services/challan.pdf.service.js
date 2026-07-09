@@ -13,6 +13,7 @@ const generateChallanHTML = (challan) => {
     const key = item.serviceName;
     if (itemMap[key]) {
       itemMap[key].quantity += item.quantity;
+      itemMap[key].receivedQty = (itemMap[key].receivedQty || 0) + (item.receivedQty || 0);
       itemMap[key].isReceived = itemMap[key].isReceived && item.isReceived;
       if (!itemMap[key].vendorCost && item.vendorCost) itemMap[key].vendorCost = item.vendorCost;
     } else {
