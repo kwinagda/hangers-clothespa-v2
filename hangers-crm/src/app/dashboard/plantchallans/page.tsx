@@ -38,6 +38,20 @@ const unwrapRecord = (value: any, keys: string[] = []) => {
 }
 const csvEscape = (value: string | number) => `"${String(value ?? '').replace(/"/g, '""')}"`
 const normalizeHeader = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, '')
+const normalizeServiceName = (value: string) => String(value || '')
+  .toLowerCase()
+  .replace(/\u2014/g, '-')
+  .replace(/\((dc|dry clean|iron|laundry|roll|shoe|sofa)[^)]+\)/gi, '')
+  .replace(/\bnomal\b/g, 'normal')
+  .replace(/\s*\/\s*/g, '/')
+  .replace(/\s*-\s*/g, '-')
+  .replace(/\s+/g, ' ')
+  .trim()
+const pickVendorPrice = (current: number | undefined, next: number) => {
+  if (current === undefined) return next
+  if ((current || 0) === 0 && next > 0) return next
+  return current
+}
 const parseRateCardFile = (raw: string) => {
   const lines = raw
     .split(/\r?\n/)
@@ -153,7 +167,15 @@ export default function ChallansPage() {
       ])
       const existingPrices = asArray(pricesRes.data, ['prices', 'vendorPrices', 'items'])
       const priceMap: Record<string,number> = {}
-      existingPrices.forEach((p: any) => { priceMap[p.serviceId] = p.costPrice })
+      existingPrices.forEach((p: any) => {
+        const costPrice = Number(p.costPrice || 0)
+        if (p.serviceId) priceMap[p.serviceId] = pickVendorPrice(priceMap[p.serviceId], costPrice)
+        if (p.serviceName) {
+          priceMap[p.serviceName] = pickVendorPrice(priceMap[p.serviceName], costPrice)
+          const normalizedName = normalizeServiceName(p.serviceName)
+          priceMap[normalizedName] = pickVendorPrice(priceMap[normalizedName], costPrice)
+        }
+      })
       const catalogItems = Array.isArray(catalogRes)
         ? catalogRes
         : asArray(catalogRes?.data, ['services', 'items']).length
@@ -165,7 +187,7 @@ export default function ChallansPage() {
         id: item.id,
         serviceId: item.id,
         serviceName: item.name,
-        costPrice: priceMap[item.id] || 0,
+        costPrice: priceMap[item.id] ?? priceMap[item.name] ?? priceMap[normalizeServiceName(item.name)] ?? 0,
         category: item.category,
       }))
       setVendorPrices(merged)

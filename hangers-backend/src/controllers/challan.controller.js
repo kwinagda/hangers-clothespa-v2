@@ -18,10 +18,17 @@ const genBillNo = async () => {
 
 const buildVendorPriceMap = (prices) => {
   const priceMap = {};
+  const setPrice = (key, value) => {
+    if (!key) return;
+    const parsedValue = Number(value) || 0;
+    if (priceMap[key] === undefined || ((Number(priceMap[key]) || 0) === 0 && parsedValue > 0)) {
+      priceMap[key] = parsedValue;
+    }
+  };
   prices.forEach((price) => {
-    priceMap[price.serviceId] = price.costPrice;
-    priceMap[price.serviceName] = price.costPrice;
-    priceMap[normalizeServiceKey(price.serviceName)] = price.costPrice;
+    setPrice(price.serviceId, price.costPrice);
+    setPrice(price.serviceName, price.costPrice);
+    setPrice(normalizeServiceKey(price.serviceName), price.costPrice);
   });
   return priceMap;
 };
