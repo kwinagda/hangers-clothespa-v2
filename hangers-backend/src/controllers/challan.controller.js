@@ -431,7 +431,6 @@ const receiveItems = async (req, res) => {
       include: { challanOrders: true, challanItems: true }
     });
     if (!challan) return badRequest(res, 'Challan not found');
-    if (challan.status === 'RECEIVED') return badRequest(res, 'This challan is already fully received');
     const challanItemIds = new Set(challan.challanItems.map((item) => item.id));
     for (const item of items) {
       const receivedQty = Number(item?.receivedQty);

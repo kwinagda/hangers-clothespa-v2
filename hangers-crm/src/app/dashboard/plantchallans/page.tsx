@@ -505,14 +505,9 @@ export default function ChallansPage() {
                       <td style={{ padding: '10px 16px' }}>{badge(c.status)}</td>
                       <td style={{ padding: '10px 16px' }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                          {['DISPATCHED', 'PROCESSED', 'PARTIAL'].includes(c.status) && (
-                            <button onClick={() => openReceive(c)} style={{ fontSize: 12, color: '#fff', background: '#166534', border: '1px solid #166534', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                              Receive from Plant
-                            </button>
-                          )}
-                          {c.status === 'RECEIVED' && (
-                            <span style={{ fontSize: 12, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 999, padding: '5px 9px', fontWeight: 700, whiteSpace: 'nowrap' }}>Already Received</span>
-                          )}
+                          <button onClick={() => openReceive(c)} style={{ fontSize: 12, color: '#fff', background: '#166534', border: '1px solid #166534', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                            {c.status === 'RECEIVED' ? 'Edit Receipt' : 'Receive from Plant'}
+                          </button>
                           <a href={`${API_BASE_URL}/challans/${c.id}/pdf`} target="_blank" rel="noreferrer"
                             style={{ fontSize: 12, color: '#023c62', background: '#e8f0f7', border: 'none', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', textDecoration: 'none', fontWeight: 700 }}>
                             PDF
