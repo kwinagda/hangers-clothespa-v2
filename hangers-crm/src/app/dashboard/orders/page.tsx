@@ -101,6 +101,38 @@ const summarizeItems = (items: any[] = []) => {
 
 const READY_ALLOWED_STATUSES = new Set(['PROCESSING', 'IRONING', 'WASHING', 'DRYING', 'QC'])
 
+const AVATAR_TONES = [
+  { bg: '#e8f0f7', fg: '#023c62' },
+  { bg: '#e0f2fe', fg: '#075985' },
+  { bg: '#e8f7f0', fg: '#0d7a4e' },
+  { bg: '#fff4e5', fg: '#9a4d00' },
+  { bg: '#f1ebff', fg: '#5b2fb0' },
+  { bg: '#fde8ef', fg: '#9d174d' },
+]
+
+const avatarTone = (name: string) => {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0
+  return AVATAR_TONES[Math.abs(hash) % AVATAR_TONES.length]
+}
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || '—'
+
+function CustomerAvatar({ name }: { name: string }) {
+  const tone = avatarTone(name)
+  return (
+    <span className="crm3-avatar" style={{ background: tone.bg, color: tone.fg }}>
+      {initials(name)}
+    </span>
+  )
+}
+
 function ItemSummary({ items }: { items: any[] }) {
   const summary = summarizeItems(items)
   if (!summary.totalQty) {
@@ -144,19 +176,6 @@ function ItemSummary({ items }: { items: any[] }) {
         <div style={{ fontSize: 11, color: '#8ba0bb', marginTop: 1 }}>
           {summary.totalQty === 1 ? '1 garment' : `${summary.totalQty} garments`}
         </div>
-      </div>
-    </div>
-  )
-}
-
-function SummaryCell({ label, value, tone }: { label: string; value: string; tone?: 'default' | 'warn' }) {
-  return (
-    <div style={{ padding: '13px 18px', minWidth: 0 }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#7c8da5', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 5 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.1, color: tone === 'warn' ? '#9a4d00' : '#142033', whiteSpace: 'nowrap' }}>
-        {value}
       </div>
     </div>
   )
@@ -359,62 +378,53 @@ function OrdersPageContent() {
         }
       />
 
-      {/* Toolbar: search + status chips */}
-      <section className="crm2-panel" style={{ padding: '13px 14px', marginBottom: 14, display: 'grid', gap: 11 }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={15} color="#9dafc8" style={{ position: 'absolute', left: 13, top: 11 }} />
-          <input
-            value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1) }}
-            placeholder="Search order #, customer name, phone…"
-            style={{
-              width: '100%',
-              border: '1.5px solid #e3ebf3',
-              borderRadius: 10,
-              padding: '9px 14px 9px 36px',
-              fontSize: 13.5,
-              outline: 'none',
-              background: '#fbfdff',
-            }}
-          />
-        </div>
-        <div className="crm2-chiprow">
-          {statusOptions.map((item) => (
-            <button
-              key={item.key}
-              className={`crm2-chip${status === item.key ? ' crm2-chip-active' : ''}`}
-              onClick={() => applyStatusFilter(item.key)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </section>
+      {/* View tabs (from metadata statuses) */}
+      <div className="crm3-tabs" style={{ marginBottom: 16 }}>
+        {statusOptions.map((item) => (
+          <button
+            key={item.key}
+            className={`crm3-tab${status === item.key ? ' crm3-tab-active' : ''}`}
+            onClick={() => applyStatusFilter(item.key)}
+          >
+            {item.key === '' ? 'All' : item.label}
+          </button>
+        ))}
+      </div>
 
-      {/* Summary strip */}
-      <section
-        className="crm2-panel"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-          marginBottom: 14,
-          overflow: 'hidden',
-        }}
-      >
-        <SummaryCell label="Matching Orders" value={loading ? '—' : String(total)} />
-        <div style={{ borderLeft: '1px solid #eef3f8' }}>
-          <SummaryCell label="Page Value" value={loading ? '—' : formatCurrency(visibleValue)} />
-        </div>
-        <div style={{ borderLeft: '1px solid #eef3f8' }}>
-          <SummaryCell label="Sent to Plant" value={loading ? '—' : String(plantLockedCount)} />
-        </div>
-        <div style={{ borderLeft: '1px solid #eef3f8' }}>
-          <SummaryCell label="Needs Items" value={loading ? '—' : String(noItemsCount)} tone={noItemsCount > 0 ? 'warn' : 'default'} />
-        </div>
-      </section>
-
-      {/* Order table */}
+      {/* Order table with integrated toolbar */}
       <div className="crm2-panel orders-table-surface" style={{ overflow: 'visible' }}>
+        <div style={{ padding: '13px 16px', borderBottom: '1px solid #eef3f8', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
+            <Search size={15} color="#9dafc8" style={{ position: 'absolute', left: 13, top: 10 }} />
+            <input
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1) }}
+              placeholder="Search order #, customer name, phone…"
+              style={{
+                width: '100%',
+                border: '1.5px solid #e3ebf3',
+                borderRadius: 999,
+                padding: '8px 16px 8px 36px',
+                fontSize: 13,
+                outline: 'none',
+                background: '#fbfdff',
+              }}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12.5, color: '#6b7fa3', whiteSpace: 'nowrap', flexWrap: 'wrap' }}>
+            <span><strong style={{ color: '#142033' }}>{loading ? '—' : total}</strong> orders</span>
+            <span style={{ color: '#d6e2ee' }}>|</span>
+            <span><strong style={{ color: '#142033' }}>{loading ? '—' : formatCurrency(visibleValue)}</strong> page value</span>
+            <span style={{ color: '#d6e2ee' }}>|</span>
+            <span><strong style={{ color: '#142033' }}>{loading ? '—' : plantLockedCount}</strong> at plant</span>
+            {noItemsCount > 0 && (
+              <>
+                <span style={{ color: '#d6e2ee' }}>|</span>
+                <span style={{ color: '#9a4d00', fontWeight: 700 }}>{noItemsCount} need items</span>
+              </>
+            )}
+          </div>
+        </div>
         <table className="crm2-table" style={{ overflow: 'visible' }}>
           <thead>
             <tr>
@@ -472,33 +482,31 @@ function OrdersPageContent() {
                             </span>
                           )}
                         </td>
-                        <td style={{ minWidth: 160 }}>
-                          <div style={{ fontSize: 13.5, fontWeight: 700, color: '#1a2332', lineHeight: 1.3 }}>{o.customer?.name || '—'}</div>
-                          <div style={{ fontSize: 11.5, color: '#8ba0bb', marginTop: 2 }}>+91 {o.customer?.phone}</div>
+                        <td style={{ minWidth: 180 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                            <CustomerAvatar name={o.customer?.name || '—'} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 13.5, fontWeight: 700, color: '#1a2332', lineHeight: 1.3 }}>{o.customer?.name || '—'}</div>
+                              <div style={{ fontSize: 11.5, color: '#8ba0bb', marginTop: 1 }}>+91 {o.customer?.phone}</div>
+                            </div>
+                          </div>
                         </td>
                         <td style={{ minWidth: 220, maxWidth: 320 }}>
                           <ItemSummary items={o.items || []} />
                         </td>
                         <td style={{ minWidth: 150 }}>
                           {isLockedToPlantOnly
-                            ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, padding: '6px 10px', borderRadius: 9, color: statusStyle.text, background: statusStyle.bg, border: `1px solid ${statusStyle.border}` }}>
+                            ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 999, color: statusStyle.text, background: statusStyle.bg, border: `1px solid ${statusStyle.border}` }}>
                                 <Lock size={11} /> {getStatusLabel(o.status, o.source, statusLabels)}
                               </span>
                             : <select
                                 value={o.status}
                                 onChange={e => updateStatus(o.id, o.status, e.target.value)}
+                                className="crm3-status-select"
                                 style={{
-                                  border: `1px solid ${statusStyle.border}`,
-                                  cursor: 'pointer',
-                                  fontFamily: 'var(--crm-font-ui)',
-                                  fontWeight: 700,
-                                  fontSize: 12,
-                                  outline: 'none',
-                                  borderRadius: 9,
-                                  padding: '6px 9px',
-                                  background: statusStyle.bg,
+                                  backgroundColor: statusStyle.bg,
                                   color: statusStyle.text,
-                                  maxWidth: 150,
+                                  boxShadow: `inset 0 0 0 1px ${statusStyle.border}`,
                                 }}
                               >
                                 {statusChoices.map(s => <option key={s} value={s}>{getStatusLabel(s, o.source, statusLabels)}</option>)}

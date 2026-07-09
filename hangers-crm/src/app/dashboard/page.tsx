@@ -16,12 +16,11 @@ import {
   PackagePlus,
   Receipt,
   Shirt,
-  Sparkles,
   Truck,
   Users,
 } from 'lucide-react'
-import { ironAPI, metadataAPI, ordersAPI } from '@/lib/api'
-import { Badge, PageHeader, StatCard } from '@/components/ui'
+import { authAPI, ironAPI, metadataAPI, ordersAPI } from '@/lib/api'
+import { Badge } from '@/components/ui'
 
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -31,14 +30,85 @@ const asArray = (value: any, keys: string[] = []) => {
   return []
 }
 
+const AVATAR_TONES = [
+  { bg: '#e8f0f7', fg: '#023c62' },
+  { bg: '#e0f2fe', fg: '#075985' },
+  { bg: '#e8f7f0', fg: '#0d7a4e' },
+  { bg: '#fff4e5', fg: '#9a4d00' },
+  { bg: '#f1ebff', fg: '#5b2fb0' },
+  { bg: '#fde8ef', fg: '#9d174d' },
+]
+
+const avatarTone = (name: string) => {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0
+  return AVATAR_TONES[Math.abs(hash) % AVATAR_TONES.length]
+}
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || '—'
+
+function CustomerAvatar({ name }: { name: string }) {
+  const tone = avatarTone(name)
+  return (
+    <span className="crm3-avatar" style={{ background: tone.bg, color: tone.fg }}>
+      {initials(name)}
+    </span>
+  )
+}
+
+function CompletionRing({ pct, loading }: { pct: number; loading: boolean }) {
+  const R = 30
+  const C = 2 * Math.PI * R
+  const clamped = Math.max(0, Math.min(100, pct))
+  return (
+    <svg width={84} height={84} viewBox="0 0 84 84" role="img" aria-label={`Today's completion ${clamped}%`}>
+      <circle cx={42} cy={42} r={R} fill="none" stroke="rgba(184,208,232,0.28)" strokeWidth={7} />
+      <circle
+        cx={42}
+        cy={42}
+        r={R}
+        fill="none"
+        stroke="#b8d0e8"
+        strokeWidth={7}
+        strokeLinecap="round"
+        strokeDasharray={C}
+        strokeDashoffset={C - (C * clamped) / 100}
+        transform="rotate(-90 42 42)"
+        style={{ transition: 'stroke-dashoffset 700ms var(--crm-ease)' }}
+      />
+      <text x={42} y={40} textAnchor="middle" fill="#fff" fontSize={17} fontWeight={800} fontFamily="var(--crm-font-display)">
+        {loading ? '—' : `${clamped}%`}
+      </text>
+      <text x={42} y={54} textAnchor="middle" fill="#b8d0e8" fontSize={8.5} fontWeight={700} letterSpacing="0.08em">
+        DONE
+      </text>
+    </svg>
+  )
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<any>(null)
   const [ironSummary, setIronSummary] = useState<any>(null)
   const [statusLabels, setStatusLabels] = useState<Record<string, string>>({})
   const [statusColors, setStatusColors] = useState<Record<string, string>>({})
+  const [staffName, setStaffName] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    authAPI
+      .me()
+      .then((r: any) => {
+        const staff = r?.staff || r?.data?.staff || null
+        setStaffName((staff?.name || '').split(/\s+/)[0] || '')
+      })
+      .catch(() => setStaffName(''))
+
     const load = async () => {
       try {
         metadataAPI
@@ -112,6 +182,13 @@ export default function DashboardPage() {
     []
   )
 
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours()
+    if (hour < 12) return 'Good morning'
+    if (hour < 17) return 'Good afternoon'
+    return 'Good evening'
+  }, [])
+
   const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN')}`
   const recentOrders = stats?.recentOrders || []
   const deliveredToday = stats?.today?.delivered || 0
@@ -124,32 +201,12 @@ export default function DashboardPage() {
   const billsPending = ironSummary?.billsPending || 0
   const completionPct = totalToday ? Math.round((deliveredToday / totalToday) * 100) : 0
 
-  const pipelineStages = [
-    {
-      label: 'In Queue',
-      value: pendingOrders,
-      helper: 'Waiting across pickup and plant flow',
-      href: '/dashboard/orders?status=PROCESSING',
-      color: '#9a4d00',
-      bg: '#fff4e5',
-    },
-    {
-      label: 'Ready to Dispatch',
-      value: readyOrders,
-      helper: 'Cleaned and awaiting delivery routing',
-      href: '/dashboard/orders?status=READY_FOR_DELIVERY',
-      color: '#0d7a4e',
-      bg: '#e8f7f0',
-    },
-    {
-      label: 'Delivered Today',
-      value: deliveredToday,
-      helper: totalToday ? `${completionPct}% of today's orders completed` : 'No orders created today yet',
-      href: '/dashboard/orders?status=DELIVERED',
-      color: '#023c62',
-      bg: '#e8f0f7',
-    },
+  const queueSegments = [
+    { label: 'In queue', value: pendingOrders, color: '#f4b45c', href: '/dashboard/orders?status=PROCESSING' },
+    { label: 'Ready to dispatch', value: readyOrders, color: '#3ec98e', href: '/dashboard/orders?status=READY_FOR_DELIVERY' },
+    { label: 'Delivered today', value: deliveredToday, color: '#4f9fd4', href: '/dashboard/orders?status=DELIVERED' },
   ]
+  const queueTotal = queueSegments.reduce((sum, seg) => sum + seg.value, 0)
 
   const attentionRows = [
     {
@@ -176,10 +233,10 @@ export default function DashboardPage() {
   ]
 
   const quickActions = [
-    { href: '/dashboard/orders/new', icon: PackagePlus, label: 'Create walk-in order' },
-    { href: '/dashboard/customers', icon: Users, label: 'Customer directory' },
-    { href: '/dashboard/finance', icon: Receipt, label: 'Finance & collections' },
-    { href: '/dashboard/reports', icon: BarChart3, label: 'Reports & insights' },
+    { href: '/dashboard/orders/new', icon: PackagePlus, label: 'Walk-in order' },
+    { href: '/dashboard/customers', icon: Users, label: 'Customers' },
+    { href: '/dashboard/finance', icon: Receipt, label: 'Finance' },
+    { href: '/dashboard/reports', icon: BarChart3, label: 'Reports' },
   ]
 
   const ironStats = [
@@ -191,142 +248,115 @@ export default function DashboardPage() {
 
   return (
     <div className="crm-page-enter crm2-page">
-      <PageHeader
-        breadcrumb={['Workspace', 'Overview']}
-        title="Dashboard"
-        subtitle={todayDate}
-        actions={
-          <>
-            <Link href="/dashboard/reports" className="crm2-btn-secondary">
-              <BarChart3 size={15} />
-              Reports
-            </Link>
-            <Link href="/dashboard/orders/new" className="crm2-btn-primary">
-              <PackagePlus size={15} />
-              New Order
-            </Link>
-          </>
-        }
-      />
-
-      {/* KPI band */}
-      <div className="crm2-kpi-grid" style={{ marginBottom: 18 }}>
-        <Link href="/dashboard/orders" className="crm-card-hover" style={{ textDecoration: 'none', display: 'block' }}>
-          <StatCard
-            label="Today's Orders"
-            value={totalToday}
-            sub={`${deliveredToday} delivered so far`}
-            icon={<ClipboardList size={16} />}
-            loading={loading}
-          />
-        </Link>
-        <StatCard
-          label="Collections Today"
-          value={fmt(stats?.today?.revenue)}
-          sub={`${fmt(stats?.allTime?.revenue)} all-time`}
-          icon={<IndianRupee size={16} />}
-          loading={loading}
-        />
-        <Link href="/dashboard/orders?status=PROCESSING" className="crm-card-hover" style={{ textDecoration: 'none', display: 'block' }}>
-          <StatCard
-            label="In Queue"
-            value={pendingOrders}
-            sub="Pending and in-process orders"
-            icon={<Clock3 size={16} />}
-            loading={loading}
-          />
-        </Link>
-        <Link href="/dashboard/orders?status=READY_FOR_DELIVERY" className="crm-card-hover" style={{ textDecoration: 'none', display: 'block' }}>
-          <StatCard
-            label="Ready to Dispatch"
-            value={readyOrders}
-            sub="Cleaned, awaiting delivery"
-            icon={<Truck size={16} />}
-            loading={loading}
-          />
-        </Link>
+      {/* Greeting header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#8ba0bb', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+            {todayDate}
+          </div>
+          <h1
+            style={{
+              margin: 0,
+              fontFamily: 'var(--crm-font-display)',
+              fontSize: 30,
+              fontWeight: 700,
+              color: '#142033',
+              letterSpacing: '-0.03em',
+              lineHeight: 1.1,
+            }}
+          >
+            {greeting}
+            {staffName ? `, ${staffName}` : ''}
+          </h1>
+          <p style={{ margin: '7px 0 0', fontSize: 13.5, color: '#6b7fa3' }}>
+            {loading
+              ? 'Pulling today&apos;s operations…'
+              : `${totalToday} order${totalToday === 1 ? '' : 's'} today · ${readyOrders} ready for dispatch · ${fmt(stats?.today?.revenue)} collected`}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <Link href="/dashboard/reports" className="crm2-btn-secondary">
+            <BarChart3 size={15} />
+            Reports
+          </Link>
+          <Link href="/dashboard/orders/new" className="crm2-btn-primary">
+            <PackagePlus size={15} />
+            New Order
+          </Link>
+        </div>
       </div>
+
+      {/* Command band */}
+      <section className="crm3-band" style={{ marginBottom: 20 }}>
+        <div className="crm3-band-grid">
+          <Link href="/dashboard/orders" className="crm3-band-cell">
+            <div className="crm3-band-label"><ClipboardList size={13} /> Today&apos;s Orders</div>
+            <div className="crm3-band-value">{loading ? '—' : totalToday}</div>
+            <div className="crm3-band-sub">{loading ? ' ' : `${deliveredToday} already delivered`}</div>
+          </Link>
+          <div className="crm3-band-cell">
+            <div className="crm3-band-label"><IndianRupee size={13} /> Collections Today</div>
+            <div className="crm3-band-value">{loading ? '—' : fmt(stats?.today?.revenue)}</div>
+            <div className="crm3-band-sub">{loading ? ' ' : `${fmt(stats?.allTime?.revenue)} all-time`}</div>
+          </div>
+          <Link href="/dashboard/orders?status=PROCESSING" className="crm3-band-cell">
+            <div className="crm3-band-label"><Clock3 size={13} /> In Queue</div>
+            <div className="crm3-band-value">{loading ? '—' : pendingOrders}</div>
+            <div className="crm3-band-sub">Pending &amp; in-process orders</div>
+          </Link>
+          <Link href="/dashboard/orders?status=READY_FOR_DELIVERY" className="crm3-band-cell">
+            <div className="crm3-band-label"><Truck size={13} /> Ready to Dispatch</div>
+            <div className="crm3-band-value">{loading ? '—' : readyOrders}</div>
+            <div className="crm3-band-sub">Cleaned, awaiting delivery</div>
+          </Link>
+          <div
+            className="crm3-band-cell crm3-band-ring"
+            style={{ borderLeft: '1px solid rgba(184,208,232,0.18)', display: 'flex', alignItems: 'center', gap: 16, paddingRight: 28 }}
+          >
+            <CompletionRing pct={completionPct} loading={loading} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 3, whiteSpace: 'nowrap' }}>Today&apos;s completion</div>
+              <div style={{ fontSize: 11.5, color: 'rgba(184,208,232,0.85)', lineHeight: 1.45 }}>
+                {loading ? '…' : `${deliveredToday} of ${totalToday} orders delivered`}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="crm2-main-grid">
         {/* Main column */}
         <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
-          {/* Pipeline */}
-          <section className="crm2-panel">
-            <div className="crm2-panel-head">
-              <div>
-                <h2 className="crm2-panel-title">Today&apos;s Pipeline</h2>
-                <p className="crm2-panel-sub">Queue pressure across the live workflow</p>
-              </div>
-              <span style={{ fontSize: 12, fontWeight: 700, color: completionPct >= 50 ? '#0d7a4e' : '#6b7fa3' }}>
-                {loading ? '—' : `${completionPct}% completed today`}
-              </span>
+          {/* Queue composition */}
+          <section className="crm2-panel" style={{ padding: '16px 18px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+              <h2 className="crm2-panel-title">Live Queue</h2>
+              <span style={{ fontSize: 12, color: '#8ba0bb' }}>{loading ? '—' : `${queueTotal} orders across the active pipeline`}</span>
             </div>
-            <div style={{ padding: '16px 18px 18px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
-                {pipelineStages.map((stage, index) => (
-                  <Link
-                    key={stage.label}
-                    href={stage.href}
-                    className="crm-card-hover"
-                    style={{
-                      textDecoration: 'none',
-                      borderRadius: 12,
-                      border: '1px solid #e8f0f7',
-                      background: '#fbfdff',
-                      padding: '13px 14px',
-                      position: 'relative',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7fa3', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                        {stage.label}
-                      </span>
-                      {index < pipelineStages.length - 1 ? (
-                        <ChevronRight size={14} color="#b8d0e8" />
-                      ) : (
-                        <ArrowUpRight size={14} color="#b8d0e8" />
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                      <span style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 26, fontWeight: 800, color: '#142033', lineHeight: 1 }}>
-                        {loading ? '—' : stage.value}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 10.5,
-                          fontWeight: 700,
-                          color: stage.color,
-                          background: stage.bg,
-                          borderRadius: 999,
-                          padding: '2px 8px',
-                        }}
-                      >
-                        orders
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 11.5, color: '#8ba0bb', marginTop: 8, lineHeight: 1.4 }}>{stage.helper}</div>
-                  </Link>
-                ))}
-              </div>
 
-              {/* Completion meter (delivered vs created today) */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7fa3', marginBottom: 6 }}>
-                  <span style={{ fontWeight: 600 }}>Today&apos;s completion</span>
-                  <span>{loading ? '—' : `${deliveredToday} of ${totalToday} orders delivered`}</span>
-                </div>
-                <div style={{ height: 8, borderRadius: 999, background: '#e8f0f7', overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${Math.min(100, completionPct)}%`,
-                      borderRadius: 999,
-                      background: 'linear-gradient(90deg,#035a8f,#023c62)',
-                      transition: 'width 500ms var(--crm-ease)',
-                    }}
-                  />
-                </div>
-              </div>
+            {/* Segmented composition bar (2px surface gaps) */}
+            <div style={{ display: 'flex', gap: 2, height: 14, borderRadius: 999, overflow: 'hidden', background: '#eef3f8', marginBottom: 14 }}>
+              {queueTotal > 0 &&
+                queueSegments
+                  .filter((seg) => seg.value > 0)
+                  .map((seg) => (
+                    <div
+                      key={seg.label}
+                      title={`${seg.label}: ${seg.value}`}
+                      style={{ width: `${(seg.value / queueTotal) * 100}%`, background: seg.color, minWidth: 6 }}
+                    />
+                  ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+              {queueSegments.map((seg) => (
+                <Link key={seg.label} href={seg.href} style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 9, color: '#142033' }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 3, background: seg.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12.5, color: '#51657f', fontWeight: 600 }}>{seg.label}</span>
+                  <span style={{ fontFamily: 'var(--crm-font-display)', fontSize: 16, fontWeight: 800 }}>{loading ? '—' : seg.value}</span>
+                  <ChevronRight size={13} color="#b8d0e8" />
+                </Link>
+              ))}
             </div>
           </section>
 
@@ -345,8 +375,8 @@ export default function DashboardPage() {
               <table className="crm2-table" style={{ minWidth: 640 }}>
                 <thead>
                   <tr>
-                    <th>Order</th>
                     <th>Customer</th>
+                    <th>Order</th>
                     <th>Status</th>
                     <th style={{ textAlign: 'right' }}>Amount</th>
                     <th>Placed</th>
@@ -377,12 +407,17 @@ export default function DashboardPage() {
                           window.location.href = `/dashboard/orders/${order.id}`
                         }}
                       >
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                            <CustomerAvatar name={order.customer?.name || '—'} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 13.5, fontWeight: 700, color: '#162235', lineHeight: 1.3 }}>{order.customer?.name || '—'}</div>
+                              <div style={{ fontSize: 11.5, color: '#8da2bc', marginTop: 1 }}>+91 {order.customer?.phone}</div>
+                            </div>
+                          </div>
+                        </td>
                         <td style={{ fontFamily: 'var(--crm-font-mono)', fontSize: 12.5, fontWeight: 700, color: '#023c62', whiteSpace: 'nowrap' }}>
                           {order.orderNumber}
-                        </td>
-                        <td>
-                          <div style={{ fontSize: 13.5, fontWeight: 700, color: '#162235', lineHeight: 1.3 }}>{order.customer?.name || '—'}</div>
-                          <div style={{ fontSize: 11.5, color: '#8da2bc', marginTop: 2 }}>+91 {order.customer?.phone}</div>
                         </td>
                         <td>
                           <Badge
@@ -463,6 +498,50 @@ export default function DashboardPage() {
             </div>
           </section>
 
+          {/* Quick actions — icon grid */}
+          <section className="crm2-panel" style={{ padding: '16px 16px 16px' }}>
+            <h2 className="crm2-panel-title" style={{ marginBottom: 12 }}>Quick Actions</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 8 }}>
+              {quickActions.map((action) => (
+                <Link
+                  key={action.href}
+                  href={action.href}
+                  className="crm-card-hover"
+                  style={{
+                    textDecoration: 'none',
+                    borderRadius: 12,
+                    border: '1px solid #e3ebf3',
+                    background: '#fbfdff',
+                    padding: '13px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 9,
+                    color: '#142033',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 9,
+                      background: '#023c62',
+                      color: '#fff',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <action.icon size={15} />
+                  </span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {action.label}
+                    <ArrowUpRight size={12} color="#8ba0bb" />
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+
           {/* Daily Iron */}
           <section className="crm2-panel" style={{ overflow: 'hidden' }}>
             <div className="crm2-panel-head">
@@ -491,71 +570,11 @@ export default function DashboardPage() {
                       {item.label}
                     </span>
                   </div>
-                  <div style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 22, color: '#142033', lineHeight: 1 }}>
+                  <div style={{ fontFamily: 'var(--crm-font-display)', fontWeight: 800, fontSize: 22, color: '#142033', lineHeight: 1 }}>
                     {loading ? '—' : item.value}
                   </div>
                 </div>
               ))}
-            </div>
-          </section>
-
-          {/* Quick actions */}
-          <section className="crm2-panel" style={{ overflow: 'hidden' }}>
-            <div className="crm2-panel-head">
-              <div>
-                <h2 className="crm2-panel-title">Quick Actions</h2>
-                <p className="crm2-panel-sub">Common operational jumps</p>
-              </div>
-            </div>
-            <div>
-              {quickActions.map((action) => (
-                <Link key={action.href} href={action.href} className="crm2-list-row">
-                  <span
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 9,
-                      background: '#e8f0f7',
-                      color: '#023c62',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <action.icon size={15} />
-                  </span>
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 700 }}>{action.label}</span>
-                  <ArrowRight size={14} color="#b8d0e8" style={{ flexShrink: 0 }} />
-                </Link>
-              ))}
-            </div>
-          </section>
-
-          {/* Cleaned-today accent card */}
-          <section
-            className="crm2-panel"
-            style={{
-              background: 'linear-gradient(135deg,#022f50 0%,#035a8f 100%)',
-              border: '1px solid #023c62',
-              padding: '18px 18px 16px',
-              color: '#fff',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <Sparkles size={15} color="#b8d0e8" />
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#b8d0e8' }}>
-                Operational cue
-              </span>
-            </div>
-            <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'rgba(232,240,247,0.92)' }}>
-              {loading
-                ? 'Loading dashboard insight…'
-                : readyOrders > 0
-                  ? `${readyOrders} cleaned order${readyOrders === 1 ? ' is' : 's are'} waiting for delivery planning.`
-                  : pendingOrders > 0
-                    ? 'No dispatch bottleneck — keep an eye on plant throughput.'
-                    : 'All clear. No queue pressure right now.'}
             </div>
           </section>
         </div>
