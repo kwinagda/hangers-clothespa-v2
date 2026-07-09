@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { ironAPI, metadataAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import IronSectionTabs from '../_components/IronSectionTabs'
+import { PageHeader } from '@/components/ui'
 import { InlineLoader, SkeletonCard, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
@@ -78,15 +79,13 @@ export default function IronApplicationsPage() {
 
   return (
     <div style={{ padding:'32px 36px', maxWidth:1200, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:24 }}>
-        <div>
-          <h1 style={{ fontFamily:"var(--crm-font-ui)", fontWeight:800, fontSize:28, color:'#023c62', margin:'0 0 4px' }}>Daily Iron Applications</h1>
-          <p style={{ fontSize:14, color:'#6b7fa3', margin:0 }}>Review app requests and activate customers for monthly ironing billing.</p>
-        </div>
-        <button onClick={load} style={{ background:'#fff', border:'1px solid #dce8f0', borderRadius:12, padding:'10px 16px', color:'#023c62', fontWeight:700, cursor:'pointer', minWidth:112 }}>
+      <PageHeader
+        title="Daily Iron Applications"
+        subtitle="Review app requests and activate customers for monthly ironing billing."
+        actions={<button onClick={load} style={{background:'#fff',border:'1px solid #dce8f0',borderRadius:12,padding:'10px 16px',color:'#023c62',fontWeight:700,cursor:'pointer',minWidth:112}}>
           {loading ? <InlineLoader label="Loading" /> : 'Refresh'}
-        </button>
-      </div>
+        </button>}
+      />
 
       <IronSectionTabs />
 

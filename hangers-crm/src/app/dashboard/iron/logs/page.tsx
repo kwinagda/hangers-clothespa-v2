@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { ironAPI } from '@/lib/api'
 import IronSectionTabs from '../_components/IronSectionTabs'
+import { PageHeader } from '@/components/ui'
 import { InlineLoader, SkeletonCard, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
@@ -54,23 +55,14 @@ export default function IronLogsPage() {
 
   return (
     <div style={{ padding:'32px 36px', maxWidth:1280, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:16 }}>
-        <div>
-          <h1 style={{ fontFamily:"var(--crm-font-ui)", fontWeight:800, fontSize:28, color:'#023c62', margin:'0 0 4px' }}>Daily Iron Logs</h1>
-          <p style={{ fontSize:14, color:'#6b7fa3', margin:0 }}>Daily overview of logged ironing pieces, customer totals, and billing status.</p>
-        </div>
-        <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            style={{ border:'1px solid #dce8f0', borderRadius:12, padding:'10px 14px', fontSize:14, color:'#023c62', background:'#fff' }}
-          />
-          <button onClick={() => load(selectedDate)} style={{ background:'#fff', border:'1px solid #dce8f0', borderRadius:12, padding:'10px 16px', color:'#023c62', fontWeight:700, cursor:'pointer' }}>
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Daily Iron Logs"
+        subtitle="Daily overview of logged ironing pieces, customer totals, and billing status."
+        actions={<div style={{display:'flex',gap:10,alignItems:'center'}}>
+          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} style={{border:'1px solid #dce8f0',borderRadius:12,padding:'10px 14px',fontSize:14,color:'#023c62',background:'#fff'}} />
+          <button onClick={() => load(selectedDate)} style={{background:'#fff',border:'1px solid #dce8f0',borderRadius:12,padding:'10px 16px',color:'#023c62',fontWeight:700,cursor:'pointer'}}>Refresh</button>
+        </div>}
+      />
 
       <IronSectionTabs />
 

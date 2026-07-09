@@ -1,6 +1,8 @@
 'use client'
 import { ChangeEvent, useEffect, useState } from 'react'
 import { recurringAPI, customersAPI, metadataAPI } from '@/lib/api'
+import { Plus } from 'lucide-react'
+import { PageHeader, Button } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import toast from 'react-hot-toast'
 const asArray = (value: any, keys: string[] = []) => {
@@ -91,26 +93,11 @@ export default function RecurringPage() {
   }
   return (
     <div style={{padding:'32px 36px',maxWidth:1100,margin:'0 auto',...s}}>
-      <section style={{background:'linear-gradient(135deg,#022f50 0%,#035a8f 58%,#0b6f84 100%)',borderRadius:28,padding:'26px 28px',color:'#fff',boxShadow:'0 22px 52px rgba(2,60,98,0.18)',marginBottom:22}}>
-        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.45fr) minmax(320px,0.85fr)',gap:20,alignItems:'stretch'}}>
-          <div>
-            <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:32,color:'#fff',margin:'0 0 8px'}}>Recurring Pickups</h1>
-            <p style={{fontSize:14,color:'rgba(232,240,247,0.88)',margin:'0 0 16px',lineHeight:1.6,maxWidth:720}}>Manage scheduled pickup commitments, pause or resume customer plans, and create new weekly or monthly pickup routines.</p>
-            <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>{pickups.length} total recurring pickups</span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>{pickups.filter((p:any)=>p.isActive).length} active</span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>{pickups.filter((p:any)=>!p.isActive).length} paused</span>
-            </div>
-          </div>
-          <div style={{display:'flex',flexDirection:'column',gap:12,justifyContent:'space-between',background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.16)',borderRadius:24,padding:20}}>
-            <div>
-              <div style={{fontSize:11,color:'rgba(232,240,247,0.72)',fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:6}}>Primary Action</div>
-              <div style={{fontSize:15,fontWeight:700,lineHeight:1.5,color:'#fff'}}>Create a new recurring commitment with the correct schedule pattern and pickup address.</div>
-            </div>
-            <div><button onClick={()=>setShowAdd(true)} style={{padding:'10px 20px',background:'#fff',color:'#023c62',borderRadius:12,fontSize:13,fontWeight:800,border:'none',cursor:'pointer'}}>+ Schedule Recurring</button></div>
-          </div>
-        </div>
-      </section>
+      <PageHeader
+        title="Recurring Pickups"
+        subtitle={`${pickups.length} schedules · ${pickups.filter((p:any)=>p.isActive).length} active · ${pickups.filter((p:any)=>!p.isActive).length} paused`}
+        actions={<Button variant="primary" icon={<Plus size={14}/>} onClick={()=>setShowAdd(true)}>Schedule Recurring</Button>}
+      />
       <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',overflow:'hidden'}}>
         {loadError?<div style={{padding:40,textAlign:'center',color:'#b91c1c'}}>{loadError}</div>:pickups.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No recurring pickups scheduled</div>:
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>

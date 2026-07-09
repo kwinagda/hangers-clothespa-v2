@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { API_BASE_URL, challanAPI, ordersAPI, vendorBillAPI, vendorPriceAPI, servicesAPI, metadataAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
+import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 
 type Tab = 'challans' | 'transfers' | 'vendor-bills' | 'vendor-prices'
@@ -444,30 +445,14 @@ export default function ChallansPage() {
   return (
     <div style={{ padding: '32px 36px', maxWidth: 1200, margin: '0 auto', fontFamily: "var(--crm-font-ui)" }}>
 
-      {/* Header */}
-      <section style={{background:'linear-gradient(135deg,#022f50 0%,#035a8f 58%,#0b6f84 100%)',borderRadius:28,padding:'26px 28px',color:'#fff',boxShadow:'0 22px 52px rgba(2,60,98,0.18)',marginBottom:22}}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.45fr) minmax(320px,0.85fr)', gap: 20, alignItems: 'stretch' }}>
-          <div>
-            <h1 style={{ fontFamily: "var(--crm-font-display)", fontWeight: 800, fontSize: 32, color: '#fff', margin: '0 0 8px' }}>Plant Challans</h1>
-            <p style={{ fontSize: 14, color: 'rgba(232,240,247,0.88)', margin: '0 0 16px', lineHeight: 1.6, maxWidth: 720 }}>Manage dispatch challans, plant receipts, vendor bills, and vendor pricing from one operations workspace.</p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 14, background: 'rgba(255,255,255,0.12)', fontSize: 13, color: '#eaf3fb' }}>{challans.length} challans</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 14, background: 'rgba(255,255,255,0.12)', fontSize: 13, color: '#eaf3fb' }}>{vendorBills.length} vendor bills</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 14, background: 'rgba(255,255,255,0.12)', fontSize: 13, color: '#eaf3fb' }}>{vendorPrices.length} pricing rows loaded</span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, justifyContent: 'space-between', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: 24, padding: 20 }}>
-            <div>
-              <div style={{ fontSize: 11, color: 'rgba(232,240,247,0.72)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Primary Actions</div>
-              <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.5, color: '#fff' }}>Create challans, close receipts, and settle vendor bills without leaving this screen.</div>
-            </div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {tab === 'challans' && <button onClick={() => setShowCreateChallan(true)} style={{ padding: '10px 20px', background: '#023c62', color: '#fff', borderRadius: 10, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer' }}>+ New Challan</button>}
-          {tab === 'vendor-bills' && <button onClick={() => setShowCreateBill(true)} style={{ padding: '10px 20px', background: '#166534', color: '#fff', borderRadius: 10, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer' }}>+ Create Vendor Bill</button>}
-            </div>
-          </div>
-        </div>
-      </section>
+      <PageHeader
+        title="Plant Challans"
+        subtitle={`Dispatch challans, vendor bills, and pricing · ${challans.length} challans · ${vendorBills.length} bills`}
+        actions={<div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+          {tab === 'challans' && <button onClick={() => setShowCreateChallan(true)} style={{padding:'9px 18px',background:'#1a3c5e',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer'}}>+ New Challan</button>}
+          {tab === 'vendor-bills' && <button onClick={() => setShowCreateBill(true)} style={{padding:'9px 18px',background:'#166534',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer'}}>+ Vendor Bill</button>}
+        </div>}
+      />
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: '#eef4f8', borderRadius: 18, padding: 6, width: 'fit-content', border: '1px solid #dde9f2' }}>

@@ -19,6 +19,7 @@ import {
   Users,
 } from 'lucide-react'
 import { ironAPI, metadataAPI, ordersAPI } from '@/lib/api'
+import { PageHeader } from '@/components/ui'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -303,145 +304,11 @@ export default function DashboardPage() {
 
   return (
     <div style={{ padding: '30px 34px', maxWidth: 1380, margin: '0 auto' }}>
-      <section
-        style={{
-          background: 'linear-gradient(135deg,#022f50 0%,#035a8f 52%,#0a7496 100%)',
-          borderRadius: 30,
-          padding: '28px 30px',
-          color: '#fff',
-          boxShadow: '0 22px 52px rgba(2,60,98,0.18)',
-          marginBottom: 22,
-        }}
-      >
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0,1.4fr) minmax(320px,0.9fr)',
-            gap: 20,
-            alignItems: 'stretch',
-          }}
-        >
-          <div>
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                background: 'rgba(255,255,255,0.14)',
-                border: '1px solid rgba(255,255,255,0.16)',
-                borderRadius: 999,
-                padding: '7px 12px',
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                marginBottom: 16,
-              }}
-            >
-              <ClipboardList size={14} />
-              Operations Snapshot
-            </div>
-            <h1
-              style={{
-                fontFamily: 'var(--crm-font-display)',
-                fontWeight: 800,
-                fontSize: 34,
-                lineHeight: 1.05,
-                margin: '0 0 8px',
-              }}
-            >
-              Clear view of today’s orders, dispatch load, and collections.
-            </h1>
-            <p style={{ margin: '0 0 20px', fontSize: 14, color: 'rgba(230,241,250,0.78)', maxWidth: 660, lineHeight: 1.6 }}>
-              Designed for fast operational scanning: revenue, queue pressure, delivery readiness, and Daily Iron movement in one place.
-            </p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12 }}>
-              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 18, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.12)' }}>
-                <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.66)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Today&apos;s Orders</div>
-                <div style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 30, fontWeight: 800 }}>{loading ? '—' : totalToday}</div>
-              </div>
-              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 18, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.12)' }}>
-                <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.66)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Today&apos;s Revenue</div>
-                <div style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 30, fontWeight: 800 }}>{loading ? '—' : fmt(stats?.today?.revenue)}</div>
-              </div>
-              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 18, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.12)' }}>
-                <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.66)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>All-Time Revenue</div>
-                <div style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 30, fontWeight: 800 }}>{loading ? '—' : fmt(stats?.allTime?.revenue)}</div>
-              </div>
-            </div>
-          </div>
-
-          <div
-            style={{
-              background: 'rgba(255,255,255,0.1)',
-              borderRadius: 24,
-              border: '1px solid rgba(255,255,255,0.14)',
-              padding: '22px 22px 18px',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(230,241,250,0.66)', marginBottom: 8 }}>
-                Today
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 6 }}>{todayDate}</div>
-              <div style={{ fontSize: 13, color: 'rgba(230,241,250,0.72)', lineHeight: 1.55 }}>
-                Use the dashboard to identify queue pressure first, then move into customer, order, finance, or plant actions.
-              </div>
-            </div>
-
-            <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
-              {attentionRows.map((row) => (
-                <Link
-                  key={row.label}
-                  href={row.href}
-                  style={{
-                    textDecoration: 'none',
-                    color: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                    padding: '12px 14px',
-                    borderRadius: 16,
-                    background: 'rgba(255,255,255,0.08)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{row.label}</div>
-                    <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.64)' }}>Open the relevant work queue</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span
-                      style={{
-                        minWidth: 34,
-                        height: 34,
-                        padding: '0 10px',
-                        borderRadius: 999,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: TONE[row.tone].soft,
-                        color: TONE[row.tone].color,
-                        fontWeight: 800,
-                        fontSize: 14,
-                      }}
-                    >
-                      {loading ? '—' : row.value}
-                    </span>
-                    <ChevronRight size={16} />
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
+      <PageHeader
+        title="Operations Dashboard"
+        subtitle={todayDate}
+        actions={<Link href="/dashboard/orders/new" style={{display:'inline-flex',alignItems:'center',gap:8,background:'#1a3c5e',color:'#fff',textDecoration:'none',padding:'9px 18px',borderRadius:10,fontWeight:700,fontSize:13}}><PackagePlus size={14}/> New Order</Link>}
+      />
       <section
         style={{
           display: 'grid',

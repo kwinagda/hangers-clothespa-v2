@@ -4,6 +4,7 @@ import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { AlertTriangle, BarChart3, CalendarDays, CreditCard, IndianRupee, Landmark, Smartphone, Tag, WalletCards } from 'lucide-react'
 import api, { metadataAPI } from '@/lib/api'
+import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 
 const METHOD_ICON = {CASH:Landmark,UPI:Smartphone,CARD:CreditCard,RAZORPAY:WalletCards,ONLINE:WalletCards,COD:Landmark,WALLET:WalletCards,OTHER:Tag,ALL:BarChart3}
@@ -76,10 +77,7 @@ export default function FinancePage() {
 
   return (
     <div style={{padding:'32px 36px',maxWidth:1200,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
-      <div style={{marginBottom:28}}>
-        <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:28,color:'#023c62',margin:'0 0 4px'}}>Finance & Accounts</h1>
-        <p style={{fontSize:14,color:'#6b7fa3',margin:0}}>Daily cash register, collections, and outstanding balances</p>
-      </div>
+      <PageHeader title="Finance & Accounts" subtitle="Daily cash register, collections, and outstanding balances" />
 
       {/* Tabs */}
       <div style={{display:'flex',gap:8,marginBottom:24}}>

@@ -5,6 +5,7 @@ import { customersAPI, ironAPI, metadataAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { ArrowRight, Plus, Search } from 'lucide-react'
+import { PageHeader, Button } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -67,15 +68,11 @@ export default function CustomersPage() {
 
   return (
     <div style={{padding:'32px 36px',maxWidth:1200,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:28}}>
-        <div>
-          <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:28,color:'#023c62',margin:'0 0 4px'}}>Customers</h1>
-          <p style={{fontSize:14,color:'#6b7fa3',margin:0}}>{total} registered customers</p>
-        </div>
-        <button onClick={()=>setShowAdd(true)} style={{background:'#023c62',color:'#fff',border:'none',borderRadius:12,padding:'12px 22px',fontWeight:700,fontFamily:"var(--crm-font-ui)",fontSize:14,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:8}}>
-          <Plus size={16} /> Add Customer
-        </button>
-      </div>
+      <PageHeader
+        title="Customers"
+        subtitle={`${total} registered customers`}
+        actions={<Button variant="primary" icon={<Plus size={16}/>} onClick={()=>setShowAdd(true)}>Add Customer</Button>}
+      />
 
       {showAdd&&(
         <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 4px 20px rgba(2,60,98,0.1)',marginBottom:20}}>

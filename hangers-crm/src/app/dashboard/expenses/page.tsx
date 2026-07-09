@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { expensesAPI, metadataAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
+import { PageHeader, Button } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -92,13 +93,11 @@ export default function ExpensesPage() {
 
   return (
     <div style={{ padding: '32px 36px', maxWidth: 1000, margin: '0 auto', ...s }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 26, color: '#023c62', margin: 0 }}>Expenses</h1>
-        <button onClick={() => setShowAdd(true)}
-          style={{ padding: '10px 20px', background: '#023c62', color: '#fff', borderRadius: 10, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer' }}>
-          + Add Expense
-        </button>
-      </div>
+      <PageHeader
+        title="Expenses"
+        subtitle={`${MONTHS[month-1]} ${year}`}
+        actions={<Button variant="primary" onClick={() => setShowAdd(true)}>+ Add Expense</Button>}
+      />
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
         <select value={month} onChange={e => setMonth(parseInt(e.target.value))}

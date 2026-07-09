@@ -6,6 +6,7 @@ import { authAPI, ordersAPI, challanAPI, metadataAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { ArrowRight, CalendarDays, ClipboardList, IndianRupee, Lock, MoreHorizontal, PackageCheck, Plus, Search, Truck } from 'lucide-react'
+import { PageHeader } from '@/components/ui'
 import { InlineLoader, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
@@ -356,46 +357,14 @@ function OrdersPageContent() {
 
   return (
     <div className="crm-page-enter" style={{padding:'30px 34px',maxWidth:1380,margin:'0 auto'}}>
-      <section style={{background:'linear-gradient(135deg,#022f50 0%,#035a8f 58%,#0b6f84 100%)',borderRadius:28,padding:'26px 28px',color:'#fff',boxShadow:'0 22px 52px rgba(2,60,98,0.18)',marginBottom:22}}>
-        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.45fr) minmax(320px,0.85fr)',gap:20,alignItems:'stretch'}}>
-          <div>
-            <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:32,color:'#fff',margin:'0 0 8px'}}>{activeView.title}</h1>
-            <p style={{fontSize:14,color:'rgba(232,240,247,0.88)',margin:'0 0 16px',lineHeight:1.6,maxWidth:720}}>
-              {activeView.description}
-            </p>
-            <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <PackageCheck size={14} />
-                {total} {activeView.metric.toLowerCase()} orders
-              </span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <Truck size={14} />
-                {plantLockedCount} sent to plant
-              </span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <IndianRupee size={14} />
-                Visible value {formatCurrency(visibleValue)}
-              </span>
-            </div>
-          </div>
-          <div style={{display:'flex',flexDirection:'column',gap:12,justifyContent:'space-between',background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.16)',borderRadius:24,padding:20}}>
-            <div>
-              <div style={{fontSize:11,color:'rgba(232,240,247,0.72)',fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:6}}>Primary Action</div>
-              <div style={{fontSize:15,fontWeight:700,lineHeight:1.5,color:'#fff'}}>Create a fresh counter order or batch selected orders into a plant challan.</div>
-            </div>
-            <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
-              <Link href="/dashboard/orders/new" className="crm-card-hover" style={{display:'inline-flex',alignItems:'center',gap:8,background:'#fff',color:'#023c62',textDecoration:'none',padding:'12px 18px',borderRadius:14,fontWeight:800,fontFamily:"var(--crm-font-ui)",fontSize:14}}>
-                <Plus size={16} /> New Order
-              </Link>
-              {selected.size > 0 && (
-                <button onClick={() => setShowChallanModal(true)} style={{display:'inline-flex',alignItems:'center',gap:8,background:'#166534',color:'#fff',padding:'12px 18px',borderRadius:14,fontWeight:800,fontFamily:"var(--crm-font-ui)",fontSize:14,border:'none',cursor:'pointer'}}>
-                  <ClipboardList size={16} /> Create Challan ({selected.size})
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
+      <PageHeader
+        title={activeView.title}
+        subtitle={activeView.description}
+        actions={<div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+          <Link href="/dashboard/orders/new" style={{display:'inline-flex',alignItems:'center',gap:8,background:'#1a3c5e',color:'#fff',textDecoration:'none',padding:'9px 18px',borderRadius:10,fontWeight:700,fontSize:13}}><Plus size={14}/> New Order</Link>
+          {selected.size > 0 && <button onClick={() => setShowChallanModal(true)} style={{display:'inline-flex',alignItems:'center',gap:8,background:'#166534',color:'#fff',padding:'9px 18px',borderRadius:10,fontWeight:700,fontSize:13,border:'none',cursor:'pointer'}}><ClipboardList size={14}/> Challan ({selected.size})</button>}
+        </div>}
+      />
 
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:18,marginBottom:22}}>
         <MetricCard label={activeView.metric} value={String(total)} note="Orders loaded from this dedicated backend view." />

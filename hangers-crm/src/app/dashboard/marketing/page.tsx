@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { campaignsAPI, automationsAPI, metadataAPI } from '@/lib/api'
+import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 type Tab = 'campaigns'|'automations'
 const asArray = (value: any, keys: string[] = []) => {
@@ -54,7 +55,7 @@ export default function MarketingPage() {
   const SS: Record<string,any> = {DRAFT:{bg:'#f3f4f6',color:'#374151'},SENT:{bg:'#dcfce7',color:'#166534'},FAILED:{bg:'#fee2e2',color:'#991b1b'}}
   return (
     <div style={{padding:'32px 36px',maxWidth:900,margin:'0 auto',...s}}>
-      <h1 style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:26,color:'#023c62',marginBottom:24}}>Marketing & Automations</h1>
+      <PageHeader title="Marketing & Automations" subtitle="WhatsApp campaigns and automated customer messaging" />
       <div style={{display:'flex',gap:4,marginBottom:24,background:'#f1f5f9',borderRadius:12,padding:4,width:'fit-content'}}>
         {tabBtn('campaigns','WhatsApp Campaigns')}{tabBtn('automations','Automations')}
       </div>

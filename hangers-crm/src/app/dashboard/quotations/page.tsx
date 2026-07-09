@@ -2,8 +2,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
-import { FileDown, FileText, RefreshCw, Share2 } from 'lucide-react'
+import { FileDown, FileText, Plus, RefreshCw, Share2 } from 'lucide-react'
 import { metadataAPI, quotationsAPI } from '@/lib/api'
+import { PageHeader, Button, Badge } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
@@ -117,15 +118,11 @@ export default function QuotationsPage() {
 
   return (
     <div style={{ padding: '32px 36px', maxWidth: 1320, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 24 }}>
-        <div>
-          <h1 style={{ margin: '0 0 4px', fontFamily: 'var(--crm-font-display)', fontSize: 28, color: '#023c62' }}>Quotations</h1>
-          <p style={{ margin: 0, fontSize: 13, color: '#6b7fa3' }}>Customer estimates managed through the same centralized backend workflow as orders.</p>
-        </div>
-        <Link href="/dashboard/orders/new?mode=quotation" style={{ padding: '10px 18px', borderRadius: 10, background: '#023c62', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
-          + New Quotation
-        </Link>
-      </div>
+      <PageHeader
+        title="Quotations"
+        subtitle="Customer estimates managed through the same centralized backend workflow as orders."
+        actions={<Link href="/dashboard/orders/new?mode=quotation" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'9px 18px',borderRadius:10,background:'#1a3c5e',color:'#fff',textDecoration:'none',fontSize:13,fontWeight:700}}><Plus size={14}/> New Quotation</Link>}
+      />
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
         <input

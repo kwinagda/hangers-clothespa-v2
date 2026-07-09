@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { customersAPI, settingsAPI } from '@/lib/api'
+import { PageHeader } from '@/components/ui'
 
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 
@@ -76,19 +77,15 @@ export default function ReferralsReportPage() {
 
   return (
     <div style={{ padding: '32px 36px', maxWidth: 1240, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontFamily: 'var(--crm-font-display)', fontWeight: 800, fontSize: 28, color: '#023c62', margin: '0 0 6px' }}>Referral Report</h1>
-          <p style={{ fontSize: 14, color: '#6b7fa3', margin: 0 }}>Cross-customer referral visibility from the existing master database referral and wallet-credit records.</p>
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' as const }}>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ border: '1px solid #dce8f0', borderRadius: 10, padding: '10px 12px', fontSize: 13 }} />
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ border: '1px solid #dce8f0', borderRadius: 10, padding: '10px 12px', fontSize: 13 }} />
-          <button onClick={load} style={{ padding: '10px 16px', background: '#023c62', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Referral Report"
+        subtitle="Cross-customer referral visibility from the existing master database referral and wallet-credit records."
+        actions={<div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',fontSize:13}} />
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',fontSize:13}} />
+          <button onClick={load} style={{padding:'10px 16px',background:'#023c62',color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>Refresh</button>
+        </div>}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 14, marginBottom: 22 }}>
         {[

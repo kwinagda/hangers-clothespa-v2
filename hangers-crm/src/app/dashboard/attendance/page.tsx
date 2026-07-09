@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { attendanceAPI, staffListAPI } from '@/lib/api'
+import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const asArray = (value: any, keys: string[] = []) => {
@@ -40,7 +41,7 @@ export default function AttendancePage() {
   const s = {fontFamily:"var(--crm-font-ui)"}
   return (
     <div style={{padding:'32px 36px',maxWidth:1000,margin:'0 auto',...s}}>
-      <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:26,color:'#023c62',marginBottom:24}}>Staff Attendance</h1>
+      <PageHeader title="Staff Attendance" subtitle="Clock in/out and monthly attendance records" />
       <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:20,marginBottom:20}}>
         <div style={{fontWeight:700,fontSize:13,color:'#6b7fa3',marginBottom:12,textTransform:'uppercase' as const,letterSpacing:'0.06em'}}>Quick Clock In/Out</div>
         <div style={{display:'flex',gap:10,flexWrap:'wrap' as const,alignItems:'center'}}>

@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { cashBookAPI } from '@/lib/api'
+import { PageHeader, Button } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -57,13 +58,11 @@ export default function CashBookPage() {
 
   return (
     <div style={{ padding: '32px 36px', maxWidth: 800, margin: '0 auto', ...s }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 26, color: '#023c62', margin: 0 }}>Cash Book</h1>
-        <button onClick={() => setShowAdd(true)}
-          style={{ padding: '10px 20px', background: '#023c62', color: '#fff', borderRadius: 10, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer' }}>
-          + Add Entry
-        </button>
-      </div>
+      <PageHeader
+        title="Cash Book"
+        subtitle="Daily cash register and entries"
+        actions={<Button variant="primary" onClick={() => setShowAdd(true)}>+ Add Entry</Button>}
+      />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <span style={{ fontSize: 13, color: '#6b7fa3' }}>Date:</span>

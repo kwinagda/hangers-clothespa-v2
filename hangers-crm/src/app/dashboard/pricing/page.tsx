@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { servicesAPI } from '@/lib/api'
+import { PageHeader } from '@/components/ui'
 
 interface CatalogItem {
   id?: string
@@ -273,35 +274,16 @@ export default function PricingPage() {
 
   return (
     <div style={{ padding: '32px 36px', maxWidth: 1300, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div>
-          <h1 style={{ fontFamily: 'var(--crm-font-display)', fontWeight: 800, fontSize: 28, color: '#023c62', margin: '0 0 4px' }}>Pricing & Services</h1>
-          <p style={{ fontSize: 14, color: '#6b7fa3', margin: 0 }}>{totalItems} services across {catalog.length} categories — every item is read from the same master service API</p>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search service..."
-            style={{ border: '1.5px solid #dce8f0', borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none', width: 220 }}
-          />
-          <button
-            onClick={downloadRateCard}
-            disabled={!catalog.length}
-            style={{ padding: '10px 16px', background: '#fff', color: '#023c62', borderRadius: 10, fontSize: 13, fontWeight: 700, border: '1px solid #dce8f0', cursor: 'pointer', opacity: catalog.length ? 1 : 0.5 }}
-          >
-            Download Rate Card
-          </button>
-          <button
-            onClick={openBulkUpload}
-            disabled={saving}
-            style={{ padding: '10px 16px', background: '#fff7ed', color: '#9a3412', borderRadius: 10, fontSize: 13, fontWeight: 700, border: '1px solid #fed7aa', cursor: 'pointer', opacity: saving ? 0.5 : 1 }}
-          >
-            Bulk Upload
-          </button>
-          <input ref={bulkUploadInputRef} type="file" accept=".csv,text/csv" onChange={uploadRateCard} style={{ display: 'none' }} />
-        </div>
-      </div>
+      <PageHeader
+        title="Pricing & Services"
+        subtitle={`${totalItems} services across ${catalog.length} categories — every item is read from the same master service API`}
+        actions={<div style={{display:'flex',gap:10}}>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search service..." style={{border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 14px',fontSize:14,outline:'none',width:220}} />
+          <button onClick={downloadRateCard} disabled={!catalog.length} style={{padding:'10px 16px',background:'#fff',color:'#023c62',borderRadius:10,fontSize:13,fontWeight:700,border:'1px solid #dce8f0',cursor:'pointer',opacity:catalog.length?1:0.5}}>Download Rate Card</button>
+          <button onClick={openBulkUpload} disabled={saving} style={{padding:'10px 16px',background:'#fff7ed',color:'#9a3412',borderRadius:10,fontSize:13,fontWeight:700,border:'1px solid #fed7aa',cursor:'pointer',opacity:saving?0.5:1}}>Bulk Upload</button>
+          <input ref={bulkUploadInputRef} type="file" accept=".csv,text/csv" onChange={uploadRateCard} style={{display:'none'}} />
+        </div>}
+      />
 
       <div style={{ background: '#fffaf0', border: '1px solid #fed7aa', borderRadius: 12, padding: '12px 14px', marginBottom: 20, fontSize: 12, color: '#9a3412', lineHeight: 1.55 }}>
         Customer pricing stays on the existing service catalog only. Use <strong>Add Item</strong> inside any category for single-row changes, or <strong>Bulk Upload</strong> when replacing the rate card through the same master-data API.
