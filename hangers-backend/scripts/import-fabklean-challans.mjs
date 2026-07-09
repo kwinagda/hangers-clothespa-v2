@@ -34,6 +34,21 @@ const normalizePlant = (value) => {
   if (!raw) return 'UNKNOWN';
   return raw.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'UNKNOWN';
 };
+const fabkleanOrderPlantStatus = (rawOrder) => text(rawOrder?.value4).toUpperCase();
+const fabkleanWorkflowStatus = (rawOrder) => text(rawOrder?.workflowStatus).toUpperCase();
+const isRawOrderReceivedFromPlant = (rawOrder) => {
+  const plantStatus = fabkleanOrderPlantStatus(rawOrder);
+  const workflowStatus = fabkleanWorkflowStatus(rawOrder);
+  return plantStatus === 'CLEAN' || workflowStatus === 'READY' || workflowStatus === 'DELIVERED';
+};
+const mapOrderStatusFromChallan = (rawOrder) => {
+  const workflowStatus = fabkleanWorkflowStatus(rawOrder);
+  if (workflowStatus === 'DELIVERED') return 'DELIVERED';
+  if (workflowStatus === 'READY') return 'READY_FOR_DELIVERY';
+  return isRawOrderReceivedFromPlant(rawOrder) ? 'IRONING' : 'SENT_TO_PLANT';
+};
+const mapOrderStage = (rawOrder) =>
+  isRawOrderReceivedFromPlant(rawOrder) ? 'FABKLEAN_CHALLAN_RECEIVED' : 'FABKLEAN_CHALLAN_SENT_TO_PLANT';
 const splitServiceName = (value) => {
   const raw = text(value) || 'Fabklean Item';
   const match = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
@@ -140,9 +155,12 @@ for (const raw of rawChallans) {
   }
 
   const challanItemsData = [];
+  const orderStatusUpdates = new Map();
   for (const rawOrder of rawOrders) {
     const order = ordersByNumber.get(rawOrder.orderId);
     if (!order) continue;
+    const received = isRawOrderReceivedFromPlant(rawOrder);
+    orderStatusUpdates.set(order.id, { order, rawOrder, status: mapOrderStatusFromChallan(rawOrder) });
     for (const rawItem of rawOrder.orderItems || []) {
       const split = splitServiceName(rawItem.name);
       let item = orderItemsByFabId.get(`${order.orderNumber}:${rawItem.id}`);
@@ -162,9 +180,9 @@ for (const raw of rawChallans) {
         quantity,
         customerPrice: num(rawItem.rate, item.unitPrice || 0),
         vendorCost: 0,
-        isReceived: true,
-        receivedQty: quantity,
-        receivedAt: parseDate(detail.plantDeliveryDate || list.plantDeliveryDate || detail.orderDate || list.orderDate) || new Date(),
+        isReceived: received,
+        receivedQty: received ? quantity : 0,
+        receivedAt: received ? (parseDate(detail.plantDeliveryDate || list.plantDeliveryDate || detail.orderDate || list.orderDate) || new Date()) : null,
       });
     }
   }
@@ -178,9 +196,9 @@ for (const raw of rawChallans) {
           quantity: item.quantity,
           customerPrice: item.unitPrice || 0,
           vendorCost: 0,
-          isReceived: true,
-          receivedQty: item.quantity,
-          receivedAt: parseDate(detail.plantDeliveryDate || list.plantDeliveryDate || detail.orderDate || list.orderDate) || new Date(),
+          isReceived: false,
+          receivedQty: 0,
+          receivedAt: null,
         });
       }
     }
@@ -190,6 +208,11 @@ for (const raw of rawChallans) {
   const plantName = text(detail.plantName || list.bankName) || 'Unknown';
   const plant = normalizePlant(plantName);
   const customerValue = orders.reduce((sum, order) => sum + num(order.totalAmount), 0);
+  const receivedItemCount = challanItemsData.filter((item) => item.isReceived).length;
+  const challanStatus =
+    receivedItemCount === 0 ? 'DISPATCHED' :
+    receivedItemCount === challanItemsData.length ? 'RECEIVED' :
+    'PARTIAL';
   const notes = compact({
     source: 'FABKLEAN',
     fabkleanChallanId: detail.id || list.id,
@@ -219,7 +242,7 @@ for (const raw of rawChallans) {
         challanNo,
         plant,
         driverName: text(detail.deliveryPerson?.firstName || list.deliveryUser?.name) || null,
-        status: 'RECEIVED',
+        status: challanStatus,
         customerValue,
         vendorCost: 0,
         notes,
@@ -234,22 +257,31 @@ for (const raw of rawChallans) {
       select: { id: true },
     });
 
-    await Promise.all(orders.map((order) =>
-      tx.orderStage.create({
-        data: {
-          orderId: order.id,
-          stage: 'FABKLEAN_CHALLAN_RECEIVED',
-          notes: compact({
-            source: 'FABKLEAN',
-            challanId: challan.id,
-            challanNo,
-            plant,
-            plantName,
-            driverName: detail.deliveryPerson?.firstName || list.deliveryUser?.name,
-          }),
-          createdAt,
-        },
-      })
+    await Promise.all([...orderStatusUpdates.values()].map(({ order, rawOrder, status }) =>
+      Promise.all([
+        tx.orderStage.create({
+          data: {
+            orderId: order.id,
+            stage: mapOrderStage(rawOrder),
+            notes: compact({
+              source: 'FABKLEAN',
+              challanId: challan.id,
+              challanNo,
+              plant,
+              plantName,
+              fabkleanStatus: detail.invoiceStatus || list.invoiceStatus,
+              fabkleanOrderPlantStatus: rawOrder.value4,
+              fabkleanWorkflowStatus: rawOrder.workflowStatus,
+              driverName: detail.deliveryPerson?.firstName || list.deliveryUser?.name,
+            }),
+            createdAt,
+          },
+        }),
+        tx.order.update({
+          where: { id: order.id },
+          data: { status },
+        }),
+      ])
     ));
   }, { timeout: 30000 });
   plantsToRecalculate.add(plant);

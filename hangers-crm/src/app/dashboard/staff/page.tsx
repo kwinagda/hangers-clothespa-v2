@@ -3,6 +3,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { staffAPI, metadataAPI, securityAPI, authAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 import {
   Ban,
   BriefcaseBusiness,
@@ -13,13 +16,13 @@ import {
   Laptop2,
   PackageSearch,
   PenSquare,
+  Plus,
   ShieldCheck,
   ShieldX,
   SlidersHorizontal,
   Truck,
   User,
   UserCog,
-  UserRoundPlus,
   X,
 } from 'lucide-react'
 const asArray = (value: any, keys: string[] = []) => {
@@ -270,16 +273,15 @@ export default function StaffPage() {
 
   return (
     <div style={{padding:'28px 32px',fontFamily:"var(--crm-font-ui)",background:'#f4f7fb',minHeight:'100vh'}}>
-      {/* Header */}
-      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:24}}>
-        <div>
-          <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:26,color:'#023c62',margin:0}}>Staff Management</h1>
-          <p style={{color:'#6b7fa3',fontSize:14,marginTop:4}}>{staff.filter(s=>s.isActive).length} active · {staff.length} total</p>
-        </div>
-        <button onClick={()=>{setShowCreate(true);setForm(BLANK)}} style={{background:'#023c62',color:'#fff',border:'none',borderRadius:12,padding:'10px 22px',fontSize:14,fontWeight:700,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:8}}>
-          <UserRoundPlus size={16} /> Add Staff
-        </button>
-      </div>
+      <PageHeader
+        title="Staff"
+        subtitle={`Team roles, access and contact details · ${staff.filter(s=>s.isActive).length} active`}
+        actions={
+          <Button variant="primary" size="md" icon={<Plus size={15} />} onClick={()=>{setShowCreate(true);setForm(BLANK)}}>
+            Add Staff
+          </Button>
+        }
+      />
 
       <div style={{display:'flex',gap:8,marginBottom:20}}>
         {[
@@ -322,14 +324,27 @@ export default function StaffPage() {
       {loading ? (
         <div style={{textAlign:'center',padding:48,color:'#9dafc8'}}>Loading staff…</div>
       ) : filtered.length===0 ? (
-        <div style={{padding:48,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:18,border:'1px solid #dce8f0'}}>No staff found</div>
+        <div style={{padding:48,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:14,border:'1px solid #e3edf6'}}>No staff found</div>
       ) : (
-        <div style={{background:'#fff',borderRadius:18,border:'1px solid #dce8f0',overflow:'hidden'}}>
-          {active.map(s=><StaffRow key={s.id} s={s} roles={roles} onEdit={()=>openEdit(s)} onDeactivate={()=>handleDeactivate(s)} onResetPin={()=>handleResetPin(s)} />)}
-          {inactive.length>0 && <>
-            <div style={{padding:'8px 20px',background:'#f9fafb',fontSize:11,fontWeight:700,color:'#9dafc8',textTransform:'uppercase',letterSpacing:1,borderTop:'1px solid #f0f4f8'}}>Inactive Staff ({inactive.length})</div>
-            {inactive.map(s=><StaffRow key={s.id} s={s} roles={roles} onEdit={()=>openEdit(s)} onReactivate={()=>handleReactivate(s)} onResetPin={()=>handleResetPin(s)} />)}
-          </>}
+        <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden'}}>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead>
+                <tr>
+                  {['Name','Role','Phone','Status','Joined',''].map(h=>(
+                    <th key={h} style={{textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',letterSpacing:'0.07em',textTransform:'uppercase',padding:'11px 18px',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc',whiteSpace:'nowrap'}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {active.map(s=><StaffRow key={s.id} s={s} roles={roles} onEdit={()=>openEdit(s)} onDeactivate={()=>handleDeactivate(s)} onResetPin={()=>handleResetPin(s)} />)}
+                {inactive.length>0 && <>
+                  <tr><td colSpan={6} style={{padding:'8px 18px',background:'#f9fafb',fontSize:11,fontWeight:700,color:'#9dafc8',textTransform:'uppercase',letterSpacing:1,borderTop:'1px solid #f0f4f8',borderBottom:'1px solid #f0f4f8'}}>Inactive Staff ({inactive.length})</td></tr>
+                  {inactive.map(s=><StaffRow key={s.id} s={s} roles={roles} onEdit={()=>openEdit(s)} onReactivate={()=>handleReactivate(s)} onResetPin={()=>handleResetPin(s)} />)}
+                </>}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -455,36 +470,52 @@ export default function StaffPage() {
   )
 }
 
+const tdStyle: React.CSSProperties = { padding:'13px 18px', fontSize:13.5, color:'#1a2332', borderBottom:'1px solid #eef4f8', verticalAlign:'middle' }
+
 function StaffRow({ s, roles, onEdit, onDeactivate, onReactivate, onResetPin }:{ s:Staff; roles:any[]; onEdit:()=>void; onDeactivate?:()=>void; onReactivate?:()=>void; onResetPin:()=>void }) {
-  const ri=roleInfo(roles, s.role)
-  const needsPin=!!ri.pinEligible
-  const RoleIcon = ri.icon
+  const ri = roleInfo(roles, s.role)
+  const needsPin = !!ri.pinEligible
+  const initials = s.name.split(' ').map((w:string)=>w[0]).slice(0,2).join('').toUpperCase()
   return (
-    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 20px',borderBottom:'1px solid #f0f4f8',opacity:s.isActive?1:0.55}}>
-      <div style={{display:'flex',alignItems:'center',gap:14,flex:1}}>
-        <div style={{width:42,height:42,borderRadius:21,background:ri.bg,color:ri.color,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:16,flexShrink:0}}>
-          {s.name.charAt(0).toUpperCase()}
-        </div>
-        <div>
-          <div style={{fontWeight:700,fontSize:15,color:'#1a2332',display:'flex',alignItems:'center',gap:8}}>
-            {s.name}
-            {!s.isActive && <span style={{background:'#fee2e2',color:'#dc2626',fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20}}>Inactive</span>}
+    <tr style={{opacity:s.isActive?1:0.6}}>
+      <td style={tdStyle}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <span style={{width:34,height:34,borderRadius:9,background:'#e8f0f7',color:'#023c62',display:'inline-flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:13,flexShrink:0}}>{initials}</span>
+          <div>
+            <div style={{fontWeight:600,color:'#1a2332'}}>{s.name}</div>
+            {s.email && <div style={{fontSize:11.5,color:'#9dafc8',marginTop:1}}>{s.email}</div>}
           </div>
-          <div style={{fontSize:12,color:'#9dafc8',marginTop:2}}>{s.phone}{s.email?` · ${s.email}`:''}</div>
-          {s.lastLoginAt && <div style={{fontSize:11,color:'#b8c8d8',marginTop:1}}>Last login: {new Date(s.lastLoginAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>}
         </div>
-      </div>
-      <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-        <span style={{padding:'4px 12px',borderRadius:20,fontSize:12,fontWeight:700,background:ri.bg,color:ri.color,display:'inline-flex',alignItems:'center',gap:6}}><RoleIcon size={13} /> {ri.label}</span>
-        {needsPin && <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:s.hasPin?'#d1fae5':'#fee2e2',color:s.hasPin?'#065f46':'#dc2626',display:'inline-flex',alignItems:'center',gap:6}}>{s.hasPin?<><ShieldCheck size={12} /> PIN</>:<><ShieldX size={12} /> No PIN</>}</span>}
-        <div style={{display:'flex',gap:2}}>
-          <button title="Edit" onClick={onEdit} style={{background:'none',border:'none',cursor:'pointer',padding:'4px 6px',borderRadius:8}}><PenSquare size={15} /></button>
-          {needsPin && <button title="Reset PIN" onClick={onResetPin} style={{background:'none',border:'none',cursor:'pointer',padding:'4px 6px',borderRadius:8}}><KeyRound size={15} /></button>}
-          {s.isActive && onDeactivate && <button title="Deactivate" onClick={onDeactivate} style={{background:'none',border:'none',cursor:'pointer',padding:'4px 6px',borderRadius:8,color:'#dc2626'}}><Ban size={15} /></button>}
-          {!s.isActive && onReactivate && <button title="Reactivate" onClick={onReactivate} style={{background:'none',border:'none',cursor:'pointer',padding:'4px 6px',borderRadius:8,color:'#16a34a'}}><Eye size={15} /></button>}
+      </td>
+      <td style={tdStyle}>
+        <Badge label={ri.label} color={ri.color} size="sm" />
+        {needsPin && <span style={{marginLeft:6,fontSize:11,color:s.hasPin?'#065f46':'#dc2626',display:'inline-flex',alignItems:'center',gap:3}}>
+          {s.hasPin?<><ShieldCheck size={11}/>PIN</>:<><ShieldX size={11}/>No PIN</>}
+        </span>}
+      </td>
+      <td style={{...tdStyle,fontFamily:'var(--crm-font-mono)',color:'#023c62'}}>{s.phone}</td>
+      <td style={tdStyle}>
+        <Badge
+          label={s.isActive ? 'Active' : 'Inactive'}
+          status={s.isActive ? 'ACTIVE' : undefined}
+          color={!s.isActive ? '#ef4444' : undefined}
+          size="sm"
+        />
+      </td>
+      <td style={{...tdStyle,color:'#6b7fa3',fontSize:13,whiteSpace:'nowrap'}}>
+        {new Date(s.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
+      </td>
+      <td style={tdStyle}>
+        <div style={{display:'flex',gap:2,justifyContent:'flex-end'}}>
+          <button title="Edit" onClick={onEdit} style={{background:'none',border:'none',cursor:'pointer',padding:'4px 6px',borderRadius:8,color:'#035a8f',fontSize:12,fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}>
+            <PenSquare size={14}/> Edit
+          </button>
+          {needsPin && <button title="Reset PIN" onClick={onResetPin} style={{background:'none',border:'none',cursor:'pointer',padding:'4px 6px',borderRadius:8,color:'#6b7fa3'}}><KeyRound size={14}/></button>}
+          {s.isActive && onDeactivate && <button title="Deactivate" onClick={onDeactivate} style={{background:'none',border:'none',cursor:'pointer',padding:'4px 6px',borderRadius:8,color:'#dc2626'}}><Ban size={14}/></button>}
+          {!s.isActive && onReactivate && <button title="Reactivate" onClick={onReactivate} style={{background:'none',border:'none',cursor:'pointer',padding:'4px 6px',borderRadius:8,color:'#16a34a'}}><Eye size={14}/></button>}
         </div>
-      </div>
-    </div>
+      </td>
+    </tr>
   )
 }
 
