@@ -10,6 +10,7 @@ const { normalizePaymentMethod } = require('../src/utils/payment-method.js');
 const RAW_DIR = process.env.FABKLEAN_RAW_DIR || path.resolve(process.cwd(), '../fabklean/raw');
 const DRY_RUN = process.env.DRY_RUN !== '0';
 const LIMIT = Number(process.env.LIMIT || 0);
+const REFRESH_EXISTING = process.env.REFRESH_EXISTING === '1';
 
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const listFiles = (dir) => fs.existsSync(dir) ? fs.readdirSync(dir).sort() : [];
@@ -115,6 +116,7 @@ const stats = {
   rawCustomers: 0,
   existingImported: 0,
   skippedExistingLocal: 0,
+  skippedExistingImported: 0,
   customersCreated: 0,
   customersUpdated: 0,
   ordersCreated: 0,
@@ -140,6 +142,15 @@ for (const order of existingOrders) {
 }
 
 if (DRY_RUN) {
+  for (const raw of rawOrders) {
+    const existing = existingByNumber.get(raw.orderId);
+    if (existing && String(existing.notes || '').includes('"source":"FABKLEAN"')) {
+      if (REFRESH_EXISTING) stats.ordersUpdated += 1;
+      else stats.skippedExistingImported += 1;
+    } else if (!existing) {
+      stats.ordersCreated += 1;
+    }
+  }
   console.log(JSON.stringify({ dryRun: true, stats }, null, 2));
   await prisma.$disconnect();
   process.exit(0);
@@ -148,6 +159,10 @@ if (DRY_RUN) {
 for (const raw of rawOrders) {
   const existing = existingByNumber.get(raw.orderId);
   if (existing && !String(existing.notes || '').includes('"source":"FABKLEAN"')) {
+    continue;
+  }
+  if (existing && !REFRESH_EXISTING) {
+    stats.skippedExistingImported += 1;
     continue;
   }
 

@@ -22,6 +22,14 @@ for (const dir of Object.values(dirs)) {
 
 const chromeEval = (js) => {
   const encoded = Buffer.from(js, 'utf8').toString('base64');
+  const isAppleEventsError = (message) =>
+    /Executing JavaScript through AppleScript is turned off|Invalid index|Can.t get tab|Can.t get item/.test(message);
+  const recoverChrome = () => {
+    try {
+      execFileSync('osascript', ['-e', 'tell application "Google Chrome" to activate'], { stdio: 'ignore' });
+    } catch {}
+    cachedTarget = findFabkleanTarget();
+  };
   const run = () => {
     const [windowIndex, tabIndex] =
       WINDOW_INDEX > 0 && TAB_INDEX > 0
@@ -36,17 +44,24 @@ const chromeEval = (js) => {
     }).trim();
   };
 
-  try {
-    return run();
-  } catch (error) {
-    const message = String(error.stderr || error.message || '');
-    if (WINDOW_INDEX === 0 && TAB_INDEX === 0 && /Invalid index|Can.t get tab|Can.t get item/.test(message)) {
-      cachedTarget = findFabkleanTarget();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
       return run();
+    } catch (error) {
+      const message = String(error.stderr || error.message || '');
+      if (WINDOW_INDEX === 0 && TAB_INDEX === 0 && isAppleEventsError(message)) {
+        recoverChrome();
+        execFileSync('sleep', ['1']);
+        continue;
+      }
+      throw error;
     }
-    throw error;
   }
+  throw new Error('Chrome Apple Events JavaScript failed repeatedly; stopping before writing partial Fabklean data');
 };
+
+const isFatalAutomationError = (error) =>
+  /Chrome Apple Events JavaScript failed repeatedly|Executing JavaScript through AppleScript is turned off/.test(String(error?.message || error));
 
 const findFabkleanTarget = () => {
   const apple = `
@@ -236,16 +251,19 @@ for (let i = 0; i < orderIds.length; i += 1) {
   try {
     out.detail = fetchJson(`salesOrders/pageSearching.json?query=id:${id}&orderBy=true&orderByCal=id&pageSize=1&contextId=${CONTEXT_ID}`);
   } catch (error) {
+    if (isFatalAutomationError(error)) throw error;
     out.detailError = error.message;
   }
   try {
     out.props = fetchJson(`propsItems/searching.json?query=baseOrderId:${id}&contextId=${CONTEXT_ID}`);
   } catch (error) {
+    if (isFatalAutomationError(error)) throw error;
     out.propsError = error.message;
   }
   try {
     out.flowItems = fetchJson(`flowItems/searching.json?query=baseOrderId:${id}&contextId=${CONTEXT_ID}`);
   } catch (error) {
+    if (isFatalAutomationError(error)) throw error;
     out.flowItemsError = error.message;
   }
   await writeJson(path.join(dirs.details, `order_detail_${safeName(id)}.json`), out);

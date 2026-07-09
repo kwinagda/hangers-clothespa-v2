@@ -2,8 +2,11 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 
 const prisma = new PrismaClient();
+const require = createRequire(import.meta.url);
+const { recalculateVendorCostsForPlant } = require('../src/controllers/challan.controller.js');
 const RAW_DIR = process.env.FABKLEAN_CHALLANS_DIR || path.resolve(process.cwd(), '../migration/fabklean/raw/challans');
 const DRY_RUN = process.env.DRY_RUN !== '0';
 
@@ -71,10 +74,12 @@ const stats = {
   missingOrders: 0,
   missingItems: 0,
   skippedNoOrders: 0,
+  vendorCostRecalculations: [],
 };
 
 const missingOrderNumbers = new Set();
 const missingItemRefs = [];
+const plantsToRecalculate = new Set();
 const rawChallans = loadRawChallans();
 stats.rawChallans = rawChallans.length;
 
@@ -247,11 +252,18 @@ for (const raw of rawChallans) {
       })
     ));
   }, { timeout: 30000 });
+  plantsToRecalculate.add(plant);
 
   stats.challansCreated += 1;
   stats.challanOrdersCreated += orders.length;
   stats.challanItemsCreated += challanItemsData.length;
   stats.stagesCreated += orders.length;
+}
+
+if (!DRY_RUN) {
+  for (const plant of plantsToRecalculate) {
+    stats.vendorCostRecalculations.push(await recalculateVendorCostsForPlant(plant));
+  }
 }
 
 console.log(JSON.stringify({

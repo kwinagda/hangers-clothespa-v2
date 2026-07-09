@@ -37,6 +37,14 @@ const findFabkleanTarget = () => {
 
 const chromeEval = (js) => {
   const encoded = Buffer.from(js, 'utf8').toString('base64');
+  const isAppleEventsError = (message) =>
+    /Executing JavaScript through AppleScript is turned off|Invalid index|Can.t get tab|Can.t get item/.test(message);
+  const recoverChrome = () => {
+    try {
+      execFileSync('osascript', ['-e', 'tell application "Google Chrome" to activate'], { stdio: 'ignore' });
+    } catch {}
+    cachedTarget = findFabkleanTarget();
+  };
   const run = () => {
     const [windowIndex, tabIndex] = cachedTarget || (cachedTarget = findFabkleanTarget());
     const apple = `tell application "Google Chrome" to execute tab ${tabIndex} of window ${windowIndex} javascript "eval(atob(\`${encoded}\`))"`;
@@ -47,17 +55,24 @@ const chromeEval = (js) => {
       shell: '/bin/zsh',
     }).trim();
   };
-  try {
-    return run();
-  } catch (error) {
-    const message = String(error.stderr || error.message || '');
-    if (/Invalid index|Can.t get tab|Can.t get item/.test(message)) {
-      cachedTarget = findFabkleanTarget();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
       return run();
+    } catch (error) {
+      const message = String(error.stderr || error.message || '');
+      if (isAppleEventsError(message)) {
+        recoverChrome();
+        execFileSync('sleep', ['1']);
+        continue;
+      }
+      throw error;
     }
-    throw error;
   }
+  throw new Error('Chrome Apple Events JavaScript failed repeatedly; stopping before writing partial Fabklean data');
 };
+
+const isFatalAutomationError = (error) =>
+  /Chrome Apple Events JavaScript failed repeatedly|Executing JavaScript through AppleScript is turned off/.test(String(error?.message || error));
 
 const getJson = (url) => {
   const js = `
@@ -93,6 +108,7 @@ for (let i = 0; i < orderIds.length; i += 1) {
     await writeFile(path.join(OUT_DIR, `payment_${id}.json`), JSON.stringify(pages, null, 2));
     fs.rmSync(path.join(ERROR_DIR, `payment_${id}.json`), { force: true });
   } catch (error) {
+    if (isFatalAutomationError(error)) throw error;
     await writeFile(path.join(ERROR_DIR, `payment_${id}.json`), JSON.stringify({ id, error: error.message }, null, 2));
   }
   if ((i + 1) % 50 === 0 || i + 1 === orderIds.length) {

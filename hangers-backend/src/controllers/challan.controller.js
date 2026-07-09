@@ -636,6 +636,7 @@ const getVendorBillPDF = async (req, res) => {
 };
 
 module.exports = {
+  recalculateVendorCostsForPlant,
   // Vendor prices
   getVendorPrices, upsertVendorPrice, bulkUpsertVendorPrices,
   // Challans
