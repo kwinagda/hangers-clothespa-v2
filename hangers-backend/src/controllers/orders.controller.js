@@ -878,8 +878,7 @@ const createReturnOrder = async (req, res) => {
 
     const originalItems = await prisma.orderItem.findMany({ where: { orderId: original.id } });
     const returnOrder = await prisma.$transaction(async (tx) => {
-      const returnCount = await tx.order.count({ where: { ...ORDER_ONLY_WHERE, isReturn: true } });
-      const orderNumber = `HCS-${String(returnCount + 1).padStart(3, '0')}-R`;
+      const orderNumber = await generateOrderNumber({ isReturn: true, documentType: 'ORDER', client: tx });
       const createdReturn = await tx.order.create({
         data: {
           orderNumber,

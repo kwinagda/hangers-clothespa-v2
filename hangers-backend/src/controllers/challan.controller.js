@@ -6,14 +6,28 @@ const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // ── Challan number generator ──────────────────────────────────────────────────
 const genChallanNo = async () => {
-  const count = await prisma.deliveryChallan.count();
-  return `DC${String(count + 1).padStart(5, '0')}`;
+  const challans = await prisma.deliveryChallan.findMany({ select: { challanNo: true } });
+  const dinvMax = challans.reduce((max, challan) => {
+    const match = String(challan.challanNo || '').match(/^DINV-(\d+)$/i);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  if (dinvMax > 0) return `DINV-${dinvMax + 1}`;
+
+  const dcMax = challans.reduce((max, challan) => {
+    const match = String(challan.challanNo || '').match(/^DC0*(\d+)$/i);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `DC${String(dcMax + 1).padStart(5, '0')}`;
 };
 
 // ── Vendor Bill number generator ──────────────────────────────────────────────
 const genBillNo = async () => {
-  const count = await prisma.vendorBill.count();
-  return `VB${String(count + 1).padStart(5, '0')}`;
+  const bills = await prisma.vendorBill.findMany({ select: { billNo: true } });
+  const vbMax = bills.reduce((max, bill) => {
+    const match = String(bill.billNo || '').match(/^VB0*(\d+)$/i);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `VB${String(vbMax + 1).padStart(5, '0')}`;
 };
 
 const buildVendorPriceMap = (prices) => {
