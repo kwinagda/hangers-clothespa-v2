@@ -69,6 +69,16 @@ const getServiceMatchKeys = (value) => {
   const normalized = normalizeServiceKey(value);
   const keys = new Set([String(value || ''), normalized]);
   if (normalized) keys.add(normalized.replace(/[^a-z0-9]/g, ''));
+  const curtainBase = normalized
+    .replace(/\s+\d+(?:\.\d+)?\.?p$/i, '')
+    .replace(/\s+large$/i, '')
+    .replace(/\s+medium$/i, '')
+    .replace(/\s+small$/i, '')
+    .trim();
+  if (curtainBase !== normalized && /^curtain-/.test(curtainBase)) {
+    keys.add(curtainBase);
+    keys.add(curtainBase.replace(/[^a-z0-9]/g, ''));
+  }
   if (/^dress-long(?:-|\s|$)/.test(normalized) || /\blong dress\b/.test(normalized)) {
     keys.add('long dress');
     keys.add('longdress');
@@ -290,8 +300,7 @@ const createChallan = async (req, res) => {
 
     // Fetch vendor prices for this plant
     const vendorPrices = await prisma.vendorPriceList.findMany({ where: { plant } });
-    const priceMap = {};
-    vendorPrices.forEach(vp => { priceMap[vp.serviceId] = vp.costPrice; priceMap[vp.serviceName] = vp.costPrice; });
+    const priceMap = buildVendorPriceMap(vendorPrices);
 
     // Calculate totals
     let totalCustomerValue = 0;
@@ -301,7 +310,7 @@ const createChallan = async (req, res) => {
     for (const order of orders) {
       totalCustomerValue += order.totalAmount || 0;
       for (const item of order.items) {
-        const vendorCost = priceMap[item.serviceId] || priceMap[item.serviceName] || 0;
+        const vendorCost = resolveVendorCost(priceMap, { serviceName: item.serviceName, orderItem: item });
         totalVendorCost += vendorCost * item.quantity;
         challanItemsData.push({
           orderItemId:   item.id,

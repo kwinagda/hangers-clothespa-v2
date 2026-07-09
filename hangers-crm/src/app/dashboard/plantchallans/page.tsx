@@ -51,6 +51,16 @@ const getServiceMatchKeys = (value: string) => {
   const normalized = normalizeServiceName(value)
   const keys = new Set([String(value || ''), normalized])
   if (normalized) keys.add(normalized.replace(/[^a-z0-9]/g, ''))
+  const curtainBase = normalized
+    .replace(/\s+\d+(?:\.\d+)?\.?p$/i, '')
+    .replace(/\s+large$/i, '')
+    .replace(/\s+medium$/i, '')
+    .replace(/\s+small$/i, '')
+    .trim()
+  if (curtainBase !== normalized && /^curtain-/.test(curtainBase)) {
+    keys.add(curtainBase)
+    keys.add(curtainBase.replace(/[^a-z0-9]/g, ''))
+  }
   if (/^dress-long(?:-|\s|$)/.test(normalized) || /\blong dress\b/.test(normalized)) {
     keys.add('long dress')
     keys.add('longdress')
