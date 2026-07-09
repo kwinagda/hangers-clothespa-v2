@@ -61,9 +61,11 @@ const getServiceMatchKeys = (value: string) => {
   }
   return Array.from(keys).filter(Boolean)
 }
-const pickVendorPrice = (current: number | undefined, next: number) => {
+type VendorPriceMatch = { costPrice: number; updatedAt: number }
+const pickVendorPrice = (current: VendorPriceMatch | undefined, next: VendorPriceMatch) => {
   if (current === undefined) return next
-  if ((current || 0) === 0 && next > 0) return next
+  if ((current.costPrice || 0) === 0 && next.costPrice > 0) return next
+  if (current.costPrice > 0 && next.costPrice > 0 && next.updatedAt >= current.updatedAt) return next
   return current
 }
 const parseRateCardFile = (raw: string) => {
@@ -180,12 +182,13 @@ export default function ChallansPage() {
         servicesAPI.getCatalog()
       ])
       const existingPrices = asArray(pricesRes.data, ['prices', 'vendorPrices', 'items'])
-      const priceMap: Record<string,number> = {}
+      const priceMap: Record<string, VendorPriceMatch> = {}
       existingPrices.forEach((p: any) => {
         const costPrice = Number(p.costPrice || 0)
-        if (p.serviceId) priceMap[p.serviceId] = pickVendorPrice(priceMap[p.serviceId], costPrice)
+        const priceEntry = { costPrice, updatedAt: new Date(p.updatedAt || 0).getTime() || 0 }
+        if (p.serviceId) priceMap[p.serviceId] = pickVendorPrice(priceMap[p.serviceId], priceEntry)
         getServiceMatchKeys(p.serviceName).forEach((key) => {
-          priceMap[key] = pickVendorPrice(priceMap[key], costPrice)
+          priceMap[key] = pickVendorPrice(priceMap[key], priceEntry)
         })
       })
       const catalogItems = Array.isArray(catalogRes)
@@ -199,7 +202,7 @@ export default function ChallansPage() {
         id: item.id,
         serviceId: item.id,
         serviceName: item.name,
-        costPrice: priceMap[item.id] ?? getServiceMatchKeys(item.name).map((key) => priceMap[key]).find((value) => value !== undefined) ?? 0,
+        costPrice: (priceMap[item.id] ?? getServiceMatchKeys(item.name).map((key) => priceMap[key]).find((value) => value !== undefined))?.costPrice ?? 0,
         category: item.category,
       }))
       setVendorPrices(merged)

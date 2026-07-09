@@ -32,16 +32,25 @@ const genBillNo = async () => {
 
 const buildVendorPriceMap = (prices) => {
   const priceMap = {};
-  const setPrice = (key, value) => {
+  const priceMeta = {};
+  const setPrice = (key, value, updatedAt) => {
     if (!key) return;
     const parsedValue = Number(value) || 0;
-    if (priceMap[key] === undefined || ((Number(priceMap[key]) || 0) === 0 && parsedValue > 0)) {
+    const currentValue = Number(priceMap[key]) || 0;
+    const currentUpdatedAt = priceMeta[key] ? new Date(priceMeta[key]).getTime() : 0;
+    const nextUpdatedAt = updatedAt ? new Date(updatedAt).getTime() : 0;
+    const shouldSet =
+      priceMap[key] === undefined ||
+      (currentValue === 0 && parsedValue > 0) ||
+      (parsedValue > 0 && currentValue > 0 && nextUpdatedAt >= currentUpdatedAt);
+    if (shouldSet) {
       priceMap[key] = parsedValue;
+      priceMeta[key] = updatedAt || new Date(0);
     }
   };
   prices.forEach((price) => {
-    setPrice(price.serviceId, price.costPrice);
-    getServiceMatchKeys(price.serviceName).forEach((key) => setPrice(key, price.costPrice));
+    setPrice(price.serviceId, price.costPrice, price.updatedAt);
+    getServiceMatchKeys(price.serviceName).forEach((key) => setPrice(key, price.costPrice, price.updatedAt));
   });
   return priceMap;
 };
