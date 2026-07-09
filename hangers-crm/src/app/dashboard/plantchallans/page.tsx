@@ -41,12 +41,26 @@ const normalizeHeader = (value: string) => value.trim().toLowerCase().replace(/[
 const normalizeServiceName = (value: string) => String(value || '')
   .toLowerCase()
   .replace(/\u2014/g, '-')
-  .replace(/\((dc|dry clean|iron|laundry|roll|shoe|sofa)[^)]+\)/gi, '')
+  .replace(/\((dc|dry clean|iron|laundry|roll|shoe|sofa|ni|si|rp)[^)]+\)/gi, '')
   .replace(/\bnomal\b/g, 'normal')
   .replace(/\s*\/\s*/g, '/')
   .replace(/\s*-\s*/g, '-')
   .replace(/\s+/g, ' ')
   .trim()
+const getServiceMatchKeys = (value: string) => {
+  const normalized = normalizeServiceName(value)
+  const keys = new Set([String(value || ''), normalized])
+  if (normalized) keys.add(normalized.replace(/[^a-z0-9]/g, ''))
+  if (/^dress-long(?:-|\s|$)/.test(normalized) || /\blong dress\b/.test(normalized)) {
+    keys.add('long dress')
+    keys.add('longdress')
+  }
+  if (normalized === 'tshirt' || normalized === 't-shirt') {
+    keys.add('tshirt')
+    keys.add('t-shirt')
+  }
+  return Array.from(keys).filter(Boolean)
+}
 const pickVendorPrice = (current: number | undefined, next: number) => {
   if (current === undefined) return next
   if ((current || 0) === 0 && next > 0) return next
@@ -170,11 +184,9 @@ export default function ChallansPage() {
       existingPrices.forEach((p: any) => {
         const costPrice = Number(p.costPrice || 0)
         if (p.serviceId) priceMap[p.serviceId] = pickVendorPrice(priceMap[p.serviceId], costPrice)
-        if (p.serviceName) {
-          priceMap[p.serviceName] = pickVendorPrice(priceMap[p.serviceName], costPrice)
-          const normalizedName = normalizeServiceName(p.serviceName)
-          priceMap[normalizedName] = pickVendorPrice(priceMap[normalizedName], costPrice)
-        }
+        getServiceMatchKeys(p.serviceName).forEach((key) => {
+          priceMap[key] = pickVendorPrice(priceMap[key], costPrice)
+        })
       })
       const catalogItems = Array.isArray(catalogRes)
         ? catalogRes
@@ -187,7 +199,7 @@ export default function ChallansPage() {
         id: item.id,
         serviceId: item.id,
         serviceName: item.name,
-        costPrice: priceMap[item.id] ?? priceMap[item.name] ?? priceMap[normalizeServiceName(item.name)] ?? 0,
+        costPrice: priceMap[item.id] ?? getServiceMatchKeys(item.name).map((key) => priceMap[key]).find((value) => value !== undefined) ?? 0,
         category: item.category,
       }))
       setVendorPrices(merged)

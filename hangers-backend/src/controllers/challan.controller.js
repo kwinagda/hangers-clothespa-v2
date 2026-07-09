@@ -41,8 +41,7 @@ const buildVendorPriceMap = (prices) => {
   };
   prices.forEach((price) => {
     setPrice(price.serviceId, price.costPrice);
-    setPrice(price.serviceName, price.costPrice);
-    setPrice(normalizeServiceKey(price.serviceName), price.costPrice);
+    getServiceMatchKeys(price.serviceName).forEach((key) => setPrice(key, price.costPrice));
   });
   return priceMap;
 };
@@ -50,20 +49,33 @@ const buildVendorPriceMap = (prices) => {
 const normalizeServiceKey = (value) => String(value || '')
   .toLowerCase()
   .replace(/\u2014/g, '-')
-  .replace(/\((dc|dry clean|iron|laundry|roll|shoe|sofa)[^)]+\)/gi, '')
+  .replace(/\((dc|dry clean|iron|laundry|roll|shoe|sofa|ni|si|rp)[^)]+\)/gi, '')
   .replace(/\bnomal\b/g, 'normal')
   .replace(/\s*\/\s*/g, '/')
   .replace(/\s*-\s*/g, '-')
   .replace(/\s+/g, ' ')
   .trim();
 
+const getServiceMatchKeys = (value) => {
+  const normalized = normalizeServiceKey(value);
+  const keys = new Set([String(value || ''), normalized]);
+  if (normalized) keys.add(normalized.replace(/[^a-z0-9]/g, ''));
+  if (/^dress-long(?:-|\s|$)/.test(normalized) || /\blong dress\b/.test(normalized)) {
+    keys.add('long dress');
+    keys.add('longdress');
+  }
+  if (normalized === 'tshirt' || normalized === 't-shirt') {
+    keys.add('tshirt');
+    keys.add('t-shirt');
+  }
+  return [...keys].filter(Boolean);
+};
+
 const resolveVendorCost = (priceMap, challanItem) => {
   const keys = [
     challanItem.orderItem?.serviceId,
-    challanItem.serviceName,
-    challanItem.orderItem?.serviceName,
-    normalizeServiceKey(challanItem.serviceName),
-    normalizeServiceKey(challanItem.orderItem?.serviceName),
+    ...getServiceMatchKeys(challanItem.serviceName),
+    ...getServiceMatchKeys(challanItem.orderItem?.serviceName),
   ].filter(Boolean);
   for (const key of keys) {
     if (priceMap[key] !== undefined) return Number(priceMap[key]) || 0;
