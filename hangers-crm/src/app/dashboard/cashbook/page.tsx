@@ -60,7 +60,7 @@ export default function CashBookPage() {
     <div style={{ padding: '32px 36px', maxWidth: 800, margin: '0 auto', ...s }}>
       <PageHeader
         title="Cash Book"
-        subtitle="Daily cash register and entries"
+        subtitle="Daily ledger of cash in and out at the counter"
         actions={<Button variant="primary" onClick={() => setShowAdd(true)}>+ Add Entry</Button>}
       />
 

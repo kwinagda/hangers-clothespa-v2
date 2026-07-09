@@ -80,8 +80,8 @@ export default function IronApplicationsPage() {
   return (
     <div style={{ padding:'32px 36px', maxWidth:1200, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
       <PageHeader
-        title="Daily Iron Applications"
-        subtitle="Review app requests and activate customers for monthly ironing billing."
+        title="Iron Applications"
+        subtitle="New sign-ups for the Daily Iron subscription plan"
         actions={<button onClick={load} style={{background:'#fff',border:'1px solid #dce8f0',borderRadius:12,padding:'10px 16px',color:'#023c62',fontWeight:700,cursor:'pointer',minWidth:112}}>
           {loading ? <InlineLoader label="Loading" /> : 'Refresh'}
         </button>}

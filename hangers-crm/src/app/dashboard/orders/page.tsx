@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { authAPI, ordersAPI, challanAPI, metadataAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
-import { ArrowRight, CalendarDays, ClipboardList, IndianRupee, Lock, MoreHorizontal, PackageCheck, Plus, Search, Truck } from 'lucide-react'
+import { ClipboardList, Lock, Plus } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
 import { InlineLoader, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
@@ -367,56 +367,30 @@ function OrdersPageContent() {
       />
 
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:18,marginBottom:22}}>
-        <MetricCard label={activeView.metric} value={String(total)} note="Orders loaded from this dedicated backend view." />
+        <MetricCard label="Matching Orders" value={String(total)} note="current filters" />
         <MetricCard label="Visible Value" value={formatCurrency(visibleValue)} note="Combined billed amount across the loaded page." />
         <MetricCard label="Sent to Plant" value={String(plantLockedCount)} note="Orders locked until they are received back." />
         <MetricCard label="Needs Items" value={String(noItemsCount)} note="Orders on this page with no garment lines yet." />
       </div>
 
-      <section style={{background:'#fff',borderRadius:24,border:'1px solid #e4edf5',boxShadow:'0 12px 28px rgba(2,60,98,0.06)',padding:22,marginBottom:18}}>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(5,minmax(0,1fr))',gap:10,marginBottom:18}}>
-          {ORDER_VIEWS.map((item) => {
-            const active = item.key === view
-            return (
-              <button
-                key={item.key}
-                onClick={() => applyOrderView(item.key)}
-                style={{
-                  textAlign:'left',
-                  border:active?'1.5px solid #035a8f':'1px solid #dce8f0',
-                  background:active?'#eef7ff':'#fff',
-                  color:active?'#023c62':'#52677f',
-                  borderRadius:12,
-                  padding:'11px 12px',
-                  cursor:'pointer',
-                  fontWeight:800,
-                  fontSize:12,
-                }}
-              >
-                {item.label}
-              </button>
-            )
-          })}
+      <div style={{display:'flex',gap:12,marginBottom:18,flexWrap:'wrap' as const}}>
+        <div style={{flex:1,minWidth:240,display:'flex',alignItems:'center',gap:9,padding:'10px 14px',borderRadius:10,border:'1.5px solid #dce8f0',background:'#fff'}}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9dafc8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="10" cy="10" r="6.5"/><path d="M19 19l-4.3-4.3"/></svg>
+          <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} placeholder="Search order #, name, phone…"
+            style={{border:'none',outline:'none',fontSize:13.5,color:'#1a2332',width:'100%',fontFamily:'var(--crm-font-ui)'}}/>
         </div>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:16,flexWrap:'wrap'}}>
-          <div>
-            <h2 style={{margin:'0 0 4px',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:19,color:'#023c62'}}>{activeView.label} Search</h2>
-            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>Search and batch-select only the orders in this view.</p>
-          </div>
-          {selected.size > 0 && <div style={{fontSize:13,color:'#023c62',fontWeight:700,background:'#e8f0f7',borderRadius:999,padding:'8px 14px'}}>{selected.size} selected</div>}
-        </div>
-        <div style={{display:'flex',gap:12,flexWrap:'wrap' as const}}>
-          <div style={{flex:1,minWidth:220,position:'relative'}}>
-            <Search size={16} color="#9dafc8" style={{position:'absolute',left:14,top:12}} />
-            <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} placeholder="Search order #, name, phone..."
-              style={{width:'100%',border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 14px 10px 38px',fontSize:14,outline:'none',background:'#fff'}}/>
-          </div>
-          <button onClick={load}
-            style={{padding:'10px 20px',borderRadius:10,background:'#e8f0f7',border:'1px solid #dce8f0',color:'#023c62',fontWeight:600,fontSize:14,cursor:'pointer'}}>
-            Refresh
-          </button>
-        </div>
-      </section>
+        <select value={view} onChange={e=>applyOrderView(e.target.value)} style={{padding:'10px 14px',borderRadius:10,border:'1.5px solid #dce8f0',background:'#fff',fontSize:13.5,color:'#1a2332',minWidth:170,fontFamily:'var(--crm-font-ui)'}}>
+          <option value="all">All Statuses</option>
+          <option value="in_process">In Process</option>
+          <option value="ready">Ready for Delivery</option>
+          <option value="delivered">Delivered</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <button onClick={load} style={{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 16px',borderRadius:10,border:'1.5px solid #dce8f0',background:'#fff',color:'#023c62',fontSize:13.5,fontWeight:600,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12a8 8 0 0 1 13.6-5.7L20 8"/><path d="M20 4v4h-4"/><path d="M20 12a8 8 0 0 1-13.6 5.7L4 16"/><path d="M4 20v-4h4"/></svg>
+          Refresh
+        </button>
+      </div>
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
@@ -436,24 +410,16 @@ function OrdersPageContent() {
       )}
 
       {/* Table */}
-      <div className="crm-surface orders-table-surface" style={{borderRadius:24,overflow:'visible',boxShadow:'0 12px 28px rgba(2,60,98,0.06)'}}>
-        <div style={{padding:'18px 22px',borderBottom:'1px solid #edf3f8',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',background:'#fff'}}>
-          <div>
-            <h2 style={{margin:'0 0 4px',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:19,color:'#023c62'}}>{activeView.title}</h2>
-            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>This table is loaded from the dedicated {activeView.label.toLowerCase()} API view.</p>
-          </div>
-          <Link href="/dashboard/orders/new" style={{display:'inline-flex',alignItems:'center',gap:6,textDecoration:'none',color:'#035a8f',fontSize:13,fontWeight:700}}>
-            Create new order <ArrowRight size={14} />
-          </Link>
-        </div>
-        <table style={{width:'100%',borderCollapse:'collapse',overflow:'visible'}}>
-          <thead><tr style={{background:'#fbfcfe'}}>
-            <th style={{padding:'12px 12px 12px 18px',borderBottom:'1px solid #e8f0f7',width:34}}>
+      <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden'}}>
+        <div style={{overflowX:'auto' as const}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr style={{background:'#f7f9fc'}}>
+            <th style={{padding:'11px 12px 11px 18px',textAlign:'left' as const,fontSize:10.5,fontWeight:700,color:'#6b7fa3',letterSpacing:'0.07em',textTransform:'uppercase' as const,borderBottom:'1px solid #e8f0f7',width:34}}>
               <input type="checkbox" checked={selected.size === orders.length && orders.length > 0}
                 onChange={toggleAll} style={{cursor:'pointer'}}/>
             </th>
-            {['Order','Customer','Garments / Service','Status','Payment','Dates','Actions'].map(h=>(
-              <th key={h} style={{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:800,color:'#7c8da5',letterSpacing:'0.08em',textTransform:'uppercase' as const,borderBottom:'1px solid #e8f0f7'}}>{h}</th>
+            {['Order','Customer','Items','Delivery','Status','Total','Update'].map(h=>(
+              <th key={h} style={{padding:'11px 18px',textAlign:'left' as const,fontSize:10.5,fontWeight:700,color:'#6b7fa3',letterSpacing:'0.07em',textTransform:'uppercase' as const,borderBottom:'1px solid #e8f0f7'}}>{h}</th>
             ))}
           </tr></thead>
           <tbody>
@@ -473,77 +439,101 @@ function OrdersPageContent() {
                       ? { bg: '#fee2e2', text: '#991b1b', border: '#fecaca' }
                       : statusStyles[o.status] || { bg: '#f7f9fc', text: '#023c62', border: '#dce8f0' }
                     const displayStatusLabel = orderIsReturn ? 'Return Order' : getStatusLabel(o.status, o.source, statusLabels)
+                    const totalQty = (o.items || []).reduce((sum: number, item: any) => sum + (Number(item.quantity) || 0), 0)
                     return (
-                      <tr key={o.id} className="crm-table-row" style={{borderBottom:'1px solid #edf3f8',background:selected.has(o.id)?'#eff6ff':'#fff',position:'relative'}}>
-                        <td style={{padding:'16px 12px 16px 18px'}}>
+                      <tr key={o.id} style={{borderBottom:'1px solid #eef4f8',background:selected.has(o.id)?'#eff6ff':'#fff'}}>
+                        {/* Checkbox */}
+                        <td style={{padding:'13px 12px 13px 18px'}}>
                           <input type="checkbox" checked={selected.has(o.id)}
                             onChange={() => toggleSelect(o.id)} style={{cursor:'pointer'}}
-	                            disabled={isSentToPlant || orderIsReturn}/>
+                            disabled={isSentToPlant || orderIsReturn}/>
                         </td>
-                        <td style={{padding:'16px 14px',minWidth:132}}>
+                        {/* Order */}
+                        <td style={{padding:'13px 18px',minWidth:110}}>
                           <Link href={`/dashboard/orders/${o.id}`}
-                            style={{fontFamily:"var(--crm-font-mono)",fontSize:14,fontWeight:800,color:'#023c62',textDecoration:'none'}}>
+                            style={{fontFamily:'var(--crm-font-mono)',fontWeight:700,color:'#023c62',textDecoration:'none',fontSize:13.5}}>
                             {o.orderNumber}
                           </Link>
-                          {isSentToPlant && <span style={{fontSize:10,background:'#fef9c3',color:'#854d0e',padding:'2px 6px',borderRadius:4,marginLeft:6,fontWeight:600}}>AT PLANT</span>}
+                          {isSentToPlant && <span style={{display:'block',fontSize:10,background:'#fef9c3',color:'#854d0e',padding:'2px 6px',borderRadius:4,marginTop:2,fontWeight:600,width:'fit-content'}}>AT PLANT</span>}
+                          <div style={{fontSize:11.5,color:'#9dafc8',marginTop:3}}>{o.createdAt ? format(new Date(o.createdAt),'dd MMM yy') : '—'}</div>
                         </td>
-                        <td style={{padding:'16px 14px',minWidth:180}}>
-                          <div style={{fontSize:14,fontWeight:700,color:'#1a2332',lineHeight:1.35}}>{o.customer?.name||'—'}</div>
-                          <div style={{fontSize:12,color:'#8ba0bb',marginTop:3}}>+91 {o.customer?.phone}</div>
+                        {/* Customer */}
+                        <td style={{padding:'13px 18px',minWidth:140}}>
+                          <div style={{fontWeight:600,color:'#1a2332',fontSize:13.5}}>{o.customer?.name || '—'}</div>
+                          <div style={{fontSize:11.5,color:'#9dafc8',fontFamily:'var(--crm-font-mono)',marginTop:3}}>{o.customer?.phone}</div>
                         </td>
-                        <td style={{padding:'16px 14px',fontSize:13,color:'#31445c',minWidth:280,maxWidth:340}}>
-                          <ItemSummary items={o.items || []} />
+                        {/* Items */}
+                        <td style={{padding:'13px 18px',minWidth:220}}>
+                          {(o.items || []).slice(0,3).map((item: any, idx: number) => (
+                            <div key={idx} style={{fontSize:13,color:'#1a2332',lineHeight:1.6}}>
+                              {item.garmentType || item.serviceName || 'Item'} × {item.quantity}
+                            </div>
+                          ))}
+                          {(o.items || []).length > 3 && <div style={{fontSize:11.5,color:'#9dafc8'}}>+{(o.items || []).length - 3} more</div>}
+                          {totalQty > 0 && <div style={{fontSize:11.5,color:'#6b7fa3',marginTop:3}}>Qty <strong style={{color:'#023c62'}}>{totalQty}</strong></div>}
+                          {!(o.items?.length) && <div style={{fontSize:12,color:'#9dafc8',fontStyle:'italic'}}>No garments</div>}
                         </td>
-                        <td style={{padding:'16px 14px',minWidth:160}}>
+                        {/* Delivery */}
+                        <td style={{padding:'13px 18px',minWidth:110}}>
+                          {o.deliveryDate ? (
+                            <>
+                              <div style={{fontSize:13.5,color:'#1a2332',fontWeight:600}}>{format(new Date(o.deliveryDate),'dd MMM')}</div>
+                              <div style={{fontSize:11.5,color:'#9dafc8',marginTop:3}}>{format(new Date(o.deliveryDate),'h:mm a')}</div>
+                            </>
+                          ) : <span style={{color:'#c3ccd8'}}>—</span>}
+                        </td>
+                        {/* Status */}
+                        <td style={{padding:'13px 18px',minWidth:150}}>
                           {isLockedToPlantOnly
-                            ? <span style={{fontSize:12,fontWeight:800,padding:'7px 10px',borderRadius:10,color:statusStyle.text,background:statusStyle.bg,border:`1px solid ${statusStyle.border}`}}>
-	                                <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Lock size={12} /> {displayStatusLabel}</span>
+                            ? <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:800,padding:'7px 10px',borderRadius:10,color:statusStyle.text,background:statusStyle.bg,border:`1px solid ${statusStyle.border}`}}>
+                                <Lock size={12}/> {displayStatusLabel}
                               </span>
                             : <select value={o.status} onChange={e=>updateStatus(o.id, o.status, e.target.value)}
-                                style={{border:`1px solid ${statusStyle.border}`,cursor:'pointer',fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:12,outline:'none',borderRadius:10,padding:'7px 10px',background:statusStyle.bg,color:statusStyle.text,maxWidth:150}}>
-	                                {statusChoices.map(s=><option key={s} value={s}>{s === o.status ? displayStatusLabel : getStatusLabel(s, o.source, statusLabels)}</option>)}
+                                style={{border:`1px solid ${statusStyle.border}`,cursor:'pointer',fontFamily:'var(--crm-font-ui)',fontWeight:800,fontSize:12,outline:'none',borderRadius:10,padding:'7px 10px',background:statusStyle.bg,color:statusStyle.text,maxWidth:160}}>
+                                {statusChoices.map(s=><option key={s} value={s}>{s === o.status ? displayStatusLabel : getStatusLabel(s, o.source, statusLabels)}</option>)}
                               </select>
                           }
+                          {o.staff && (
+                            <div style={{display:'flex',alignItems:'center',gap:6,marginTop:8,fontSize:11.5,color:'#3d5470',fontWeight:600}}>
+                              <span style={{width:20,height:20,borderRadius:999,background:'#dce8f0',color:'#023c62',fontSize:9,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                                {(o.staff?.name || 'S').split(' ').map((n: string) => n[0]).join('').slice(0,2).toUpperCase()}
+                              </span>
+                              {o.staff?.name?.split(' ')[0] || 'Staff'}
+                            </div>
+                          )}
                         </td>
-                        <td style={{padding:'16px 14px',minWidth:118}}>
-                          <div style={{fontWeight:900,color:'#023c62',fontSize:15,lineHeight:1.2}}>₹{o.totalAmount?.toLocaleString('en-IN')}</div>
+                        {/* Total */}
+                        <td style={{padding:'13px 18px',minWidth:105}}>
+                          <div style={{fontFamily:'var(--crm-font-mono)',fontWeight:800,color:'#023c62',fontSize:14.5}}>₹{(o.totalAmount||0).toLocaleString('en-IN')}</div>
                           <span style={{display:'inline-flex',marginTop:6,fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:7,border:`1px solid ${paymentTone(o.paymentStatus).border}`,background:paymentTone(o.paymentStatus).bg,color:paymentTone(o.paymentStatus).color}}>
                             {o.paymentStatus || 'UNPAID'}
                           </span>
                         </td>
-                        <td style={{padding:'16px 14px',fontSize:12,color:'#6b7fa3',minWidth:124}}>
-                          <div style={{display:'flex',alignItems:'center',gap:6,color:'#31445c',fontWeight:800}}><CalendarDays size={13} /> {format(new Date(o.createdAt),'dd MMM yy')}</div>
-                          {o.deliveryDate && <div style={{marginTop:5,color:'#0f766e',fontWeight:700}}>Due {format(new Date(o.deliveryDate),'dd MMM')}</div>}
-                        </td>
-                        <td style={{padding:'16px 18px 16px 14px',position:'relative',overflow:'visible',minWidth:166}}>
-                          <div style={{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:8,position:'relative',zIndex:2}}>
-                            {READY_ALLOWED_STATUSES.has(o.status) && (
-                              <button
-                                onClick={() => markReady(o)}
-                                style={{height:32,padding:'0 13px',borderRadius:9,border:'1px solid #b7ead4',background:'#ecfdf5',color:'#047857',fontSize:12,fontWeight:900,cursor:'pointer'}}
-                              >
-                                Clean
-                              </button>
-                            )}
-                            <Link href={`/dashboard/orders/${o.id}`}
-                              style={{fontSize:12,color:'#035a8f',fontWeight:800,textDecoration:'none',padding:'0 4px'}}>
-                              View
-                            </Link>
-                            <details className="crm-action-menu" style={{position:'relative',zIndex:1000}}>
-                              <summary
-                                title="More order actions"
-                                aria-label="More order actions"
-                                style={{listStyle:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',justifyContent:'center',width:30,height:30,borderRadius:8,border:'1px solid #dce8f0',background:'#fff',color:'#6b7fa3'}}
-                              >
-                                <MoreHorizontal size={16} strokeWidth={2.6} />
-                              </summary>
-                              <div style={{position:'absolute',right:0,top:36,minWidth:190,background:'#fff',border:'1px solid #dce8f0',borderRadius:12,boxShadow:'0 16px 34px rgba(2,60,98,0.18)',padding:8,zIndex:9999}}>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=receipt`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print A4 Receipt</Link>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=thermal`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print 80mm Thermal</Link>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=garment`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print Garment Tags</Link>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=bag`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print Bag Tags</Link>
-                              </div>
-                            </details>
+                        {/* Update */}
+                        <td style={{padding:'13px 18px',minWidth:152}}>
+                          {READY_ALLOWED_STATUSES.has(o.status) && (
+                            <button onClick={()=>markReady(o)} style={{display:'block',width:'100%',textAlign:'center',padding:'7px 10px',borderRadius:8,background:'#e8f7f0',color:'#0d7a4e',fontSize:12,fontWeight:700,border:'1px solid #bfe6d2',marginBottom:6,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>
+                              Mark Cleaned
+                            </button>
+                          )}
+                          <details className="crm-action-menu" style={{position:'relative'}}>
+                            <summary style={{listStyle:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'7px 10px',borderRadius:8,background:'#fff',color:'#3d5470',fontSize:12,fontWeight:600,border:'1px solid #dce8f0',marginBottom:6}}>
+                              Actions <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                            </summary>
+                            <div style={{position:'absolute',right:0,top:36,minWidth:190,background:'#fff',border:'1px solid #dce8f0',borderRadius:12,boxShadow:'0 16px 34px rgba(2,60,98,0.18)',padding:8,zIndex:9999}}>
+                              <Link href={`/dashboard/orders/${o.id}`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>View Order</Link>
+                              <Link href={`/dashboard/print?orderId=${o.id}&type=receipt`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>Print A4 Receipt</Link>
+                              <Link href={`/dashboard/print?orderId=${o.id}&type=thermal`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>Print 80mm Thermal</Link>
+                              <Link href={`/dashboard/print?orderId=${o.id}&type=garment`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>Print Garment Tags</Link>
+                            </div>
+                          </details>
+                          <div style={{display:'flex',gap:6}}>
+                            <span title="Record payment" style={{width:28,height:28,borderRadius:7,background:'#fff',border:'1px solid #dce8f0',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#3d5470',cursor:'pointer',flexShrink:0}}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg>
+                            </span>
+                            <a href={`https://wa.me/91${(o.customer?.phone||'').replace(/\D/g,'')}`} target="_blank" rel="noopener" title="WhatsApp customer" style={{width:28,height:28,borderRadius:7,background:'#e8f7ef',border:'1px solid #bfe6d2',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#0d7a4e',flexShrink:0}}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20l1.3-3.9A7.5 7.5 0 1 1 9 18.5L4 20z"/></svg>
+                            </a>
                           </div>
                         </td>
                       </tr>
@@ -552,6 +542,7 @@ function OrdersPageContent() {
             }
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Pagination */}

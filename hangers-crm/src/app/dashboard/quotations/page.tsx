@@ -120,7 +120,7 @@ export default function QuotationsPage() {
     <div style={{ padding: '32px 36px', maxWidth: 1320, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
       <PageHeader
         title="Quotations"
-        subtitle="Customer estimates managed through the same centralized backend workflow as orders."
+        subtitle="Estimates for customers before an order is confirmed"
         actions={<Link href="/dashboard/orders/new?mode=quotation" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'9px 18px',borderRadius:10,background:'#1a3c5e',color:'#fff',textDecoration:'none',fontSize:13,fontWeight:700}}><Plus size={14}/> New Quotation</Link>}
       />
 

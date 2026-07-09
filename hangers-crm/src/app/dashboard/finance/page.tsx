@@ -77,7 +77,7 @@ export default function FinancePage() {
 
   return (
     <div style={{padding:'32px 36px',maxWidth:1200,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
-      <PageHeader title="Finance & Accounts" subtitle="Daily cash register, collections, and outstanding balances" />
+      <PageHeader title="Finance" subtitle="Collections, outstanding balances and payment activity" />
 
       {/* Tabs */}
       <div style={{display:'flex',gap:8,marginBottom:24}}>

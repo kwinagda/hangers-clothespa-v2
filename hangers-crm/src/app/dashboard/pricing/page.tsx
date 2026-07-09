@@ -275,8 +275,8 @@ export default function PricingPage() {
   return (
     <div style={{ padding: '32px 36px', maxWidth: 1300, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
       <PageHeader
-        title="Pricing & Services"
-        subtitle={`${totalItems} services across ${catalog.length} categories — every item is read from the same master service API`}
+        title="Pricing"
+        subtitle="Rate card used across quotations, orders and the customer app"
         actions={<div style={{display:'flex',gap:10}}>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search service..." style={{border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 14px',fontSize:14,outline:'none',width:220}} />
           <button onClick={downloadRateCard} disabled={!catalog.length} style={{padding:'10px 16px',background:'#fff',color:'#023c62',borderRadius:10,fontSize:13,fontWeight:700,border:'1px solid #dce8f0',cursor:'pointer',opacity:catalog.length?1:0.5}}>Download Rate Card</button>

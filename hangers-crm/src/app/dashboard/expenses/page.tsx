@@ -95,7 +95,7 @@ export default function ExpensesPage() {
     <div style={{ padding: '32px 36px', maxWidth: 1000, margin: '0 auto', ...s }}>
       <PageHeader
         title="Expenses"
-        subtitle={`${MONTHS[month-1]} ${year}`}
+        subtitle="Shop expenses outside customer orders"
         actions={<Button variant="primary" onClick={() => setShowAdd(true)}>+ Add Expense</Button>}
       />
 

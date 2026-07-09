@@ -78,8 +78,8 @@ export default function ReferralsReportPage() {
   return (
     <div style={{ padding: '32px 36px', maxWidth: 1240, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
       <PageHeader
-        title="Referral Report"
-        subtitle="Cross-customer referral visibility from the existing master database referral and wallet-credit records."
+        title="Referrals"
+        subtitle="Customers who brought in new business"
         actions={<div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',fontSize:13}} />
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',fontSize:13}} />

@@ -55,7 +55,7 @@ export default function MarketingPage() {
   const SS: Record<string,any> = {DRAFT:{bg:'#f3f4f6',color:'#374151'},SENT:{bg:'#dcfce7',color:'#166534'},FAILED:{bg:'#fee2e2',color:'#991b1b'}}
   return (
     <div style={{padding:'32px 36px',maxWidth:900,margin:'0 auto',...s}}>
-      <PageHeader title="Marketing & Automations" subtitle="WhatsApp campaigns and automated customer messaging" />
+      <PageHeader title="Campaigns" subtitle="WhatsApp and SMS blasts to your customer base" />
       <div style={{display:'flex',gap:4,marginBottom:24,background:'#f1f5f9',borderRadius:12,padding:4,width:'fit-content'}}>
         {tabBtn('campaigns','WhatsApp Campaigns')}{tabBtn('automations','Automations')}
       </div>

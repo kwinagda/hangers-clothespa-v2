@@ -50,7 +50,7 @@ export default function PromotionsPage() {
   const inp = (label:string,value:string,onChange:any,type='text',placeholder='') => <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>{label}</label><input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/></div>
   return (
     <div style={{padding:'32px 36px',maxWidth:1000,margin:'0 auto',...s}}>
-      <PageHeader title="Promotions & Pricing" subtitle="Coupons, loyalty points, and service upcharges" />
+      <PageHeader title="Promotions" subtitle="Discount codes and offers available to customers" />
       <div style={{display:'flex',gap:4,marginBottom:24,background:'#f1f5f9',borderRadius:12,padding:4,width:'fit-content'}}>
         {tabBtn('coupons','Coupons')}{tabBtn('loyalty','Loyalty Points')}{tabBtn('upcharges','Upcharges')}
       </div>

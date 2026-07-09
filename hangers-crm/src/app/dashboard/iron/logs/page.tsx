@@ -56,8 +56,8 @@ export default function IronLogsPage() {
   return (
     <div style={{ padding:'32px 36px', maxWidth:1280, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
       <PageHeader
-        title="Daily Iron Logs"
-        subtitle="Daily overview of logged ironing pieces, customer totals, and billing status."
+        title="Iron Logs"
+        subtitle="Daily Iron service usage log per customer"
         actions={<div style={{display:'flex',gap:10,alignItems:'center'}}>
           <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} style={{border:'1px solid #dce8f0',borderRadius:12,padding:'10px 14px',fontSize:14,color:'#023c62',background:'#fff'}} />
           <button onClick={() => load(selectedDate)} style={{background:'#fff',border:'1px solid #dce8f0',borderRadius:12,padding:'10px 16px',color:'#023c62',fontWeight:700,cursor:'pointer'}}>Refresh</button>

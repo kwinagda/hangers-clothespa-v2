@@ -447,7 +447,7 @@ export default function ChallansPage() {
 
       <PageHeader
         title="Plant Challans"
-        subtitle={`Dispatch challans, vendor bills, and pricing · ${challans.length} challans · ${vendorBills.length} bills`}
+        subtitle="Orders sent to plant partners and their return status"
         actions={<div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
           {tab === 'challans' && <button onClick={() => setShowCreateChallan(true)} style={{padding:'9px 18px',background:'#1a3c5e',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer'}}>+ New Challan</button>}
           {tab === 'vendor-bills' && <button onClick={() => setShowCreateBill(true)} style={{padding:'9px 18px',background:'#166534',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer'}}>+ Vendor Bill</button>}
