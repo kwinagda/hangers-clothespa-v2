@@ -283,6 +283,7 @@ const EXPENSE_CATEGORIES = [
 const PLANT_PARTNERS = [
   { value: 'WADREX', label: 'Wadrex' },
   { value: 'MAMTA', label: 'Mamta' },
+  { value: 'YADGIR', label: 'Yadgir' },
 ];
 
 const DISCOUNT_VALUE_TYPES = [

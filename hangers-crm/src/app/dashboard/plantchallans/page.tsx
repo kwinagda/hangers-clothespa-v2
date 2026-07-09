@@ -23,6 +23,7 @@ const badge = (status: string) => (
 const plantLabel = (value: string, options: Array<{ value: string; label: string }>) => options.find((item) => item.value === value)?.label || value
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
+  if (Array.isArray(value?.data)) return value.data
   for (const key of keys) {
     if (Array.isArray(value?.[key])) return value[key]
   }
@@ -168,7 +169,7 @@ export default function ChallansPage() {
         category: item.category,
       }))
       setVendorPrices(merged)
-      const categories = Array.from(new Set(merged.map((item: any) => item.category).filter(Boolean)))
+      const categories = Array.from(new Set<string>(merged.map((item: any) => String(item.category || '')).filter(Boolean)))
       setActivePriceCatState((prev) => (prev && categories.includes(prev) ? prev : categories[0] || ''))
     } catch {
       setVendorPrices([])
@@ -284,13 +285,17 @@ export default function ChallansPage() {
     }
     setSavingPrices(true)
     try {
-      const prices = Object.entries(priceEdits).map(([key, val]) => {
+      const prices = vendorPrices.map((row: any) => {
+        const key = `${row.serviceId}||${row.serviceName}`
+        const val = priceEdits[key] !== undefined ? priceEdits[key] : row.costPrice
         const [serviceId, serviceName] = key.split('||')
         return { serviceId, serviceName, costPrice: parseFloat(val) || 0 }
       })
-      await vendorPriceAPI.bulkSave(pricesPlant, prices)
-      toast.success('Prices saved')
+      const result = await vendorPriceAPI.bulkSave(pricesPlant, prices) as any
+      const recalculation = result?.recalculation || result?.data?.recalculation
+      toast.success(recalculation ? `Prices saved — ${recalculation.challansUpdated} challans recalculated` : 'Prices saved')
       loadVendorPrices(pricesPlant)
+      loadAll()
     } catch { toast.error('Failed') }
     setSavingPrices(false)
   }
@@ -344,6 +349,7 @@ export default function ChallansPage() {
       await vendorPriceAPI.bulkSave(pricesPlant, parsedRows)
       toast.success(`Uploaded ${parsedRows.length} rate card rows for ${plantLabel(pricesPlant, plantPartners)}`)
       loadVendorPrices(pricesPlant)
+      loadAll()
     } catch (e: any) {
       toast.error(e.message || 'Failed to upload rate card')
     }

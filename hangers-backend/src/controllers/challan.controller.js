@@ -16,6 +16,86 @@ const genBillNo = async () => {
   return `VB${String(count + 1).padStart(5, '0')}`;
 };
 
+const buildVendorPriceMap = (prices) => {
+  const priceMap = {};
+  prices.forEach((price) => {
+    priceMap[price.serviceId] = price.costPrice;
+    priceMap[price.serviceName] = price.costPrice;
+    priceMap[normalizeServiceKey(price.serviceName)] = price.costPrice;
+  });
+  return priceMap;
+};
+
+const normalizeServiceKey = (value) => String(value || '')
+  .toLowerCase()
+  .replace(/\u2014/g, '-')
+  .replace(/\((dc|dry clean|iron|laundry|roll|shoe|sofa)[^)]+\)/gi, '')
+  .replace(/\bnomal\b/g, 'normal')
+  .replace(/\s*\/\s*/g, '/')
+  .replace(/\s*-\s*/g, '-')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const resolveVendorCost = (priceMap, challanItem) => {
+  const keys = [
+    challanItem.orderItem?.serviceId,
+    challanItem.serviceName,
+    challanItem.orderItem?.serviceName,
+    normalizeServiceKey(challanItem.serviceName),
+    normalizeServiceKey(challanItem.orderItem?.serviceName),
+  ].filter(Boolean);
+  for (const key of keys) {
+    if (priceMap[key] !== undefined) return Number(priceMap[key]) || 0;
+  }
+  return 0;
+};
+
+const recalculateVendorCostsForPlant = async (plant, tx = prisma) => {
+  const vendorPrices = await tx.vendorPriceList.findMany({ where: { plant } });
+  const priceMap = buildVendorPriceMap(vendorPrices);
+  const challans = await tx.deliveryChallan.findMany({
+    where: { plant, vendorBillId: null },
+    include: {
+      challanItems: {
+        include: {
+          orderItem: { select: { serviceId: true, serviceName: true } }
+        }
+      }
+    }
+  });
+
+  let challansUpdated = 0;
+  let itemsUpdated = 0;
+  for (const challan of challans) {
+    let totalVendorCost = 0;
+    for (const item of challan.challanItems) {
+      const vendorCost = resolveVendorCost(priceMap, item);
+      totalVendorCost += vendorCost * item.quantity;
+      if (item.vendorCost !== vendorCost) {
+        await tx.challanItem.update({
+          where: { id: item.id },
+          data: { vendorCost }
+        });
+        itemsUpdated += 1;
+      }
+    }
+    if (challan.vendorCost !== totalVendorCost) {
+      await tx.deliveryChallan.update({
+        where: { id: challan.id },
+        data: { vendorCost: totalVendorCost }
+      });
+      challansUpdated += 1;
+    }
+  }
+
+  return {
+    plant,
+    challansChecked: challans.length,
+    challansUpdated,
+    itemsUpdated,
+  };
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // VENDOR PRICE LIST
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,7 +125,8 @@ const upsertVendorPrice = async (req, res) => {
       update: { costPrice: parsedCost, serviceName },
       create: { plant, serviceId: serviceId || serviceName, serviceName, costPrice: parsedCost }
     });
-    return success(res, price, 'Vendor price saved');
+    const recalculation = await recalculateVendorCostsForPlant(plant);
+    return success(res, { price, recalculation }, 'Vendor price saved');
   } catch (e) { return error(res, 'Failed to save vendor price'); }
 };
 
@@ -56,14 +137,19 @@ const bulkUpsertVendorPrices = async (req, res) => {
     if (!plant || !prices?.length) return badRequest(res, 'plant and prices array required');
     const invalid = prices.find((p) => !p?.serviceName || !Number.isFinite(parseFloat(p.costPrice)) || parseFloat(p.costPrice) < 0);
     if (invalid) return badRequest(res, 'Each vendor price must include serviceName and a valid non-negative costPrice');
-    const results = await Promise.all(prices.map((p) =>
-      prisma.vendorPriceList.upsert({
-        where: { plant_serviceId: { plant, serviceId: p.serviceId || p.serviceName } },
-        update: { costPrice: parseFloat(p.costPrice), serviceName: p.serviceName },
-        create: { plant, serviceId: p.serviceId || p.serviceName, serviceName: p.serviceName, costPrice: parseFloat(p.costPrice) }
-      })
-    ));
-    return success(res, results, `${results.length} prices saved`);
+    const result = await prisma.$transaction(async (tx) => {
+      const savedPrices = [];
+      for (const p of prices) {
+        savedPrices.push(await tx.vendorPriceList.upsert({
+          where: { plant_serviceId: { plant, serviceId: p.serviceId || p.serviceName } },
+          update: { costPrice: parseFloat(p.costPrice), serviceName: p.serviceName },
+          create: { plant, serviceId: p.serviceId || p.serviceName, serviceName: p.serviceName, costPrice: parseFloat(p.costPrice) }
+        }));
+      }
+      const recalculation = await recalculateVendorCostsForPlant(plant, tx);
+      return { prices: savedPrices, recalculation };
+    }, { timeout: 30000 });
+    return success(res, result, `${result.prices.length} prices saved`);
   } catch (e) { return error(res, 'Failed to bulk save vendor prices'); }
 };
 

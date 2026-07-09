@@ -45,6 +45,12 @@ const FORWARD_TRANSITIONS = {
 };
 const CANCELLABLE_STATUSES = new Set(['PENDING', 'PICKED_UP', 'PROCESSING', 'READY_FOR_DELIVERY']);
 const DELIVERED_CORRECTION_TARGETS = new Set(['READY_FOR_DELIVERY']);
+const ORDER_VIEW_STATUSES = {
+  in_process: ['PROCESSING', 'SENT_TO_PLANT', 'IRONING', 'WASHING', 'DRYING', 'QC'],
+  ready: ['READY_FOR_DELIVERY'],
+  delivered: ['DELIVERED'],
+  cancelled: ['CANCELLED', 'RETURNED'],
+};
 
 const parsePositiveInt = (value) => {
   const parsed = Number.parseInt(value, 10);
@@ -138,6 +144,7 @@ const listOrders = async (req, res) => {
       page   = 1,
       limit  = 30,
       status,
+      view,
       search,
       dateFrom,
       dateTo,
@@ -148,7 +155,22 @@ const listOrders = async (req, res) => {
     if (!parsedPage) return badRequest(res, 'page must be a positive integer');
     if (!parsedLimit || parsedLimit > 100) return badRequest(res, 'limit must be an integer between 1 and 100');
     const where = { ...ORDER_ONLY_WHERE };
-    if (status === 'PROCESSING') {
+    if (view && view !== 'all') {
+      const statuses = ORDER_VIEW_STATUSES[view];
+      if (!statuses) return badRequest(res, 'Invalid order view');
+      if (view === 'cancelled') {
+        where.AND = [
+          ...(where.AND || []),
+          { OR: [
+            { status: { in: statuses } },
+            { isReturn: true },
+            { orderNumber: { contains: '-RT-', mode: 'insensitive' } },
+          ] },
+        ];
+      } else {
+        where.status = { in: statuses };
+      }
+    } else if (status === 'PROCESSING') {
       where.status = { in: ['PROCESSING', 'SENT_TO_PLANT', 'IRONING', 'WASHING', 'DRYING', 'QC'] };
     } else if (status) {
       where.status = status;

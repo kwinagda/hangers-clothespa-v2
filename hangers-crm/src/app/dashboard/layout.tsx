@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Toaster } from 'react-hot-toast'
 import toast from 'react-hot-toast'
@@ -50,9 +50,10 @@ const NAV_SECTIONS = [
     label: 'Orders',
     items: [
       { href: '/dashboard/orders', icon: Package, label: 'All Orders', note: 'Queue' },
-      { href: '/dashboard/orders?status=PROCESSING', icon: Clock3, label: 'In Process', note: 'Working' },
-      { href: '/dashboard/orders?status=READY_FOR_DELIVERY', icon: Sparkles, label: 'Cleaned', note: 'Ready' },
-      { href: '/dashboard/orders?status=DELIVERED', icon: CheckCircle2, label: 'Delivered', note: 'Done' },
+      { href: '/dashboard/orders?view=in_process', icon: Clock3, label: 'In Process', note: 'Working' },
+      { href: '/dashboard/orders?view=ready', icon: Sparkles, label: 'Cleaned', note: 'Ready' },
+      { href: '/dashboard/orders?view=delivered', icon: CheckCircle2, label: 'Delivered', note: 'Done' },
+      { href: '/dashboard/orders?view=cancelled', icon: Receipt, label: 'Cancelled', note: 'Returns' },
     ],
   },
   {
@@ -94,6 +95,7 @@ const NAV_SECTIONS = [
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router   = useRouter()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [staff,    setStaff]    = useState<any>(null)
   const [roleColors, setRoleColors] = useState<Record<string, string>>({})
   const [sideOpen, setSideOpen] = useState(false)
@@ -184,7 +186,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               )}
               <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
                 {section.items.map(n => {
-                  const active = n.href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(n.href)
+                  const [itemPath, itemQuery = ''] = n.href.split('?')
+                  const currentView = searchParams.get('view') || ''
+                  const itemView = new URLSearchParams(itemQuery).get('view') || ''
+                  const active = n.href === '/dashboard'
+                    ? pathname === '/dashboard'
+                    : itemPath === '/dashboard/orders'
+                      ? pathname === '/dashboard/orders' && currentView === itemView
+                      : pathname.startsWith(itemPath)
                   const Icon = n.icon
                   return (
                     <Link key={n.href} href={n.href} style={{

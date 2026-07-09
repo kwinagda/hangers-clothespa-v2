@@ -40,6 +40,26 @@ const NEXT_STATUS: Record<string, string> = {
   OUT_FOR_DELIVERY: 'DELIVERED',
 }
 const HIDDEN_STATUS_CHOICES = new Set(['WASHING', 'DRYING', 'QC', 'RETURNED'])
+const ORDER_VIEWS = [
+  { key: 'all', label: 'All Orders', title: 'All Orders', description: 'Complete operational queue across every order status.', metric: 'Total queue' },
+  { key: 'in_process', label: 'In Process', title: 'In-Process Orders', description: 'Orders currently being processed, sent to plant, or pending ironing.', metric: 'Working queue' },
+  { key: 'ready', label: 'Ready', title: 'Ready Orders', description: 'Orders cleaned, packed, and ready for delivery.', metric: 'Ready queue' },
+  { key: 'delivered', label: 'Delivered', title: 'Delivered Orders', description: 'Completed orders delivered to customers.', metric: 'Delivered queue' },
+  { key: 'cancelled', label: 'Cancelled / Returns', title: 'Cancelled / Return Orders', description: 'Cancelled orders and imported return records.', metric: 'Closed exceptions' },
+]
+
+const viewFromSearchParams = (params: URLSearchParams) => {
+  const direct = params.get('view') || ''
+  if (ORDER_VIEWS.some((item) => item.key === direct)) return direct
+  const legacyStatus = params.get('status') || ''
+  if (legacyStatus === 'PROCESSING') return 'in_process'
+  if (legacyStatus === 'READY_FOR_DELIVERY') return 'ready'
+  if (legacyStatus === 'DELIVERED') return 'delivered'
+  if (legacyStatus === 'CANCELLED' || legacyStatus === 'RETURNED') return 'cancelled'
+  return 'all'
+}
+
+const isReturnOrder = (order: any) => Boolean(order?.isReturn || order?.status === 'RETURNED' || /-RT(?:-|$)/i.test(String(order?.orderNumber || '')))
 
 const getTransitionKind = (currentStatus: string, nextStatus: string) => {
   if (currentStatus === nextStatus) return 'noop'
@@ -166,8 +186,7 @@ function OrdersPageContent() {
   const [total,  setTotal]      = useState(0)
   const [loading,setLoading]    = useState(true)
   const [search, setSearch]     = useState('')
-  const [status, setStatus]     = useState(sp.get('status')||'')
-  const [statusOptions, setStatusOptions] = useState<Array<{ key: string; label: string }>>([{ key: '', label: 'All Statuses' }])
+  const [view, setView]         = useState(viewFromSearchParams(sp))
   const [plantStatuses, setPlantStatuses] = useState<string[]>([])
   const [editableStatuses, setEditableStatuses] = useState<string[]>([])
   const [statusLabels, setStatusLabels] = useState<Record<string, string>>({})
@@ -194,26 +213,27 @@ function OrdersPageContent() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await ordersAPI.list({ page, limit:pageSize, status:status||undefined, search:search||undefined })
+      const r = await ordersAPI.list({ page, limit:pageSize, view, search:search||undefined })
       setOrders(asArray(r.data, ['orders', 'items']))
       setTotal(r.data?.pagination?.total || 0)
     } catch { toast.error('Failed to load orders') }
     finally { setLoading(false) }
-  }, [page, pageSize, status, search])
+  }, [page, pageSize, view, search])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
-    const nextStatus = sp.get('status') || ''
-    setStatus((current) => current === nextStatus ? current : nextStatus)
+    const nextView = viewFromSearchParams(sp)
+    setView((current) => current === nextView ? current : nextView)
     setPage(1)
   }, [sp])
 
-  const applyStatusFilter = (nextStatus: string) => {
-    setStatus(nextStatus)
+  const applyOrderView = (nextView: string) => {
+    setView(nextView)
     setPage(1)
     const params = new URLSearchParams(sp.toString())
-    if (nextStatus) params.set('status', nextStatus)
-    else params.delete('status')
+    if (nextView && nextView !== 'all') params.set('view', nextView)
+    else params.delete('view')
+    params.delete('status')
     const query = params.toString()
     router.push(query ? `${pathname}?${query}` : pathname)
   }
@@ -224,7 +244,6 @@ function OrdersPageContent() {
       .then((r: any) => {
         const metadata = r?.metadata || r?.data?.metadata || {}
         const orderStatuses = metadata.orderStatuses || []
-        setStatusOptions([{ key: '', label: 'All Statuses' }, ...orderStatuses.filter((item: any) => !HIDDEN_STATUS_CHOICES.has(item.key)).map((item: any) => ({ key: item.key, label: item.label }))])
         setPlantStatuses(orderStatuses.filter((item: any) => item.plantManaged).map((item: any) => item.key))
         setEditableStatuses(orderStatuses.filter((item: any) => item.crmEditable && !HIDDEN_STATUS_CHOICES.has(item.key)).map((item: any) => item.key))
         setStatusLabels(Object.fromEntries(orderStatuses.map((item: any) => [item.key, item.label])))
@@ -333,20 +352,21 @@ function OrdersPageContent() {
   const visibleValue = orders.reduce((sum: number, order: any) => sum + (order.totalAmount || 0), 0)
   const plantLockedCount = orders.filter((order: any) => plantStatuses.includes(order.status)).length
   const noItemsCount = orders.filter((order: any) => !order.items?.length).length
+  const activeView = ORDER_VIEWS.find((item) => item.key === view) || ORDER_VIEWS[0]
 
   return (
     <div className="crm-page-enter" style={{padding:'30px 34px',maxWidth:1380,margin:'0 auto'}}>
       <section style={{background:'linear-gradient(135deg,#022f50 0%,#035a8f 58%,#0b6f84 100%)',borderRadius:28,padding:'26px 28px',color:'#fff',boxShadow:'0 22px 52px rgba(2,60,98,0.18)',marginBottom:22}}>
         <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.45fr) minmax(320px,0.85fr)',gap:20,alignItems:'stretch'}}>
           <div>
-            <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:32,color:'#fff',margin:'0 0 8px'}}>Orders Workspace</h1>
+            <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:32,color:'#fff',margin:'0 0 8px'}}>{activeView.title}</h1>
             <p style={{fontSize:14,color:'rgba(232,240,247,0.88)',margin:'0 0 16px',lineHeight:1.6,maxWidth:720}}>
-              Monitor created, in-process, pending ironing, ready, and delivered orders from one clean operations screen.
+              {activeView.description}
             </p>
             <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
               <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
                 <PackageCheck size={14} />
-                {total} matching orders
+                {total} {activeView.metric.toLowerCase()} orders
               </span>
               <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
                 <Truck size={14} />
@@ -378,17 +398,41 @@ function OrdersPageContent() {
       </section>
 
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:18,marginBottom:22}}>
-        <MetricCard label="Current Results" value={String(total)} note="Orders matching the active filters and search." />
+        <MetricCard label={activeView.metric} value={String(total)} note="Orders loaded from this dedicated backend view." />
         <MetricCard label="Visible Value" value={formatCurrency(visibleValue)} note="Combined billed amount across the loaded page." />
         <MetricCard label="Sent to Plant" value={String(plantLockedCount)} note="Orders locked until they are received back." />
         <MetricCard label="Needs Items" value={String(noItemsCount)} note="Orders on this page with no garment lines yet." />
       </div>
 
       <section style={{background:'#fff',borderRadius:24,border:'1px solid #e4edf5',boxShadow:'0 12px 28px rgba(2,60,98,0.06)',padding:22,marginBottom:18}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(5,minmax(0,1fr))',gap:10,marginBottom:18}}>
+          {ORDER_VIEWS.map((item) => {
+            const active = item.key === view
+            return (
+              <button
+                key={item.key}
+                onClick={() => applyOrderView(item.key)}
+                style={{
+                  textAlign:'left',
+                  border:active?'1.5px solid #035a8f':'1px solid #dce8f0',
+                  background:active?'#eef7ff':'#fff',
+                  color:active?'#023c62':'#52677f',
+                  borderRadius:12,
+                  padding:'11px 12px',
+                  cursor:'pointer',
+                  fontWeight:800,
+                  fontSize:12,
+                }}
+              >
+                {item.label}
+              </button>
+            )
+          })}
+        </div>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:16,flexWrap:'wrap'}}>
           <div>
-            <h2 style={{margin:'0 0 4px',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:19,color:'#023c62'}}>Filters & Queue Control</h2>
-            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>Search, narrow, refresh, and batch-select the live order queue.</p>
+            <h2 style={{margin:'0 0 4px',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:19,color:'#023c62'}}>{activeView.label} Search</h2>
+            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>Search and batch-select only the orders in this view.</p>
           </div>
           {selected.size > 0 && <div style={{fontSize:13,color:'#023c62',fontWeight:700,background:'#e8f0f7',borderRadius:999,padding:'8px 14px'}}>{selected.size} selected</div>}
         </div>
@@ -398,10 +442,6 @@ function OrdersPageContent() {
             <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} placeholder="Search order #, name, phone..."
               style={{width:'100%',border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 14px 10px 38px',fontSize:14,outline:'none',background:'#fff'}}/>
           </div>
-          <select value={status} onChange={e=>applyStatusFilter(e.target.value)}
-            style={{border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 14px',fontSize:14,outline:'none',background:'#fff',color:'#1a2332',minWidth:160}}>
-            {statusOptions.map((item)=><option key={item.key} value={item.key}>{item.label}</option>)}
-          </select>
           <button onClick={load}
             style={{padding:'10px 20px',borderRadius:10,background:'#e8f0f7',border:'1px solid #dce8f0',color:'#023c62',fontWeight:600,fontSize:14,cursor:'pointer'}}>
             Refresh
@@ -430,8 +470,8 @@ function OrdersPageContent() {
       <div className="crm-surface orders-table-surface" style={{borderRadius:24,overflow:'visible',boxShadow:'0 12px 28px rgba(2,60,98,0.06)'}}>
         <div style={{padding:'18px 22px',borderBottom:'1px solid #edf3f8',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',background:'#fff'}}>
           <div>
-            <h2 style={{margin:'0 0 4px',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:19,color:'#023c62'}}>Order Queue</h2>
-            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>Clean operational list with customer, garments, status, amount, and due date.</p>
+            <h2 style={{margin:'0 0 4px',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:19,color:'#023c62'}}>{activeView.title}</h2>
+            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>This table is loaded from the dedicated {activeView.label.toLowerCase()} API view.</p>
           </div>
           <Link href="/dashboard/orders/new" style={{display:'inline-flex',alignItems:'center',gap:6,textDecoration:'none',color:'#035a8f',fontSize:13,fontWeight:700}}>
             Create new order <ArrowRight size={14} />
@@ -457,15 +497,19 @@ function OrdersPageContent() {
                   </td></tr>
                 : orders.map((o:any,i:number)=>{
                     const isSentToPlant = o.status === 'SENT_TO_PLANT'
+                    const orderIsReturn = isReturnOrder(o)
                     const statusChoices = getStatusChoices(o.status, editableStatuses, currentStaff)
-                    const isLockedToPlantOnly = plantStatuses.includes(o.status) && statusChoices.length <= 1
-                    const statusStyle = statusStyles[o.status] || { bg: '#f7f9fc', text: '#023c62', border: '#dce8f0' }
+                    const isLockedToPlantOnly = (plantStatuses.includes(o.status) && statusChoices.length <= 1) || orderIsReturn
+                    const statusStyle = orderIsReturn
+                      ? { bg: '#fee2e2', text: '#991b1b', border: '#fecaca' }
+                      : statusStyles[o.status] || { bg: '#f7f9fc', text: '#023c62', border: '#dce8f0' }
+                    const displayStatusLabel = orderIsReturn ? 'Return Order' : getStatusLabel(o.status, o.source, statusLabels)
                     return (
                       <tr key={o.id} className="crm-table-row" style={{borderBottom:'1px solid #edf3f8',background:selected.has(o.id)?'#eff6ff':'#fff',position:'relative'}}>
                         <td style={{padding:'16px 12px 16px 18px'}}>
                           <input type="checkbox" checked={selected.has(o.id)}
                             onChange={() => toggleSelect(o.id)} style={{cursor:'pointer'}}
-                            disabled={isSentToPlant}/>
+	                            disabled={isSentToPlant || orderIsReturn}/>
                         </td>
                         <td style={{padding:'16px 14px',minWidth:132}}>
                           <Link href={`/dashboard/orders/${o.id}`}
@@ -484,11 +528,11 @@ function OrdersPageContent() {
                         <td style={{padding:'16px 14px',minWidth:160}}>
                           {isLockedToPlantOnly
                             ? <span style={{fontSize:12,fontWeight:800,padding:'7px 10px',borderRadius:10,color:statusStyle.text,background:statusStyle.bg,border:`1px solid ${statusStyle.border}`}}>
-                                <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Lock size={12} /> {getStatusLabel(o.status, o.source, statusLabels)}</span>
+	                                <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Lock size={12} /> {displayStatusLabel}</span>
                               </span>
                             : <select value={o.status} onChange={e=>updateStatus(o.id, o.status, e.target.value)}
                                 style={{border:`1px solid ${statusStyle.border}`,cursor:'pointer',fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:12,outline:'none',borderRadius:10,padding:'7px 10px',background:statusStyle.bg,color:statusStyle.text,maxWidth:150}}>
-                                {statusChoices.map(s=><option key={s} value={s}>{getStatusLabel(s, o.source, statusLabels)}</option>)}
+	                                {statusChoices.map(s=><option key={s} value={s}>{s === o.status ? displayStatusLabel : getStatusLabel(s, o.source, statusLabels)}</option>)}
                               </select>
                           }
                         </td>
