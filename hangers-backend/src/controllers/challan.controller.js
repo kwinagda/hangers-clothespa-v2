@@ -532,7 +532,10 @@ const getChallanPDF = async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${challan.challanNo}.pdf"`);
     res.send(pdf);
-  } catch (e) { return error(res, 'Failed to generate challan PDF'); }
+  } catch (e) {
+    console.error('Failed to generate challan PDF', e);
+    return error(res, 'Failed to generate challan PDF');
+  }
 };
 
 const getVendorBillPDF = async (req, res) => {
@@ -547,7 +550,10 @@ const getVendorBillPDF = async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${bill.billNo}.pdf"`);
     res.send(pdf);
-  } catch (e) { return error(res, 'Failed to generate vendor bill PDF'); }
+  } catch (e) {
+    console.error('Failed to generate vendor bill PDF', e);
+    return error(res, 'Failed to generate vendor bill PDF');
+  }
 };
 
 module.exports = {
