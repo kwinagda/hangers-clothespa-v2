@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Toaster } from 'react-hot-toast'
@@ -92,7 +92,7 @@ const NAV_SECTIONS = [
   },
 ]
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+function DashboardShell({ children }: { children: React.ReactNode }) {
   const router   = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -313,5 +313,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       </main><Toaster position="top-right" toastOptions={{style:{fontFamily:"var(--crm-font-ui)",background:"#023c62",color:"#fff",borderRadius:"12px"}}}/>
     </div>
+  )
+}
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<div style={{ minHeight:'100vh', display:'grid', placeItems:'center', fontFamily:"var(--crm-font-ui)", color:'#6b7fa3' }}>Loading workspace...</div>}>
+      <DashboardShell>{children}</DashboardShell>
+    </Suspense>
   )
 }
