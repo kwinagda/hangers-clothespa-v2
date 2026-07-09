@@ -5,7 +5,8 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { authAPI, ordersAPI, challanAPI, metadataAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
-import { ArrowRight, CalendarDays, ClipboardList, IndianRupee, Lock, MoreHorizontal, PackageCheck, Plus, Search, Truck } from 'lucide-react'
+import { CalendarDays, ClipboardList, Lock, MoreHorizontal, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { Badge, PageHeader } from '@/components/ui'
 import { InlineLoader, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
@@ -98,19 +99,13 @@ const summarizeItems = (items: any[] = []) => {
   }
 }
 
-const paymentTone = (status: string) => {
-  if (status === 'PAID') return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' }
-  if (status === 'PARTIAL') return { bg: '#fff7ed', color: '#c2410c', border: '#fed7aa' }
-  return { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' }
-}
-
 const READY_ALLOWED_STATUSES = new Set(['PROCESSING', 'IRONING', 'WASHING', 'DRYING', 'QC'])
 
 function ItemSummary({ items }: { items: any[] }) {
   const summary = summarizeItems(items)
   if (!summary.totalQty) {
     return (
-      <div style={{fontSize:12,color:'#9dafc8',fontWeight:600,lineHeight:1.35}}>
+      <div style={{ fontSize: 12, color: '#9dafc8', fontWeight: 600, lineHeight: 1.35 }}>
         No garments added
       </div>
     )
@@ -124,15 +119,29 @@ function ItemSummary({ items }: { items: any[] }) {
     .join(', ')
 
   return (
-    <div style={{display:'grid',gridTemplateColumns:'46px minmax(0,1fr)',gap:10,alignItems:'center',minWidth:0}}>
-      <div style={{height:34,width:34,borderRadius:10,background:'#eef7ff',border:'1px solid #cfe3f4',color:'#035a8f',display:'grid',placeItems:'center',fontSize:13,fontWeight:800}}>
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}>
+      <div
+        style={{
+          height: 30,
+          width: 30,
+          borderRadius: 9,
+          background: '#e8f0f7',
+          color: '#023c62',
+          display: 'grid',
+          placeItems: 'center',
+          fontSize: 12.5,
+          fontWeight: 800,
+          flexShrink: 0,
+        }}
+      >
         {summary.totalQty}
       </div>
-      <div style={{minWidth:0}}>
-        <div style={{fontSize:13,color:'#26364a',fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:1.35}}>
-          {itemNames}{summary.extraCount > 0 ? ` +${summary.extraCount} more` : ''}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, color: '#26364a', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.35 }}>
+          {itemNames}
+          {summary.extraCount > 0 ? ` +${summary.extraCount} more` : ''}
         </div>
-        <div style={{fontSize:11,color:'#8ba0bb',marginTop:2}}>
+        <div style={{ fontSize: 11, color: '#8ba0bb', marginTop: 1 }}>
           {summary.totalQty === 1 ? '1 garment' : `${summary.totalQty} garments`}
         </div>
       </div>
@@ -140,20 +149,15 @@ function ItemSummary({ items }: { items: any[] }) {
   )
 }
 
-function MetricCard({
-  label,
-  value,
-  note,
-}: {
-  label: string
-  value: string
-  note: string
-}) {
+function SummaryCell({ label, value, tone }: { label: string; value: string; tone?: 'default' | 'warn' }) {
   return (
-    <div style={{ background: '#fff', borderRadius: 22, border: '1px solid #e4edf5', padding: '18px 18px 16px', boxShadow: '0 10px 24px rgba(2,60,98,0.05)' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7fa3', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>
-      <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: '#142033' }}>{value}</div>
-      <div style={{ marginTop: 8, fontSize: 12, color: '#8ba0bb', lineHeight: 1.45 }}>{note}</div>
+    <div style={{ padding: '13px 18px', minWidth: 0 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#7c8da5', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 5 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.1, color: tone === 'warn' ? '#9a4d00' : '#142033', whiteSpace: 'nowrap' }}>
+        {value}
+      </div>
     </div>
   )
 }
@@ -330,205 +334,220 @@ function OrdersPageContent() {
   }
 
   const selectedOrders = orders.filter((o:any) => selected.has(o.id))
+  const selectedValue = selectedOrders.reduce((sum: number, order: any) => sum + (order.totalAmount || 0), 0)
   const visibleValue = orders.reduce((sum: number, order: any) => sum + (order.totalAmount || 0), 0)
   const plantLockedCount = orders.filter((order: any) => plantStatuses.includes(order.status)).length
   const noItemsCount = orders.filter((order: any) => !order.items?.length).length
 
   return (
-    <div className="crm-page-enter" style={{padding:'30px 34px',maxWidth:1380,margin:'0 auto'}}>
-      <section style={{background:'linear-gradient(135deg,#022f50 0%,#035a8f 58%,#0b6f84 100%)',borderRadius:28,padding:'26px 28px',color:'#fff',boxShadow:'0 22px 52px rgba(2,60,98,0.18)',marginBottom:22}}>
-        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.45fr) minmax(320px,0.85fr)',gap:20,alignItems:'stretch'}}>
-          <div>
-            <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:32,color:'#fff',margin:'0 0 8px'}}>Orders Workspace</h1>
-            <p style={{fontSize:14,color:'rgba(232,240,247,0.88)',margin:'0 0 16px',lineHeight:1.6,maxWidth:720}}>
-              Monitor created, in-process, pending ironing, ready, and delivered orders from one clean operations screen.
-            </p>
-            <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <PackageCheck size={14} />
-                {total} matching orders
-              </span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <Truck size={14} />
-                {plantLockedCount} sent to plant
-              </span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <IndianRupee size={14} />
-                Visible value {formatCurrency(visibleValue)}
-              </span>
-            </div>
-          </div>
-          <div style={{display:'flex',flexDirection:'column',gap:12,justifyContent:'space-between',background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.16)',borderRadius:24,padding:20}}>
-            <div>
-              <div style={{fontSize:11,color:'rgba(232,240,247,0.72)',fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:6}}>Primary Action</div>
-              <div style={{fontSize:15,fontWeight:700,lineHeight:1.5,color:'#fff'}}>Create a fresh counter order or batch selected orders into a plant challan.</div>
-            </div>
-            <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
-              <Link href="/dashboard/orders/new" className="crm-card-hover" style={{display:'inline-flex',alignItems:'center',gap:8,background:'#fff',color:'#023c62',textDecoration:'none',padding:'12px 18px',borderRadius:14,fontWeight:800,fontFamily:"var(--crm-font-ui)",fontSize:14}}>
-                <Plus size={16} /> New Order
-              </Link>
-              {selected.size > 0 && (
-                <button onClick={() => setShowChallanModal(true)} style={{display:'inline-flex',alignItems:'center',gap:8,background:'#166534',color:'#fff',padding:'12px 18px',borderRadius:14,fontWeight:800,fontFamily:"var(--crm-font-ui)",fontSize:14,border:'none',cursor:'pointer'}}>
-                  <ClipboardList size={16} /> Create Challan ({selected.size})
-                </button>
-              )}
-            </div>
-          </div>
+    <div className="crm-page-enter crm2-page">
+      <PageHeader
+        breadcrumb={['Workspace', 'Orders']}
+        title="Orders"
+        subtitle={loading ? 'Loading order queue…' : `${total} order${total === 1 ? '' : 's'} matching the current view`}
+        actions={
+          <>
+            <button onClick={load} className="crm2-btn-secondary" disabled={loading}>
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+            <Link href="/dashboard/orders/new" className="crm2-btn-primary">
+              <Plus size={15} />
+              New Order
+            </Link>
+          </>
+        }
+      />
+
+      {/* Toolbar: search + status chips */}
+      <section className="crm2-panel" style={{ padding: '13px 14px', marginBottom: 14, display: 'grid', gap: 11 }}>
+        <div style={{ position: 'relative' }}>
+          <Search size={15} color="#9dafc8" style={{ position: 'absolute', left: 13, top: 11 }} />
+          <input
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1) }}
+            placeholder="Search order #, customer name, phone…"
+            style={{
+              width: '100%',
+              border: '1.5px solid #e3ebf3',
+              borderRadius: 10,
+              padding: '9px 14px 9px 36px',
+              fontSize: 13.5,
+              outline: 'none',
+              background: '#fbfdff',
+            }}
+          />
+        </div>
+        <div className="crm2-chiprow">
+          {statusOptions.map((item) => (
+            <button
+              key={item.key}
+              className={`crm2-chip${status === item.key ? ' crm2-chip-active' : ''}`}
+              onClick={() => applyStatusFilter(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       </section>
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:18,marginBottom:22}}>
-        <MetricCard label="Current Results" value={String(total)} note="Orders matching the active filters and search." />
-        <MetricCard label="Visible Value" value={formatCurrency(visibleValue)} note="Combined billed amount across the loaded page." />
-        <MetricCard label="Sent to Plant" value={String(plantLockedCount)} note="Orders locked until they are received back." />
-        <MetricCard label="Needs Items" value={String(noItemsCount)} note="Orders on this page with no garment lines yet." />
-      </div>
-
-      <section style={{background:'#fff',borderRadius:24,border:'1px solid #e4edf5',boxShadow:'0 12px 28px rgba(2,60,98,0.06)',padding:22,marginBottom:18}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:16,flexWrap:'wrap'}}>
-          <div>
-            <h2 style={{margin:'0 0 4px',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:19,color:'#023c62'}}>Filters & Queue Control</h2>
-            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>Search, narrow, refresh, and batch-select the live order queue.</p>
-          </div>
-          {selected.size > 0 && <div style={{fontSize:13,color:'#023c62',fontWeight:700,background:'#e8f0f7',borderRadius:999,padding:'8px 14px'}}>{selected.size} selected</div>}
+      {/* Summary strip */}
+      <section
+        className="crm2-panel"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+          marginBottom: 14,
+          overflow: 'hidden',
+        }}
+      >
+        <SummaryCell label="Matching Orders" value={loading ? '—' : String(total)} />
+        <div style={{ borderLeft: '1px solid #eef3f8' }}>
+          <SummaryCell label="Page Value" value={loading ? '—' : formatCurrency(visibleValue)} />
         </div>
-        <div style={{display:'flex',gap:12,flexWrap:'wrap' as const}}>
-          <div style={{flex:1,minWidth:220,position:'relative'}}>
-            <Search size={16} color="#9dafc8" style={{position:'absolute',left:14,top:12}} />
-            <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} placeholder="Search order #, name, phone..."
-              style={{width:'100%',border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 14px 10px 38px',fontSize:14,outline:'none',background:'#fff'}}/>
-          </div>
-          <select value={status} onChange={e=>applyStatusFilter(e.target.value)}
-            style={{border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 14px',fontSize:14,outline:'none',background:'#fff',color:'#1a2332',minWidth:160}}>
-            {statusOptions.map((item)=><option key={item.key} value={item.key}>{item.label}</option>)}
-          </select>
-          <button onClick={load}
-            style={{padding:'10px 20px',borderRadius:10,background:'#e8f0f7',border:'1px solid #dce8f0',color:'#023c62',fontWeight:600,fontSize:14,cursor:'pointer'}}>
-            Refresh
-          </button>
+        <div style={{ borderLeft: '1px solid #eef3f8' }}>
+          <SummaryCell label="Sent to Plant" value={loading ? '—' : String(plantLockedCount)} />
+        </div>
+        <div style={{ borderLeft: '1px solid #eef3f8' }}>
+          <SummaryCell label="Needs Items" value={loading ? '—' : String(noItemsCount)} tone={noItemsCount > 0 ? 'warn' : 'default'} />
         </div>
       </section>
 
-      {/* Bulk action bar */}
-      {selected.size > 0 && (
-        <div style={{background:'#023c62',borderRadius:16,padding:'12px 16px',marginBottom:14,display:'flex',alignItems:'center',justifyContent:'space-between',fontSize:13,color:'#fff'}}>
-          <span><strong>{selected.size}</strong> order{selected.size > 1 ? 's' : ''} selected</span>
-          <div style={{display:'flex',gap:8}}>
-            <button onClick={() => setShowChallanModal(true)}
-              style={{padding:'6px 14px',background:'#fff',color:'#023c62',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:'pointer'}}>
-              Create Challan & Send to Plant
-            </button>
-            <button onClick={() => setSelected(new Set())}
-              style={{padding:'6px 14px',background:'rgba(255,255,255,0.15)',color:'#fff',borderRadius:8,fontSize:12,border:'none',cursor:'pointer'}}>
-              Clear
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Table */}
-      <div className="crm-surface orders-table-surface" style={{borderRadius:24,overflow:'visible',boxShadow:'0 12px 28px rgba(2,60,98,0.06)'}}>
-        <div style={{padding:'18px 22px',borderBottom:'1px solid #edf3f8',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',background:'#fff'}}>
-          <div>
-            <h2 style={{margin:'0 0 4px',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:19,color:'#023c62'}}>Order Queue</h2>
-            <p style={{margin:0,fontSize:13,color:'#6b7fa3'}}>Clean operational list with customer, garments, status, amount, and due date.</p>
-          </div>
-          <Link href="/dashboard/orders/new" style={{display:'inline-flex',alignItems:'center',gap:6,textDecoration:'none',color:'#035a8f',fontSize:13,fontWeight:700}}>
-            Create new order <ArrowRight size={14} />
-          </Link>
-        </div>
-        <table style={{width:'100%',borderCollapse:'collapse',overflow:'visible'}}>
-          <thead><tr style={{background:'#fbfcfe'}}>
-            <th style={{padding:'12px 12px 12px 18px',borderBottom:'1px solid #e8f0f7',width:34}}>
-              <input type="checkbox" checked={selected.size === orders.length && orders.length > 0}
-                onChange={toggleAll} style={{cursor:'pointer'}}/>
-            </th>
-            {['Order','Customer','Garments / Service','Status','Payment','Dates','Actions'].map(h=>(
-              <th key={h} style={{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:800,color:'#7c8da5',letterSpacing:'0.08em',textTransform:'uppercase' as const,borderBottom:'1px solid #e8f0f7'}}>{h}</th>
-            ))}
-          </tr></thead>
+      {/* Order table */}
+      <div className="crm2-panel orders-table-surface" style={{ overflow: 'visible' }}>
+        <table className="crm2-table" style={{ overflow: 'visible' }}>
+          <thead>
+            <tr>
+              <th style={{ width: 36, padding: '10px 10px 10px 16px' }}>
+                <input
+                  type="checkbox"
+                  checked={selected.size === orders.length && orders.length > 0}
+                  onChange={toggleAll}
+                  style={{ cursor: 'pointer' }}
+                />
+              </th>
+              <th>Order</th>
+              <th>Customer</th>
+              <th>Garments / Service</th>
+              <th>Status</th>
+              <th style={{ textAlign: 'right' }}>Amount</th>
+              <th>Dates</th>
+              <th style={{ textAlign: 'right', paddingRight: 18 }}>Actions</th>
+            </tr>
+          </thead>
           <tbody>
             {loading
-              ? <tr><td colSpan={8} style={{padding:0}}><TableLoader rows={6} columns={7} /></td></tr>
+              ? <tr><td colSpan={8} style={{ padding: 0 }}><TableLoader rows={6} columns={7} /></td></tr>
               : !orders.length
-                ? <tr><td colSpan={8} style={{padding:48,textAlign:'center',color:'#9dafc8',fontSize:15}}>
+                ? <tr><td colSpan={8} style={{ padding: 48, textAlign: 'center', color: '#9dafc8', fontSize: 14 }}>
                     No orders found.<br/>
-                    <Link href="/dashboard/orders/new" style={{color:'#023c62',fontWeight:600}}>Create the first one →</Link>
+                    <Link href="/dashboard/orders/new" style={{ color: '#023c62', fontWeight: 700 }}>Create the first one →</Link>
                   </td></tr>
-                : orders.map((o:any,i:number)=>{
+                : orders.map((o:any)=>{
                     const isSentToPlant = o.status === 'SENT_TO_PLANT'
                     const statusChoices = getStatusChoices(o.status, editableStatuses, currentStaff)
                     const isLockedToPlantOnly = plantStatuses.includes(o.status) && statusChoices.length <= 1
                     const statusStyle = statusStyles[o.status] || { bg: '#f7f9fc', text: '#023c62', border: '#dce8f0' }
                     return (
-                      <tr key={o.id} className="crm-table-row" style={{borderBottom:'1px solid #edf3f8',background:selected.has(o.id)?'#eff6ff':'#fff',position:'relative'}}>
-                        <td style={{padding:'16px 12px 16px 18px'}}>
-                          <input type="checkbox" checked={selected.has(o.id)}
-                            onChange={() => toggleSelect(o.id)} style={{cursor:'pointer'}}
-                            disabled={isSentToPlant}/>
+                      <tr key={o.id} className={selected.has(o.id) ? 'crm2-row-selected' : undefined}>
+                        <td style={{ padding: '13px 10px 13px 16px' }}>
+                          <input
+                            type="checkbox"
+                            checked={selected.has(o.id)}
+                            onChange={() => toggleSelect(o.id)}
+                            style={{ cursor: 'pointer' }}
+                            disabled={isSentToPlant}
+                          />
                         </td>
-                        <td style={{padding:'16px 14px',minWidth:132}}>
-                          <Link href={`/dashboard/orders/${o.id}`}
-                            style={{fontFamily:"var(--crm-font-mono)",fontSize:14,fontWeight:800,color:'#023c62',textDecoration:'none'}}>
+                        <td style={{ minWidth: 128 }}>
+                          <Link
+                            href={`/dashboard/orders/${o.id}`}
+                            style={{ fontFamily: 'var(--crm-font-mono)', fontSize: 13, fontWeight: 800, color: '#023c62', textDecoration: 'none' }}
+                          >
                             {o.orderNumber}
                           </Link>
-                          {isSentToPlant && <span style={{fontSize:10,background:'#fef9c3',color:'#854d0e',padding:'2px 6px',borderRadius:4,marginLeft:6,fontWeight:600}}>AT PLANT</span>}
+                          {isSentToPlant && (
+                            <span style={{ display: 'inline-flex', fontSize: 9.5, background: '#fef9c3', color: '#854d0e', padding: '2px 6px', borderRadius: 5, marginLeft: 6, fontWeight: 700, letterSpacing: '0.04em' }}>
+                              AT PLANT
+                            </span>
+                          )}
                         </td>
-                        <td style={{padding:'16px 14px',minWidth:180}}>
-                          <div style={{fontSize:14,fontWeight:700,color:'#1a2332',lineHeight:1.35}}>{o.customer?.name||'—'}</div>
-                          <div style={{fontSize:12,color:'#8ba0bb',marginTop:3}}>+91 {o.customer?.phone}</div>
+                        <td style={{ minWidth: 160 }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 700, color: '#1a2332', lineHeight: 1.3 }}>{o.customer?.name || '—'}</div>
+                          <div style={{ fontSize: 11.5, color: '#8ba0bb', marginTop: 2 }}>+91 {o.customer?.phone}</div>
                         </td>
-                        <td style={{padding:'16px 14px',fontSize:13,color:'#31445c',minWidth:280,maxWidth:340}}>
+                        <td style={{ minWidth: 220, maxWidth: 320 }}>
                           <ItemSummary items={o.items || []} />
                         </td>
-                        <td style={{padding:'16px 14px',minWidth:160}}>
+                        <td style={{ minWidth: 150 }}>
                           {isLockedToPlantOnly
-                            ? <span style={{fontSize:12,fontWeight:800,padding:'7px 10px',borderRadius:10,color:statusStyle.text,background:statusStyle.bg,border:`1px solid ${statusStyle.border}`}}>
-                                <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Lock size={12} /> {getStatusLabel(o.status, o.source, statusLabels)}</span>
+                            ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, padding: '6px 10px', borderRadius: 9, color: statusStyle.text, background: statusStyle.bg, border: `1px solid ${statusStyle.border}` }}>
+                                <Lock size={11} /> {getStatusLabel(o.status, o.source, statusLabels)}
                               </span>
-                            : <select value={o.status} onChange={e=>updateStatus(o.id, o.status, e.target.value)}
-                                style={{border:`1px solid ${statusStyle.border}`,cursor:'pointer',fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:12,outline:'none',borderRadius:10,padding:'7px 10px',background:statusStyle.bg,color:statusStyle.text,maxWidth:150}}>
-                                {statusChoices.map(s=><option key={s} value={s}>{getStatusLabel(s, o.source, statusLabels)}</option>)}
+                            : <select
+                                value={o.status}
+                                onChange={e => updateStatus(o.id, o.status, e.target.value)}
+                                style={{
+                                  border: `1px solid ${statusStyle.border}`,
+                                  cursor: 'pointer',
+                                  fontFamily: 'var(--crm-font-ui)',
+                                  fontWeight: 700,
+                                  fontSize: 12,
+                                  outline: 'none',
+                                  borderRadius: 9,
+                                  padding: '6px 9px',
+                                  background: statusStyle.bg,
+                                  color: statusStyle.text,
+                                  maxWidth: 150,
+                                }}
+                              >
+                                {statusChoices.map(s => <option key={s} value={s}>{getStatusLabel(s, o.source, statusLabels)}</option>)}
                               </select>
                           }
                         </td>
-                        <td style={{padding:'16px 14px',minWidth:118}}>
-                          <div style={{fontWeight:900,color:'#023c62',fontSize:15,lineHeight:1.2}}>₹{o.totalAmount?.toLocaleString('en-IN')}</div>
-                          <span style={{display:'inline-flex',marginTop:6,fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:7,border:`1px solid ${paymentTone(o.paymentStatus).border}`,background:paymentTone(o.paymentStatus).bg,color:paymentTone(o.paymentStatus).color}}>
-                            {o.paymentStatus || 'UNPAID'}
-                          </span>
+                        <td style={{ minWidth: 110, textAlign: 'right' }}>
+                          <div style={{ fontWeight: 800, color: '#023c62', fontSize: 14, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                            ₹{o.totalAmount?.toLocaleString('en-IN')}
+                          </div>
+                          <div style={{ marginTop: 4, display: 'flex', justifyContent: 'flex-end' }}>
+                            <Badge label={o.paymentStatus || 'UNPAID'} status={o.paymentStatus || 'UNPAID'} size="sm" />
+                          </div>
                         </td>
-                        <td style={{padding:'16px 14px',fontSize:12,color:'#6b7fa3',minWidth:124}}>
-                          <div style={{display:'flex',alignItems:'center',gap:6,color:'#31445c',fontWeight:800}}><CalendarDays size={13} /> {format(new Date(o.createdAt),'dd MMM yy')}</div>
-                          {o.deliveryDate && <div style={{marginTop:5,color:'#0f766e',fontWeight:700}}>Due {format(new Date(o.deliveryDate),'dd MMM')}</div>}
+                        <td style={{ fontSize: 12, color: '#6b7fa3', minWidth: 116 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#31445c', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                            <CalendarDays size={12} /> {format(new Date(o.createdAt), 'dd MMM yy')}
+                          </div>
+                          {o.deliveryDate && <div style={{ marginTop: 4, color: '#0f766e', fontWeight: 700, fontSize: 11.5, whiteSpace: 'nowrap' }}>Due {format(new Date(o.deliveryDate), 'dd MMM')}</div>}
                         </td>
-                        <td style={{padding:'16px 18px 16px 14px',position:'relative',overflow:'visible',minWidth:166}}>
-                          <div style={{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:8,position:'relative',zIndex:2}}>
+                        <td style={{ paddingRight: 16, position: 'relative', overflow: 'visible', minWidth: 158 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 7, position: 'relative', zIndex: 2 }}>
                             {READY_ALLOWED_STATUSES.has(o.status) && (
                               <button
                                 onClick={() => markReady(o)}
-                                style={{height:32,padding:'0 13px',borderRadius:9,border:'1px solid #b7ead4',background:'#ecfdf5',color:'#047857',fontSize:12,fontWeight:900,cursor:'pointer'}}
+                                style={{ height: 30, padding: '0 12px', borderRadius: 8, border: '1px solid #b7ead4', background: '#ecfdf5', color: '#047857', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
                               >
                                 Clean
                               </button>
                             )}
-                            <Link href={`/dashboard/orders/${o.id}`}
-                              style={{fontSize:12,color:'#035a8f',fontWeight:800,textDecoration:'none',padding:'0 4px'}}>
+                            <Link
+                              href={`/dashboard/orders/${o.id}`}
+                              style={{ fontSize: 12, color: '#035a8f', fontWeight: 800, textDecoration: 'none', padding: '0 4px' }}
+                            >
                               View
                             </Link>
-                            <details className="crm-action-menu" style={{position:'relative',zIndex:1000}}>
+                            <details className="crm-action-menu" style={{ position: 'relative', zIndex: 1000 }}>
                               <summary
                                 title="More order actions"
                                 aria-label="More order actions"
-                                style={{listStyle:'none',cursor:'pointer',display:'inline-flex',alignItems:'center',justifyContent:'center',width:30,height:30,borderRadius:8,border:'1px solid #dce8f0',background:'#fff',color:'#6b7fa3'}}
+                                style={{ listStyle: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 8, border: '1px solid #e3ebf3', background: '#fff', color: '#6b7fa3' }}
                               >
-                                <MoreHorizontal size={16} strokeWidth={2.6} />
+                                <MoreHorizontal size={15} strokeWidth={2.6} />
                               </summary>
-                              <div style={{position:'absolute',right:0,top:36,minWidth:190,background:'#fff',border:'1px solid #dce8f0',borderRadius:12,boxShadow:'0 16px 34px rgba(2,60,98,0.18)',padding:8,zIndex:9999}}>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=receipt`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print A4 Receipt</Link>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=thermal`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print 80mm Thermal</Link>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=garment`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print Garment Tags</Link>
-                                <Link href={`/dashboard/print?orderId=${o.id}&type=bag`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8,background:'transparent'}}>Print Bag Tags</Link>
+                              <div style={{ position: 'absolute', right: 0, top: 34, minWidth: 190, background: '#fff', border: '1px solid #dce8f0', borderRadius: 12, boxShadow: '0 16px 34px rgba(2,60,98,0.18)', padding: 8, zIndex: 9999 }}>
+                                <Link href={`/dashboard/print?orderId=${o.id}&type=receipt`} style={{ display: 'block', padding: '8px 10px', fontSize: 12, color: '#023c62', textDecoration: 'none', borderRadius: 8, background: 'transparent' }}>Print A4 Receipt</Link>
+                                <Link href={`/dashboard/print?orderId=${o.id}&type=thermal`} style={{ display: 'block', padding: '8px 10px', fontSize: 12, color: '#023c62', textDecoration: 'none', borderRadius: 8, background: 'transparent' }}>Print 80mm Thermal</Link>
+                                <Link href={`/dashboard/print?orderId=${o.id}&type=garment`} style={{ display: 'block', padding: '8px 10px', fontSize: 12, color: '#023c62', textDecoration: 'none', borderRadius: 8, background: 'transparent' }}>Print Garment Tags</Link>
+                                <Link href={`/dashboard/print?orderId=${o.id}&type=bag`} style={{ display: 'block', padding: '8px 10px', fontSize: 12, color: '#023c62', textDecoration: 'none', borderRadius: 8, background: 'transparent' }}>Print Bag Tags</Link>
                               </div>
                             </details>
                           </div>
@@ -552,60 +571,86 @@ function OrdersPageContent() {
         pageSizeOptions={[10, 20, 30, 50, 100]}
       />
 
+      {/* Floating bulk action bar */}
+      {selected.size > 0 && (
+        <div className="crm2-bulkbar">
+          <span style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+            <strong>{selected.size}</strong> selected · {formatCurrency(selectedValue)}
+          </span>
+          <button
+            onClick={() => setShowChallanModal(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 15px', background: '#fff', color: '#023c62', borderRadius: 999, fontSize: 12.5, fontWeight: 800, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          >
+            <ClipboardList size={14} />
+            Create Challan
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            aria-label="Clear selection"
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, background: 'rgba(255,255,255,0.14)', color: '#fff', borderRadius: 999, border: 'none', cursor: 'pointer' }}
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
       {/* Create Challan Modal */}
       {showChallanModal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50}}>
-          <div style={{background:'#fff',borderRadius:16,padding:24,width:'100%',maxWidth:480,boxShadow:'0 20px 60px rgba(0,0,0,0.15)'}}>
-            <h2 style={{fontFamily:"var(--crm-font-display)",fontWeight:700,fontSize:18,marginBottom:4}}>Create Delivery Challan</h2>
-            <p style={{fontSize:13,color:'#6b7fa3',marginBottom:20}}>
-              {selected.size} order{selected.size > 1 ? 's' : ''} will be sent to the plant and locked until the plant marks them as received.
-            </p>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.42)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 480, boxShadow: '0 28px 64px rgba(2,60,98,0.22)', border: '1px solid #e3ebf3', overflow: 'hidden' }}>
+            <div style={{ padding: '18px 22px 14px', borderBottom: '1px solid #eef3f8' }}>
+              <h2 style={{ fontFamily: 'var(--crm-font-display)', fontWeight: 700, fontSize: 18, margin: '0 0 4px', color: '#142033' }}>Create Delivery Challan</h2>
+              <p style={{ fontSize: 13, color: '#6b7fa3', margin: 0, lineHeight: 1.5 }}>
+                {selected.size} order{selected.size > 1 ? 's' : ''} will be sent to the plant and locked until the plant marks them as received.
+              </p>
+            </div>
 
-            {/* Selected orders preview */}
-            <div style={{background:'#f8fafc',borderRadius:8,padding:12,marginBottom:16,maxHeight:120,overflowY:'auto' as const}}>
-              {selectedOrders.map((o:any) => (
-                <div key={o.id} style={{fontSize:12,color:'#374151',padding:'3px 0',display:'flex',justifyContent:'space-between'}}>
-                  <span style={{fontFamily:'monospace',color:'#023c62'}}>{o.orderNumber}</span>
-                  <span style={{color:'#6b7fa3'}}>{o.customer?.name}</span>
+            <div style={{ padding: 22 }}>
+              {/* Selected orders preview */}
+              <div style={{ background: '#fbfdff', border: '1px solid #eef3f8', borderRadius: 10, padding: 12, marginBottom: 16, maxHeight: 120, overflowY: 'auto' as const }}>
+                {selectedOrders.map((o:any) => (
+                  <div key={o.id} style={{ fontSize: 12, color: '#374151', padding: '3px 0', display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontFamily: 'var(--crm-font-mono)', color: '#023c62' }}>{o.orderNumber}</span>
+                    <span style={{ color: '#6b7fa3' }}>{o.customer?.name}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#51657f', display: 'block', marginBottom: 6 }}>Send to Plant *</label>
+                  <select value={challanForm.plant} onChange={(e:any)=>setChallanForm({...challanForm,plant:e.target.value})}
+                    style={{ width: '100%', border: '1.5px solid #e3ebf3', borderRadius: 10, padding: '9px 12px', fontSize: 13, background: '#fff' }}>
+                    {plantPartners.map((plant) => <option key={plant.value} value={plant.value}>{plant.label}</option>)}
+                  </select>
                 </div>
-              ))}
-            </div>
-
-            <div style={{display:'flex',flexDirection:'column' as const,gap:14}}>
-              <div>
-                <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Send to Plant *</label>
-                <select value={challanForm.plant} onChange={(e:any)=>setChallanForm({...challanForm,plant:e.target.value})}
-                  style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
-                  {plantPartners.map((plant) => <option key={plant.value} value={plant.value}>{plant.label}</option>)}
-                </select>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#51657f', display: 'block', marginBottom: 6 }}>Driver Name</label>
+                  <input type="text" value={challanForm.driverName} onChange={(e:any)=>setChallanForm({...challanForm,driverName:e.target.value})}
+                    placeholder="Optional"
+                    style={{ width: '100%', border: '1.5px solid #e3ebf3', borderRadius: 10, padding: '9px 12px', fontSize: 13, boxSizing: 'border-box' as const }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#51657f', display: 'block', marginBottom: 6 }}>Vehicle No</label>
+                  <input type="text" value={challanForm.vehicleNo} onChange={(e:any)=>setChallanForm({...challanForm,vehicleNo:e.target.value})}
+                    placeholder="Optional"
+                    style={{ width: '100%', border: '1.5px solid #e3ebf3', borderRadius: 10, padding: '9px 12px', fontSize: 13, boxSizing: 'border-box' as const }}/>
+                </div>
               </div>
-              <div>
-                <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Driver Name</label>
-                <input type="text" value={challanForm.driverName} onChange={(e:any)=>setChallanForm({...challanForm,driverName:e.target.value})}
-                  placeholder="Optional"
-                  style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/>
-              </div>
-              <div>
-                <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Vehicle No</label>
-                <input type="text" value={challanForm.vehicleNo} onChange={(e:any)=>setChallanForm({...challanForm,vehicleNo:e.target.value})}
-                  placeholder="Optional"
-                  style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/>
-              </div>
-            </div>
 
-            <div style={{background:'#fef9c3',borderRadius:8,padding:'10px 14px',marginTop:14,fontSize:12,color:'#854d0e'}}>
-              Once sent to plant, orders will be locked from status updates until the plant marks the challan as Received.
-            </div>
+              <div style={{ background: '#fff9e8', border: '1px solid #f4d5a9', borderRadius: 10, padding: '10px 14px', marginTop: 14, fontSize: 12, color: '#854d0e', lineHeight: 1.5 }}>
+                Once sent to plant, orders will be locked from status updates until the plant marks the challan as Received.
+              </div>
 
-            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:20}}>
-              <button onClick={()=>setShowChallanModal(false)}
-                style={{padding:'8px 16px',fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer'}}>
-                Cancel
-              </button>
-              <button onClick={createChallan} disabled={creatingChallan}
-                style={{padding:'10px 20px',background:'#166534',color:'#fff',borderRadius:8,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',opacity:creatingChallan?0.5:1}}>
-                {creatingChallan ? <InlineLoader label="Creating" tone="light" /> : `Send to Plant & Create Challan${selected.size > 1 ? 's' : ''}`}
-              </button>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+                <button onClick={()=>setShowChallanModal(false)} className="crm2-btn-secondary">
+                  Cancel
+                </button>
+                <button onClick={createChallan} disabled={creatingChallan}
+                  style={{ padding: '9px 18px', background: '#166534', color: '#fff', borderRadius: 10, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', opacity: creatingChallan ? 0.5 : 1 }}>
+                  {creatingChallan ? <InlineLoader label="Creating" tone="light" /> : `Send to Plant & Create Challan${selected.size > 1 ? 's' : ''}`}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -614,28 +659,28 @@ function OrdersPageContent() {
       {statusModal.open && (() => {
         const meta = getCorrectionMeta(statusModal.kind)
         return (
-          <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.42)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:55,padding:20}}>
-            <div style={{width:'100%',maxWidth:560,background:'#fff',borderRadius:24,border:'1px solid #e4edf5',boxShadow:'0 28px 64px rgba(2,60,98,0.22)',overflow:'hidden'}}>
-              <div style={{padding:'20px 24px 16px',background:meta.bg,borderBottom:'1px solid #edf3f8'}}>
-                <div style={{fontFamily:'var(--crm-font-display)',fontWeight:800,fontSize:22,color:meta.tone}}>{meta.title}</div>
-                <div style={{marginTop:6,fontSize:13,lineHeight:1.55,color:'#51657f'}}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.42)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 55, padding: 20 }}>
+            <div style={{ width: '100%', maxWidth: 560, background: '#fff', borderRadius: 18, border: '1px solid #e3ebf3', boxShadow: '0 28px 64px rgba(2,60,98,0.22)', overflow: 'hidden' }}>
+              <div style={{ padding: '18px 22px 15px', background: meta.bg, borderBottom: '1px solid #eef3f8' }}>
+                <div style={{ fontFamily: 'var(--crm-font-display)', fontWeight: 800, fontSize: 20, color: meta.tone }}>{meta.title}</div>
+                <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.55, color: '#51657f' }}>
                   {getStatusLabel(statusModal.currentStatus, '', statusLabels)} → {getStatusLabel(statusModal.target, '', statusLabels)}. {meta.hint}
                 </div>
               </div>
-              <div style={{padding:24}}>
-                <label style={{display:'block',fontSize:12,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:8}}>Reason</label>
+              <div style={{ padding: 22 }}>
+                <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Reason</label>
                 <textarea
                   value={statusModal.reason}
                   onChange={(e)=>setStatusModal((current)=>({...current,reason:e.target.value}))}
                   placeholder="Enter the operational reason for this correction"
                   rows={4}
-                  style={{width:'100%',resize:'vertical',border:'1.5px solid #dce8f0',borderRadius:14,padding:'12px 14px',fontSize:14,lineHeight:1.5,color:'#142033',outline:'none',boxSizing:'border-box'}}
+                  style={{ width: '100%', resize: 'vertical', border: '1.5px solid #e3ebf3', borderRadius: 12, padding: '11px 13px', fontSize: 13.5, lineHeight: 1.5, color: '#142033', outline: 'none', boxSizing: 'border-box' }}
                 />
-                <div style={{marginTop:16,display:'flex',justifyContent:'flex-end',gap:10}}>
-                  <button onClick={()=>setStatusModal({ open:false, orderId:'', currentStatus:'', target:'', kind:'forward', reason:'' })} style={{padding:'11px 16px',borderRadius:12,border:'1px solid #dce8f0',background:'#fff',color:'#51657f',fontWeight:700,cursor:'pointer'}}>
+                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <button onClick={()=>setStatusModal({ open:false, orderId:'', currentStatus:'', target:'', kind:'forward', reason:'' })} className="crm2-btn-secondary">
                     Cancel
                   </button>
-                  <button onClick={submitStatusModal} style={{padding:'11px 16px',borderRadius:12,border:'none',background:'#023c62',color:'#fff',fontWeight:800,cursor:'pointer'}}>
+                  <button onClick={submitStatusModal} className="crm2-btn-primary">
                     Confirm Change
                   </button>
                 </div>

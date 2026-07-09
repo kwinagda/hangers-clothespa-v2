@@ -240,6 +240,220 @@ textarea:focus {
   }
 }
 
+/* ── CRM v2 workspace surfaces (dashboard + orders redesign) ─────────── */
+.crm2-page {
+  padding: 26px 30px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+@media (max-width: 760px) {
+  .crm2-page { padding: 18px 16px; }
+}
+
+.crm2-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.crm2-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 336px;
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .crm2-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crm2-main-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 620px) {
+  .crm2-kpi-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.crm2-panel {
+  background: #fff;
+  border: 1px solid #e3ebf3;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(2, 60, 98, 0.05);
+}
+
+.crm2-panel-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid #eef3f8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.crm2-panel-title {
+  margin: 0;
+  font-family: var(--crm-font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: #142033;
+  letter-spacing: -0.01em;
+}
+
+.crm2-panel-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #8ba0bb;
+  line-height: 1.4;
+}
+
+.crm2-panel-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #035a8f;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.crm2-chiprow {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.crm2-chiprow::-webkit-scrollbar { display: none; }
+
+.crm2-chip {
+  padding: 6px 13px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid #dbe6f0;
+  background: #fff;
+  color: #51657f;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.crm2-chip:hover { border-color: #b8d0e8; color: #023c62; }
+
+.crm2-chip-active,
+.crm2-chip-active:hover {
+  background: #023c62;
+  border-color: #023c62;
+  color: #fff;
+}
+
+.crm2-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.crm2-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #7c8da5;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  border-bottom: 1px solid #e8f0f7;
+  background: #fbfcfe;
+  white-space: nowrap;
+}
+
+.crm2-table td {
+  padding: 13px 14px;
+  border-bottom: 1px solid #eef3f8;
+  vertical-align: middle;
+}
+
+.crm2-table tbody tr { transition: background-color 160ms ease; }
+.crm2-table tbody tr:hover { background: #f7fafd; }
+.crm2-table tbody tr:last-child td { border-bottom: none; }
+
+.crm2-row-selected,
+.crm2-table tbody tr.crm2-row-selected:hover { background: #eef6fd; }
+
+.crm2-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #023c62;
+  color: #fff;
+  border: 1px solid #023c62;
+  text-decoration: none;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 700;
+  font-family: var(--crm-font-ui);
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.crm2-btn-primary:hover { background: #035a8f; border-color: #035a8f; }
+
+.crm2-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #fff;
+  color: #023c62;
+  border: 1px solid #d6e2ee;
+  text-decoration: none;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: var(--crm-font-ui);
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.crm2-btn-secondary:hover { background: #f2f7fb; border-color: #b8d0e8; }
+
+.crm2-bulkbar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 24px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #04263f;
+  color: #fff;
+  border-radius: 999px;
+  padding: 10px 12px 10px 20px;
+  box-shadow: 0 18px 42px rgba(2, 38, 63, 0.38);
+  border: 1px solid rgba(184, 208, 232, 0.28);
+  max-width: calc(100vw - 32px);
+}
+
+.crm2-bulkbar a:hover,
+.crm2-bulkbar button:hover { transform: none; }
+
+.crm2-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 18px;
+  text-decoration: none;
+  color: #142033;
+  border-bottom: 1px solid #f0f5fa;
+}
+
+.crm2-list-row:last-child { border-bottom: none; }
+.crm2-list-row:hover { background: #f7fafd; transform: none; }
+
 .nav-link { display:flex; align-items:center; gap:12px; padding:10px 16px; border-radius:12px; font-size:14px; font-weight:500; color:rgba(219,234,254,0.7); transition:all 0.15s; }
 .nav-link:hover { background:rgba(255,255,255,0.1); color:white; }
 .nav-link.active { background:rgba(255,255,255,0.15); color:white; }

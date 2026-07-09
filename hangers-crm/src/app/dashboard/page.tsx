@@ -6,19 +6,23 @@ import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import {
   ArrowRight,
+  ArrowUpRight,
   BarChart3,
-  CheckCircle2,
   ChevronRight,
   ClipboardList,
   Clock3,
+  FileStack,
   IndianRupee,
   PackagePlus,
   Receipt,
   Shirt,
+  Sparkles,
   Truck,
   Users,
 } from 'lucide-react'
 import { ironAPI, metadataAPI, ordersAPI } from '@/lib/api'
+import { Badge, PageHeader, StatCard } from '@/components/ui'
+
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -27,160 +31,11 @@ const asArray = (value: any, keys: string[] = []) => {
   return []
 }
 
-type StatCardProps = {
-  icon: any
-  label: string
-  value: string | number
-  note: string
-  tone?: 'blue' | 'amber' | 'green' | 'violet'
-}
-
-const TONE = {
-  blue: {
-    color: '#023c62',
-    soft: '#e8f0f7',
-    border: '#cfe0ec',
-  },
-  amber: {
-    color: '#9a4d00',
-    soft: '#fff4e5',
-    border: '#f4d5a9',
-  },
-  green: {
-    color: '#0d7a4e',
-    soft: '#e8f7f0',
-    border: '#bfe6d2',
-  },
-  violet: {
-    color: '#5b2fb0',
-    soft: '#f1ebff',
-    border: '#d6c6fa',
-  },
-} as const
-
-function StatCard({ icon: Icon, label, value, note, tone = 'blue' }: StatCardProps) {
-  const palette = TONE[tone]
-  return (
-    <div
-      className="crm-card-hover"
-      style={{
-        background: '#fff',
-        borderRadius: 22,
-        border: `1px solid ${palette.border}`,
-        padding: '20px 20px 18px',
-        boxShadow: '0 10px 28px rgba(2,60,98,0.06)',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div
-          style={{
-            width: 42,
-            height: 42,
-            borderRadius: 14,
-            background: palette.soft,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: palette.color,
-          }}
-        >
-          <Icon size={20} />
-        </div>
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            color: '#6b7fa3',
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-          }}
-        >
-          {label}
-        </span>
-      </div>
-      <div style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 32, color: '#142033', lineHeight: 1 }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 12, color: '#8ca1bc', marginTop: 8, lineHeight: 1.45 }}>{note}</div>
-    </div>
-  )
-}
-
-function SectionCard({
-  title,
-  subtitle,
-  actionHref,
-  actionLabel,
-  children,
-}: {
-  title: string
-  subtitle: string
-  actionHref?: string
-  actionLabel?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div
-      style={{
-        background: '#fff',
-        borderRadius: 24,
-        border: '1px solid #e3edf6',
-        boxShadow: '0 10px 28px rgba(2,60,98,0.06)',
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          padding: '20px 24px 18px',
-          borderBottom: '1px solid #edf3f8',
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}
-      >
-        <div>
-          <h2
-            style={{
-              fontFamily: 'var(--crm-font-display)',
-              fontWeight: 700,
-              fontSize: 19,
-              color: '#023c62',
-              margin: '0 0 4px',
-            }}
-          >
-            {title}
-          </h2>
-          <p style={{ margin: 0, fontSize: 13, color: '#6b7fa3', lineHeight: 1.45 }}>{subtitle}</p>
-        </div>
-        {actionHref && actionLabel && (
-          <Link
-            href={actionHref}
-            style={{
-              textDecoration: 'none',
-              color: '#035a8f',
-              fontSize: 13,
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {actionLabel}
-            <ArrowRight size={14} />
-          </Link>
-        )}
-      </div>
-      <div style={{ padding: 24 }}>{children}</div>
-    </div>
-  )
-}
-
 export default function DashboardPage() {
   const [stats, setStats] = useState<any>(null)
   const [ironSummary, setIronSummary] = useState<any>(null)
   const [statusLabels, setStatusLabels] = useState<Record<string, string>>({})
+  const [statusColors, setStatusColors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -190,11 +45,19 @@ export default function DashboardPage() {
           .getAll()
           .then((r: any) => {
             const metadata = r?.metadata || r?.data?.metadata || {}
-            const labels = (metadata.orderStatuses || []).reduce((acc: Record<string, string>, item: any) => {
-              acc[item.key] = item.label || item.key
-              return acc
-            }, {})
-            setStatusLabels(labels)
+            const orderStatuses = metadata.orderStatuses || []
+            setStatusLabels(
+              orderStatuses.reduce((acc: Record<string, string>, item: any) => {
+                acc[item.key] = item.label || item.key
+                return acc
+              }, {})
+            )
+            setStatusColors(
+              orderStatuses.reduce((acc: Record<string, string>, item: any) => {
+                if (item.color) acc[item.key] = item.color
+                return acc
+              }, {})
+            )
           })
           .catch(() => {
             toast.error('Failed to load dashboard metadata')
@@ -257,474 +120,446 @@ export default function DashboardPage() {
   const readyOrders = stats?.active?.ready || 0
   const activeSubscribers = ironSummary?.active || 0
   const pendingApplications = ironSummary?.pending || 0
+  const piecesToday = ironSummary?.piecesToday || 0
   const billsPending = ironSummary?.billsPending || 0
+  const completionPct = totalToday ? Math.round((deliveredToday / totalToday) * 100) : 0
 
-  const workflowHealth = [
+  const pipelineStages = [
     {
-      label: 'Orders In Queue',
+      label: 'In Queue',
       value: pendingOrders,
-      helper: 'Orders waiting across pickup and plant flow',
-      tone: 'amber' as const,
+      helper: 'Waiting across pickup and plant flow',
+      href: '/dashboard/orders?status=PROCESSING',
+      color: '#9a4d00',
+      bg: '#fff4e5',
     },
     {
-      label: 'Ready For Delivery',
+      label: 'Ready to Dispatch',
       value: readyOrders,
-      helper: 'Orders available for routing and dispatch',
-      tone: 'green' as const,
+      helper: 'Cleaned and awaiting delivery routing',
+      href: '/dashboard/orders?status=READY_FOR_DELIVERY',
+      color: '#0d7a4e',
+      bg: '#e8f7f0',
     },
     {
       label: 'Delivered Today',
       value: deliveredToday,
-      helper: totalToday ? `${Math.round((deliveredToday / totalToday) * 100)}% of today's orders completed` : 'No completed orders yet today',
-      tone: 'blue' as const,
+      helper: totalToday ? `${completionPct}% of today's orders completed` : 'No orders created today yet',
+      href: '/dashboard/orders?status=DELIVERED',
+      color: '#023c62',
+      bg: '#e8f0f7',
     },
   ]
 
   const attentionRows = [
     {
       label: 'Ready orders needing dispatch',
+      note: 'Route and assign delivery',
       value: readyOrders,
       href: '/dashboard/orders?status=READY_FOR_DELIVERY',
-      tone: 'green' as const,
+      icon: Truck,
     },
     {
       label: 'Daily Iron bills pending',
+      note: 'Unpaid subscription bills',
       value: billsPending,
       href: '/dashboard/finance',
-      tone: 'violet' as const,
+      icon: Receipt,
     },
     {
-      label: 'Daily Iron applications pending',
+      label: 'Daily Iron applications',
+      note: 'Awaiting review and approval',
       value: pendingApplications,
       href: '/dashboard/iron/applications',
-      tone: 'amber' as const,
+      icon: FileStack,
     },
   ]
 
+  const quickActions = [
+    { href: '/dashboard/orders/new', icon: PackagePlus, label: 'Create walk-in order' },
+    { href: '/dashboard/customers', icon: Users, label: 'Customer directory' },
+    { href: '/dashboard/finance', icon: Receipt, label: 'Finance & collections' },
+    { href: '/dashboard/reports', icon: BarChart3, label: 'Reports & insights' },
+  ]
+
+  const ironStats = [
+    { label: 'Active', value: activeSubscribers, icon: Users },
+    { label: 'Pending Apps', value: pendingApplications, icon: Clock3 },
+    { label: 'Pieces Today', value: piecesToday, icon: Shirt },
+    { label: 'Bills Pending', value: billsPending, icon: Receipt },
+  ]
+
   return (
-    <div style={{ padding: '30px 34px', maxWidth: 1380, margin: '0 auto' }}>
-      <section
-        style={{
-          background: 'linear-gradient(135deg,#022f50 0%,#035a8f 52%,#0a7496 100%)',
-          borderRadius: 30,
-          padding: '28px 30px',
-          color: '#fff',
-          boxShadow: '0 22px 52px rgba(2,60,98,0.18)',
-          marginBottom: 22,
-        }}
-      >
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0,1.4fr) minmax(320px,0.9fr)',
-            gap: 20,
-            alignItems: 'stretch',
-          }}
-        >
-          <div>
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                background: 'rgba(255,255,255,0.14)',
-                border: '1px solid rgba(255,255,255,0.16)',
-                borderRadius: 999,
-                padding: '7px 12px',
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                marginBottom: 16,
-              }}
-            >
-              <ClipboardList size={14} />
-              Operations Snapshot
+    <div className="crm-page-enter crm2-page">
+      <PageHeader
+        breadcrumb={['Workspace', 'Overview']}
+        title="Dashboard"
+        subtitle={todayDate}
+        actions={
+          <>
+            <Link href="/dashboard/reports" className="crm2-btn-secondary">
+              <BarChart3 size={15} />
+              Reports
+            </Link>
+            <Link href="/dashboard/orders/new" className="crm2-btn-primary">
+              <PackagePlus size={15} />
+              New Order
+            </Link>
+          </>
+        }
+      />
+
+      {/* KPI band */}
+      <div className="crm2-kpi-grid" style={{ marginBottom: 18 }}>
+        <Link href="/dashboard/orders" className="crm-card-hover" style={{ textDecoration: 'none', display: 'block' }}>
+          <StatCard
+            label="Today's Orders"
+            value={totalToday}
+            sub={`${deliveredToday} delivered so far`}
+            icon={<ClipboardList size={16} />}
+            loading={loading}
+          />
+        </Link>
+        <StatCard
+          label="Collections Today"
+          value={fmt(stats?.today?.revenue)}
+          sub={`${fmt(stats?.allTime?.revenue)} all-time`}
+          icon={<IndianRupee size={16} />}
+          loading={loading}
+        />
+        <Link href="/dashboard/orders?status=PROCESSING" className="crm-card-hover" style={{ textDecoration: 'none', display: 'block' }}>
+          <StatCard
+            label="In Queue"
+            value={pendingOrders}
+            sub="Pending and in-process orders"
+            icon={<Clock3 size={16} />}
+            loading={loading}
+          />
+        </Link>
+        <Link href="/dashboard/orders?status=READY_FOR_DELIVERY" className="crm-card-hover" style={{ textDecoration: 'none', display: 'block' }}>
+          <StatCard
+            label="Ready to Dispatch"
+            value={readyOrders}
+            sub="Cleaned, awaiting delivery"
+            icon={<Truck size={16} />}
+            loading={loading}
+          />
+        </Link>
+      </div>
+
+      <div className="crm2-main-grid">
+        {/* Main column */}
+        <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
+          {/* Pipeline */}
+          <section className="crm2-panel">
+            <div className="crm2-panel-head">
+              <div>
+                <h2 className="crm2-panel-title">Today&apos;s Pipeline</h2>
+                <p className="crm2-panel-sub">Queue pressure across the live workflow</p>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 700, color: completionPct >= 50 ? '#0d7a4e' : '#6b7fa3' }}>
+                {loading ? '—' : `${completionPct}% completed today`}
+              </span>
             </div>
-            <h1
-              style={{
-                fontFamily: 'var(--crm-font-display)',
-                fontWeight: 800,
-                fontSize: 34,
-                lineHeight: 1.05,
-                margin: '0 0 8px',
-              }}
-            >
-              Clear view of today’s orders, dispatch load, and collections.
-            </h1>
-            <p style={{ margin: '0 0 20px', fontSize: 14, color: 'rgba(230,241,250,0.78)', maxWidth: 660, lineHeight: 1.6 }}>
-              Designed for fast operational scanning: revenue, queue pressure, delivery readiness, and Daily Iron movement in one place.
-            </p>
+            <div style={{ padding: '16px 18px 18px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
+                {pipelineStages.map((stage, index) => (
+                  <Link
+                    key={stage.label}
+                    href={stage.href}
+                    className="crm-card-hover"
+                    style={{
+                      textDecoration: 'none',
+                      borderRadius: 12,
+                      border: '1px solid #e8f0f7',
+                      background: '#fbfdff',
+                      padding: '13px 14px',
+                      position: 'relative',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7fa3', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                        {stage.label}
+                      </span>
+                      {index < pipelineStages.length - 1 ? (
+                        <ChevronRight size={14} color="#b8d0e8" />
+                      ) : (
+                        <ArrowUpRight size={14} color="#b8d0e8" />
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                      <span style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 26, fontWeight: 800, color: '#142033', lineHeight: 1 }}>
+                        {loading ? '—' : stage.value}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          color: stage.color,
+                          background: stage.bg,
+                          borderRadius: 999,
+                          padding: '2px 8px',
+                        }}
+                      >
+                        orders
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: '#8ba0bb', marginTop: 8, lineHeight: 1.4 }}>{stage.helper}</div>
+                  </Link>
+                ))}
+              </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12 }}>
-              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 18, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.12)' }}>
-                <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.66)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Today&apos;s Orders</div>
-                <div style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 30, fontWeight: 800 }}>{loading ? '—' : totalToday}</div>
-              </div>
-              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 18, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.12)' }}>
-                <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.66)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Today&apos;s Revenue</div>
-                <div style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 30, fontWeight: 800 }}>{loading ? '—' : fmt(stats?.today?.revenue)}</div>
-              </div>
-              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 18, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.12)' }}>
-                <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.66)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>All-Time Revenue</div>
-                <div style={{ fontFamily: 'var(--crm-font-ui)', fontSize: 30, fontWeight: 800 }}>{loading ? '—' : fmt(stats?.allTime?.revenue)}</div>
+              {/* Completion meter (delivered vs created today) */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7fa3', marginBottom: 6 }}>
+                  <span style={{ fontWeight: 600 }}>Today&apos;s completion</span>
+                  <span>{loading ? '—' : `${deliveredToday} of ${totalToday} orders delivered`}</span>
+                </div>
+                <div style={{ height: 8, borderRadius: 999, background: '#e8f0f7', overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${Math.min(100, completionPct)}%`,
+                      borderRadius: 999,
+                      background: 'linear-gradient(90deg,#035a8f,#023c62)',
+                      transition: 'width 500ms var(--crm-ease)',
+                    }}
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div
-            style={{
-              background: 'rgba(255,255,255,0.1)',
-              borderRadius: 24,
-              border: '1px solid rgba(255,255,255,0.14)',
-              padding: '22px 22px 18px',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(230,241,250,0.66)', marginBottom: 8 }}>
-                Today
+          {/* Recent orders */}
+          <section className="crm2-panel" style={{ overflow: 'hidden' }}>
+            <div className="crm2-panel-head">
+              <div>
+                <h2 className="crm2-panel-title">Recent Orders</h2>
+                <p className="crm2-panel-sub">Latest activity for fast drill-down</p>
               </div>
-              <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 6 }}>{todayDate}</div>
-              <div style={{ fontSize: 13, color: 'rgba(230,241,250,0.72)', lineHeight: 1.55 }}>
-                Use the dashboard to identify queue pressure first, then move into customer, order, finance, or plant actions.
-              </div>
-            </div>
-
-            <div style={{ marginTop: 20, display: 'grid', gap: 10 }}>
-              {attentionRows.map((row) => (
-                <Link
-                  key={row.label}
-                  href={row.href}
-                  style={{
-                    textDecoration: 'none',
-                    color: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                    padding: '12px 14px',
-                    borderRadius: 16,
-                    background: 'rgba(255,255,255,0.08)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{row.label}</div>
-                    <div style={{ fontSize: 11, color: 'rgba(230,241,250,0.64)' }}>Open the relevant work queue</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span
-                      style={{
-                        minWidth: 34,
-                        height: 34,
-                        padding: '0 10px',
-                        borderRadius: 999,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: TONE[row.tone].soft,
-                        color: TONE[row.tone].color,
-                        fontWeight: 800,
-                        fontSize: 14,
-                      }}
-                    >
-                      {loading ? '—' : row.value}
-                    </span>
-                    <ChevronRight size={16} />
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4,minmax(0,1fr))',
-          gap: 14,
-          marginBottom: 22,
-        }}
-      >
-        <StatCard icon={ClipboardList} label="Today's Orders" value={loading ? '—' : totalToday} note="Total orders created today across channels" tone="blue" />
-        <StatCard icon={Clock3} label="Queue Load" value={loading ? '—' : pendingOrders} note="Pending and in-process orders needing movement" tone="amber" />
-        <StatCard icon={Truck} label="Ready To Dispatch" value={loading ? '—' : readyOrders} note="Orders cleaned and ready for delivery assignment" tone="green" />
-        <StatCard icon={IndianRupee} label="Collections Today" value={loading ? '—' : fmt(stats?.today?.revenue)} note="Actual payments recorded today" tone="violet" />
-      </section>
-
-      <section
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(300px,0.95fr) minmax(0,1.35fr)',
-          gap: 18,
-          marginBottom: 22,
-        }}
-      >
-        <SectionCard title="Quick Actions" subtitle="Common operational jumps without browsing through the full nav.">
-          <div style={{ display: 'grid', gap: 10 }}>
-            {[
-              {
-                href: '/dashboard/orders/new',
-                icon: PackagePlus,
-                title: 'Create Walk-in Order',
-                note: 'Use for counter-created bookings and same-visit orders',
-              },
-              {
-                href: '/dashboard/orders?status=READY_FOR_DELIVERY',
-                icon: Truck,
-                title: 'Open Ready Orders',
-                note: 'Review delivery-ready work and move it to dispatch',
-              },
-              {
-                href: '/dashboard/customers',
-                icon: Users,
-                title: 'Open Customer Directory',
-                note: 'Search profiles, address history, and repeat activity',
-              },
-              {
-                href: '/dashboard/finance',
-                icon: Receipt,
-                title: 'Review Finance',
-                note: 'Check collections, balances, and open receivables',
-              },
-              {
-                href: '/dashboard/reports',
-                icon: BarChart3,
-                title: 'Open Reports',
-                note: 'View imported orders, payments, garments, and sales history',
-              },
-            ].map((action) => (
-              <Link
-                key={action.href}
-                href={action.href}
-                className="crm-card-hover"
-                style={{
-                  textDecoration: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '14px 16px',
-                  borderRadius: 18,
-                  background: '#f7fafc',
-                  border: '1px solid #e6eef5',
-                  color: '#142033',
-                }}
-              >
-                <span
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 14,
-                    background: '#e8f0f7',
-                    color: '#023c62',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  <action.icon size={18} />
-                </span>
-                <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: 'block', fontSize: 14, fontWeight: 800, marginBottom: 3 }}>{action.title}</span>
-                  <span style={{ display: 'block', fontSize: 12, color: '#6b7fa3', lineHeight: 1.45 }}>{action.note}</span>
-                </span>
-                <ArrowRight size={15} color="#6b7fa3" />
+              <Link href="/dashboard/orders" className="crm2-panel-link">
+                View all orders <ArrowRight size={13} />
               </Link>
-            ))}
-          </div>
-        </SectionCard>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="crm2-table" style={{ minWidth: 640 }}>
+                <thead>
+                  <tr>
+                    <th>Order</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                    <th>Placed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={5} style={{ padding: 40, textAlign: 'center', color: '#9dafc8', fontSize: 13 }}>
+                        Loading recent orders…
+                      </td>
+                    </tr>
+                  ) : !recentOrders.length ? (
+                    <tr>
+                      <td colSpan={5} style={{ padding: 40, textAlign: 'center', color: '#9dafc8', fontSize: 13 }}>
+                        No orders yet.{' '}
+                        <Link href="/dashboard/orders/new" style={{ color: '#023c62', fontWeight: 700 }}>
+                          Create the first one
+                        </Link>
+                      </td>
+                    </tr>
+                  ) : (
+                    recentOrders.map((order: any) => (
+                      <tr
+                        key={order.id}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => {
+                          window.location.href = `/dashboard/orders/${order.id}`
+                        }}
+                      >
+                        <td style={{ fontFamily: 'var(--crm-font-mono)', fontSize: 12.5, fontWeight: 700, color: '#023c62', whiteSpace: 'nowrap' }}>
+                          {order.orderNumber}
+                        </td>
+                        <td>
+                          <div style={{ fontSize: 13.5, fontWeight: 700, color: '#162235', lineHeight: 1.3 }}>{order.customer?.name || '—'}</div>
+                          <div style={{ fontSize: 11.5, color: '#8da2bc', marginTop: 2 }}>+91 {order.customer?.phone}</div>
+                        </td>
+                        <td>
+                          <Badge
+                            label={statusLabels[order.status] || order.status}
+                            status={order.status}
+                            color={statusColors[order.status]}
+                            size="sm"
+                          />
+                        </td>
+                        <td style={{ textAlign: 'right', fontSize: 13.5, fontWeight: 800, color: '#023c62', whiteSpace: 'nowrap' }}>
+                          ₹{order.totalAmount?.toLocaleString('en-IN')}
+                        </td>
+                        <td style={{ fontSize: 12, color: '#6b7fa3', whiteSpace: 'nowrap' }}>
+                          {format(new Date(order.createdAt), 'dd MMM, h:mm a')}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
 
-        <SectionCard title="Workflow Health" subtitle="The main operational pressure points to scan before opening individual queues.">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
-            {workflowHealth.map((item) => (
-              <div
-                key={item.label}
-                style={{
-                  borderRadius: 20,
-                  border: `1px solid ${TONE[item.tone].border}`,
-                  background: TONE[item.tone].soft,
-                  padding: '16px 18px',
-                }}
-              >
-                <div style={{ fontSize: 11, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>{item.label}</div>
-                <div style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 30, color: TONE[item.tone].color, lineHeight: 1 }}>
-                  {loading ? '—' : item.value}
-                </div>
-                <div style={{ fontSize: 12, color: '#59708f', marginTop: 8, lineHeight: 1.5 }}>{item.helper}</div>
+        {/* Right rail */}
+        <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
+          {/* Needs attention */}
+          <section className="crm2-panel" style={{ overflow: 'hidden' }}>
+            <div className="crm2-panel-head">
+              <div>
+                <h2 className="crm2-panel-title">Needs Attention</h2>
+                <p className="crm2-panel-sub">Open the relevant work queue</p>
               </div>
-            ))}
-          </div>
-
-          <div
-            style={{
-              borderRadius: 20,
-              border: '1px solid #e6eef5',
-              background: '#fbfdff',
-              padding: '18px 20px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: '#023c62' }}>Operational cues</div>
-              <span style={{ fontSize: 12, color: '#8ba0bb' }}>Based on current summary data</span>
             </div>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {[
-                readyOrders > 0
-                  ? `${readyOrders} orders are waiting for delivery planning.`
-                  : 'No ready-for-delivery bottleneck right now.',
-                pendingOrders > readyOrders
-                  ? 'Processing load is higher than dispatch load; plant throughput should be watched.'
-                  : 'Dispatch load is keeping pace with the processing queue.',
-                totalToday > 0
-                  ? `${deliveredToday} of ${totalToday} today’s orders are already completed.`
-                  : 'No orders have been created today yet.',
-              ].map((line) => (
-                <div
-                  key={line}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 10,
-                    fontSize: 13,
-                    color: '#3f5876',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  <span style={{ width: 8, height: 8, borderRadius: 999, background: '#6ea8cc', marginTop: 6, flexShrink: 0 }} />
-                  <span>{loading ? 'Loading dashboard insight…' : line}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </SectionCard>
-      </section>
-
-      <section style={{ marginBottom: 22 }}>
-        <SectionCard
-          title="Daily Iron"
-          subtitle="Applications, active subscribers, pieces logged today, and unpaid bill pressure."
-          actionHref="/dashboard/iron/logs"
-          actionLabel="Open logs"
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12 }}>
-            {[
-              { label: 'Active Subscribers', value: activeSubscribers, tone: 'blue' as const, icon: Users },
-              { label: 'Pending Applications', value: pendingApplications, tone: 'amber' as const, icon: Clock3 },
-              { label: 'Pieces Today', value: ironSummary?.piecesToday || 0, tone: 'green' as const, icon: Shirt },
-              { label: 'Bills Pending', value: billsPending, tone: 'violet' as const, icon: Receipt },
-            ].map((item) => (
-              <div
-                key={item.label}
-                style={{
-                  borderRadius: 20,
-                  border: `1px solid ${TONE[item.tone].border}`,
-                  background: '#fff',
-                  padding: '18px 18px 16px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <span style={{ fontSize: 11, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{item.label}</span>
+            <div>
+              {attentionRows.map((row) => (
+                <Link key={row.label} href={row.href} className="crm2-list-row">
                   <span
                     style={{
                       width: 34,
                       height: 34,
-                      borderRadius: 12,
+                      borderRadius: 10,
+                      background: '#e8f0f7',
+                      color: '#023c62',
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      background: TONE[item.tone].soft,
-                      color: TONE[item.tone].color,
+                      flexShrink: 0,
                     }}
                   >
-                    <item.icon size={17} />
+                    <row.icon size={16} />
                   </span>
-                </div>
-                <div style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 30, color: '#142033', lineHeight: 1 }}>
-                  {loading ? '—' : item.value}
-                </div>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-      </section>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>{row.label}</span>
+                    <span style={{ display: 'block', fontSize: 11.5, color: '#8ba0bb', marginTop: 1 }}>{row.note}</span>
+                  </span>
+                  <span
+                    style={{
+                      minWidth: 28,
+                      height: 24,
+                      padding: '0 8px',
+                      borderRadius: 999,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: row.value > 0 ? '#023c62' : '#eef3f8',
+                      color: row.value > 0 ? '#fff' : '#8ba0bb',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {loading ? '—' : row.value}
+                  </span>
+                  <ChevronRight size={15} color="#b8d0e8" style={{ flexShrink: 0 }} />
+                </Link>
+              ))}
+            </div>
+          </section>
 
-      <section>
-        <SectionCard title="Recent Orders" subtitle="Latest activity for fast drill-down into live customer work." actionHref="/dashboard/orders" actionLabel="View all orders">
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
-              <thead>
-                <tr style={{ background: '#f7fafc' }}>
-                  {['Order #', 'Customer', 'Status', 'Amount', 'Date'].map((heading) => (
-                    <th
-                      key={heading}
-                      style={{
-                        padding: '12px 18px',
-                        textAlign: 'left',
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: '#6b7fa3',
-                        letterSpacing: '0.08em',
-                        textTransform: 'uppercase',
-                        borderBottom: '1px solid #e8f0f7',
-                      }}
-                    >
-                      {heading}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={5} style={{ padding: 42, textAlign: 'center', color: '#9dafc8' }}>
-                      Loading dashboard orders…
-                    </td>
-                  </tr>
-                ) : !recentOrders.length ? (
-                  <tr>
-                    <td colSpan={5} style={{ padding: 42, textAlign: 'center', color: '#9dafc8' }}>
-                      No orders yet. <Link href="/dashboard/orders/new" style={{ color: '#023c62' }}>Create the first one</Link>
-                    </td>
-                  </tr>
-                ) : (
-                  recentOrders.map((order: any) => (
-                    <tr
-                      key={order.id}
-                      className="crm-table-row"
-                      style={{ borderBottom: '1px solid #eef4f8', cursor: 'pointer' }}
-                      onClick={() => {
-                        window.location.href = `/dashboard/orders/${order.id}`
-                      }}
-                    >
-                      <td style={{ padding: '14px 18px', fontFamily: 'var(--crm-font-mono)', fontSize: 13, fontWeight: 600, color: '#023c62' }}>
-                        {order.orderNumber}
-                      </td>
-                      <td style={{ padding: '14px 18px' }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#162235', marginBottom: 2 }}>{order.customer?.name || '—'}</div>
-                        <div style={{ fontSize: 12, color: '#8da2bc' }}>+91 {order.customer?.phone}</div>
-                      </td>
-                      <td style={{ padding: '14px 18px' }}>
-                        <span className={`status-badge status-${order.status}`}>{statusLabels[order.status] || order.status}</span>
-                      </td>
-                      <td style={{ padding: '14px 18px', fontSize: 14, fontWeight: 700, color: '#023c62' }}>
-                        ₹{order.totalAmount?.toLocaleString('en-IN')}
-                      </td>
-                      <td style={{ padding: '14px 18px', fontSize: 13, color: '#6b7fa3' }}>
-                        {format(new Date(order.createdAt), 'dd MMM, h:mm a')}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </SectionCard>
-      </section>
+          {/* Daily Iron */}
+          <section className="crm2-panel" style={{ overflow: 'hidden' }}>
+            <div className="crm2-panel-head">
+              <div>
+                <h2 className="crm2-panel-title">Daily Iron</h2>
+                <p className="crm2-panel-sub">Subscription service snapshot</p>
+              </div>
+              <Link href="/dashboard/iron/logs" className="crm2-panel-link">
+                Open logs <ArrowRight size={13} />
+              </Link>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 10, padding: '14px 18px 18px' }}>
+              {ironStats.map((item) => (
+                <div
+                  key={item.label}
+                  style={{
+                    borderRadius: 12,
+                    border: '1px solid #e8f0f7',
+                    background: '#fbfdff',
+                    padding: '12px 13px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                    <item.icon size={14} color="#6b7fa3" />
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: '#6b7fa3', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                      {item.label}
+                    </span>
+                  </div>
+                  <div style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 22, color: '#142033', lineHeight: 1 }}>
+                    {loading ? '—' : item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Quick actions */}
+          <section className="crm2-panel" style={{ overflow: 'hidden' }}>
+            <div className="crm2-panel-head">
+              <div>
+                <h2 className="crm2-panel-title">Quick Actions</h2>
+                <p className="crm2-panel-sub">Common operational jumps</p>
+              </div>
+            </div>
+            <div>
+              {quickActions.map((action) => (
+                <Link key={action.href} href={action.href} className="crm2-list-row">
+                  <span
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: 9,
+                      background: '#e8f0f7',
+                      color: '#023c62',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <action.icon size={15} />
+                  </span>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 700 }}>{action.label}</span>
+                  <ArrowRight size={14} color="#b8d0e8" style={{ flexShrink: 0 }} />
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          {/* Cleaned-today accent card */}
+          <section
+            className="crm2-panel"
+            style={{
+              background: 'linear-gradient(135deg,#022f50 0%,#035a8f 100%)',
+              border: '1px solid #023c62',
+              padding: '18px 18px 16px',
+              color: '#fff',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <Sparkles size={15} color="#b8d0e8" />
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#b8d0e8' }}>
+                Operational cue
+              </span>
+            </div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'rgba(232,240,247,0.92)' }}>
+              {loading
+                ? 'Loading dashboard insight…'
+                : readyOrders > 0
+                  ? `${readyOrders} cleaned order${readyOrders === 1 ? ' is' : 's are'} waiting for delivery planning.`
+                  : pendingOrders > 0
+                    ? 'No dispatch bottleneck — keep an eye on plant throughput.'
+                    : 'All clear. No queue pressure right now.'}
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
   )
 }
