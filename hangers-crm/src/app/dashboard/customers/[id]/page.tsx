@@ -53,7 +53,7 @@ function CustomerMetric({
   note: string
 }) {
   return (
-    <div style={{ background: '#fff', borderRadius: 22, border: '1px solid #e4edf5', padding: '18px 18px 16px', boxShadow: '0 10px 24px rgba(2,60,98,0.05)' }}>
+    <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: '18px 20px' }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7fa3', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>
       <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: '#142033' }}>{value}</div>
       <div style={{ marginTop: 8, fontSize: 12, color: '#8ba0bb', lineHeight: 1.45 }}>{note}</div>
@@ -464,65 +464,43 @@ export default function CustomerProfilePage() {
   }
 
   return (
-    <div style={{ padding: '30px 34px', maxWidth: 1380, margin: '0 auto', ...s }}>
-      <section style={{background:'linear-gradient(135deg,#022f50 0%,#035a8f 58%,#0b6f84 100%)',borderRadius:28,padding:'26px 28px',color:'#fff',boxShadow:'0 22px 52px rgba(2,60,98,0.18)',marginBottom:22}}>
-        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.45fr) minmax(320px,0.85fr)',gap:20,alignItems:'stretch'}}>
+    <div style={{ padding: '30px 36px 60px', maxWidth: 1180, margin: '0 auto', ...s }}>
+      <div style={{marginBottom:22}}>
+        <button onClick={() => router.back()} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#6b7fa3',fontWeight:600,background:'none',border:'none',cursor:'pointer',padding:0,marginBottom:18}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          Back to Customers
+        </button>
+        <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:22}}>
+          <div style={{width:56,height:56,borderRadius:14,background:'#e8f0f7',color:'#023c62',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:20,flexShrink:0}}>
+            {(customer.name||'?').split(' ').map((n:string)=>n[0]).join('').slice(0,2).toUpperCase()}
+          </div>
           <div>
-            <button onClick={() => router.back()} style={{ fontSize: 13, color: '#fff', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 999, cursor: 'pointer', marginBottom: 14, padding: '8px 14px', fontWeight: 700 }}>← Back</button>
-            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:10}}>
-              <h1 style={{ fontFamily: "var(--crm-font-display)", fontWeight: 800, fontSize: 32, color: '#fff', margin: 0 }}>
-                {customer.name || 'Unknown Customer'}
-              </h1>
-              <span style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700, background: TAG_COLORS[customer.tag || 'REGULAR']?.bg, color: TAG_COLORS[customer.tag || 'REGULAR']?.color }}>
-                {customer.tag || 'REGULAR'}
-              </span>
-            </div>
-            <p style={{ fontSize: 14, color: 'rgba(232,240,247,0.88)', margin: '0 0 16px', lineHeight: 1.6, maxWidth: 720 }}>
-              Customer workspace for profile edits, wallet activity, saved addresses, recent orders, and Daily Iron operations.
-            </p>
-            <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <CreditCard size={14} />
-                +91 {customer.phone}
-              </span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <PackageCheck size={14} />
-                {stats?.totalOrders || 0} total orders
-              </span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <Wallet size={14} />
-                Wallet {fmt(wallet?.balance || 0)}
-              </span>
+            <div style={{fontFamily:'var(--crm-font-display)',fontWeight:800,fontSize:22,color:'#023c62'}}>{customer.name || 'Unknown Customer'}</div>
+            <div style={{fontSize:13,color:'#6b7fa3',marginTop:3,fontFamily:'var(--crm-font-mono)'}}>
+              +91 {customer.phone}{customer.createdAt ? ` · Customer since ${format(new Date(customer.createdAt),'d MMM yyyy')}` : ''}
             </div>
           </div>
-          <div style={{display:'flex',flexDirection:'column',gap:12,justifyContent:'space-between',background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.16)',borderRadius:24,padding:20}}>
-            <div>
-              <div style={{fontSize:11,color:'rgba(232,240,247,0.72)',fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:6}}>Profile Action</div>
-              <div style={{fontSize:15,fontWeight:700,lineHeight:1.5,color:'#fff'}}>Edit customer profile details here without leaving the customer workspace.</div>
-            </div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              {!editing ? (
-                <button onClick={() => setEditing(true)} style={{ padding: '10px 16px', border: 'none', borderRadius: 14, fontSize: 13, background: '#fff', color: '#023c62', cursor: 'pointer', fontWeight: 800 }}>
-                  Edit Profile
+          <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' as const}}>
+            {!editing ? (
+              <button onClick={() => setEditing(true)} style={{padding:'9px 16px',border:'1.5px solid #dce8f0',borderRadius:10,fontSize:13,background:'#fff',color:'#023c62',cursor:'pointer',fontWeight:700}}>
+                Edit Profile
+              </button>
+            ) : (
+              <>
+                <button onClick={() => setEditing(false)} style={{padding:'9px 14px',border:'1.5px solid #dce8f0',borderRadius:10,fontSize:13,background:'#fff',color:'#6b7fa3',cursor:'pointer',fontWeight:700}}>Cancel</button>
+                <button onClick={saveEdit} disabled={saving} style={{padding:'9px 16px',background:'#023c62',color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer',opacity:saving?0.5:1}}>
+                  {saving ? 'Saving...' : 'Save'}
                 </button>
-              ) : (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button onClick={() => setEditing(false)} style={{ padding: '10px 14px', border: '1px solid rgba(255,255,255,0.22)', borderRadius: 14, fontSize: 13, background: 'rgba(255,255,255,0.08)', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>Cancel</button>
-                  <button onClick={saveEdit} disabled={saving} style={{ padding: '10px 16px', background: '#fff', color: '#023c62', border: 'none', borderRadius: 14, fontSize: 13, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.5 : 1 }}>
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </div>
-      </section>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gap: 18, marginBottom: 22 }}>
         <CustomerMetric label="Total Orders" value={String(stats?.totalOrders || 0)} note="Lifetime order count for this customer." />
         <CustomerMetric label="Total Spend" value={fmt(stats?.totalSpend || 0)} note="Sum of recorded collections across orders." />
         <CustomerMetric label="Outstanding" value={fmt(stats?.outstanding || 0)} note={(stats?.outstanding || 0) > 0 ? 'Customer still has unpaid balance pending.' : 'No open outstanding balance right now.'} />
-        <CustomerMetric label="Wallet" value={fmt(wallet?.balance || 0)} note="Current wallet balance available for future use." />
         <CustomerMetric label="Loyalty" value={String(customer.loyaltyPoints || 0)} note="Available loyalty points on the customer record." />
       </div>
 

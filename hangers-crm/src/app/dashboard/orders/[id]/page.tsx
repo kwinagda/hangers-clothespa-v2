@@ -522,7 +522,7 @@ export default function OrderDetailPage() {
   const totalPieces = order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0
 
   return (
-    <div style={{padding:'30px 34px',maxWidth:1380,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
+    <div style={{padding:'30px 36px 60px',maxWidth:1180,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
       {order.status === 'RETURNED' && (
         <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:14,padding:'12px 16px',marginBottom:16,fontSize:13,color:'#991b1b'}}>
           This order has been returned. {order.notes?.includes('[RETURNED') && <span>{order.notes.match(/[RETURNED[^]]+]/)?.[0]?.replace(/[[]]/g,'')}</span>}
@@ -535,100 +535,41 @@ export default function OrderDetailPage() {
         </div>
       )}
 
-      <section
-        style={{
-          background: 'linear-gradient(135deg,#022f50 0%,#035a8f 58%,#0b6f84 100%)',
-          borderRadius: 28,
-          padding: '26px 28px',
-          color: '#fff',
-          boxShadow: '0 22px 52px rgba(2,60,98,0.18)',
-          marginBottom: 22,
-        }}
-      >
-        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.45fr) minmax(320px,0.85fr)',gap:20,alignItems:'stretch'}}>
+      <div style={{marginBottom:22}}>
+        <Link href="/dashboard/orders" style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#6b7fa3',fontWeight:600,textDecoration:'none',marginBottom:18}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          Back to Orders
+        </Link>
+        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:20,flexWrap:'wrap' as const}}>
           <div>
-            <Link href="/dashboard/orders" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 14px',borderRadius:999,background:'rgba(255,255,255,0.14)',border:'1px solid rgba(255,255,255,0.18)',color:'#fff',textDecoration:'none',fontSize:13,fontWeight:700,marginBottom:16}}>
-              ← Back to Orders
-            </Link>
-            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:10}}>
-              <h1 style={{margin:0,fontFamily:'var(--crm-font-display)',fontWeight:800,fontSize:32,lineHeight:1.05}}>
-                {order.orderNumber}
-              </h1>
-              <span style={{fontSize:12,padding:'6px 12px',borderRadius:999,background:'rgba(255,255,255,0.16)',border:'1px solid rgba(255,255,255,0.18)',fontWeight:700}}>
-                {statusLabel(order.status)}
-              </span>
-              {isAppOrder && (
-                <span style={{fontSize:12,padding:'6px 12px',borderRadius:999,background:'rgba(219,234,254,0.18)',border:'1px solid rgba(219,234,254,0.28)',fontWeight:700,display:'inline-flex',alignItems:'center',gap:6}}>
-                  <Smartphone size={13} />
-                  App Pickup
-                </span>
-              )}
-            </div>
-            <p style={{margin:'0 0 16px',fontSize:14,color:'rgba(232,240,247,0.88)',lineHeight:1.6,maxWidth:720}}>
-              Order view for {order.customer?.name || 'this customer'} with current workflow, payment position, logged garments, and operational actions in one place.
-            </p>
-            <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <CalendarRange size={14} />
-                Created {format(new Date(order.createdAt),'dd MMM yyyy, h:mm a')}
-              </span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <User size={14} />
-                {order.customer?.phone ? `+91 ${order.customer.phone}` : 'Customer phone unavailable'}
-              </span>
-              <span style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:14,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb'}}>
-                <Shirt size={14} />
-                {totalPieces} garment piece{totalPieces === 1 ? '' : 's'}
-              </span>
+            <div style={{fontFamily:'var(--crm-font-display)',fontWeight:800,fontSize:26,color:'#023c62',lineHeight:1.1}}>{order.orderNumber}</div>
+            <div style={{fontSize:13,color:'#6b7fa3',marginTop:4}}>
+              Placed {format(new Date(order.createdAt),'d MMM yyyy, h:mm a')} · {order.createdBy?.name || order.customer?.name || 'Staff'}
             </div>
           </div>
-
-          <div style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.16)',borderRadius:24,padding:20,display:'flex',flexDirection:'column',justifyContent:'space-between',gap:16}}>
-            <div>
-              <div style={{fontSize:11,color:'rgba(232,240,247,0.7)',fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>Primary Action</div>
-              {nextSt && !isLocked && !order.isReturn ? (
-                <button
-                  onClick={() => updateStatus(nextSt)}
-                  disabled={updating}
-                  title={nextBlocked ? 'Add items first before moving to processing' : ''}
-                  style={{
-                    width:'100%',
-                    background:nextBlocked?'rgba(255,255,255,0.12)':'#fff',
-                    color:nextBlocked?'rgba(232,240,247,0.72)':'#023c62',
-                    border:nextBlocked?'1.5px dashed rgba(255,255,255,0.24)':'none',
-                    borderRadius:16,
-                    padding:'14px 16px',
-                    fontSize:14,
-                    fontWeight:800,
-                    cursor:nextBlocked?'not-allowed':'pointer',
-                    display:'flex',
-                    alignItems:'center',
-                    justifyContent:'center',
-                    gap:8
-                  }}
-                >
-                  {nextBlocked && <AlertTriangle size={15} color="#fbbf24" />}
-                  {updating ? 'Updating…' : `Mark as ${statusLabel(nextSt)}`}
-                </button>
-              ) : (
-                <div style={{padding:'14px 16px',borderRadius:16,background:'rgba(255,255,255,0.12)',fontSize:13,color:'#eaf3fb',lineHeight:1.5}}>
-                  No direct forward action is available from this state. Use the workflow controls below for manual status changes.
-                </div>
-              )}
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-              <div style={{padding:'14px 14px 12px',borderRadius:18,background:'rgba(255,255,255,0.1)'}}>
-                <div style={{fontSize:11,color:'rgba(232,240,247,0.68)',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:6}}>Collection</div>
-                <div style={{fontSize:24,fontWeight:800}}>{formatCurrency(order.totalAmount || 0)}</div>
-              </div>
-              <div style={{padding:'14px 14px 12px',borderRadius:18,background:'rgba(255,255,255,0.1)'}}>
-                <div style={{fontSize:11,color:'rgba(232,240,247,0.68)',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:6}}>Balance Due</div>
-                <div style={{fontSize:24,fontWeight:800}}>{formatCurrency(outstandingAmount)}</div>
-              </div>
-            </div>
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' as const}}>
+            <span className={`status-badge status-${order.status}`}>{statusLabel(order.status)}</span>
+            {outstandingAmount > 0
+              ? <span style={{padding:'4px 10px',borderRadius:999,fontSize:12,fontWeight:700,background:'#fee2e2',color:'#991b1b'}}>Unpaid</span>
+              : <span style={{padding:'4px 10px',borderRadius:999,fontSize:12,fontWeight:700,background:'#dcfce7',color:'#166534'}}>Paid</span>
+            }
+            {isAppOrder && <span style={{padding:'4px 10px',borderRadius:999,fontSize:12,fontWeight:700,background:'#eff6ff',color:'#1d4ed8'}}>App Pickup</span>}
           </div>
         </div>
-      </section>
+        {nextSt && !isLocked && !order.isReturn && (
+          <div style={{marginTop:16}}>
+            <button
+              onClick={() => updateStatus(nextSt)}
+              disabled={updating || nextBlocked}
+              title={nextBlocked ? 'Add items first before moving to processing' : ''}
+              style={{display:'inline-flex',alignItems:'center',gap:8,padding:'11px 22px',background:nextBlocked?'#f1f5f9':'#023c62',color:nextBlocked?'#9dafc8':'#fff',border:'none',borderRadius:10,fontSize:13.5,fontWeight:700,cursor:nextBlocked?'not-allowed':'pointer',opacity:updating?0.6:1}}
+            >
+              {nextBlocked && <AlertTriangle size={14} color="#f59e0b" />}
+              {updating ? 'Updating…' : `Mark as ${statusLabel(nextSt)}`}
+            </button>
+          </div>
+        )}
+      </div>
 
       {noItems && !['DELIVERED','CANCELLED'].includes(order.status) && (
         <div style={{background:'#fff8e6',border:'1.5px solid #f59e0b',borderRadius:18,padding:'16px 20px',marginBottom:22,display:'flex',alignItems:'flex-start',gap:14}}>
@@ -644,7 +585,7 @@ export default function OrderDetailPage() {
         </div>
       )}
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:18,marginBottom:22}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:14,marginBottom:20}}>
         <OrderMetric icon={IndianRupee} label="Order Total" value={formatCurrency(order.totalAmount || 0)} note="Current billed total from the order record." tone="blue" />
         <OrderMetric icon={PackageCheck} label="Garments" value={String(totalPieces)} note={noItems ? 'Items still need to be logged.' : `${order.items?.length || 0} distinct item line(s) added.`} tone="amber" />
         <OrderMetric icon={Receipt} label="Collected" value={formatCurrency((order.paidAmount || 0) + (order.writeOffAmount || 0))} note={order.writeOffAmount ? `Includes write-off of ${formatCurrency(order.writeOffAmount)}` : 'Payments and approved write-offs booked so far.'} tone="green" />

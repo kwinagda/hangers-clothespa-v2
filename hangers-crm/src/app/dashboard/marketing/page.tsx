@@ -61,24 +61,44 @@ export default function MarketingPage() {
       </div>
       {tab==='campaigns'&&<div>
         <div style={{display:'flex',justifyContent:'flex-end',marginBottom:16}}>
-          <button onClick={()=>setShowCamp(true)} style={{padding:'10px 20px',background:'#166534',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer'}}>+ New Campaign</button>
+          <button onClick={()=>setShowCamp(true)} style={{padding:'10px 20px',background:'#023c62',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer'}}>+ New Campaign</button>
         </div>
-        <div style={{display:'flex',flexDirection:'column' as const,gap:12}}>
-          {campaigns.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:14,border:'1px solid #e3edf6'}}>No campaigns yet</div>:
-          pagedCampaigns.map((c:any)=><div key={c.id} style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',padding:20}}>
-            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16}}>
-              <div style={{flex:1}}>
-                <div style={{fontWeight:700,color:'#023c62',marginBottom:4}}>{c.name}</div>
-                <div style={{fontSize:13,color:'#6b7fa3',marginBottom:8}}>Audience: {audienceLabel(c.audience)}</div>
-                <div style={{fontSize:13,background:'#f8fafc',borderRadius:8,padding:'8px 12px',color:'#374151'}}>{c.message}</div>
-              </div>
-              <div style={{display:'flex',flexDirection:'column' as const,alignItems:'flex-end',gap:8}}>
-                <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:SS[c.status]?.bg||'#f3f4f6',color:SS[c.status]?.color||'#374151'}}>{c.status}</span>
-                {c.status==='DRAFT'&&<button onClick={async()=>{try{setSending(c.id);const r:any=await campaignsAPI.send(c.id);const sentCount = r?.data?.sentCount ?? r?.sentCount ?? c.sentCount;setCampaigns(campaigns.map(x=>x.id===c.id?{...x,status:'SENT',sentCount}:x))}finally{setSending(null)}}} disabled={sending===c.id} style={{padding:'6px 14px',background:'#166534',color:'#fff',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:'pointer',opacity:sending===c.id?0.5:1}}>{sending===c.id?'Sending...':'Send Now'}</button>}
-                {c.status==='SENT'&&<div style={{fontSize:12,color:'#6b7fa3'}}>Sent to {c.sentCount}</div>}
-              </div>
+        <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden'}}>
+          {campaigns.length===0
+            ? <div style={{padding:48,textAlign:'center',color:'#9dafc8',fontSize:14}}>No campaigns yet</div>
+            : <div style={{overflowX:'auto' as const}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead>
+                  <tr>
+                    {['Campaign','Channel','Audience','Sent','Opened','Status',''].map(h=>(
+                      <th key={h} style={{padding:'11px 18px',textAlign:'left' as const,fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedCampaigns.map((c:any)=>(
+                    <tr key={c.id} style={{borderBottom:'1px solid #eef4f8'}}>
+                      <td style={{padding:'13px 18px',fontSize:13.5,fontWeight:600,color:'#1a2332'}}>{c.name}</td>
+                      <td style={{padding:'13px 18px'}}>
+                        <span style={{width:26,height:26,borderRadius:7,background:'#e8f0f7',color:'#023c62',display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20l1.3-3.9A7.5 7.5 0 1 1 9 18.5L4 20z"/></svg>
+                        </span>
+                      </td>
+                      <td style={{padding:'13px 18px',fontSize:13.5,color:'#1a2332'}}>{audienceLabel(c.audience)}</td>
+                      <td style={{padding:'13px 18px',fontSize:13.5,color:'#1a2332'}}>{c.sentCount||'—'}</td>
+                      <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>—</td>
+                      <td style={{padding:'13px 18px'}}>
+                        <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:SS[c.status]?.bg||'#f3f4f6',color:SS[c.status]?.color||'#374151'}}>{c.status}</span>
+                      </td>
+                      <td style={{padding:'13px 18px'}}>
+                        {c.status==='DRAFT'&&<button onClick={async()=>{try{setSending(c.id);const r:any=await campaignsAPI.send(c.id);const sentCount = r?.data?.sentCount ?? r?.sentCount ?? c.sentCount;setCampaigns(campaigns.map(x=>x.id===c.id?{...x,status:'SENT',sentCount}:x))}finally{setSending(null)}}} disabled={sending===c.id} style={{padding:'5px 12px',background:'#166534',color:'#fff',borderRadius:7,fontSize:12,fontWeight:700,border:'none',cursor:'pointer',opacity:sending===c.id?0.5:1}}>{sending===c.id?'Sending...':'Send Now'}</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </div>)}
+          }
         </div>
         <PaginationControls
           page={campaignPage}
@@ -87,7 +107,7 @@ export default function MarketingPage() {
           itemLabel="campaigns"
           onPageChange={setCampaignPage}
           onPageSizeChange={(size)=>{setPageSize(size); setCampaignPage(1)}}
-          pageSizeOptions={[6,12,18,24]}
+          pageSizeOptions={[12,24,50]}
         />
       </div>}
       {tab==='automations'&&<div>
