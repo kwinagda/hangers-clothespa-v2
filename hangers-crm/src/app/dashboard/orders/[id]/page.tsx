@@ -609,19 +609,6 @@ export default function OrderDetailPage() {
             {isAppOrder && <span style={{padding:'4px 10px',borderRadius:999,fontSize:12,fontWeight:700,background:'#eff6ff',color:'#1d4ed8'}}>App Pickup</span>}
           </div>
         </div>
-        {nextSt && !isLocked && !order.isReturn && (
-          <div style={{marginTop:16}}>
-            <button
-              onClick={() => updateStatus(nextSt)}
-              disabled={updating || nextBlocked}
-              title={nextBlocked ? 'Add items first before moving to processing' : ''}
-              style={{display:'inline-flex',alignItems:'center',gap:8,padding:'11px 22px',background:nextBlocked?'#f1f5f9':'#023c62',color:nextBlocked?'#9dafc8':'#fff',border:'none',borderRadius:10,fontSize:13.5,fontWeight:700,cursor:nextBlocked?'not-allowed':'pointer',opacity:updating?0.6:1}}
-            >
-              {nextBlocked && <AlertTriangle size={14} color="#f59e0b" />}
-              {updating ? 'Updating…' : `Mark as ${statusLabel(nextSt)}`}
-            </button>
-          </div>
-        )}
       </div>
 
       {noItems && !['DELIVERED','CANCELLED'].includes(order.status) && (
