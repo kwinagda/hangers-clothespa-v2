@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const { badRequest, error } = require('../utils/response');
 const { reportQuerySchema } = require('../validation/reports.schemas');
+const { normalizePaymentMethod } = require('../utils/payment-method');
 
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 const FINANCE_ORDER_WHERE = { ...ORDER_ONLY_WHERE, status: { not: 'CANCELLED' } };
@@ -197,7 +198,7 @@ const getReport = async (req, res) => {
           orderBy: { createdAt: 'desc' },
         });
         const byMode = payments.reduce((acc, payment) => {
-          const key = payment.method || payment.mode || 'OTHER';
+          const key = normalizePaymentMethod(payment.method || payment.mode);
           acc[key] = rupees((acc[key] || 0) + Number(payment.amount || 0));
           return acc;
         }, {});
@@ -207,7 +208,7 @@ const getReport = async (req, res) => {
           byMode,
           payments,
           rows: payments.map((payment) => {
-            const method = payment.method || payment.mode || 'OTHER';
+            const method = normalizePaymentMethod(payment.method || payment.mode);
             return {
             label: `${payment.order?.orderNumber || payment.id} - ${method}`,
             value: rupees(payment.amount),

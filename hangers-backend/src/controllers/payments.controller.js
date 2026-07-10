@@ -142,13 +142,14 @@ const getDailySummary = async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
+    const paymentMethod = (payment) => normalizePaymentMethod(payment.method || payment.mode);
     const summary = {
       total:  payments.reduce((s, p) => s + p.amount, 0),
-      cash:   payments.filter(p => p.method === 'CASH').reduce((s, p) => s + p.amount, 0),
-      upi:    payments.filter(p => p.method === 'UPI').reduce((s, p) => s + p.amount, 0),
-      card:   payments.filter(p => p.method === 'CARD').reduce((s, p) => s + p.amount, 0),
-      online: payments.filter(p => p.method === 'RAZORPAY').reduce((s, p) => s + p.amount, 0),
-      other:  payments.filter(p => !['CASH', 'UPI', 'CARD', 'RAZORPAY'].includes(p.method)).reduce((s, p) => s + p.amount, 0),
+      cash:   payments.filter(p => paymentMethod(p) === 'CASH').reduce((s, p) => s + p.amount, 0),
+      upi:    payments.filter(p => paymentMethod(p) === 'UPI').reduce((s, p) => s + p.amount, 0),
+      card:   payments.filter(p => paymentMethod(p) === 'CARD').reduce((s, p) => s + p.amount, 0),
+      online: payments.filter(p => paymentMethod(p) === 'RAZORPAY').reduce((s, p) => s + p.amount, 0),
+      other:  payments.filter(p => !['CASH', 'UPI', 'CARD', 'RAZORPAY'].includes(paymentMethod(p))).reduce((s, p) => s + p.amount, 0),
       count:  payments.length,
     };
 

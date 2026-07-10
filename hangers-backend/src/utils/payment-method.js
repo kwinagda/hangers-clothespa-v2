@@ -1,6 +1,6 @@
 const normalizePaymentMethod = (method) => {
   const raw = String(method || '').trim();
-  const value = raw.replace(/\s+/g, '_').replace(/-/g, '_').toUpperCase();
+  const value = raw.replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_+|_+$/g, '').toUpperCase();
 
   if (!value) return 'OTHER';
   if (['CASH'].includes(value)) return 'CASH';
