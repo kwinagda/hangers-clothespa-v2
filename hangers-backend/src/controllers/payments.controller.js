@@ -108,9 +108,13 @@ const recordPayment = async (req, res) => {
     prisma.order.findFirst({
       where:   { id: orderId },
       include: { customer: { select: { name: true, phone: true } } },
-    }).then((order) => {
-      if (order) sendPaymentReceivedMessage(order, payment.amount, payment.method);
-    }).catch(() => {});
+    }).then(async (order) => {
+      if (!order) return;
+      const sent = await sendPaymentReceivedMessage(order, payment.amount, payment.method);
+      if (!sent) console.warn(`[Whatomate] Payment notification not sent for order ${order.orderNumber}`);
+    }).catch((err) => {
+      console.error('[Whatomate] Payment notification failed:', err?.message || err);
+    });
 
     if (updatedOrder.paymentStatus === 'PAID') {
       processReferralQualification(orderId).catch(() => {});

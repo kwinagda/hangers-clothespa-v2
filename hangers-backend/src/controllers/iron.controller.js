@@ -4,6 +4,7 @@ const {
   sendIronLogNotification,
   sendIronBillNotification,
 } = require('../services/whatsapp-notifications.service');
+const { sendPaymentReceivedMessage } = require('../services/whatomate.service');
 const {
   ACTIVE_IRON_SUB_STATUSES,
   DEFAULT_LANGUAGE,
@@ -12,6 +13,7 @@ const {
   LOCKED_BILL_STATUSES,
 } = require('../config/master-data');
 const { getCorePaymentMethods } = require('../services/masterData.service');
+const { normalizePaymentMethod } = require('../utils/payment-method');
 
 const toDate = (value) => {
   const date = value ? new Date(value) : null;
@@ -844,13 +846,25 @@ const recordBillPayment = async (req, res) => {
   const { amount, paymentMethod } = req.body;
   const paymentAmount = Number(amount);
   if (!(paymentAmount > 0)) return badRequest(res, 'amount must be greater than 0');
+  const normalizedMethod = normalizePaymentMethod(paymentMethod || 'CASH');
   const corePaymentMethods = await getCorePaymentMethods();
-  if (paymentMethod && !corePaymentMethods.includes(paymentMethod)) {
+  if (!corePaymentMethods.includes(normalizedMethod)) {
     return badRequest(res, `paymentMethod must be one of: ${corePaymentMethods.join(', ')}`);
   }
 
   try {
-    const bill = await prisma.ironBill.findUnique({ where: { id: req.params.billId } });
+    const bill = await prisma.ironBill.findUnique({
+      where: { id: req.params.billId },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+          },
+        },
+      },
+    });
     if (!bill) return notFound(res, 'Iron bill not found');
     const balanceDue = Math.max(0, Number((bill.totalAmount - bill.paidAmount).toFixed(2)));
     if (balanceDue <= 0) return badRequest(res, 'Bill is already fully paid');
@@ -863,10 +877,31 @@ const recordBillPayment = async (req, res) => {
       where: { id: bill.id },
       data: {
         paidAmount: nextPaidAmount,
-        paymentMethod: paymentMethod || bill.paymentMethod,
+        paymentMethod: normalizedMethod,
         paidAt: nextStatus === 'PAID' ? new Date() : bill.paidAt,
         status: nextStatus,
       },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+          },
+        },
+      },
+    });
+
+    sendPaymentReceivedMessage({
+      id: updated.id,
+      orderNumber: updated.billNumber,
+      totalAmount: updated.totalAmount,
+      paidAmount: updated.paidAmount,
+      writeOffAmount: 0,
+      deliveryDate: updated.billingPeriodEnd,
+      customer: updated.customer,
+    }, appliedAmount, normalizedMethod).catch((err) => {
+      console.error('[Whatomate] Iron bill payment notification failed:', err?.message || err);
     });
 
     return success(res, { bill: updated }, 'Payment recorded');

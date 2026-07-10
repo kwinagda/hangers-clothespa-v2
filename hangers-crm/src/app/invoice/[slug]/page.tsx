@@ -47,6 +47,11 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
     ['Balance Due', money(invoice.balanceDue)],
   ]
 
+  const itemDetail = (item: any) => {
+    const variant = invoice.invoiceType === 'IRON_BILL' ? dateLabel(item.variant) : item.variant
+    return `${item.serviceName}${variant && variant !== '—' ? ` · ${variant}` : ''}`
+  }
+
   return (
     <main className="public-invoice-page" style={{ minHeight: '100vh', background: '#f4f7fb', padding: '28px 16px 48px', fontFamily: 'var(--crm-font-ui)', color: '#1a2332' }}>
       <style>{`
@@ -207,7 +212,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
               {(invoice.items || []).map((item: any, index: number) => (
                 <tr key={`${item.serviceName}-${item.garmentType}-${index}`} style={{ borderTop: '1px solid #edf3f8' }}>
                   <td style={{ padding: '14px 18px', fontWeight: 700 }}>{item.garmentType || item.serviceName}</td>
-                  <td style={{ padding: '14px 18px', color: '#6b7fa3' }}>{item.serviceName}{item.variant ? ` · ${item.variant}` : ''}</td>
+                  <td style={{ padding: '14px 18px', color: '#6b7fa3' }}>{itemDetail(item)}</td>
                   <td style={{ padding: '14px 18px', textAlign: 'right' }}>{item.quantity}</td>
                   <td style={{ padding: '14px 18px', textAlign: 'right' }}>{money(item.unitPrice)}</td>
                   <td style={{ padding: '14px 18px', textAlign: 'right', fontWeight: 700 }}>{money(item.subtotal)}</td>
@@ -221,7 +226,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           {(invoice.items || []).map((item: any, index: number) => (
             <article className="public-invoice-item-card" key={`${item.serviceName}-${item.garmentType}-mobile-${index}`}>
               <div className="public-invoice-item-title">{item.garmentType || item.serviceName}</div>
-              <div className="public-invoice-item-service">{item.serviceName}{item.variant ? ` · ${item.variant}` : ''}</div>
+              <div className="public-invoice-item-service">{itemDetail(item)}</div>
               <div className="public-invoice-item-grid">
                 <div className="public-invoice-item-metric">
                   <div className="public-invoice-item-label">Qty</div>
