@@ -21,56 +21,61 @@ const getStatusLabel = (status: string, source: string, labels: Record<string, s
   if (status === 'PICKED_UP' && (source === 'counter' || source === 'COUNTER' || source === 'walk-in')) return 'Received'
   return labels[status] || status
 }
-const BACKWARD_TRANSITIONS: Record<string, string[]> = {
-  PICKED_UP: ['PENDING'],
-  PROCESSING: ['PICKED_UP'],
-  IRONING: ['PROCESSING'],
-  READY_FOR_DELIVERY: ['IRONING', 'PROCESSING'],
-  OUT_FOR_DELIVERY: ['READY_FOR_DELIVERY'],
-  CANCELLED: ['PENDING'],
+const EMPTY_WORKFLOW = {
+  next: {} as Record<string, string>,
+  allowedBackward: {} as Record<string, string[]>,
+  crmEditableStatuses: [] as string[],
+  plantLockedStatuses: [] as string[],
+  requiresItems: [] as string[],
+  directReadyAllowedStatuses: [] as string[],
+  directReadyTarget: '',
+  cancellableStatuses: [] as string[],
+  deliveredCorrectionTargets: [] as string[],
 }
-const DELIVERED_CORRECTION_TARGETS = ['READY_FOR_DELIVERY']
-const CANCELLABLE_STATUSES = ['PENDING', 'PICKED_UP', 'PROCESSING', 'READY_FOR_DELIVERY']
 const formatCurrency = (value: number) => `₹${(value || 0).toLocaleString('en-IN')}`
-const NEXT_STATUS: Record<string, string> = {
-  PENDING: 'PICKED_UP',
-  PICKED_UP: 'PROCESSING',
-  PROCESSING: 'IRONING',
-  IRONING: 'READY_FOR_DELIVERY',
-  READY_FOR_DELIVERY: 'OUT_FOR_DELIVERY',
-  OUT_FOR_DELIVERY: 'DELIVERED',
+type OrderViewMeta = { key: string; label: string; title: string; description: string; metric?: string; statuses?: string[] }
+const DEFAULT_ORDER_VIEW: OrderViewMeta = {
+  key: 'all',
+  label: 'All Orders',
+  title: 'All Orders',
+  description: 'Complete operational queue.',
+  metric: 'Total queue',
 }
-const HIDDEN_STATUS_CHOICES = new Set(['WASHING', 'DRYING', 'QC', 'RETURNED'])
-const ORDER_VIEWS = [
-  { key: 'all', label: 'All Orders', title: 'All Orders', description: 'Complete operational queue across every order status.', metric: 'Total queue' },
-  { key: 'in_process', label: 'In Process', title: 'In-Process Orders', description: 'Orders currently being processed, sent to plant, or pending ironing.', metric: 'Working queue' },
-  { key: 'ready', label: 'Ready', title: 'Ready Orders', description: 'Orders cleaned, packed, and ready for delivery.', metric: 'Ready queue' },
-  { key: 'delivered', label: 'Delivered', title: 'Delivered Orders', description: 'Completed orders delivered to customers.', metric: 'Delivered queue' },
-  { key: 'cancelled', label: 'Cancelled / Returns', title: 'Cancelled / Return Orders', description: 'Cancelled orders and imported return records.', metric: 'Closed exceptions' },
-]
 
-const viewFromSearchParams = (params: URLSearchParams) => {
+const normalizeOrderViews = (views: any): OrderViewMeta[] => {
+  if (!views || typeof views !== 'object') return [DEFAULT_ORDER_VIEW]
+  const normalized = Object.entries(views).map(([key, value]: [string, any]) => ({
+    key,
+    label: value?.label || key.replace(/_/g, ' '),
+    title: value?.title || value?.label || key.replace(/_/g, ' '),
+    description: value?.description || '',
+    metric: value?.metric || '',
+    statuses: Array.isArray(value?.statuses) ? value.statuses : Array.isArray(value) ? value : [],
+  }))
+  const allView = normalized.find((item) => item.key === 'all')
+  return allView ? normalized : [DEFAULT_ORDER_VIEW, ...normalized]
+}
+
+const viewFromSearchParams = (params: URLSearchParams, orderViews: OrderViewMeta[]) => {
   const direct = params.get('view') || ''
-  if (ORDER_VIEWS.some((item) => item.key === direct)) return direct
+  if (orderViews.some((item) => item.key === direct)) return direct
   const legacyStatus = params.get('status') || ''
-  if (legacyStatus === 'PROCESSING') return 'in_process'
-  if (legacyStatus === 'READY_FOR_DELIVERY') return 'ready'
-  if (legacyStatus === 'DELIVERED') return 'delivered'
-  if (legacyStatus === 'CANCELLED' || legacyStatus === 'RETURNED') return 'cancelled'
+  const matchedView = orderViews.find((item) => item.statuses?.includes(legacyStatus))
+  if (matchedView) return matchedView.key
   return 'all'
 }
 
 const isReturnOrder = (order: any) => Boolean(order?.isReturn || order?.status === 'RETURNED' || /-RT(?:-|$)/i.test(String(order?.orderNumber || '')))
 
-const getTransitionKind = (currentStatus: string, nextStatus: string) => {
+const getTransitionKind = (currentStatus: string, nextStatus: string, workflow: typeof EMPTY_WORKFLOW) => {
   if (currentStatus === nextStatus) return 'noop'
   if (currentStatus === 'DELIVERED') {
     if (nextStatus === 'CANCELLED') return 'forbidden_delivered_cancel'
-    return DELIVERED_CORRECTION_TARGETS.includes(nextStatus) ? 'delivered_correction' : 'forbidden_delivered_change'
+    return workflow.deliveredCorrectionTargets.includes(nextStatus) ? 'delivered_correction' : 'forbidden_delivered_change'
   }
   if (currentStatus === 'CANCELLED') return nextStatus === 'PENDING' ? 'restore' : 'forbidden_cancelled_change'
   if (nextStatus === 'CANCELLED') return 'cancel'
-  if (BACKWARD_TRANSITIONS[currentStatus]?.includes(nextStatus)) return 'backward'
+  if (workflow.allowedBackward[currentStatus]?.includes(nextStatus)) return 'backward'
   return 'forward'
 }
 
@@ -91,20 +96,20 @@ const hasHighRiskCorrectionAuthority = (staff: any) => {
   return staff?.role === 'SUPER_ADMIN' || perms.includes('*')
 }
 
-const getStatusChoices = (currentStatus: string, baseStatuses: string[], staff: any) => {
+const getStatusChoices = (currentStatus: string, workflow: typeof EMPTY_WORKFLOW, staff: any) => {
   const next = new Set<string>([currentStatus])
-  const forwardStatus = NEXT_STATUS[currentStatus]
-  if (forwardStatus && baseStatuses.includes(forwardStatus)) {
+  const forwardStatus = workflow.next[currentStatus]
+  if (forwardStatus && workflow.crmEditableStatuses.includes(forwardStatus)) {
     next.add(forwardStatus)
   }
   if (hasCorrectionAuthority(staff)) {
-    ;(BACKWARD_TRANSITIONS[currentStatus] || []).forEach((status) => next.add(status))
-    if (baseStatuses.includes('CANCELLED') && CANCELLABLE_STATUSES.includes(currentStatus)) {
+    ;(workflow.allowedBackward[currentStatus] || []).forEach((status) => next.add(status))
+    if (workflow.crmEditableStatuses.includes('CANCELLED') && workflow.cancellableStatuses.includes(currentStatus)) {
       next.add('CANCELLED')
     }
   }
   if (currentStatus === 'DELIVERED' && hasHighRiskCorrectionAuthority(staff)) {
-    DELIVERED_CORRECTION_TARGETS.forEach((status) => next.add(status))
+    workflow.deliveredCorrectionTargets.forEach((status) => next.add(status))
   }
   return Array.from(next)
 }
@@ -124,8 +129,6 @@ const paymentTone = (status: string) => {
   if (status === 'PARTIAL') return { bg: '#fff7ed', color: '#c2410c', border: '#fed7aa' }
   return { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' }
 }
-
-const READY_ALLOWED_STATUSES = new Set(['PROCESSING', 'IRONING', 'WASHING', 'DRYING', 'QC'])
 
 function ItemSummary({ items }: { items: any[] }) {
   const summary = summarizeItems(items)
@@ -187,9 +190,10 @@ function OrdersPageContent() {
   const [total,  setTotal]      = useState(0)
   const [loading,setLoading]    = useState(true)
   const [search, setSearch]     = useState('')
-  const [view, setView]         = useState(viewFromSearchParams(sp))
+  const [view, setView]         = useState(viewFromSearchParams(sp, [DEFAULT_ORDER_VIEW]))
   const [plantStatuses, setPlantStatuses] = useState<string[]>([])
-  const [editableStatuses, setEditableStatuses] = useState<string[]>([])
+  const [orderWorkflow, setOrderWorkflow] = useState(EMPTY_WORKFLOW)
+  const [orderViews, setOrderViews] = useState<OrderViewMeta[]>([DEFAULT_ORDER_VIEW])
   const [statusLabels, setStatusLabels] = useState<Record<string, string>>({})
   const [statusStyles, setStatusStyles] = useState<Record<string, { bg: string; text: string; border: string }>>({})
   const [plantPartners, setPlantPartners] = useState<Array<{ value: string; label: string }>>([])
@@ -223,10 +227,10 @@ function OrdersPageContent() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
-    const nextView = viewFromSearchParams(sp)
+    const nextView = viewFromSearchParams(sp, orderViews)
     setView((current) => current === nextView ? current : nextView)
     setPage(1)
-  }, [sp])
+  }, [sp, orderViews])
 
   const applyOrderView = (nextView: string) => {
     setView(nextView)
@@ -245,8 +249,10 @@ function OrdersPageContent() {
       .then((r: any) => {
         const metadata = r?.metadata || r?.data?.metadata || {}
         const orderStatuses = metadata.orderStatuses || []
-        setPlantStatuses(orderStatuses.filter((item: any) => item.plantManaged).map((item: any) => item.key))
-        setEditableStatuses(orderStatuses.filter((item: any) => item.crmEditable && !HIDDEN_STATUS_CHOICES.has(item.key)).map((item: any) => item.key))
+        const workflow = { ...EMPTY_WORKFLOW, ...(metadata.orderWorkflow || {}) }
+        setOrderWorkflow(workflow)
+        setOrderViews(normalizeOrderViews(workflow.views))
+        setPlantStatuses(workflow.plantLockedStatuses || orderStatuses.filter((item: any) => item.plantManaged).map((item: any) => item.key))
         setStatusLabels(Object.fromEntries(orderStatuses.map((item: any) => [item.key, item.label])))
         setStatusStyles(Object.fromEntries(orderStatuses.map((item: any) => [item.key, {
           bg: item.bg || '#f7f9fc',
@@ -265,7 +271,7 @@ function OrdersPageContent() {
   }, [])
 
   const updateStatus = async (id: string, currentStatus: string, newStatus: string) => {
-    const transitionKind = getTransitionKind(currentStatus, newStatus)
+    const transitionKind = getTransitionKind(currentStatus, newStatus, orderWorkflow)
     if (transitionKind === 'forbidden_delivered_cancel') {
       toast.error('Delivered orders cannot be cancelled. Use the return / re-clean flow instead.')
       return
@@ -291,8 +297,9 @@ function OrdersPageContent() {
   }
 
   const markReady = (order: any) => {
-    if (!READY_ALLOWED_STATUSES.has(order.status)) return
-    updateStatus(order.id, order.status, 'READY_FOR_DELIVERY')
+    if (!orderWorkflow.directReadyAllowedStatuses.includes(order.status)) return
+    if (!orderWorkflow.directReadyTarget) return
+    updateStatus(order.id, order.status, orderWorkflow.directReadyTarget)
   }
 
   const submitStatusModal = async () => {
@@ -353,7 +360,7 @@ function OrdersPageContent() {
   const visibleValue = orders.reduce((sum: number, order: any) => sum + (order.totalAmount || 0), 0)
   const plantLockedCount = orders.filter((order: any) => plantStatuses.includes(order.status)).length
   const noItemsCount = orders.filter((order: any) => !order.items?.length).length
-  const activeView = ORDER_VIEWS.find((item) => item.key === view) || ORDER_VIEWS[0]
+  const activeView = orderViews.find((item) => item.key === view) || orderViews[0] || DEFAULT_ORDER_VIEW
 
   return (
     <div className="crm-page-enter" style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto'}}>
@@ -380,11 +387,7 @@ function OrdersPageContent() {
             style={{border:'none',outline:'none',fontSize:13.5,color:'#1a2332',width:'100%',fontFamily:'var(--crm-font-ui)'}}/>
         </div>
         <select value={view} onChange={e=>applyOrderView(e.target.value)} style={{padding:'10px 14px',borderRadius:10,border:'1.5px solid #dce8f0',background:'#fff',fontSize:13.5,color:'#1a2332',minWidth:170,fontFamily:'var(--crm-font-ui)'}}>
-          <option value="all">All Statuses</option>
-          <option value="in_process">In Process</option>
-          <option value="ready">Ready for Delivery</option>
-          <option value="delivered">Delivered</option>
-          <option value="cancelled">Cancelled</option>
+          {orderViews.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
         </select>
         <button onClick={load} style={{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 16px',borderRadius:10,border:'1.5px solid #dce8f0',background:'#fff',color:'#023c62',fontSize:13.5,fontWeight:600,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12a8 8 0 0 1 13.6-5.7L20 8"/><path d="M20 4v4h-4"/><path d="M20 12a8 8 0 0 1-13.6 5.7L4 16"/><path d="M4 20v-4h4"/></svg>
@@ -433,7 +436,7 @@ function OrdersPageContent() {
                 : orders.map((o:any,i:number)=>{
                     const isSentToPlant = o.status === 'SENT_TO_PLANT'
                     const orderIsReturn = isReturnOrder(o)
-                    const statusChoices = getStatusChoices(o.status, editableStatuses, currentStaff)
+                    const statusChoices = getStatusChoices(o.status, orderWorkflow, currentStaff)
                     const isLockedToPlantOnly = (plantStatuses.includes(o.status) && statusChoices.length <= 1) || orderIsReturn
                     const statusStyle = orderIsReturn
                       ? { bg: '#fee2e2', text: '#991b1b', border: '#fecaca' }
@@ -511,7 +514,7 @@ function OrdersPageContent() {
                         </td>
                         {/* Update */}
                         <td style={{padding:'13px 18px',minWidth:152}}>
-                          {READY_ALLOWED_STATUSES.has(o.status) && (
+                          {orderWorkflow.directReadyAllowedStatuses.includes(o.status) && (
                             <button onClick={()=>markReady(o)} style={{display:'block',width:'100%',textAlign:'center',padding:'7px 10px',borderRadius:8,background:'#e8f7f0',color:'#0d7a4e',fontSize:12,fontWeight:700,border:'1px solid #bfe6d2',marginBottom:6,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>
                               Mark Cleaned
                             </button>

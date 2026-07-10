@@ -6,6 +6,7 @@ const { processReferralQualification } = require('../services/referral.service')
 const { success, created, badRequest, error, notFound } = require('../utils/response');
 const { recordPaymentSchema } = require('../validation/finance.schemas');
 const { normalizePaymentMethod } = require('../utils/payment-method');
+const { getCorePaymentMethods } = require('../services/masterData.service');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 const calculatePaymentState = (order, incomingAmount) => {
@@ -30,6 +31,10 @@ const recordPayment = async (req, res) => {
     if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid payment payload');
     const { orderId, amount, method, reference, notes } = parsed.data;
     const normalizedMethod = normalizePaymentMethod(method);
+    const corePaymentMethods = await getCorePaymentMethods();
+    if (!corePaymentMethods.includes(normalizedMethod)) {
+      return badRequest(res, `Payment method must be one of: ${corePaymentMethods.join(', ')}`);
+    }
     const amountNum = amount;
 
     const { payment, updatedOrder, overpayment } = await prisma.$transaction(async (tx) => {
@@ -134,7 +139,7 @@ const getDailySummary = async (req, res) => {
     const end   = new Date(day.setHours(23, 59, 59, 999));
 
     const payments = await prisma.payment.findMany({
-      where:   { createdAt: { gte: start, lte: end } },
+      where:   { createdAt: { gte: start, lte: end }, status: { not: 'FAILED' } },
       include: {
         order:            { select: { orderNumber: true, customer: { select: { name: true, phone: true } } } },
         collectedByStaff: { select: { name: true } },
@@ -143,17 +148,21 @@ const getDailySummary = async (req, res) => {
     });
 
     const paymentMethod = (payment) => normalizePaymentMethod(payment.method || payment.mode);
+    const normalizedPayments = payments.map((payment) => ({
+      ...payment,
+      method: paymentMethod(payment),
+    }));
+    const byMethod = normalizedPayments.reduce((acc, payment) => {
+      acc[payment.method] = Number(((acc[payment.method] || 0) + Number(payment.amount || 0)).toFixed(2));
+      return acc;
+    }, {});
     const summary = {
-      total:  payments.reduce((s, p) => s + p.amount, 0),
-      cash:   payments.filter(p => paymentMethod(p) === 'CASH').reduce((s, p) => s + p.amount, 0),
-      upi:    payments.filter(p => paymentMethod(p) === 'UPI').reduce((s, p) => s + p.amount, 0),
-      card:   payments.filter(p => paymentMethod(p) === 'CARD').reduce((s, p) => s + p.amount, 0),
-      online: payments.filter(p => paymentMethod(p) === 'RAZORPAY').reduce((s, p) => s + p.amount, 0),
-      other:  payments.filter(p => !['CASH', 'UPI', 'CARD', 'RAZORPAY'].includes(paymentMethod(p))).reduce((s, p) => s + p.amount, 0),
-      count:  payments.length,
+      total:  normalizedPayments.reduce((s, p) => s + p.amount, 0),
+      byMethod,
+      count:  normalizedPayments.length,
     };
 
-    return success(res, { summary, payments });
+    return success(res, { summary, payments: normalizedPayments });
   } catch (err) {
     return error(res, 'Failed to fetch daily summary');
   }

@@ -19,9 +19,9 @@ test('checkoutLoyaltySchema rejects non-positive points', () => {
   assert.equal(parsed.success, false);
 });
 
-test('recordPaymentSchema enforces valid payment method', () => {
+test('recordPaymentSchema accepts payment method strings for DB-backed validation', () => {
   const parsed = recordPaymentSchema.safeParse({ orderId: 'o1', amount: 100, method: 'CHEQUE' });
-  assert.equal(parsed.success, false);
+  assert.equal(parsed.success, true);
 });
 
 test('wallet schemas reject invalid payloads', () => {

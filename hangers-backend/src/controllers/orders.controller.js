@@ -10,7 +10,6 @@ const { sendOrderStatusMessage, sendPaymentReceivedMessage } = require('../servi
 const { sendPushNotification }                     = require('../services/push.service');
 const { processReferralQualification }            = require('../services/referral.service');
 const { generateOrderNumber }                      = require('../utils/order-number');
-const { CORE_PAYMENT_METHODS, ORDER_STATUS_KEYS }  = require('../config/master-data');
 const { hasPermission }                            = require('../middleware/rbac');
 const { orderStatusUpdateSchema }                  = require('../validation/orders.schemas');
 const { normalizeOrderItem }                       = require('../utils/line-pricing');
@@ -19,37 +18,16 @@ const { enqueueNotification, NOTIFY_JOB }          = require('../queues');
 const { creditWallet }                             = require('../services/wallet.service');
 const { buildOrderSearchOr }                       = require('../utils/order-search');
 const { normalizePaymentMethod }                   = require('../utils/payment-method');
+const { getCorePaymentMethods, getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
 
-const WA_NOTIFY_STATUSES = new Set(['PENDING','PICKED_UP','SENT_TO_PLANT','PROCESSING','IRONING','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED']);
-const ORDER_STATUS_SEQUENCE = ['PENDING', 'PICKED_UP', 'SENT_TO_PLANT', 'PROCESSING', 'IRONING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'RETURNED'];
 const STATUS_CORRECTION_ROLES = ['SUPER_ADMIN', 'MANAGER'];
 const HIGH_RISK_STATUS_CORRECTION_ROLES = ['SUPER_ADMIN'];
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
-const BACKWARD_TRANSITIONS = {
-  PICKED_UP: ['PENDING'],
-  SENT_TO_PLANT: ['PICKED_UP'],
-  PROCESSING: ['PICKED_UP', 'SENT_TO_PLANT'],
-  IRONING: ['PROCESSING', 'SENT_TO_PLANT'],
-  READY_FOR_DELIVERY: ['IRONING', 'PROCESSING'],
-  OUT_FOR_DELIVERY: ['READY_FOR_DELIVERY'],
-  CANCELLED: ['PENDING'],
-};
-const FORWARD_TRANSITIONS = {
-  PENDING: ['PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT'],
-  PICKED_UP: ['PROCESSING', 'SENT_TO_PLANT'],
-  SENT_TO_PLANT: ['IRONING'],
-  PROCESSING: ['IRONING', 'READY_FOR_DELIVERY'],
-  IRONING: ['READY_FOR_DELIVERY'],
-  READY_FOR_DELIVERY: ['OUT_FOR_DELIVERY'],
-  OUT_FOR_DELIVERY: ['DELIVERED'],
-};
-const CANCELLABLE_STATUSES = new Set(['PENDING', 'PICKED_UP', 'PROCESSING', 'READY_FOR_DELIVERY']);
-const DELIVERED_CORRECTION_TARGETS = new Set(['READY_FOR_DELIVERY']);
-const ORDER_VIEW_STATUSES = {
-  in_process: ['PROCESSING', 'SENT_TO_PLANT', 'IRONING', 'WASHING', 'DRYING', 'QC'],
-  ready: ['READY_FOR_DELIVERY'],
-  delivered: ['DELIVERED'],
-  cancelled: ['CANCELLED', 'RETURNED'],
+
+const getOrderViewStatuses = (workflow, viewKey) => {
+  const viewConfig = workflow.views?.[viewKey];
+  if (Array.isArray(viewConfig)) return viewConfig;
+  return Array.isArray(viewConfig?.statuses) ? viewConfig.statuses : null;
 };
 
 const parsePositiveInt = (value) => {
@@ -63,12 +41,18 @@ const hasCorrectionAuthority = (staff) =>
 const hasHighRiskCorrectionAuthority = (staff) =>
   HIGH_RISK_STATUS_CORRECTION_ROLES.includes(staff?.role);
 
-const getTransitionContext = (currentStatus, nextStatus) => {
+const getTransitionContext = (currentStatus, nextStatus, workflow) => {
+  const orderStatusSequence = workflow.sequence || [];
+  const backwardTransitions = workflow.allowedBackward || {};
+  const forwardTransitions = workflow.allowedForward || {};
+  const cancellableStatuses = new Set(workflow.cancellableStatuses || []);
+  const deliveredCorrectionTargets = new Set(workflow.deliveredCorrectionTargets || []);
+
   if (currentStatus === nextStatus) return { kind: 'noop' };
 
   if (currentStatus === 'DELIVERED') {
     if (nextStatus === 'CANCELLED') return { kind: 'forbidden_delivered_cancel' };
-    if (DELIVERED_CORRECTION_TARGETS.has(nextStatus)) return { kind: 'delivered_correction' };
+    if (deliveredCorrectionTargets.has(nextStatus)) return { kind: 'delivered_correction' };
     return { kind: 'forbidden_delivered_change' };
   }
 
@@ -78,22 +62,22 @@ const getTransitionContext = (currentStatus, nextStatus) => {
   }
 
   if (nextStatus === 'CANCELLED') {
-    return CANCELLABLE_STATUSES.has(currentStatus)
+    return cancellableStatuses.has(currentStatus)
       ? { kind: 'cancel' }
       : { kind: 'forbidden_cancel' };
   }
 
-  const currentIndex = ORDER_STATUS_SEQUENCE.indexOf(currentStatus);
-  const nextIndex = ORDER_STATUS_SEQUENCE.indexOf(nextStatus);
+  const currentIndex = orderStatusSequence.indexOf(currentStatus);
+  const nextIndex = orderStatusSequence.indexOf(nextStatus);
 
   if (currentIndex !== -1 && nextIndex !== -1 && nextIndex > currentIndex) {
-    return FORWARD_TRANSITIONS[currentStatus]?.includes(nextStatus)
+    return forwardTransitions[currentStatus]?.includes(nextStatus)
       ? { kind: 'forward' }
       : { kind: 'forbidden_forward' };
   }
 
   if (currentIndex !== -1 && nextIndex !== -1 && nextIndex < currentIndex) {
-    if (BACKWARD_TRANSITIONS[currentStatus]?.includes(nextStatus)) {
+    if (backwardTransitions[currentStatus]?.includes(nextStatus)) {
       return { kind: 'backward' };
     }
     return { kind: 'forbidden_backward' };
@@ -150,13 +134,14 @@ const listOrders = async (req, res) => {
       dateTo,
     } = req.query;
 
+    const orderWorkflow = await getOrderWorkflow();
     const parsedPage = parsePositiveInt(page);
     const parsedLimit = parsePositiveInt(limit);
     if (!parsedPage) return badRequest(res, 'page must be a positive integer');
     if (!parsedLimit || parsedLimit > 100) return badRequest(res, 'limit must be an integer between 1 and 100');
     const where = { ...ORDER_ONLY_WHERE };
     if (view && view !== 'all') {
-      const statuses = ORDER_VIEW_STATUSES[view];
+      const statuses = getOrderViewStatuses(orderWorkflow, view);
       if (!statuses) return badRequest(res, 'Invalid order view');
       if (view === 'cancelled') {
         where.AND = [
@@ -171,7 +156,7 @@ const listOrders = async (req, res) => {
         where.status = { in: statuses };
       }
     } else if (status === 'PROCESSING') {
-      where.status = { in: ['PROCESSING', 'SENT_TO_PLANT', 'IRONING', 'WASHING', 'DRYING', 'QC'] };
+      where.status = { in: getOrderViewStatuses(orderWorkflow, 'in_process') || [] };
     } else if (status) {
       where.status = status;
     }
@@ -229,6 +214,7 @@ const getOrderStats = async (req, res) => {
     const todayStart = new Date(today.setHours(0,0,0,0));
     const todayEnd   = new Date(today.setHours(23,59,59,999));
     today.setHours(0,0,0,0); // reset
+    const orderWorkflow = await getOrderWorkflow();
 
     const [
       totalToday,
@@ -240,9 +226,9 @@ const getOrderStats = async (req, res) => {
       recentOrders,
     ] = await Promise.all([
       prisma.order.count({ where: { ...ORDER_ONLY_WHERE, createdAt: { gte: todayStart, lte: todayEnd } } }),
-      prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: { in: ['PENDING','PROCESSING','SENT_TO_PLANT','WASHING','IRONING','QC'] } } }),
-      prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'READY_FOR_DELIVERY' } }),
-      prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'DELIVERED', createdAt: { gte: todayStart, lte: todayEnd } } }),
+      prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: { in: getOrderViewStatuses(orderWorkflow, 'in_process') || [] } } }),
+      prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: { in: getOrderViewStatuses(orderWorkflow, 'ready') || [] } } }),
+      prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: { in: getOrderViewStatuses(orderWorkflow, 'delivered') || [] }, createdAt: { gte: todayStart, lte: todayEnd } } }),
       prisma.payment.aggregate({
         _sum: { amount: true },
         where: { status: { not: 'FAILED' } },
@@ -339,7 +325,7 @@ const createOrder = async (req, res) => {
     }
 
     const normalizedItems = items.map((item) => normalizeOrderItem(item, {
-      defaultServiceName: 'Custom',
+      defaultServiceName: '',
       allowUpcharges: true,
     }));
     if (normalizedItems.some((item) => item.unitPrice < 0)) return badRequest(res, 'Item unitPrice cannot be negative');
@@ -373,6 +359,7 @@ const createOrder = async (req, res) => {
     console.log('BACKEND WRITEOFF:', { writeOffAmount: req.body.writeOffAmount, writeOffAmt, paymentMethod: req.body.paymentMethod, paidAmount: req.body.paidAmount });
 
     // Create order + items in one transaction
+    const corePaymentMethods = await getCorePaymentMethods();
     const order = await prisma.$transaction(async (tx) => {
       const newOrder = await tx.order.create({
         data: {
@@ -392,7 +379,7 @@ const createOrder = async (req, res) => {
           items: {
             create: normalizedItems.map(item => ({
               serviceId:   item.serviceId   || null,
-              serviceName: item.serviceName || 'Custom',
+              serviceName: item.serviceName,
               garmentType: item.garmentType || '',
               variant:     item.variant     || null,
               quantity:    item.quantity    || 1,
@@ -424,6 +411,11 @@ const createOrder = async (req, res) => {
       // ── Handle payment at order creation ──────────────────────────
       const paidNow    = parseFloat(paidAmountRaw) || 0;
       if (paidNow > 0 && paymentMethod && paymentMethod !== 'Pay Later') {
+        const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
+        if (!corePaymentMethods.includes(normalizedPaymentMethod)) {
+          const err = new Error('INVALID_PAYMENT_METHOD');
+          throw err;
+        }
         const overpayment = paidNow - totalAmount;
         const actualPaid  = overpayment > 0 ? totalAmount : paidNow;
         const effectivePaid = actualPaid + writeOffAmt;
@@ -434,7 +426,7 @@ const createOrder = async (req, res) => {
           data: {
             orderId:    newOrder.id,
             amount:     actualPaid,
-            method:     paymentMethod,
+            method:     normalizedPaymentMethod,
             collectedBy: req.staff?.id || null,
           }
         });
@@ -480,6 +472,10 @@ const createOrder = async (req, res) => {
     return success(res, { order }, `Order ${order.orderNumber} created successfully`, 201);
   } catch (err) {
     console.error('createOrder error:', err);
+    if (err.message === 'INVALID_PAYMENT_METHOD') {
+      const corePaymentMethods = await getCorePaymentMethods().catch(() => []);
+      return badRequest(res, `Payment method must be one of: ${corePaymentMethods.join(', ')}`);
+    }
     return error(res, 'Failed to create order');
   }
 };
@@ -498,20 +494,20 @@ const updateOrderStatus = async (req, res) => {
   } catch(e) {}
   const { status, notes } = parsed.data;
 
-    const validStatuses = ORDER_STATUS_KEYS;
-
-  if (!status || !validStatuses.includes(status)) {
-    return badRequest(res, `Invalid status. Must be one of: ${validStatuses.join(', ')}`);
-  }
-
   try {
-    const order = await prisma.order.findFirst({
+    const [orderWorkflow, orderStatuses, order] = await Promise.all([
+      getOrderWorkflow(),
+      getOrderStatuses(),
+      prisma.order.findFirst({
       where:   { id: req.params.id, ...ORDER_ONLY_WHERE },
       include: { items: { select: { id: true } } },
-    });
+      }),
+    ]);
     if (!order) return notFound(res, 'Order not found');
+    const orderStatusKeys = orderStatuses.map((item) => item.key);
+    if (!orderStatusKeys.includes(status)) return badRequest(res, 'Invalid order status');
     const trimmedNotes = notes?.trim() || '';
-    const transition = getTransitionContext(order.status, status);
+    const transition = getTransitionContext(order.status, status, orderWorkflow);
     const requiresCorrectionAuthority = ['backward', 'cancel', 'restore'].includes(transition.kind);
     const requiresHighRiskAuthority = transition.kind === 'delivered_correction';
     const requiresReason = ['backward', 'cancel', 'restore', 'delivered_correction'].includes(transition.kind);
@@ -550,7 +546,7 @@ const updateOrderStatus = async (req, res) => {
     // ── ITEM GUARD: Block moving past PICKED_UP with zero items ──────────────
     // Industry standard: garments must be logged before plant work begins.
     // PENDING→PICKED_UP is always allowed. Beyond that, items must exist.
-    const REQUIRES_ITEMS = ['PROCESSING','IRONING','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED'];
+    const REQUIRES_ITEMS = orderWorkflow.requiresItems || [];
     if (REQUIRES_ITEMS.includes(status) && order.items.length === 0) {
       return res.status(422).json({
         error:       'ITEMS_REQUIRED',
@@ -629,7 +625,8 @@ const updateOrderStatus = async (req, res) => {
     emitOrderUpdate(updated.id, { status, orderNumber: updated.orderNumber });
 
     // Queue WhatsApp + push notifications for key statuses (non-blocking, retried)
-    if (WA_NOTIFY_STATUSES.has(status)) {
+    const waNotifyStatuses = new Set((orderWorkflow.liveStatuses || []).filter((entry) => entry !== 'RETURNED'));
+    if (waNotifyStatuses.has(status)) {
       enqueueNotification(NOTIFY_JOB.ORDER_STATUS, { order: updated, status }).catch(() => {});
 
       // Push notification — fetch customer's token + prefs if not already included
@@ -666,8 +663,10 @@ const deleteOrder = async (req, res) => {
   try {
     const order = await prisma.order.findFirst({ where: { id: req.params.id, ...ORDER_ONLY_WHERE } });
     if (!order) return notFound(res, 'Order not found');
-    if (!['PENDING', 'CANCELLED'].includes(order.status)) {
-      return badRequest(res, 'Only PENDING or CANCELLED orders can be deleted');
+    const orderWorkflow = await getOrderWorkflow();
+    const deletableStatuses = new Set(orderWorkflow.deletableStatuses || []);
+    if (!deletableStatuses.has(order.status)) {
+      return badRequest(res, `Only ${[...deletableStatuses].join(' or ')} orders can be deleted`);
     }
     await prisma.order.delete({ where: { id: req.params.id } });
     return success(res, {}, 'Order deleted');
@@ -753,12 +752,13 @@ const recordPayment = async (req, res) => {
     const { id } = req.params;
     const { amount, method = 'CASH', reference, notes, writeOffAmount } = req.body;
     const normalizedMethod = normalizePaymentMethod(method);
+    const corePaymentMethods = await getCorePaymentMethods();
 
     if (!amount || parseFloat(amount) <= 0) {
       return badRequest(res, 'Valid amount is required');
     }
-    if (!CORE_PAYMENT_METHODS.includes(normalizedMethod)) {
-      return badRequest(res, `Payment method must be one of: ${CORE_PAYMENT_METHODS.join(', ')}`);
+    if (!corePaymentMethods.includes(normalizedMethod)) {
+      return badRequest(res, `Payment method must be one of: ${corePaymentMethods.join(', ')}`);
     }
 
     const amountNum = Number.parseFloat(amount);

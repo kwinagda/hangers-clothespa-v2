@@ -2,10 +2,10 @@ const ORDER_STATUSES = [
   { key: 'PENDING', label: 'Pending', customerLabel: 'Pickup Pending', plantLabel: 'Order Placed', icon: 'clipboard-text-outline', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, color: '#92400e', bg: '#fffbeb', border: '#fde68a' },
   { key: 'PICKED_UP', label: 'Received', customerLabel: 'Received', plantLabel: 'Received', icon: 'car-outline', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
   { key: 'PROCESSING', label: 'In Process', customerLabel: 'In Process', plantLabel: 'In Process', icon: 'factory', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe' },
-  { key: 'WASHING', label: 'In Process', customerLabel: 'In Process', plantLabel: 'In Process', icon: 'water-outline', crmEditable: false, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe' },
-  { key: 'DRYING', label: 'In Process', customerLabel: 'In Process', plantLabel: 'In Process', icon: 'weather-sunny', crmEditable: false, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe' },
+  { key: 'WASHING', label: 'Legacy: Washing', customerLabel: 'In Process', plantLabel: 'Legacy: Washing', icon: 'water-outline', crmEditable: false, plantManaged: false, legacyOnly: true, customerBucket: 'active', customerTrackVisible: false, color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe' },
+  { key: 'DRYING', label: 'Legacy: Drying', customerLabel: 'In Process', plantLabel: 'Legacy: Drying', icon: 'weather-sunny', crmEditable: false, plantManaged: false, legacyOnly: true, customerBucket: 'active', customerTrackVisible: false, color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe' },
   { key: 'IRONING', label: 'Pending Ironing', customerLabel: 'Pending Ironing', plantLabel: 'Pending Ironing', icon: 'iron', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, color: '#c2410c', bg: '#fff7ed', border: '#fed7aa' },
-  { key: 'QC', label: 'Pending Ironing', customerLabel: 'Pending Ironing', plantLabel: 'Pending Ironing', icon: 'magnify', crmEditable: false, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, color: '#c2410c', bg: '#fff7ed', border: '#fed7aa' },
+  { key: 'QC', label: 'Legacy: QC', customerLabel: 'Pending Ironing', plantLabel: 'Legacy: QC', icon: 'magnify', crmEditable: false, plantManaged: false, legacyOnly: true, customerBucket: 'active', customerTrackVisible: false, color: '#c2410c', bg: '#fff7ed', border: '#fed7aa' },
   { key: 'READY_FOR_DELIVERY', label: 'Ready', customerLabel: 'Ready', plantLabel: 'Ready', icon: 'package-variant-closed', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, plantTimeline: true, color: '#0f766e', bg: '#f0fdfa', border: '#99f6e4' },
   { key: 'OUT_FOR_DELIVERY', label: 'Out for Delivery', customerLabel: 'Out for Delivery', plantLabel: 'Out for Delivery', icon: 'motorbike', crmEditable: true, plantManaged: false, customerBucket: 'active', customerTrackVisible: true, color: '#6d28d9', bg: '#f5f3ff', border: '#ddd6fe' },
   { key: 'DELIVERED', label: 'Delivered', customerLabel: 'Delivered', plantLabel: 'Delivered', icon: 'check-decagram-outline', crmEditable: true, plantManaged: false, customerBucket: 'completed', customerTrackVisible: true, color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
@@ -20,6 +20,98 @@ const ORDER_STATUS_LABELS = ORDER_STATUSES.reduce((acc, status) => {
   return acc;
 }, {});
 const PLANT_STATUS_KEYS = ORDER_STATUSES.filter((status) => status.plantManaged).map((status) => status.key);
+const ORDER_WORKFLOW = {
+  sequence: ['PENDING', 'PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT', 'IRONING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED'],
+  next: {
+    PENDING: 'PICKED_UP',
+    PICKED_UP: 'PROCESSING',
+    PROCESSING: 'IRONING',
+    IRONING: 'READY_FOR_DELIVERY',
+    READY_FOR_DELIVERY: 'OUT_FOR_DELIVERY',
+    OUT_FOR_DELIVERY: 'DELIVERED',
+  },
+  allowedForward: {
+    PENDING: ['PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT'],
+    PICKED_UP: ['PROCESSING', 'SENT_TO_PLANT'],
+    PROCESSING: ['IRONING', 'READY_FOR_DELIVERY', 'SENT_TO_PLANT'],
+    SENT_TO_PLANT: ['IRONING'],
+    IRONING: ['READY_FOR_DELIVERY'],
+    READY_FOR_DELIVERY: ['OUT_FOR_DELIVERY'],
+    OUT_FOR_DELIVERY: ['DELIVERED'],
+  },
+  allowedBackward: {
+    PICKED_UP: ['PENDING'],
+    PROCESSING: ['PICKED_UP'],
+    IRONING: ['PROCESSING'],
+    READY_FOR_DELIVERY: ['IRONING', 'PROCESSING'],
+    OUT_FOR_DELIVERY: ['READY_FOR_DELIVERY'],
+    CANCELLED: ['PENDING'],
+  },
+  crmEditableStatuses: ['PENDING', 'PICKED_UP', 'PROCESSING', 'IRONING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'],
+  challanSendableStatuses: ['PICKED_UP', 'PROCESSING'],
+  plantLockedStatuses: ['SENT_TO_PLANT'],
+  plantReceivedTarget: 'IRONING',
+  requiresItems: ['PROCESSING', 'IRONING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED'],
+  directReadyAllowedStatuses: ['PROCESSING', 'IRONING'],
+  directReadyTarget: 'READY_FOR_DELIVERY',
+  cancellableStatuses: ['PENDING', 'PICKED_UP', 'PROCESSING'],
+  deletableStatuses: ['PENDING', 'CANCELLED'],
+  deliveredCorrectionTargets: ['READY_FOR_DELIVERY'],
+  riderAssignableStatuses: ['PENDING', 'PICKED_UP', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY'],
+  deliveryViews: {
+    pickups: ['PENDING'],
+    dispatch: ['READY_FOR_DELIVERY'],
+    active: ['PENDING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY'],
+    done: ['DELIVERED'],
+  },
+  deliveryActions: {
+    pickupFrom: ['PENDING'],
+    pickupTarget: 'PICKED_UP',
+    outForDeliveryStatus: 'OUT_FOR_DELIVERY',
+    deliverableFrom: ['READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY'],
+    failedTarget: 'READY_FOR_DELIVERY',
+    deliveredTarget: 'DELIVERED',
+  },
+  liveStatuses: ['PENDING', 'PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT', 'IRONING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'RETURNED'],
+  legacyStatuses: ['WASHING', 'DRYING', 'QC'],
+  views: {
+    all: {
+      label: 'All Orders',
+      title: 'All Orders',
+      description: 'Complete operational queue across every order status.',
+      metric: 'Total queue',
+      statuses: ['PENDING', 'PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT', 'IRONING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED'],
+    },
+    in_process: {
+      label: 'In Process',
+      title: 'In-Process Orders',
+      description: 'Orders currently received, being processed, at plant, or pending ironing.',
+      metric: 'Working queue',
+      statuses: ['PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT', 'IRONING'],
+    },
+    ready: {
+      label: 'Ready',
+      title: 'Ready Orders',
+      description: 'Orders cleaned, packed, and ready for delivery.',
+      metric: 'Ready queue',
+      statuses: ['READY_FOR_DELIVERY'],
+    },
+    delivered: {
+      label: 'Delivered',
+      title: 'Delivered Orders',
+      description: 'Completed orders delivered to customers or out for delivery.',
+      metric: 'Delivered queue',
+      statuses: ['OUT_FOR_DELIVERY', 'DELIVERED'],
+    },
+    cancelled: {
+      label: 'Cancelled / Returns',
+      title: 'Cancelled / Return Orders',
+      description: 'Cancelled orders and imported return records.',
+      metric: 'Closed exceptions',
+      statuses: ['CANCELLED', 'RETURNED'],
+    },
+  },
+};
 const DELIVERY_MANAGER_ROLES = ['DELIVERY_MANAGER', 'MANAGER', 'SUPER_ADMIN'];
 const DELIVERY_PIN_ROLES = ['DELIVERY_MANAGER', 'DELIVERY_RIDER'];
 const PLANT_PIN_ROLES = ['PLANT_MANAGER', 'PLANT_STAFF', 'PLANT_QC'];
@@ -280,12 +372,6 @@ const EXPENSE_CATEGORIES = [
   { value: 'OTHER', label: 'Other' },
 ];
 
-const PLANT_PARTNERS = [
-  { value: 'WADREX', label: 'Wadrex' },
-  { value: 'MAMTA', label: 'Mamta' },
-  { value: 'YADGIR', label: 'Yadgir' },
-];
-
 const DISCOUNT_VALUE_TYPES = [
   { value: 'PERCENT', label: 'Percentage (%)' },
   { value: 'FLAT', label: 'Flat Amount (₹)' },
@@ -339,13 +425,13 @@ module.exports = {
   MARKETING_AUDIENCES,
   MARKETING_TRIGGERS,
   ORDER_STATUSES,
+  ORDER_WORKFLOW,
   ORDER_STATUS_KEYS,
   ORDER_STATUS_LABELS,
   PAYMENT_METHODS,
   PAYMENT_METHOD_VALUES,
   PAYMENT_STATUSES,
   PLANT_PIN_ROLES,
-  PLANT_PARTNERS,
   PLANT_ISSUE_TYPES,
   PLANT_STATUS_KEYS,
   QUOTATION_STATUSES,

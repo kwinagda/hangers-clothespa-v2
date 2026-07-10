@@ -123,9 +123,7 @@ const LEGACY_PAYMENT_METHOD_MAP: Record<string, string> = {
   Cash: 'CASH',
   'UPI / GPay': 'UPI',
   Card: 'CARD',
-  Wallet: 'WALLET',
   'Pay Later': 'Pay Later',
-  'Split (Cash+Wallet)': 'SPLIT',
 }
 
 function NewOrderPageContent() {
@@ -241,19 +239,22 @@ function NewOrderPageContent() {
       const metadata = r?.metadata || r?.data?.metadata || {}
       setLanguageOptions(metadata.languages || [])
       setQuotationStatuses(metadata.quotationStatuses || [])
-      const mappedMethods = (metadata.paymentMethods || []).map((item: any) => ({
+      const collectableMethods = (metadata.collectablePaymentMethods || []).length
+        ? metadata.collectablePaymentMethods
+        : (metadata.paymentMethods || []).filter((item: any) => (metadata.corePaymentMethods || []).includes(item.value))
+      const mappedMethods = [
+        ...collectableMethods.map((item: any) => ({
         value: item.value,
         label:
           item.value === 'CASH' ? 'Cash' :
           item.value === 'UPI' ? 'UPI / GPay' :
           item.value === 'CARD' ? 'Card' :
-          item.value === 'WALLET' ? 'Wallet' :
-          item.value === 'Pay Later' ? 'Pay Later' :
           item.label,
-      })).filter((item: any) => ['CASH','UPI','CARD','WALLET','Pay Later'].includes(item.value))
+        })),
+        { value: 'Pay Later', label: 'Pay Later' },
+      ]
       setPaymentMethods(mappedMethods)
       setPaymentMethod((current) => {
-        if (current === 'SPLIT') return current
         const normalized = LEGACY_PAYMENT_METHOD_MAP[current] || current
         return mappedMethods.some((item: any) => item.value === normalized) ? normalized : (mappedMethods[0]?.value || 'CASH')
       })
@@ -1795,33 +1796,12 @@ function NewOrderPageContent() {
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, color: '#6b7fa3', marginBottom: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Payment Method</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {[...paymentMethods, ...(customer?.walletBalance && customer.walletBalance > 0 ? [{ value: 'SPLIT', label: 'Split (Cash+Wallet)' }] : [])].map((m) => (
+                {paymentMethods.map((m) => (
                   <button key={m.value} onClick={() => { setPaymentMethod(m.value as any); if (m.value === 'Pay Later') setPaidAmount('0') }}
                     style={{ padding: '8px 14px', border: `2px solid ${paymentMethod === m.value ? '#023c62' : '#e2e8f0'}`, borderRadius: 8, background: paymentMethod === m.value ? '#023c62' : '#fff', color: paymentMethod === m.value ? '#fff' : '#374151', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                     {m.label}
                   </button>
                 ))}
-                {/* Split payment inputs */}
-                {paymentMethod === 'SPLIT' && customer?.walletBalance && (
-                  <div style={{ width: '100%', marginTop: 8, background: '#f8fafc', borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 12, color: '#6b7fa3', marginBottom: 6 }}>Wallet balance: <strong>{fmt(customer.walletBalance)}</strong></div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 11, color: '#9dafc8', marginBottom: 4 }}>From Wallet</div>
-                        <input type="number" value={walletSplit}
-                          onChange={e => setWalletSplit(String(Math.min(parseFloat(e.target.value) || 0, customer.walletBalance || 0, total)))}
-                          max={Math.min(customer.walletBalance, total)}
-                          style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 8px', fontSize: 13, boxSizing: 'border-box' as const }} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 11, color: '#9dafc8', marginBottom: 4 }}>Cash / UPI</div>
-                        <div style={{ padding: '6px 8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, fontWeight: 600, color: '#023c62' }}>
-                          {fmt(Math.max(0, total - (parseFloat(walletSplit) || 0)))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 

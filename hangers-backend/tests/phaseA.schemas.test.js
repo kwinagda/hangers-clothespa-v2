@@ -23,9 +23,9 @@ test('recurringPickupSchema requires dayOfWeek/dayOfMonth only by downstream bus
   assert.equal(parsed.success, true);
 });
 
-test('reportQuerySchema rejects unsupported report type', () => {
+test('reportQuerySchema accepts report type strings for DB-backed validation', () => {
   const parsed = reportQuerySchema.safeParse({ type: 'foobar' });
-  assert.equal(parsed.success, false);
+  assert.equal(parsed.success, true);
 });
 
 test('advancedSearchQuerySchema enforces positive page and limit max 100', () => {

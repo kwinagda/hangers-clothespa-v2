@@ -39,6 +39,7 @@ const ironRoutes          = require('./routes/iron.routes');
 const metadataRoutes      = require('./routes/metadata.routes');
 const quotationsRoutes    = require('./routes/quotations.routes');
 const { syncPermissionCatalog } = require('./services/accessControl.service');
+const { syncMasterDataSettings } = require('./services/masterData.service');
 const app  = express();
 const PORT = process.env.PORT || 5001;
 const parseOriginList = (value) =>
@@ -152,6 +153,9 @@ app.use(notFound);
 app.use(errorHandler);
 
 app.listen(PORT, () => {
+  syncMasterDataSettings().catch((err) => {
+    console.error('Master data settings sync failed:', err.message);
+  });
   syncPermissionCatalog().catch((err) => {
     console.error('Permission catalog sync failed:', err.message);
   });

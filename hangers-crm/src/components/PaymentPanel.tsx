@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { metadataAPI, paymentsAPI } from '@/lib/api'
+import { metadataAPI } from '@/lib/api'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
 import { CheckCircle2, CreditCard, IndianRupee, Wallet } from 'lucide-react'
@@ -22,6 +22,7 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   const [writeOff, setWriteOff]       = useState(false)
   const [writeOffMax, setWriteOffMax] = useState(50)
   const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, { label: string; color: string; bg: string }>>({})
+  const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([{ value: 'CASH', label: 'Cash' }])
 
   const balance = Math.max(0, totalAmount - paidAmount - (writeOffAlreadyDone || 0))
 
@@ -40,6 +41,11 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   useEffect(() => {
     metadataAPI.getAll().then((response: any) => {
       const metadata = response?.metadata || response?.data?.metadata || {}
+      const collectableMethods = metadata.collectablePaymentMethods || (metadata.paymentMethods || []).filter((item: any) => (metadata.corePaymentMethods || []).includes(item.value))
+      if (collectableMethods.length) {
+        setPaymentMethods(collectableMethods.map((item: any) => ({ value: item.value, label: item.label || item.value })))
+        setMethod((current) => collectableMethods.some((item: any) => item.value === current) ? current : collectableMethods[0].value)
+      }
       setPaymentStatusMeta((metadata.paymentStatuses || []).reduce((acc: Record<string, { label: string; color: string; bg: string }>, item: any) => {
         acc[item.value] = {
           label: item.label || item.value,
@@ -140,10 +146,7 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
               onChange={e => setMethod(e.target.value)}
               style={{ padding:'8px 12px', border:'1.5px solid #dce8f0', borderRadius:8, fontSize:13, background:'#fff', outline:'none' }}
             >
-              <option value="CASH">Cash</option>
-              <option value="UPI">UPI</option>
-              <option value="CARD">Card</option>
-              <option value="WALLET">Wallet</option>
+              {paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </div>
 

@@ -57,7 +57,7 @@ export default function FinancePage() {
   useEffect(() => {
     metadataAPI.getAll().then((r:any) => {
       const metadata = r?.metadata || r?.data?.metadata || {}
-      const filteredMethods = (metadata.paymentMethods || []).filter((item:any) => ['CASH','UPI','CARD','RAZORPAY','ONLINE','COD','WALLET','OTHER'].includes(item.value))
+      const filteredMethods = (metadata.paymentMethods || []).filter((item:any) => item.value && item.value !== 'SPLIT' && item.value !== 'Pay Later')
       setMethodOptions(filteredMethods)
       setMethodLabels({
         ALL: 'ALL',
@@ -74,6 +74,18 @@ export default function FinancePage() {
   const pagedReceivables = receivables.slice((receivablesPage - 1) * pageSize, receivablesPage * pageSize)
 
   const S = (v: number) => `₹${(v||0).toLocaleString('en-IN')}`
+  const methodTotals = summary?.byMethod || {}
+  const summaryMethods = methodOptions.filter((method) => Number(methodTotals[method.value] || 0) > 0)
+  const summaryCards = [
+    { value: 'TOTAL', label: 'Total Collected', amount: summary?.total || 0, color: '#023c62', big: true },
+    ...summaryMethods.map((method) => ({
+      value: method.value,
+      label: method.label,
+      amount: methodTotals[method.value] || 0,
+      color: METHOD_COLOR[method.value] || '#6b7fa3',
+      big: false,
+    })),
+  ]
 
   return (
     <div style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
@@ -100,19 +112,12 @@ export default function FinancePage() {
           </div>
 
           {summary && (
-            <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:14,marginBottom:24}}>
-              {[
-                {l:'Total Collected',v:summary.total,color:'#023c62',big:true},
-                {l:'Cash',v:summary.cash,color:'#22c55e',method:'CASH'},
-                {l:'UPI',v:summary.upi,color:'#3b82f6',method:'UPI'},
-                {l:'Card',v:summary.card,color:'#8b5cf6',method:'CARD'},
-                {l:'Razorpay',v:summary.online,color:'#f97316',method:'RAZORPAY'},
-                {l:'Other',v:summary.other,color:'#6b7fa3',method:'OTHER'},
-              ].map(card=>(
-                <div key={card.l} style={{background:card.big?'linear-gradient(135deg,#023c62,#035a8f)':'#fff',borderRadius:16,padding:20,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
-                  <div style={{fontSize:11,fontWeight:600,color:card.big?'rgba(184,208,232,0.7)':'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>{card.l}</div>
-                  <div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:22,color:card.big?'#fff':card.color}}>{S(card.v)}</div>
-                  {!card.big&&<div style={{fontSize:11,color:'#9dafc8',marginTop:4}}>{payments.filter(p=>p.method===card.method).length} txns</div>}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:14,marginBottom:24}}>
+              {summaryCards.map(card=>(
+                <div key={card.value} style={{background:card.big?'linear-gradient(135deg,#023c62,#035a8f)':'#fff',borderRadius:16,padding:20,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
+                  <div style={{fontSize:11,fontWeight:600,color:card.big?'rgba(184,208,232,0.7)':'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>{card.label}</div>
+                  <div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:22,color:card.big?'#fff':card.color}}>{S(card.amount)}</div>
+                  {!card.big&&<div style={{fontSize:11,color:'#9dafc8',marginTop:4}}>{payments.filter(p=>p.method===card.value).length} txns</div>}
                 </div>
               ))}
             </div>

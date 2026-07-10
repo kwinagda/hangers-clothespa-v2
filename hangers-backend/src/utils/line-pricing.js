@@ -45,7 +45,7 @@ const calculateLineDiscountAmount = ({ lineTotal, quantity, lineDiscountType, li
 };
 
 const normalizeOrderItem = (item, options = {}) => {
-  const { defaultServiceName = 'Custom', allowUpcharges = false } = options;
+  const { defaultServiceName = '', allowUpcharges = false } = options;
   const quantity = parsePositiveInt(item?.quantity, 1);
   const unitPrice = parseMoney(item?.unitPrice);
   const baseUnitPrice = parseMoney(item?.baseUnitPrice ?? item?.originalUnitPrice ?? unitPrice, unitPrice);

@@ -190,7 +190,7 @@ export default function DashboardPage() {
     {
       label: 'Ready orders needing dispatch',
       value: readyOrders,
-      href: '/dashboard/orders?status=READY_FOR_DELIVERY',
+      href: '/dashboard/orders?view=ready',
       tone: 'green' as const,
     },
     {
@@ -228,7 +228,7 @@ export default function DashboardPage() {
           <div style={{ padding:8, display:'flex', flexDirection:'column', gap:2 }}>
             {([
               { href:'/dashboard/orders/new', icon:PackagePlus, label:'Create Walk-in Order' },
-              { href:'/dashboard/orders?status=READY_FOR_DELIVERY', icon:Truck, label:'Open Ready Orders' },
+              { href:'/dashboard/orders?view=ready', icon:Truck, label:'Open Ready Orders' },
               { href:'/dashboard/customers', icon:Users, label:'Customer Directory' },
               { href:'/dashboard/finance', icon:Receipt, label:'Review Finance' },
             ] as const).map(action => (

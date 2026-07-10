@@ -121,7 +121,7 @@ Key staff app entrypoints:
 
 These rules matter more than style.
 
-### 4.1 Master data is centralized
+### 4.1 Master data is DB-backed
 
 Use backend metadata / master data for:
 
@@ -135,18 +135,24 @@ Use backend metadata / master data for:
 - Daily Iron statuses
 - recurring frequencies / weekdays
 - report types
+- order workflow rules
+- role service access
+- report/payment/service option lists
 
 Primary source:
 
-- `hangers-backend/src/config/master-data.js`
-- surfaced by `/metadata`
+- runtime source: `Setting` rows managed through `hangers-backend/src/services/masterData.service.js`
+- bootstrap-only defaults: `hangers-backend/src/config/master-data.js`
+- surfaced to clients by `/metadata`
 
 Operational rule:
 
 - Do not introduce a second source of truth for business master data.
 - Do not create new side databases, local persistence layers, or parallel config stores for master data.
 - If a frontend needs business options or labels, it should come from the existing backend metadata surface and API calls.
-- If backend behavior needs new business-controlled values, extend the existing master-data / metadata flow instead of inventing a separate store.
+- If backend behavior needs new business-controlled values, extend the existing DB-backed master-data / metadata flow instead of inventing a separate store.
+- Do not hardcode runtime business behavior, statuses, workflows, payment methods, vendor rates, role permissions, report types, or fake fallback values in controllers or frontend pages.
+- `config/master-data.js` is allowed only as first-run bootstrap seed data; after startup the database is the source of truth.
 
 Do not reintroduce local hardcoded business enums if metadata already exists.
 

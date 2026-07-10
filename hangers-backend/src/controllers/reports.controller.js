@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const { badRequest, error } = require('../utils/response');
 const { reportQuerySchema } = require('../validation/reports.schemas');
 const { normalizePaymentMethod } = require('../utils/payment-method');
+const { getReportTypes } = require('../services/masterData.service');
 
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 const FINANCE_ORDER_WHERE = { ...ORDER_ONLY_WHERE, status: { not: 'CANCELLED' } };
@@ -58,6 +59,9 @@ const getReport = async (req, res) => {
     const parsed = reportQuerySchema.safeParse(req.query);
     if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid report query');
     const { type, from, to } = parsed.data;
+    const reportTypes = await getReportTypes();
+    const reportTypeValues = reportTypes.map((report) => report.value);
+    if (!reportTypeValues.includes(type)) return badRequest(res, `Invalid report type. Must be one of: ${reportTypeValues.join(', ')}`);
 
     const start = from ? parseLocalDateBoundary(from, 'start') : (() => {
       const now = new Date();

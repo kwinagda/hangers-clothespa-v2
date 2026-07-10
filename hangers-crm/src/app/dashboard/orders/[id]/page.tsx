@@ -20,26 +20,16 @@ const getStatusLabel = (status: string, source?: string, labels: Record<string, 
   if (status === 'PICKED_UP' && (source === 'counter' || source === 'COUNTER' || source === 'walk-in')) return 'Received'
   return labels[status] || status
 }
-const NEXT_STATUS: Record<string,string> = {
-  PENDING:'PICKED_UP',
-  PICKED_UP:'PROCESSING',
-  PROCESSING:'IRONING',
-  IRONING:'READY_FOR_DELIVERY',
-  READY_FOR_DELIVERY:'OUT_FOR_DELIVERY',
-  OUT_FOR_DELIVERY:'DELIVERED',
+const EMPTY_WORKFLOW = {
+  next: {} as Record<string, string>,
+  allowedBackward: {} as Record<string, string[]>,
+  crmEditableStatuses: [] as string[],
+  plantLockedStatuses: [] as string[],
+  requiresItems: [] as string[],
+  cancellableStatuses: [] as string[],
+  deliveredCorrectionTargets: [] as string[],
+  riderAssignableStatuses: [] as string[],
 }
-const REQUIRES_ITEMS = ['PROCESSING','IRONING','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED']
-const BACKWARD_TRANSITIONS: Record<string, string[]> = {
-  PICKED_UP: ['PENDING'],
-  PROCESSING: ['PICKED_UP'],
-  IRONING: ['PROCESSING'],
-  READY_FOR_DELIVERY: ['IRONING', 'PROCESSING'],
-  OUT_FOR_DELIVERY: ['READY_FOR_DELIVERY'],
-  CANCELLED: ['PENDING'],
-}
-const HIDDEN_STATUS_CHOICES = new Set(['WASHING', 'DRYING', 'QC', 'RETURNED'])
-const DELIVERED_CORRECTION_TARGETS = ['READY_FOR_DELIVERY']
-const CANCELLABLE_STATUSES = ['PENDING', 'PICKED_UP', 'PROCESSING', 'READY_FOR_DELIVERY']
 const formatCurrency = (value: number) => `₹${(value || 0).toLocaleString('en-IN')}`
 const getOutstandingAmount = (order: any) => Math.max(0, (order?.totalAmount || 0) - (order?.paidAmount || 0) - (order?.writeOffAmount || 0))
 const getTimelineNote = (notes?: string | null) => {
@@ -171,15 +161,15 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   )
 }
 
-const getTransitionKind = (currentStatus: string, nextStatus: string) => {
+const getTransitionKind = (currentStatus: string, nextStatus: string, workflow: typeof EMPTY_WORKFLOW) => {
   if (currentStatus === nextStatus) return 'noop'
   if (currentStatus === 'DELIVERED') {
     if (nextStatus === 'CANCELLED') return 'forbidden_delivered_cancel'
-    return DELIVERED_CORRECTION_TARGETS.includes(nextStatus) ? 'delivered_correction' : 'forbidden_delivered_change'
+    return workflow.deliveredCorrectionTargets.includes(nextStatus) ? 'delivered_correction' : 'forbidden_delivered_change'
   }
   if (currentStatus === 'CANCELLED') return nextStatus === 'PENDING' ? 'restore' : 'forbidden_cancelled_change'
   if (nextStatus === 'CANCELLED') return 'cancel'
-  if (BACKWARD_TRANSITIONS[currentStatus]?.includes(nextStatus)) return 'backward'
+  if (workflow.allowedBackward[currentStatus]?.includes(nextStatus)) return 'backward'
   return 'forward'
 }
 
@@ -222,22 +212,22 @@ const hasHighRiskCorrectionAuthority = (staff: any) => {
 
 const getStatusChoices = (
   currentStatus: string,
-  baseStatuses: string[],
+  workflow: typeof EMPTY_WORKFLOW,
   staff: any
 ) => {
   const next = new Set<string>([currentStatus])
-  const forwardStatus = NEXT_STATUS[currentStatus]
-  if (forwardStatus && baseStatuses.includes(forwardStatus)) {
+  const forwardStatus = workflow.next[currentStatus]
+  if (forwardStatus && workflow.crmEditableStatuses.includes(forwardStatus)) {
     next.add(forwardStatus)
   }
   if (hasCorrectionAuthority(staff)) {
-    ;(BACKWARD_TRANSITIONS[currentStatus] || []).forEach((status) => next.add(status))
-    if (baseStatuses.includes('CANCELLED') && CANCELLABLE_STATUSES.includes(currentStatus)) {
+    ;(workflow.allowedBackward[currentStatus] || []).forEach((status) => next.add(status))
+    if (workflow.crmEditableStatuses.includes('CANCELLED') && workflow.cancellableStatuses.includes(currentStatus)) {
       next.add('CANCELLED')
     }
   }
   if (currentStatus === 'DELIVERED' && hasHighRiskCorrectionAuthority(staff)) {
-    DELIVERED_CORRECTION_TARGETS.forEach((status) => next.add(status))
+    workflow.deliveredCorrectionTargets.forEach((status) => next.add(status))
   }
   return Array.from(next)
 }
@@ -415,7 +405,7 @@ export default function OrderDetailPage() {
   const [order,            setOrder]            = useState<any>(null)
   const [statusLabels, setStatusLabels] = useState<Record<string, string>>({})
   const [plantStatuses, setPlantStatuses] = useState<string[]>([])
-  const [crmStatuses, setCrmStatuses] = useState<string[]>([])
+  const [orderWorkflow, setOrderWorkflow] = useState(EMPTY_WORKFLOW)
   const [deliveryRoles, setDeliveryRoles] = useState<string[]>([])
   const [currentStaff, setCurrentStaff] = useState<any>(null)
   const [loading,          setLoading]          = useState(true)
@@ -477,13 +467,14 @@ export default function OrderDetailPage() {
         acc[item.key] = item.label || item.key
         return acc
       }, {}))
-      setPlantStatuses(orderStatuses.filter((item: any) => item.plantManaged).map((item: any) => item.key))
-      setCrmStatuses(orderStatuses.filter((item: any) => item.crmEditable && item.key !== 'SENT_TO_PLANT' && !HIDDEN_STATUS_CHOICES.has(item.key)).map((item: any) => item.key))
+      const workflow = { ...EMPTY_WORKFLOW, ...(metadata.orderWorkflow || {}) }
+      setOrderWorkflow(workflow)
+      setPlantStatuses(workflow.plantLockedStatuses || orderStatuses.filter((item: any) => item.plantManaged).map((item: any) => item.key))
       setDeliveryRoles((metadata.staffRoles || []).filter((item: any) => String(item.value || '').startsWith('DELIVERY_')).map((item: any) => item.value))
     }).catch(() => {
       setStatusLabels({})
       setPlantStatuses([])
-      setCrmStatuses([])
+      setOrderWorkflow(EMPTY_WORKFLOW)
       setDeliveryRoles([])
       toast.error('Failed to load order metadata')
     })
@@ -491,8 +482,8 @@ export default function OrderDetailPage() {
 
   const noItems     = !order?.items?.length
   const isAppOrder  = order?.source === 'APP'
-  const canProgress = (targetStatus: string) => !(REQUIRES_ITEMS.includes(targetStatus) && noItems)
-  const statusChoices = getStatusChoices(order?.status, crmStatuses, currentStaff)
+  const canProgress = (targetStatus: string) => !(orderWorkflow.requiresItems.includes(targetStatus) && noItems)
+  const statusChoices = getStatusChoices(order?.status, orderWorkflow, currentStaff)
   const statusLabel = (status: string) => getStatusLabel(status, order?.source, statusLabels)
 
   const updateStatus = async (status: string) => {
@@ -500,7 +491,7 @@ export default function OrderDetailPage() {
       toast.error('Add garment items first — cannot move to processing without items', { duration: 4000 })
       return
     }
-    const transitionKind = getTransitionKind(order.status, status)
+    const transitionKind = getTransitionKind(order.status, status, orderWorkflow)
     if (transitionKind === 'forbidden_delivered_cancel') {
       toast.error('Delivered orders cannot be cancelled. Use the return / re-clean flow instead.')
       return
@@ -568,9 +559,10 @@ export default function OrderDetailPage() {
 
   const isReturnedOriginal = order.status === 'CANCELLED' && order.notes?.includes('[RETURNED')
   const isLocked       = order.status === 'RETURNED' || isReturnedOriginal
-  const nextSt         = NEXT_STATUS[order.status]
+  const nextSt         = orderWorkflow.next[order.status]
   const nextBlocked    = Boolean(nextSt && !canProgress(nextSt))
-  const showItemsPanel = !order.isReturn && ['PENDING','PICKED_UP','PROCESSING'].includes(order.status) && noItems
+  const showItemsPanel = !order.isReturn && !isLocked && !plantStatuses.includes(order.status) && noItems && statusChoices.some((status) => orderWorkflow.requiresItems.includes(status))
+  const canAssignRider = orderWorkflow.riderAssignableStatuses.includes(order.status)
   const outstandingAmount = getOutstandingAmount(order)
   const totalPieces = order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0
 
@@ -611,7 +603,7 @@ export default function OrderDetailPage() {
         </div>
       </div>
 
-      {noItems && !['DELIVERED','CANCELLED'].includes(order.status) && (
+      {showItemsPanel && (
         <div style={{background:'#fff8e6',border:'1.5px solid #f59e0b',borderRadius:18,padding:'16px 20px',marginBottom:22,display:'flex',alignItems:'flex-start',gap:14}}>
           <AlertTriangle size={22} color="#f59e0b" style={{flexShrink:0}} />
           <div>
@@ -753,7 +745,7 @@ export default function OrderDetailPage() {
                   Print
                 </Link>
               </div>
-              {CANCELLABLE_STATUSES.includes(order.status)&&!order.isReturn&&(
+              {orderWorkflow.cancellableStatuses.includes(order.status)&&!order.isReturn&&(
                 <button onClick={()=>updateStatus('CANCELLED')}
                   style={{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',padding:11,borderRadius:9,fontSize:13.5,fontWeight:700,background:'#fff',color:'#c0392b',border:'1.5px solid #f3c7bf',cursor:'pointer',marginTop:4}}>
                   Cancel Order
@@ -792,7 +784,7 @@ export default function OrderDetailPage() {
           )}
 
           {/* Rider assignment */}
-          {['READY_FOR_DELIVERY','OUT_FOR_DELIVERY','PENDING','PICKED_UP'].includes(order.status) && riders.length>0 && (
+          {canAssignRider && riders.length>0 && (
             <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,padding:16}}>
               <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase' as const,marginBottom:12}}>Assign Rider</div>
               <select defaultValue={order.assignedToId||''} onChange={e=>assignRider(e.target.value)} disabled={assigning}

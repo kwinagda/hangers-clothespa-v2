@@ -216,7 +216,7 @@ export default function CustomerProfilePage() {
       setTagOptions(asArray(metadata.customerTags))
       setLanguageOptions(asArray(metadata.languages))
       setAddressLabels(asArray(metadata.addressLabels))
-      setPaymentMethods(asArray(metadata.paymentMethods))
+      setPaymentMethods(asArray(metadata.collectablePaymentMethods).length ? asArray(metadata.collectablePaymentMethods) : asArray(metadata.paymentMethods).filter((method: any) => asArray(metadata.corePaymentMethods).includes(method.value)))
       setPaymentStatusMeta(Object.fromEntries(asArray(metadata.paymentStatuses).map((item: any) => [item.value, { label: item.label || item.value, color: item.color || '#023c62', bg: item.bg || '#f4f7fb' }])))
     }).catch(() => {
       setTagOptions([])
@@ -1057,7 +1057,7 @@ export default function CustomerProfilePage() {
                             style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
                           <select value={paymentForm[bill.id]?.paymentMethod || 'CASH'} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: paymentForm[bill.id]?.amount || '', paymentMethod: e.target.value } })}
                             style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
-                            {paymentMethods.filter((method) => ['CASH', 'UPI', 'CARD'].includes(method.value)).map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
+                            {paymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
                           </select>
                           <button onClick={() => recordIronPayment(bill.id)} disabled={ironBusy === `bill-pay-${bill.id}`} style={{ padding: '8px 12px', background: '#166534', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                             {ironBusy === `bill-pay-${bill.id}` ? 'Saving…' : 'Record Pay'}

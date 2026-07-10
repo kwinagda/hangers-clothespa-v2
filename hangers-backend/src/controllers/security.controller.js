@@ -1,7 +1,7 @@
 const prisma = require('../config/database');
 const { success, badRequest, error } = require('../utils/response');
-const { ROLE_SERVICE_ACCESS, SERVICE_CODES } = require('../config/master-data');
 const { log, getRequestMeta } = require('../services/activity.service');
+const { getRoleServiceAccess, getServiceCodes } = require('../services/masterData.service');
 
 const listAuditLogs = async (req, res) => {
   try {
@@ -48,7 +48,7 @@ const listAuthThrottles = async (req, res) => {
 
 const getAccessCatalog = async (req, res) => {
   try {
-    const [permissions, serviceAllowances, staffPermissions] = await Promise.all([
+    const [permissions, serviceAllowances, staffPermissions, serviceCodes, roleServiceAccess] = await Promise.all([
       prisma.permissionCatalog.findMany({
         include: { roleBindings: true },
         orderBy: [{ category: 'asc' }, { code: 'asc' }],
@@ -59,12 +59,14 @@ const getAccessCatalog = async (req, res) => {
       prisma.staffPermission.findMany({
         orderBy: [{ staffId: 'asc' }, { permission: 'asc' }],
       }),
+      getServiceCodes(),
+      getRoleServiceAccess(),
     ]);
 
     return success(res, {
       permissions,
-      services: SERVICE_CODES,
-      roleServiceAccess: ROLE_SERVICE_ACCESS,
+      services: serviceCodes,
+      roleServiceAccess,
       serviceAllowances,
       staffPermissions,
     });
@@ -78,7 +80,8 @@ const updateStaffServiceAccess = async (req, res) => {
   const services = Array.isArray(req.body?.services) ? req.body.services : null;
   if (!services) return badRequest(res, 'services array is required');
 
-  const invalid = services.find((entry) => !SERVICE_CODES.includes(String(entry?.serviceCode || '')) || typeof entry?.allowed !== 'boolean');
+  const serviceCodes = await getServiceCodes();
+  const invalid = services.find((entry) => !serviceCodes.includes(String(entry?.serviceCode || '')) || typeof entry?.allowed !== 'boolean');
   if (invalid) return badRequest(res, 'Each service entry must include a valid serviceCode and boolean allowed value');
 
   try {

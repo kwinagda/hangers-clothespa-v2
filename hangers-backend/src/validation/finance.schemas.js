@@ -1,5 +1,4 @@
 const { z } = require('zod');
-const { CORE_PAYMENT_METHODS } = require('../config/master-data');
 
 const positiveMoneySchema = z.coerce.number().finite().positive();
 
@@ -18,7 +17,7 @@ const checkoutLoyaltySchema = z.object({
 const recordPaymentSchema = z.object({
   orderId: z.string().trim().min(1),
   amount: positiveMoneySchema,
-  method: z.enum(CORE_PAYMENT_METHODS),
+  method: z.string().trim().min(1).max(64),
   reference: z.string().trim().max(120).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
 }).strict();

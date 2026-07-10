@@ -11,37 +11,45 @@
 const prisma = require('../config/database');
 const { log, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error, notFound } = require('../utils/response');
-const { ORDER_STATUS_LABELS, PLANT_STATUS_KEYS } = require('../config/master-data');
+const { getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
 
-const PLANT_STAGE_SEQUENCE = ['SENT_TO_PLANT', 'PROCESSING', 'WASHING', 'DRYING', 'IRONING', 'QC', 'READY_FOR_DELIVERY'];
 const PLANT_ISSUE_TYPES = new Set(['MISSING_ITEM', 'DAMAGE', 'STAIN_NOT_REMOVED', 'WRONG_ITEM', 'OTHER']);
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
+const statusLabelsFrom = (statuses) => statuses.reduce((acc, status) => {
+  acc[status.key] = status.plantLabel || status.label || status.key;
+  return acc;
+}, {});
+const plantStatusKeysFrom = (statuses, workflow) =>
+  (workflow.plantLockedStatuses || statuses.filter((status) => status.plantManaged).map((status) => status.key));
 
 const getPlantDashboard = async (req, res) => {
   try {
-    const [pending, processing, washing, drying, ironing, qc, ready, todayDone] =
+    const orderWorkflow = await getOrderWorkflow();
+    const workflowViews = orderWorkflow.views || {};
+    const inProcessStatuses = workflowViews.in_process?.statuses || [];
+    const readyStatuses = workflowViews.ready?.statuses || [];
+    const plantStatuses = orderWorkflow.plantLockedStatuses || [];
+    const plantReceivedTarget = orderWorkflow.plantReceivedTarget;
+    const [pending, sentToPlant, ironing, ready, todayDone] =
       await Promise.all([
-        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'PENDING' } }),
-        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'PROCESSING' } }),
-        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'WASHING' } }),
-        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'DRYING' } }),
-        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'IRONING' } }),
-        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'QC' } }),
-        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: 'READY_FOR_DELIVERY' } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: { in: inProcessStatuses } } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: { in: plantStatuses } } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: plantReceivedTarget || '__UNCONFIGURED__' } }),
+        prisma.order.count({ where: { ...ORDER_ONLY_WHERE, status: { in: readyStatuses } } }),
         prisma.order.count({
           where: {
             ...ORDER_ONLY_WHERE,
-            status: 'READY_FOR_DELIVERY',
+            status: { in: readyStatuses },
             updatedAt: { gte: new Date(new Date().setHours(0,0,0,0)) },
           },
         }),
       ]);
 
-    const atPlant = processing + washing + drying + ironing + qc;
+    const atPlant = sentToPlant;
 
     return success(res, {
       dashboard: {
-        pending, atPlant, processing, washing, drying, ironing, qc,
+        pending, atPlant, sentToPlant, ironing,
         ready, todayDone,
         total: pending + atPlant + ready,
       },
@@ -57,12 +65,15 @@ const getPlantOrders = async (req, res) => {
   const parsedLimit = Number.parseInt(limit, 10);
   if (!Number.isInteger(parsedPage) || parsedPage <= 0) return badRequest(res, 'page must be a positive integer');
   if (!Number.isInteger(parsedLimit) || parsedLimit <= 0 || parsedLimit > 100) return badRequest(res, 'limit must be an integer between 1 and 100');
-  if (status && !PLANT_STATUS_KEYS.includes(String(status).trim().toUpperCase())) return badRequest(res, 'Invalid plant status filter');
   const skip = (parsedPage - 1) * parsedLimit;
+  const [orderStatuses, orderWorkflow] = await Promise.all([getOrderStatuses(), getOrderWorkflow()]);
+  const statusLabels = statusLabelsFrom(orderStatuses);
+  const plantStatusKeys = plantStatusKeysFrom(orderStatuses, orderWorkflow);
+  if (status && !plantStatusKeys.includes(String(status).trim().toUpperCase())) return badRequest(res, 'Invalid plant status filter');
 
   const where = status
     ? { ...ORDER_ONLY_WHERE, status: String(status).trim().toUpperCase() }
-    : { ...ORDER_ONLY_WHERE, status: { in: PLANT_STATUS_KEYS } };
+    : { ...ORDER_ONLY_WHERE, status: { in: plantStatusKeys } };
 
   try {
     const [orders, total] = await Promise.all([
@@ -82,7 +93,7 @@ const getPlantOrders = async (req, res) => {
     return success(res, {
       orders: orders.map(o => ({
         id: o.id, orderNumber: o.orderNumber, status: o.status,
-        statusLabel: ORDER_STATUS_LABELS[o.status] || o.status,
+        statusLabel: statusLabels[o.status] || o.status,
         customer:    { name: o.customer?.name, phone: o.customer?.phone },
         items:       o.items,
         totalItems:  o.items.reduce((s, i) => s + i.quantity, 0),
@@ -125,10 +136,12 @@ const scanQRCode = async (req, res) => {
       ? (parseInt(qrCode.match(/-(\d+)$/)?.[1] || '1')) - 1
       : null;
 
+    const orderStatuses = await getOrderStatuses();
+    const statusLabels = statusLabelsFrom(orderStatuses);
     return success(res, {
       order: {
         id: order.id, orderNumber: order.orderNumber, status: order.status,
-        statusLabel: ORDER_STATUS_LABELS[order.status] || order.status,
+        statusLabel: statusLabels[order.status] || order.status,
         customer:   { name: order.customer?.name, phone: order.customer?.phone },
         items:       order.items,
         stages:      order.stages,
@@ -157,10 +170,12 @@ const getPlantOrder = async (req, res) => {
 
     if (!order) return notFound(res, 'Order not found');
 
+    const orderStatuses = await getOrderStatuses();
+    const statusLabels = statusLabelsFrom(orderStatuses);
     return success(res, {
       order: {
         ...order,
-        statusLabel: ORDER_STATUS_LABELS[order.status] || order.status,
+        statusLabel: statusLabels[order.status] || order.status,
         totalItems:  order.items.reduce((s, i) => s + i.quantity, 0),
       },
     });
@@ -175,7 +190,10 @@ const updatePlantStage = async (req, res) => {
 
   if (!status) return badRequest(res, 'Status is required');
 
-  const ALLOWED = PLANT_STATUS_KEYS.filter((status) => status !== 'SENT_TO_PLANT');
+  const [orderWorkflow, orderStatuses] = await Promise.all([getOrderWorkflow(), getOrderStatuses()]);
+  const statusLabels = statusLabelsFrom(orderStatuses);
+  const plantLockedStatus = (orderWorkflow.plantLockedStatuses || [])[0];
+  const ALLOWED = plantLockedStatus ? (orderWorkflow.allowedForward?.[plantLockedStatus] || []) : [];
   if (!ALLOWED.includes(status)) {
     return badRequest(res, `Plant can only set: ${ALLOWED.join(', ')}`);
   }
@@ -189,8 +207,9 @@ const updatePlantStage = async (req, res) => {
       },
     });
     if (!order) return notFound(res, 'Order not found');
-    const currentIndex = PLANT_STAGE_SEQUENCE.indexOf(order.status);
-    const nextIndex = PLANT_STAGE_SEQUENCE.indexOf(status);
+    const plantStageSequence = [plantLockedStatus, ...ALLOWED].filter(Boolean);
+    const currentIndex = plantStageSequence.indexOf(order.status);
+    const nextIndex = plantStageSequence.indexOf(status);
     if (currentIndex === -1) return badRequest(res, 'Order is not currently in a plant-manageable stage');
     if (nextIndex === -1) return badRequest(res, 'Target stage is not a valid plant stage');
     if (nextIndex < currentIndex) return badRequest(res, 'Plant stage cannot move backward');
@@ -227,15 +246,15 @@ const updatePlantStage = async (req, res) => {
     await log({
       actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
       action: 'PLANT_STAGE_UPDATED', resource: 'order', resourceId: id,
-      description: `${req.staff.name} moved ${order.orderNumber} to ${ORDER_STATUS_LABELS[status] || status}`,
+      description: `${req.staff.name} moved ${order.orderNumber} to ${statusLabels[status] || status}`,
       metadata: { fromStatus: order.status, toStatus: status },
       ...getRequestMeta(req),
     });
 
     return success(res, {
       orderId: id, orderNumber: order.orderNumber,
-      status, statusLabel: ORDER_STATUS_LABELS[status] || status,
-    }, `Order moved to: ${ORDER_STATUS_LABELS[status] || status}`);
+      status, statusLabel: statusLabels[status] || status,
+    }, `Order moved to: ${statusLabels[status] || status}`);
   } catch (err) {
     return error(res, 'Failed to update stage');
   }

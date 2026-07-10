@@ -1,43 +1,55 @@
 const prisma = require('../config/database');
 const { success, error } = require('../utils/response');
 const {
-  ADDRESS_LABELS,
-  CUSTOMER_TAGS,
-  DISCOUNT_VALUE_TYPES,
-  DELIVERY_FAIL_REASONS,
-  DOCUMENT_TYPES,
-  EXPENSE_CATEGORIES,
-  IRON_SUBSCRIPTION_STATUS_META,
-  LANGUAGES,
-  MARKETING_AUDIENCES,
-  MARKETING_TRIGGERS,
-  ORDER_STATUSES,
-  PAYMENT_METHODS,
-  PAYMENT_STATUSES,
-  PLANT_PARTNERS,
-  PLANT_ISSUE_TYPES,
-  PROMO_BANNERS,
-  QUOTATION_STATUSES,
-  RECURRING_FREQUENCIES,
-  REPORT_TYPES,
-  RETURN_REASONS,
-  SERVICE_CATEGORY_UI,
-  STAFF_ROLES,
-  WEEKDAY_OPTIONS,
-} = require('../config/master-data');
+  getCollectablePaymentMethods,
+  getMasterMetadata,
+} = require('../services/masterData.service');
+
+const titleCase = (value) => String(value || '')
+  .toLowerCase()
+  .replace(/(^|[\s_-])([a-z])/g, (_match, prefix, char) => `${prefix}${char.toUpperCase()}`)
+  .trim();
+
+const getDbPlantPartners = async () => {
+  const [pricePlants, challanPlants, billPlants] = await Promise.all([
+    prisma.vendorPriceList.findMany({ select: { plant: true }, distinct: ['plant'] }),
+    prisma.deliveryChallan.findMany({ select: { plant: true }, distinct: ['plant'] }),
+    prisma.vendorBill.findMany({ select: { plant: true }, distinct: ['plant'] }),
+  ]);
+
+  const values = [...pricePlants, ...challanPlants, ...billPlants]
+    .map((row) => String(row.plant || '').trim())
+    .filter(Boolean);
+
+  return [...new Set(values)].sort().map((value) => ({
+    value,
+    label: titleCase(value.replace(/_/g, ' ')),
+  }));
+};
 
 const getMetadata = async (_req, res) => {
   try {
-    const services = await prisma.service.findMany({
-      where: { isActive: true },
-      select: { category: true },
-      distinct: ['category'],
-      orderBy: { category: 'asc' },
-    });
+    const [
+      services,
+      dbPlantPartners,
+      masterMetadata,
+      collectablePaymentMethods,
+    ] = await Promise.all([
+      prisma.service.findMany({
+        where: { isActive: true },
+        select: { category: true },
+        distinct: ['category'],
+        orderBy: { category: 'asc' },
+      }),
+      getDbPlantPartners(),
+      getMasterMetadata(),
+      getCollectablePaymentMethods(),
+    ]);
 
+    const serviceCategoryUi = masterMetadata.serviceCategoryUi || {};
     const serviceCategories = services.map(({ category }) => ({
       value: category,
-      ...(SERVICE_CATEGORY_UI[category] || {
+      ...(serviceCategoryUi[category] || {
         id: category.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
         label: category.replace(/_/g, ' '),
         icon: 'hanger',
@@ -48,29 +60,32 @@ const getMetadata = async (_req, res) => {
 
     return success(res, {
       metadata: {
-        orderStatuses: ORDER_STATUSES,
-        staffRoles: STAFF_ROLES,
-        marketingTriggers: MARKETING_TRIGGERS,
-        marketingAudiences: MARKETING_AUDIENCES,
-        addressLabels: ADDRESS_LABELS,
-        deliveryFailReasons: DELIVERY_FAIL_REASONS,
-        documentTypes: DOCUMENT_TYPES,
-        ironSubscriptionStatuses: IRON_SUBSCRIPTION_STATUS_META,
-        paymentMethods: PAYMENT_METHODS,
-        paymentStatuses: PAYMENT_STATUSES,
-        plantIssueTypes: PLANT_ISSUE_TYPES,
-        plantPartners: PLANT_PARTNERS,
-        quotationStatuses: QUOTATION_STATUSES,
-        customerTags: CUSTOMER_TAGS,
-        languages: LANGUAGES,
-        recurringFrequencies: RECURRING_FREQUENCIES,
-        weekdays: WEEKDAY_OPTIONS,
-        expenseCategories: EXPENSE_CATEGORIES,
-        discountValueTypes: DISCOUNT_VALUE_TYPES,
-        returnReasons: RETURN_REASONS,
-        reportTypes: REPORT_TYPES,
+        orderStatuses: masterMetadata.orderStatuses,
+        orderWorkflow: masterMetadata.orderWorkflow,
+        staffRoles: masterMetadata.staffRoles,
+        marketingTriggers: masterMetadata.marketingTriggers,
+        marketingAudiences: masterMetadata.marketingAudiences,
+        addressLabels: masterMetadata.addressLabels,
+        deliveryFailReasons: masterMetadata.deliveryFailReasons,
+        documentTypes: masterMetadata.documentTypes,
+        ironSubscriptionStatuses: masterMetadata.ironSubscriptionStatuses,
+        paymentMethods: masterMetadata.paymentMethods,
+        corePaymentMethods: masterMetadata.corePaymentMethods,
+        collectablePaymentMethods,
+        paymentStatuses: masterMetadata.paymentStatuses,
+        plantIssueTypes: masterMetadata.plantIssueTypes,
+        plantPartners: dbPlantPartners,
+        quotationStatuses: masterMetadata.quotationStatuses,
+        customerTags: masterMetadata.customerTags,
+        languages: masterMetadata.languages,
+        recurringFrequencies: masterMetadata.recurringFrequencies,
+        weekdays: masterMetadata.weekdays,
+        expenseCategories: masterMetadata.expenseCategories,
+        discountValueTypes: masterMetadata.discountValueTypes,
+        returnReasons: masterMetadata.returnReasons,
+        reportTypes: masterMetadata.reportTypes,
         serviceCategories,
-        promoBanners: PROMO_BANNERS,
+        promoBanners: masterMetadata.promoBanners,
       },
     });
   } catch (err) {

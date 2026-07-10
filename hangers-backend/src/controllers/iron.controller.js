@@ -7,11 +7,11 @@ const {
 const {
   ACTIVE_IRON_SUB_STATUSES,
   DEFAULT_LANGUAGE,
-  CORE_PAYMENT_METHODS,
   IRON_SUBSCRIPTION_STATUSES,
   LANGUAGE_VALUES,
   LOCKED_BILL_STATUSES,
 } = require('../config/master-data');
+const { getCorePaymentMethods } = require('../services/masterData.service');
 
 const toDate = (value) => {
   const date = value ? new Date(value) : null;
@@ -844,8 +844,9 @@ const recordBillPayment = async (req, res) => {
   const { amount, paymentMethod } = req.body;
   const paymentAmount = Number(amount);
   if (!(paymentAmount > 0)) return badRequest(res, 'amount must be greater than 0');
-  if (paymentMethod && !CORE_PAYMENT_METHODS.includes(paymentMethod)) {
-    return badRequest(res, `paymentMethod must be one of: ${CORE_PAYMENT_METHODS.join(', ')}`);
+  const corePaymentMethods = await getCorePaymentMethods();
+  if (paymentMethod && !corePaymentMethods.includes(paymentMethod)) {
+    return badRequest(res, `paymentMethod must be one of: ${corePaymentMethods.join(', ')}`);
   }
 
   try {

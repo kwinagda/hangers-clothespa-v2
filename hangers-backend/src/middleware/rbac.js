@@ -5,7 +5,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { forbidden } = require('../utils/response');
-const { ROLE_PERMISSIONS } = require('../config/master-data');
 const { log, getRequestMeta } = require('../services/activity.service');
 const { buildStaffAccessContext, hasResolvedPermission, hasResolvedServiceAccess } = require('../services/accessControl.service');
 
@@ -18,18 +17,13 @@ const hasPermission = (staff, permission) => {
     return hasResolvedPermission(staff, permission);
   }
 
-  const rolePerms    = ROLE_PERMISSIONS[staff.role] || [];
   const customPerms  = (staff.permissions || []).map(p => ({ perm: p.permission, granted: p.granted }));
-
-  // Super admin gets everything
-  if (rolePerms.includes('*')) return true;
 
   // Check custom overrides first (per-staff grants/revocations)
   const customOverride = customPerms.find(p => p.perm === permission);
   if (customOverride) return customOverride.granted;
 
-  // Fall back to role defaults
-  return rolePerms.includes(permission);
+  return false;
 };
 
 const logAccessDenied = (req, description, metadata = {}) => {
@@ -112,4 +106,4 @@ const requireServiceAccess = (serviceCode) => {
  */
 const superAdminOnly = requireRole('SUPER_ADMIN');
 
-module.exports = { requireRole, requirePermission, requireServiceAccess, hasPermission, superAdminOnly, ROLE_PERMISSIONS };
+module.exports = { requireRole, requirePermission, requireServiceAccess, hasPermission, superAdminOnly };

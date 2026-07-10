@@ -2,6 +2,7 @@
 // Handles: Challans, ChallanOrders, ChallanItems, VendorPriceList, VendorBills
 const prisma = require('../config/database');
 const { success, badRequest, error } = require('../utils/response');
+const { getOrderWorkflow } = require('../services/masterData.service');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // ── Challan number generator ──────────────────────────────────────────────────
@@ -137,7 +138,7 @@ const recalculateVendorCostsForPlant = async (plant, tx = prisma) => {
 // VENDOR PRICE LIST
 // ─────────────────────────────────────────────────────────────────────────────
 
-// GET /api/v1/vendor-prices?plant=WADREX
+// GET /api/v1/vendor-prices?plant=<plant-code>
 const getVendorPrices = async (req, res) => {
   try {
     const { plant } = req.query;
@@ -274,9 +275,10 @@ const createChallan = async (req, res) => {
     });
 
     if (orders.length !== normalizedOrderIds.length) return badRequest(res, 'One or more orders not found');
-    const sendableStatuses = new Set(['PENDING', 'PICKED_UP', 'PROCESSING']);
+    const orderWorkflow = await getOrderWorkflow();
+    const sendableStatuses = new Set(orderWorkflow.challanSendableStatuses || []);
     const invalidOrders = orders.filter((order) => !sendableStatuses.has(order.status));
-    if (invalidOrders.length) return badRequest(res, 'Only created, received, or in-process orders can be sent to plant challans');
+    if (invalidOrders.length) return badRequest(res, 'Only received or in-process orders can be sent to plant challans');
     const alreadyLinked = await prisma.challanOrder.findMany({
       where: { orderId: { in: normalizedOrderIds }, challan: { status: { in: ['DISPATCHED', 'PARTIAL', 'PROCESSED'] } } },
       select: { orderId: true }
@@ -357,6 +359,9 @@ const updateChallanStatus = async (req, res) => {
     const existing = await prisma.deliveryChallan.findUnique({ where: { id: req.params.id } });
     if (!existing) return badRequest(res, 'Challan not found');
     if (existing.status === 'RECEIVED' && status !== 'RECEIVED') return badRequest(res, 'Received challans cannot be moved back to an earlier state');
+    const orderWorkflow = await getOrderWorkflow();
+    const plantReceivedTarget = orderWorkflow.plantReceivedTarget;
+    if (!plantReceivedTarget) return badRequest(res, 'Order workflow plantReceivedTarget is not configured');
 
     const challan = await prisma.deliveryChallan.update({
       where: { id: req.params.id },
@@ -369,7 +374,7 @@ const updateChallanStatus = async (req, res) => {
       const orderIds = challan.challanOrders.map(co => co.orderId);
       await prisma.order.updateMany({
         where: { id: { in: orderIds } },
-        data:  { status: 'IRONING' }
+        data:  { status: plantReceivedTarget }
       });
     }
 
@@ -387,6 +392,9 @@ const receiveItems = async (req, res) => {
       include: { challanOrders: true, challanItems: true }
     });
     if (!challan) return badRequest(res, 'Challan not found');
+    const orderWorkflow = await getOrderWorkflow();
+    const plantReceivedTarget = orderWorkflow.plantReceivedTarget;
+    if (!plantReceivedTarget) return badRequest(res, 'Order workflow plantReceivedTarget is not configured');
     const challanItemIds = new Set(challan.challanItems.map((item) => item.id));
     for (const item of items) {
       const receivedQty = Number(item?.receivedQty);
@@ -433,7 +441,7 @@ const receiveItems = async (req, res) => {
       if (allOrderItemsReceived && orderChallanItems.length > 0) {
         await prisma.order.update({
           where: { id: co.orderId },
-          data:  { status: 'IRONING' }
+          data:  { status: plantReceivedTarget }
         });
       }
     }
