@@ -5,7 +5,8 @@ const DEFAULT_TEMPLATE_ENDPOINT = 'https://whatomate-production-949e.up.railway.
 
 const isEnabled = () => {
   const key = process.env.WHATOMATE_API_KEY || '';
-  return Boolean(key && key.length > 10 && process.env.DEV_MODE !== 'true');
+  const devSendAllowed = process.env.WHATOMATE_SEND_IN_DEV === 'true';
+  return Boolean(key && key.length > 10 && (process.env.DEV_MODE !== 'true' || devSendAllowed));
 };
 
 const normalizePhone = (phone) => {

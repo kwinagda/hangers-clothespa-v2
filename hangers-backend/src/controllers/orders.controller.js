@@ -466,8 +466,9 @@ const createOrder = async (req, res) => {
       ...getRequestMeta(req),
     });
 
-    // WhatsApp order created notification (non-blocking)
-    sendOrderStatusMessage({ ...order, customer }, 'PENDING').catch(() => {});
+    // WhatsApp first notification must match the actual starting status.
+    // Counter/walk-in orders start at PICKED_UP, while app pickup requests start at PENDING.
+    sendOrderStatusMessage({ ...order, customer }, order.status).catch(() => {});
 
     return success(res, { order }, `Order ${order.orderNumber} created successfully`, 201);
   } catch (err) {
