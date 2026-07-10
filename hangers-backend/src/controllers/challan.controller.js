@@ -33,24 +33,26 @@ const genBillNo = async () => {
 const buildVendorPriceMap = (prices) => {
   const priceMap = {};
   const priceMeta = {};
-  const setPrice = (key, value, updatedAt) => {
+  const setPrice = (key, value, updatedAt, priority = 0) => {
     if (!key) return;
     const parsedValue = Number(value) || 0;
     const currentValue = Number(priceMap[key]) || 0;
-    const currentUpdatedAt = priceMeta[key] ? new Date(priceMeta[key]).getTime() : 0;
+    const currentPriority = Number(priceMeta[key]?.priority || 0);
+    const currentUpdatedAt = priceMeta[key] ? new Date(priceMeta[key].updatedAt).getTime() : 0;
     const nextUpdatedAt = updatedAt ? new Date(updatedAt).getTime() : 0;
     const shouldSet =
       priceMap[key] === undefined ||
-      (currentValue === 0 && parsedValue > 0) ||
-      (parsedValue > 0 && currentValue > 0 && nextUpdatedAt >= currentUpdatedAt);
+      priority > currentPriority ||
+      (priority === currentPriority && currentValue === 0 && parsedValue > 0) ||
+      (priority === currentPriority && parsedValue > 0 && currentValue > 0 && nextUpdatedAt >= currentUpdatedAt);
     if (shouldSet) {
       priceMap[key] = parsedValue;
-      priceMeta[key] = updatedAt || new Date(0);
+      priceMeta[key] = { updatedAt: updatedAt || new Date(0), priority };
     }
   };
   prices.forEach((price) => {
-    setPrice(price.serviceId, price.costPrice, price.updatedAt);
-    getServiceMatchKeys(price.serviceName).forEach((key) => setPrice(key, price.costPrice, price.updatedAt));
+    setPrice(price.serviceId, price.costPrice, price.updatedAt, 100);
+    getStrictServiceMatchKeys(price.serviceName).forEach((key) => setPrice(key, price.costPrice, price.updatedAt, 80));
   });
   return priceMap;
 };
@@ -66,64 +68,18 @@ const normalizeServiceKey = (value) => String(value || '')
   .replace(/\s+/g, ' ')
   .trim();
 
-const getServiceMatchKeys = (value) => {
+const getStrictServiceMatchKeys = (value) => {
   const normalized = normalizeServiceKey(value);
   const keys = new Set([String(value || ''), normalized]);
   if (normalized) keys.add(normalized.replace(/[^a-z0-9]/g, ''));
-  const addKey = (key) => {
-    if (!key) return;
-    keys.add(key);
-    keys.add(key.replace(/[^a-z0-9]/g, ''));
-  };
-  const defaultSuffixes = ['normal', 'plain'];
-  defaultSuffixes.forEach((suffix) => addKey(`${normalized}-${suffix}`));
-  if (normalized.endsWith('s')) addKey(normalized.slice(0, -1));
-  else if (normalized) addKey(`${normalized}s`);
-  if (normalized.includes('/')) addKey(normalized.split('/').reverse().join('/'));
-  const curtainBase = normalized
-    .replace(/\s+\d+(?:\.\d+)?\.?p$/i, '')
-    .replace(/\s+large$/i, '')
-    .replace(/\s+medium$/i, '')
-    .replace(/\s+small$/i, '')
-    .trim();
-  if (curtainBase !== normalized && /^curtain-/.test(curtainBase)) {
-    addKey(curtainBase);
-  }
-  if (/^curtain\s+/.test(normalized)) {
-    addKey(normalized.replace(/^curtain\s+/, 'curtain-door '));
-  }
-  if (/^dress-long(?:-|\s|$)/.test(normalized) || /\blong dress\b/.test(normalized)) {
-    addKey('long dress');
-  }
-  if (normalized === 'tshirt' || normalized === 't-shirt') {
-    addKey('tshirt');
-    addKey('t-shirt');
-  }
-  if (normalized === 'dhoti') addKey('dhoti-normal');
-  if (normalized === 'kurta') addKey('kurta-normal');
-  if (normalized === 'blouse') addKey('blouse-normal');
-  if (normalized === 'kurti') addKey('kurti/kameez-plain');
-  if (normalized === 'top') addKey('top-plain');
-  if (normalized === 'long coat') addKey('long coat-normal');
-  if (normalized === 'trouser') addKey('pants');
-  if (normalized === 'pillow') addKey('pillow covers');
-  if (normalized === 'duvet') addKey('duvet-single');
-  if (normalized === 'normal iron') addKey('normal ironing');
-  if (normalized === 'blazer') addKey('suit-(1 pcs-blazer)');
-  if (normalized === 'coat') addKey('coat/blazer');
-  if (normalized === 'sweater') addKey('sweater-full sleeves-plain');
-  if (normalized === 'sweater with hoodie') addKey('sweater-full sleeves-heavy');
-  if (normalized === 'jackettop') addKey('jacket-full sleeves');
-  if (normalized === 'bottom') addKey('pants');
-  if (normalized === 'night wear') addKey('night suit');
   return [...keys].filter(Boolean);
 };
 
 const resolveVendorCost = (priceMap, challanItem) => {
   const keys = [
     challanItem.orderItem?.serviceId,
-    ...getServiceMatchKeys(challanItem.serviceName),
-    ...getServiceMatchKeys(challanItem.orderItem?.serviceName),
+    ...getStrictServiceMatchKeys(challanItem.serviceName),
+    ...getStrictServiceMatchKeys(challanItem.orderItem?.serviceName),
   ].filter(Boolean);
   for (const key of keys) {
     if (priceMap[key] !== undefined) return Number(priceMap[key]) || 0;
