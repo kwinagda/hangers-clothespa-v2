@@ -48,21 +48,131 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
   ]
 
   return (
-    <main style={{ minHeight: '100vh', background: '#f4f7fb', padding: '28px 16px 48px', fontFamily: 'var(--crm-font-ui)', color: '#1a2332' }}>
-      <section style={{ maxWidth: 860, margin: '0 auto', background: '#fff', border: '1px solid #dbe8f2', borderRadius: 16, overflow: 'hidden', boxShadow: '0 18px 45px rgba(2,60,98,0.08)' }}>
-        <header style={{ padding: '24px 26px', borderBottom: '1px solid #edf3f8', display: 'flex', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap' }}>
+    <main className="public-invoice-page" style={{ minHeight: '100vh', background: '#f4f7fb', padding: '28px 16px 48px', fontFamily: 'var(--crm-font-ui)', color: '#1a2332' }}>
+      <style>{`
+        .public-invoice-shell {
+          max-width: 860px;
+          margin: 0 auto;
+          background: #fff;
+          border: 1px solid #dbe8f2;
+          border-radius: 16px;
+          overflow: hidden;
+          box-shadow: 0 18px 45px rgba(2,60,98,0.08);
+        }
+        .public-invoice-header {
+          padding: 24px 26px;
+          border-bottom: 1px solid #edf3f8;
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          flex-wrap: wrap;
+        }
+        .public-invoice-meta {
+          padding: 26px;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 18px;
+          border-bottom: 1px solid #edf3f8;
+        }
+        .public-invoice-table-wrap { overflow-x: auto; }
+        .public-invoice-mobile-items { display: none; }
+        .public-invoice-footer {
+          padding: 26px;
+          display: flex;
+          justify-content: flex-end;
+        }
+        @media (max-width: 640px) {
+          main.public-invoice-page {
+            padding: 12px 10px 28px !important;
+          }
+          .public-invoice-shell {
+            border-radius: 12px;
+          }
+          .public-invoice-header {
+            padding: 18px 16px;
+            display: block;
+          }
+          .public-invoice-header-summary {
+            text-align: left !important;
+            margin-top: 16px;
+          }
+          .public-invoice-meta {
+            padding: 16px;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+          }
+          .public-invoice-table-wrap { display: none; }
+          .public-invoice-mobile-items {
+            display: grid;
+            gap: 10px;
+            padding: 14px;
+            border-bottom: 1px solid #edf3f8;
+          }
+          .public-invoice-item-card {
+            border: 1px solid #e3edf6;
+            border-radius: 10px;
+            padding: 12px;
+            background: #fff;
+          }
+          .public-invoice-item-title {
+            font-weight: 800;
+            color: #142033;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+          }
+          .public-invoice-item-service {
+            margin-top: 4px;
+            color: #6b7fa3;
+            font-size: 12.5px;
+            line-height: 1.4;
+            overflow-wrap: anywhere;
+          }
+          .public-invoice-item-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 12px;
+          }
+          .public-invoice-item-metric {
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 8px;
+            min-width: 0;
+          }
+          .public-invoice-item-label {
+            color: #6b7fa3;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            white-space: nowrap;
+          }
+          .public-invoice-item-value {
+            margin-top: 4px;
+            color: #023c62;
+            font-weight: 800;
+            font-size: 12.5px;
+            white-space: nowrap;
+          }
+          .public-invoice-footer {
+            padding: 16px;
+          }
+        }
+      `}</style>
+      <section className="public-invoice-shell">
+        <header className="public-invoice-header">
           <div>
             <img src={LOGO_BLUE_URL} alt="Hangers Clothes Spa" style={{ height: 42, objectFit: 'contain', marginBottom: 12 }} />
             <div style={{ color: '#6b7fa3', fontSize: 13 }}>Premium garment care</div>
           </div>
-          <div style={{ textAlign: 'right' }}>
+          <div className="public-invoice-header-summary" style={{ textAlign: 'right' }}>
             <h1 style={{ margin: '0 0 6px', color: '#023c62', fontSize: 28 }}>Invoice</h1>
             <div style={{ fontFamily: 'var(--crm-font-mono)', color: '#023c62', fontWeight: 700 }}>{invoice.orderNumber}</div>
             <div style={{ marginTop: 8, display: 'inline-block', padding: '5px 10px', borderRadius: 999, background: '#eef6fb', color: '#023c62', fontSize: 12, fontWeight: 700 }}>{invoice.paymentStatus}</div>
           </div>
         </header>
 
-        <div style={{ padding: 26, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18, borderBottom: '1px solid #edf3f8' }}>
+        <div className="public-invoice-meta">
           <div>
             <div style={{ color: '#6b7fa3', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Customer</div>
             <div style={{ marginTop: 6, fontWeight: 700 }}>{invoice.customer?.name || 'Customer'}</div>
@@ -82,7 +192,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           </div>
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
+        <div className="public-invoice-table-wrap">
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
             <thead>
               <tr style={{ background: '#f7fafc', color: '#6b7fa3', textAlign: 'left', fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase' }}>
@@ -107,7 +217,30 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           </table>
         </div>
 
-        <footer style={{ padding: 26, display: 'flex', justifyContent: 'flex-end' }}>
+        <div className="public-invoice-mobile-items">
+          {(invoice.items || []).map((item: any, index: number) => (
+            <article className="public-invoice-item-card" key={`${item.serviceName}-${item.garmentType}-mobile-${index}`}>
+              <div className="public-invoice-item-title">{item.garmentType || item.serviceName}</div>
+              <div className="public-invoice-item-service">{item.serviceName}{item.variant ? ` · ${item.variant}` : ''}</div>
+              <div className="public-invoice-item-grid">
+                <div className="public-invoice-item-metric">
+                  <div className="public-invoice-item-label">Qty</div>
+                  <div className="public-invoice-item-value">{item.quantity}</div>
+                </div>
+                <div className="public-invoice-item-metric">
+                  <div className="public-invoice-item-label">Rate</div>
+                  <div className="public-invoice-item-value">{money(item.unitPrice)}</div>
+                </div>
+                <div className="public-invoice-item-metric">
+                  <div className="public-invoice-item-label">Amount</div>
+                  <div className="public-invoice-item-value">{money(item.subtotal)}</div>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <footer className="public-invoice-footer">
           <div style={{ width: '100%', maxWidth: 360 }}>
             {rows.map(([label, value]) => (
               <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid #edf3f8', fontWeight: label === 'Total' || label === 'Balance Due' ? 800 : 600, color: label === 'Balance Due' ? '#023c62' : '#1a2332' }}>
