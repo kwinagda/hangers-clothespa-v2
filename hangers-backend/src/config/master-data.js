@@ -406,6 +406,51 @@ const PROMO_BANNERS = [
   { id: 'eco', title: 'Eco-Friendly Process', subtitle: 'Safe for your clothes & planet', cta: 'Know More' },
 ];
 
+const WHATSAPP_TEMPLATES = {
+  provider: 'WHATOMATE',
+  accountName: 'Hangers',
+  invoiceButtonIndex: '0',
+  invoiceSlugField: 'orderNumber',
+  orderStatus: {
+    PENDING: {
+      templateName: 'hangers_crm_order_created',
+      params: ['customerName', 'orderNumber', 'totalAmount', 'expectedDelivery'],
+    },
+    PICKED_UP: {
+      templateName: 'hangers_crm_order_received',
+      params: ['customerName', 'orderNumber'],
+    },
+    PROCESSING: {
+      templateName: 'hangers_crm_order_in_process',
+      params: ['customerName', 'orderNumber'],
+    },
+    SENT_TO_PLANT: {
+      templateName: 'hangers_crm_order_sent_to_plant',
+      params: ['customerName', 'orderNumber'],
+    },
+    IRONING: {
+      templateName: 'hangers_crm_order_pending_ironing',
+      params: ['customerName', 'orderNumber'],
+    },
+    READY_FOR_DELIVERY: {
+      templateName: 'hangers_crm_order_ready',
+      params: ['customerName', 'orderNumber', 'balanceDue'],
+    },
+    OUT_FOR_DELIVERY: {
+      templateName: 'hangers_crm_order_out_for_delivery',
+      params: ['customerName', 'orderNumber', 'balanceDue'],
+    },
+    DELIVERED: {
+      templateName: 'hangers_crm_order_delivered',
+      params: ['customerName', 'orderNumber'],
+    },
+  },
+  paymentReceived: {
+    templateName: 'hangers_crm_payment_received',
+    params: ['customerName', 'paymentAmount', 'orderNumber', 'paymentMethod', 'balanceDue'],
+  },
+};
+
 module.exports = {
   ACTIVE_IRON_SUB_STATUSES,
   ADDRESS_LABELS,
@@ -448,4 +493,5 @@ module.exports = {
   EXPENSE_CATEGORIES,
   DISCOUNT_VALUE_TYPES,
   PROMO_BANNERS,
+  WHATSAPP_TEMPLATES,
 };

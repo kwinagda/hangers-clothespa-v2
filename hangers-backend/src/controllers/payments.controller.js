@@ -7,6 +7,7 @@ const { success, created, badRequest, error, notFound } = require('../utils/resp
 const { recordPaymentSchema } = require('../validation/finance.schemas');
 const { normalizePaymentMethod } = require('../utils/payment-method');
 const { getCorePaymentMethods } = require('../services/masterData.service');
+const { sendPaymentReceivedMessage } = require('../services/whatomate.service');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 const calculatePaymentState = (order, incomingAmount) => {
@@ -103,6 +104,14 @@ const recordPayment = async (req, res) => {
       balance:       Math.max(0, Number(updatedOrder.totalAmount) - Number(updatedOrder.paidAmount) - Number(updatedOrder.writeOffAmount || 0)),
       overpayment,
     }, 'Payment recorded successfully');
+
+    prisma.order.findFirst({
+      where:   { id: orderId },
+      include: { customer: { select: { name: true, phone: true } } },
+    }).then((order) => {
+      if (order) sendPaymentReceivedMessage(order, payment.amount, payment.method);
+    }).catch(() => {});
+
     if (updatedOrder.paymentStatus === 'PAID') {
       processReferralQualification(orderId).catch(() => {});
     }

@@ -844,7 +844,7 @@ const recordPayment = async (req, res) => {
       prisma.order.findFirst({
         where:   { id },
         include: { customer: { select: { name: true, phone: true } } },
-      }).then((o) => { if (o) sendPaymentReceivedMessage(o, amountNum); }).catch(() => {});
+      }).then((o) => { if (o) sendPaymentReceivedMessage(o, amountNum, normalizedMethod); }).catch(() => {});
     }
 
     return success(res, { order: updatedOrder, overpayment });

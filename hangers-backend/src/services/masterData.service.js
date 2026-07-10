@@ -26,6 +26,7 @@ const {
   SERVICE_CODES,
   STAFF_ROLES,
   WEEKDAY_OPTIONS,
+  WHATSAPP_TEMPLATES,
 } = require('../config/master-data');
 
 const MASTER_SETTING_KEYS = {
@@ -55,6 +56,7 @@ const MASTER_SETTING_KEYS = {
   staffRoles: 'master.staffRoles',
   roleServiceAccess: 'master.roleServiceAccess',
   weekdays: 'master.weekdays',
+  whatsappTemplates: 'master.whatsappTemplates',
 };
 
 const BOOTSTRAP_MASTER_SETTINGS = {
@@ -84,6 +86,7 @@ const BOOTSTRAP_MASTER_SETTINGS = {
   [MASTER_SETTING_KEYS.staffRoles]: STAFF_ROLES,
   [MASTER_SETTING_KEYS.roleServiceAccess]: ROLE_SERVICE_ACCESS,
   [MASTER_SETTING_KEYS.weekdays]: WEEKDAY_OPTIONS,
+  [MASTER_SETTING_KEYS.whatsappTemplates]: WHATSAPP_TEMPLATES,
 };
 
 const parseJsonSetting = (setting, key) => {
@@ -107,6 +110,7 @@ const getCorePaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.corePay
 const getReportTypes = () => getMasterSetting(MASTER_SETTING_KEYS.reportTypes);
 const getServiceCodes = () => getMasterSetting(MASTER_SETTING_KEYS.serviceCodes);
 const getRoleServiceAccess = () => getMasterSetting(MASTER_SETTING_KEYS.roleServiceAccess);
+const getWhatsAppTemplates = () => getMasterSetting(MASTER_SETTING_KEYS.whatsappTemplates);
 
 const getMasterMetadata = async () => {
   const entries = await Promise.all(
@@ -151,5 +155,6 @@ module.exports = {
   getReportTypes,
   getRoleServiceAccess,
   getServiceCodes,
+  getWhatsAppTemplates,
   syncMasterDataSettings,
 };

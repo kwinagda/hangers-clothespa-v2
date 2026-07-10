@@ -1,120 +1,141 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// WHATOMATE — WhatsApp notifications via WhatOmate API
-// Set WHATOMATE_API_URL and WHATOMATE_API_KEY in .env
-// All order status templates are defined here as plain-text messages.
-// ─────────────────────────────────────────────────────────────────────────────
 const axios = require('axios');
+const { getWhatsAppTemplates } = require('./masterData.service');
+
+const DEFAULT_TEMPLATE_ENDPOINT = 'https://whatomate-production-949e.up.railway.app/api/messages/template';
 
 const isEnabled = () => {
   const key = process.env.WHATOMATE_API_KEY || '';
-  return key && key.length > 5 && process.env.DEV_MODE !== 'true';
+  return Boolean(key && key.length > 10 && process.env.DEV_MODE !== 'true');
 };
 
 const normalizePhone = (phone) => {
-  const c = phone.replace(/[\s\-\(\)\+]/g, '');
+  const c = String(phone || '').replace(/[\s\-()+]/g, '');
   if (c.startsWith('91') && c.length === 12) return c;
   if (c.length === 10) return `91${c}`;
   return c;
 };
 
-// ── Send a plain-text WhatsApp message via WhatOmate ─────────────────────────
-const sendWhatsApp = async (phone, message) => {
-  if (!phone || !message) return false;
+const formatAmount = (amount) => {
+  const n = Number(amount || 0);
+  return Number.isFinite(n) ? String(Math.max(0, Number(n.toFixed(2)))) : '0';
+};
 
-  const apiUrl = process.env.WHATOMATE_API_URL || 'https://app.whatomate.com/api/v1/message';
-  const apiKey = process.env.WHATOMATE_API_KEY || '';
+const formatDate = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+};
+
+const orderBalance = (order) => {
+  const total = Number(order?.totalAmount || 0);
+  const paid = Number(order?.paidAmount || 0);
+  const writeOff = Number(order?.writeOffAmount || 0);
+  return Math.max(0, Number((total - paid - writeOff).toFixed(2)));
+};
+
+const invoiceSlugFor = (order, config) => {
+  const field = config?.invoiceSlugField || 'orderNumber';
+  return String(order?.[field] || order?.orderNumber || order?.id || '').trim();
+};
+
+const resolveParam = ({ name, order, payment }) => {
+  const customer = order?.customer || {};
+  const values = {
+    customerName: customer.name || 'Customer',
+    orderNumber: order?.orderNumber || '',
+    totalAmount: formatAmount(order?.totalAmount),
+    expectedDelivery: formatDate(order?.deliveryDate),
+    balanceDue: formatAmount(orderBalance(order)),
+    paymentAmount: formatAmount(payment?.amount),
+    paymentMethod: payment?.method || '',
+  };
+  return values[name] ?? '';
+};
+
+const buildTemplateParams = (paramNames, context) =>
+  Object.fromEntries((paramNames || []).map((name, index) => [String(index + 1), resolveParam({ name, ...context })]));
+
+const postTemplate = async ({ phone, templateName, templateParams, buttonParams, accountName }) => {
+  if (!phone || !templateName) return false;
+
+  const payload = {
+    phone_number: normalizePhone(phone),
+    template_name: templateName,
+    template_params: templateParams || {},
+    button_params: buttonParams || {},
+    account_name: process.env.WHATOMATE_ACCOUNT_NAME || accountName || 'Hangers',
+  };
 
   if (!isEnabled()) {
-    console.log(`\n[WhatOmate DEV] Would send to ${phone}:\n${message}\n`);
+    console.log('[Whatomate DEV] Would send template:', JSON.stringify(payload));
     return true;
   }
 
   try {
-    const waPhone = normalizePhone(phone);
     await axios.post(
-      apiUrl,
-      {
-        phoneNumber: waPhone,
-        message,
-        type: 'text',
-      },
+      process.env.WHATOMATE_TEMPLATE_URL || DEFAULT_TEMPLATE_ENDPOINT,
+      payload,
       {
         headers: {
-          'x-api-key': apiKey,
+          'X-API-Key': process.env.WHATOMATE_API_KEY,
           'Content-Type': 'application/json',
         },
-        timeout: 8000,
+        timeout: 10000,
       }
     );
     return true;
   } catch (err) {
-    console.error('[WhatOmate] Send failed:', err?.response?.data || err.message);
+    console.error('[Whatomate] Template send failed:', err?.response?.data || err.message);
     return false;
   }
 };
 
-// ── Order status message templates ────────────────────────────────────────────
-const STATUS_MESSAGES = {
-  PENDING: (name, orderNum) =>
-    `Hi ${name}! ✅ Your order #${orderNum} with Hangers Clothes Spa has been placed successfully. We will arrange a pickup shortly. Thank you for choosing us!`,
-
-  PICKED_UP: (name, orderNum) =>
-    `Hi ${name}! 🧺 Your garments for order #${orderNum} have been picked up by our team. We'll take great care of them — stay tuned for updates!`,
-
-  SENT_TO_PLANT: (name, orderNum) =>
-    `Hi ${name}! 🏭 Your garments (order #${orderNum}) have been sent to our expert cleaning plant for full treatment. We'll notify you when they're back!`,
-
-  PROCESSING: (name, orderNum) =>
-    `Hi ${name}! 🎉 Your garments from order #${orderNum} are back from the plant and going through our quality check. Almost ready!`,
-
-  IRONING: (name, orderNum) =>
-    `Hi ${name}! 👔 Your garments (order #${orderNum}) are now being professionally pressed and finished. Looking great — nearly done!`,
-
-  READY_FOR_DELIVERY: (name, orderNum) =>
-    `Hi ${name}! ✨ Your order #${orderNum} is ready for delivery! Freshly cleaned, ironed, and packed with care. Our team will be heading your way soon.`,
-
-  OUT_FOR_DELIVERY: (name, orderNum) =>
-    `Hi ${name}! 🚴 Your garments are on the way! Order #${orderNum} is out for delivery. Please be available to receive them at your doorstep.`,
-
-  DELIVERED: (name, orderNum) =>
-    `Hi ${name}! 🌟 Order #${orderNum} has been delivered. Thank you for choosing Hangers Clothes Spa! We hope your garments look and feel perfect. See you soon! 🙏`,
-
-  CANCELLED: (name, orderNum) =>
-    `Hi ${name}. Your order #${orderNum} with Hangers Clothes Spa has been cancelled. If you have any questions, please call us at ${process.env.SHOP_PHONE || '+91 7977417014'}.`,
-};
-
-// ── Send status notification ──────────────────────────────────────────────────
 const sendOrderStatusMessage = async (order, status) => {
-  const template = STATUS_MESSAGES[status];
-  if (!template) return;
+  const phone = order?.customer?.phone;
+  if (!phone) return false;
 
-  const phone   = order.customer?.phone;
-  const name    = order.customer?.name || 'Customer';
-  const orderNum = order.orderNumber;
+  const config = await getWhatsAppTemplates();
+  const template = config?.orderStatus?.[status];
+  if (!template?.templateName) return false;
 
-  if (!phone) return;
+  const sent = await postTemplate({
+    phone,
+    templateName: template.templateName,
+    templateParams: buildTemplateParams(template.params, { order }),
+    buttonParams: { [config.invoiceButtonIndex || '0']: invoiceSlugFor(order, config) },
+    accountName: config.accountName,
+  });
 
-  const message = template(name, orderNum);
-  const sent = await sendWhatsApp(phone, message);
-  if (sent) console.log(`[WhatOmate] ${status} notification sent to ${phone}`);
+  if (sent) console.log(`[Whatomate] ${status} template sent to ${phone}`);
+  return sent;
 };
 
-// ── Send payment received notification ────────────────────────────────────────
-const sendPaymentReceivedMessage = async (order, amount) => {
-  const phone   = order.customer?.phone;
-  const name    = order.customer?.name || 'Customer';
-  const orderNum = order.orderNumber;
+const sendPaymentReceivedMessage = async (order, amount, method) => {
+  const phone = order?.customer?.phone;
+  if (!phone) return false;
 
-  if (!phone) return;
+  const config = await getWhatsAppTemplates();
+  const template = config?.paymentReceived;
+  if (!template?.templateName) return false;
 
-  const message = `Hi ${name}! 💳 Payment of ₹${amount} received for order #${orderNum}. Thank you! Your receipt has been recorded. We appreciate your business at Hangers Clothes Spa! 🙏`;
-  const sent = await sendWhatsApp(phone, message);
-  if (sent) console.log(`[WhatOmate] Payment notification sent to ${phone}`);
+  const sent = await postTemplate({
+    phone,
+    templateName: template.templateName,
+    templateParams: buildTemplateParams(template.params, {
+      order,
+      payment: { amount, method },
+    }),
+    buttonParams: { [config.invoiceButtonIndex || '0']: invoiceSlugFor(order, config) },
+    accountName: config.accountName,
+  });
+
+  if (sent) console.log(`[Whatomate] Payment template sent to ${phone}`);
+  return sent;
 };
 
 module.exports = {
-  sendWhatsApp,
   sendOrderStatusMessage,
   sendPaymentReceivedMessage,
-  STATUS_MESSAGES,
+  postTemplate,
 };

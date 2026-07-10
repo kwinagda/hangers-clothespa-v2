@@ -38,6 +38,7 @@ const checkoutRoutes      = require('./routes/checkout.routes');
 const ironRoutes          = require('./routes/iron.routes');
 const metadataRoutes      = require('./routes/metadata.routes');
 const quotationsRoutes    = require('./routes/quotations.routes');
+const publicRoutes        = require('./routes/public.routes');
 const { syncPermissionCatalog } = require('./services/accessControl.service');
 const { syncMasterDataSettings } = require('./services/masterData.service');
 const app  = express();
@@ -98,6 +99,7 @@ if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 app.get('/health', (req, res) => res.json({ success: true, message: 'Hangers API is running', version: '4.0.0' }));
 
 app.use('/api/v1/auth',            authRoutes);
+app.use('/api/v1/public',          publicRoutes);
 // Staff (CRM + apps)
 app.use('/api/v1/staff',                       staffRoutes);
 // CRM
