@@ -76,7 +76,7 @@ export default function FinancePage() {
   const S = (v: number) => `₹${(v||0).toLocaleString('en-IN')}`
 
   return (
-    <div style={{padding:'32px 36px',maxWidth:1200,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
+    <div style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
       <PageHeader title="Finance" subtitle="Collections, outstanding balances and payment activity" />
 
       {/* Tabs */}
@@ -119,7 +119,7 @@ export default function FinancePage() {
           )}
 
           {/* Filter + transactions */}
-          <div style={{background:'#fff',borderRadius:20,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)',overflow:'hidden'}}>
+          <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
             <div style={{padding:'16px 20px',borderBottom:'1px solid #e8f0f7',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
               <span style={{fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:15,color:'#023c62',flex:1}}>Transactions ({filtered.length})</span>
               {[{ value: 'ALL', label: 'ALL' }, ...methodOptions].map(m=>(
@@ -135,17 +135,17 @@ export default function FinancePage() {
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{background:'#f7f9fc'}}>
                 {['Time','Order','Customer','Method','Ref','Amount','By'].map(h=>(
-                  <th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>
+                  <th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {loading?<tr><td colSpan={7} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>Loading...</td></tr>
                 :!filtered.length?<tr><td colSpan={7} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>No transactions for this date.</td></tr>
                 :pagedPayments.map((p:any)=>(
-                  <tr key={p.id} style={{borderBottom:'1px solid #f0f4f8'}}>
-                    <td style={{padding:'11px 16px',fontSize:12,color:'#6b7fa3'}}>{format(new Date(p.createdAt),'h:mm a')}</td>
-                    <td style={{padding:'11px 16px',fontFamily:"var(--crm-font-mono)",fontSize:12,color:'#023c62'}}>{p.order?.orderNumber||'—'}</td>
-                    <td style={{padding:'11px 16px',fontSize:13}}>{p.order?.customer?.name||'+91 '+p.order?.customer?.phone}</td>
+                  <tr key={p.id} style={{borderBottom:'1px solid #eef4f8'}}>
+                    <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{format(new Date(p.createdAt),'h:mm a')}</td>
+                    <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>{p.order?.orderNumber||'—'}</td>
+                    <td style={{padding:'13px 18px',fontSize:13.5}}>{p.order?.customer?.name||'+91 '+p.order?.customer?.phone}</td>
                     <td style={{padding:'11px 16px'}}>
                       <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:'#f0f4f8',color:METHOD_COLOR[p.method]||'#6b7fa3'}}>
                         {(() => {
@@ -156,14 +156,14 @@ export default function FinancePage() {
                     </td>
                     <td style={{padding:'11px 16px',fontSize:12,color:'#9dafc8',fontFamily:"var(--crm-font-mono)"}}>{p.reference||'—'}</td>
                     <td style={{padding:'11px 16px',fontWeight:700,color:'#022c50',fontSize:15}}>{S(p.amount)}</td>
-                    <td style={{padding:'11px 16px',fontSize:12,color:'#6b7fa3'}}>{p.collectedByStaff?.name||'—'}</td>
+                    <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{p.collectedByStaff?.name||'—'}</td>
                   </tr>
                 ))}
               </tbody>
               {filtered.length>0&&(
                 <tfoot><tr style={{background:'#f7f9fc'}}>
-                  <td colSpan={5} style={{padding:'12px 16px',fontWeight:700,color:'#023c62',fontFamily:"var(--crm-font-ui)"}}>Total</td>
-                  <td style={{padding:'12px 16px',fontWeight:800,color:'#023c62',fontSize:16,fontFamily:"var(--crm-font-ui)"}}>{S(filtered.reduce((s:number,p:any)=>s+p.amount,0))}</td>
+                  <td colSpan={5} style={{padding:'12px 18px',fontWeight:700,color:'#023c62',fontFamily:"var(--crm-font-ui)"}}>Total</td>
+                  <td style={{padding:'12px 18px',fontWeight:800,color:'#023c62',fontSize:16,fontFamily:"var(--crm-font-ui)"}}>{S(filtered.reduce((s:number,p:any)=>s+p.amount,0))}</td>
                   <td/>
                 </tr></tfoot>
               )}
@@ -192,11 +192,11 @@ export default function FinancePage() {
             <AlertTriangle size={44} style={{opacity:0.35}} />
           </div>
 
-          <div style={{background:'#fff',borderRadius:20,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)',overflow:'hidden'}}>
+          <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{background:'#f7f9fc'}}>
                 {['Order','Customer','Phone','Order Total','Paid','Balance','Status'].map(h=>(
-                  <th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>
+                  <th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
@@ -204,12 +204,12 @@ export default function FinancePage() {
                 :!receivables.length?<tr><td colSpan={7} style={{padding:48,textAlign:'center',color:'#22c55e',fontSize:15}}>No outstanding balances.</td></tr>
                 :pagedReceivables.map((o:any)=>(
                   <tr key={o.id} style={{borderBottom:'1px solid #f0f4f8',cursor:'pointer'}} onClick={()=>window.location.href=`/dashboard/orders/${o.id}`}>
-                    <td style={{padding:'11px 16px',fontFamily:"var(--crm-font-mono)",fontSize:12,color:'#023c62'}}>{o.orderNumber}</td>
-                    <td style={{padding:'11px 16px',fontSize:13,fontWeight:500}}>{o.customer?.name||'—'}</td>
-                    <td style={{padding:'11px 16px',fontSize:12,color:'#6b7fa3'}}>+91 {o.customer?.phone}</td>
-                    <td style={{padding:'11px 16px',fontSize:14}}>{S(o.totalAmount)}</td>
-                    <td style={{padding:'11px 16px',fontSize:14,color:'#22c55e'}}>{S(o.paidAmount)}</td>
-                    <td style={{padding:'11px 16px',fontSize:14,fontWeight:700,color:'#dc2626'}}>{S(o.balance)}</td>
+                    <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>{o.orderNumber}</td>
+                    <td style={{padding:'13px 18px',fontSize:13.5,fontWeight:600}}>{o.customer?.name||'—'}</td>
+                    <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>+91 {o.customer?.phone}</td>
+                    <td style={{padding:'13px 18px',fontSize:13.5}}>{S(o.totalAmount)}</td>
+                    <td style={{padding:'13px 18px',fontSize:13.5,color:'#22c55e'}}>{S(o.paidAmount)}</td>
+                    <td style={{padding:'13px 18px',fontSize:13.5,fontWeight:700,color:'#dc2626'}}>{S(o.balance)}</td>
                     <td style={{padding:'11px 16px'}}>
                       <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:(paymentStatusMeta[o.paymentStatus || 'UNPAID']?.bg) || '#f4f7fb',color:(paymentStatusMeta[o.paymentStatus || 'UNPAID']?.color) || '#023c62'}}>
                         {(paymentStatusMeta[o.paymentStatus || 'UNPAID']?.label) || o.paymentStatus || 'UNPAID'}

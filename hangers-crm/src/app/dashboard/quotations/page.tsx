@@ -117,7 +117,7 @@ export default function QuotationsPage() {
   }
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 1320, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
+    <div style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
       <PageHeader
         title="Quotations"
         subtitle="Estimates for customers before an order is confirmed"
@@ -144,7 +144,7 @@ export default function QuotationsPage() {
         </button>
       </div>
 
-      <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #e4edf5', boxShadow: '0 10px 26px rgba(2,60,98,0.05)', overflow: 'hidden' }}>
+      <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 48, textAlign: 'center', color: '#6b7fa3' }}>Loading quotations...</div>
         ) : !quotations.length ? (
@@ -157,7 +157,7 @@ export default function QuotationsPage() {
             <thead>
               <tr style={{ background: '#f8fafc' }}>
                 {['Quotation', 'Customer', 'Amount', 'Valid Until', 'Status', 'Actions'].map((label) => (
-                  <th key={label} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: '#8aa0ba', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid #e8f0f7' }}>{label}</th>
+                  <th key={label} style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.07em', borderBottom: '1px solid #e8f0f7', background: '#f7f9fc' }}>{label}</th>
                 ))}
               </tr>
             </thead>
@@ -166,17 +166,17 @@ export default function QuotationsPage() {
                 const style = statusStyles[quotation.quotationStatus || 'DRAFT'] || { bg: '#f4f7fb', color: '#023c62' }
                 return (
                   <tr key={quotation.id}>
-                    <td style={{ padding: '14px 16px', borderBottom: '1px solid #eef3f8' }}>
+                    <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8' }}>
                       <div style={{ fontWeight: 700, color: '#023c62' }}>{quotation.orderNumber}</div>
                       <div style={{ fontSize: 11, color: '#8aa0ba' }}>{quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-IN') : '—'}</div>
                     </td>
-                    <td style={{ padding: '14px 16px', borderBottom: '1px solid #eef3f8' }}>
+                    <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8' }}>
                       <div style={{ fontWeight: 600, color: '#182538' }}>{quotation.customer?.name || 'Unknown'}</div>
                       <div style={{ fontSize: 12, color: '#6b7fa3' }}>{quotation.customer?.phone}</div>
                     </td>
-                    <td style={{ padding: '14px 16px', borderBottom: '1px solid #eef3f8', fontWeight: 700, color: '#182538' }}>{fmt(quotation.totalAmount)}</td>
-                    <td style={{ padding: '14px 16px', borderBottom: '1px solid #eef3f8', color: '#53657d' }}>{quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString('en-IN') : '—'}</td>
-                    <td style={{ padding: '14px 16px', borderBottom: '1px solid #eef3f8' }}>
+                    <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8', fontWeight: 700, color: '#182538' }}>{fmt(quotation.totalAmount)}</td>
+                    <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8', color: '#53657d' }}>{quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString('en-IN') : '—'}</td>
+                    <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8' }}>
                       <select
                         value={quotation.quotationStatus || 'DRAFT'}
                         onChange={(e) => updateStatus(quotation.id, e.target.value)}
@@ -186,7 +186,7 @@ export default function QuotationsPage() {
                         {statusOptions.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </td>
-                    <td style={{ padding: '14px 16px', borderBottom: '1px solid #eef3f8' }}>
+                    <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8' }}>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <Link href={'/dashboard/orders/new?mode=quotation' + '&quotationId=' + quotation.id} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #dce8f0', color: '#023c62', textDecoration: 'none', fontWeight: 600 }}>
                           Edit

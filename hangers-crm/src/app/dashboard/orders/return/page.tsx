@@ -77,7 +77,7 @@ function ReturnOrderPageContent() {
 
 export default function ReturnOrderPage() {
   return (
-    <Suspense fallback={<div style={{ padding: '32px 36px', color: '#6b7fa3' }}>Loading return order form...</div>}>
+    <Suspense fallback={<div style={{ padding: '30px 36px 60px', color: '#6b7fa3' }}>Loading return order form...</div>}>
       <ReturnOrderPageContent />
     </Suspense>
   )

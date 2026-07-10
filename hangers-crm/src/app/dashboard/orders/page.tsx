@@ -171,7 +171,7 @@ function MetricCard({
   note: string
 }) {
   return (
-    <div style={{ background: '#fff', borderRadius: 22, border: '1px solid #e4edf5', padding: '18px 18px 16px', boxShadow: '0 10px 24px rgba(2,60,98,0.05)' }}>
+    <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: '18px 20px' }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7fa3', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>{label}</div>
       <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: '#142033' }}>{value}</div>
       <div style={{ marginTop: 8, fontSize: 12, color: '#8ba0bb', lineHeight: 1.45 }}>{note}</div>
@@ -356,7 +356,7 @@ function OrdersPageContent() {
   const activeView = ORDER_VIEWS.find((item) => item.key === view) || ORDER_VIEWS[0]
 
   return (
-    <div className="crm-page-enter" style={{padding:'30px 34px',maxWidth:1380,margin:'0 auto'}}>
+    <div className="crm-page-enter" style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto'}}>
       <PageHeader
         title={activeView.title}
         subtitle={activeView.description}
@@ -654,7 +654,7 @@ function OrdersPageContent() {
 
 export default function OrdersPage() {
   return (
-    <Suspense fallback={<div style={{ padding: '32px 36px', color: '#6b7fa3' }}><InlineLoader label="Loading orders" /></div>}>
+    <Suspense fallback={<div style={{ padding: '30px 36px 60px', color: '#6b7fa3' }}><InlineLoader label="Loading orders" /></div>}>
       <OrdersPageContent />
     </Suspense>
   )

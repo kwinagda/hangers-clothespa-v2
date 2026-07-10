@@ -54,7 +54,7 @@ export default function IronLogsPage() {
   )
 
   return (
-    <div style={{ padding:'32px 36px', maxWidth:1280, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
+    <div style={{ padding:'30px 36px 60px', maxWidth:1360, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
       <PageHeader
         title="Iron Logs"
         subtitle="Daily Iron service usage log per customer"
@@ -74,7 +74,7 @@ export default function IronLogsPage() {
           { label:'Open Logs', value: summary.openLogs ?? '—', color:'#b35a00' },
           { label:'Estimated Value', value: loading ? '—' : fmt(summary.totalAmount || 0), color:'#6d28d9' },
         ].map((item) => (
-          <div key={item.label} className="crm-surface crm-card-hover" style={{ borderRadius:16, padding:'18px 20px' }}>
+          <div key={item.label} style={{ background:'#fff', borderRadius:14, border:'1px solid #e3edf6', padding:'18px 20px' }}>
             <div style={{ fontSize:11, color:'#6b7fa3', letterSpacing:'0.06em', textTransform:'uppercase' as const, marginBottom:6 }}>{item.label}</div>
             <div style={{ fontFamily:"var(--crm-font-ui)", fontWeight:800, fontSize:28, color:item.color }}>{item.value}</div>
           </div>
@@ -82,7 +82,7 @@ export default function IronLogsPage() {
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'0.95fr 1.05fr', gap:16 }}>
-        <div className="crm-surface crm-card-hover" style={{ borderRadius:20, overflow:'hidden' }}>
+        <div style={{ background:'#fff', border:'1px solid #e3edf6', borderRadius:14, overflow:'hidden' }}>
           <div style={{ padding:'18px 20px', borderBottom:'1px solid #e8f0f7', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <div>
               <div style={{ fontWeight:700, color:'#023c62' }}>Customer Summary</div>
@@ -99,21 +99,21 @@ export default function IronLogsPage() {
               <thead>
                 <tr style={{ background:'#f7f9fc' }}>
                   {['Customer', 'Pieces', 'Value', 'Status'].map((heading) => (
-                    <th key={heading} style={{ padding:'11px 16px', textAlign:'left', fontSize:11, color:'#6b7fa3', fontWeight:600, textTransform:'uppercase' as const, letterSpacing:'0.08em', borderBottom:'1px solid #e8f0f7' }}>{heading}</th>
+                    <th key={heading} style={{ padding:'11px 18px', textAlign:'left', fontSize:10.5, color:'#6b7fa3', fontWeight:700, textTransform:'uppercase' as const, letterSpacing:'0.07em', borderBottom:'1px solid #e8f0f7', background:'#f7f9fc' }}>{heading}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {pagedCustomerSummaries.map((item: any) => (
-                  <tr key={item.customerId} className="crm-table-row" style={{ borderBottom:'1px solid #f1f5f9' }}>
-                    <td style={{ padding:'13px 16px' }}>
+                  <tr key={item.customerId} className="crm-table-row" style={{ borderBottom:'1px solid #eef4f8' }}>
+                    <td style={{ padding:'13px 18px', fontSize:13.5 }}>
                       <div style={{ fontSize:14, fontWeight:700, color:'#023c62', marginBottom:2 }}>{item.name}</div>
                       <div style={{ fontSize:12, color:'#6b7fa3' }}>+91 {item.phone}</div>
                       <Link href={`/dashboard/customers/${item.customerId}?tab=iron`} style={{ fontSize:12, color:'#035a8f', textDecoration:'none' }}>Open customer →</Link>
                     </td>
                     <td style={{ padding:'13px 16px', fontSize:14, fontWeight:700, color:'#166534' }}>{item.totalPieces}</td>
                     <td style={{ padding:'13px 16px', fontSize:14, fontWeight:700, color:'#6d28d9' }}>{fmt(item.totalAmount)}</td>
-                    <td style={{ padding:'13px 16px', fontSize:12, color:'#6b7fa3' }}>{item.ironSubStatus || '—'}</td>
+                    <td style={{ padding:'13px 18px', fontSize:13.5, color:'#6b7fa3' }}>{item.ironSubStatus || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -132,7 +132,7 @@ export default function IronLogsPage() {
           </div>
         </div>
 
-        <div className="crm-surface crm-card-hover" style={{ borderRadius:20, overflow:'hidden' }}>
+        <div style={{ background:'#fff', border:'1px solid #e3edf6', borderRadius:14, overflow:'hidden' }}>
           <div style={{ padding:'18px 20px', borderBottom:'1px solid #e8f0f7' }}>
             <div style={{ fontWeight:700, color:'#023c62' }}>Daily Log Feed</div>
             <div style={{ fontSize:12, color:'#6b7fa3', marginTop:3 }}>Every Daily Iron log captured on {format(new Date(selectedDate), 'dd MMM yyyy')}.</div>
@@ -146,22 +146,22 @@ export default function IronLogsPage() {
               <thead>
                 <tr style={{ background:'#f7f9fc' }}>
                   {['Time', 'Customer', 'Garment', 'Pieces', 'Amount', 'Bill'].map((heading) => (
-                    <th key={heading} style={{ padding:'11px 16px', textAlign:'left', fontSize:11, color:'#6b7fa3', fontWeight:600, textTransform:'uppercase' as const, letterSpacing:'0.08em', borderBottom:'1px solid #e8f0f7' }}>{heading}</th>
+                    <th key={heading} style={{ padding:'11px 18px', textAlign:'left', fontSize:10.5, color:'#6b7fa3', fontWeight:700, textTransform:'uppercase' as const, letterSpacing:'0.07em', borderBottom:'1px solid #e8f0f7', background:'#f7f9fc' }}>{heading}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {pagedLogs.map((log: any) => (
-                  <tr key={log.id} className="crm-table-row" style={{ borderBottom:'1px solid #f1f5f9' }}>
-                    <td style={{ padding:'13px 16px', fontSize:12, color:'#6b7fa3' }}>{format(new Date(log.createdAt), 'h:mm a')}</td>
-                    <td style={{ padding:'13px 16px' }}>
+                  <tr key={log.id} className="crm-table-row" style={{ borderBottom:'1px solid #eef4f8' }}>
+                    <td style={{ padding:'13px 18px', fontSize:13.5, color:'#6b7fa3' }}>{format(new Date(log.createdAt), 'h:mm a')}</td>
+                    <td style={{ padding:'13px 18px', fontSize:13.5 }}>
                       <div style={{ fontSize:13, fontWeight:700, color:'#023c62' }}>{log.customer?.name || 'Unnamed Customer'}</div>
                       <div style={{ fontSize:11, color:'#9dafc8' }}>+91 {log.customer?.phone}</div>
                     </td>
                     <td style={{ padding:'13px 16px', fontSize:13, color:'#1a2332' }}>{log.serviceName}</td>
                     <td style={{ padding:'13px 16px', fontSize:13, fontWeight:700, color:'#166534' }}>{log.pieces}</td>
                     <td style={{ padding:'13px 16px', fontSize:13, fontWeight:700, color:'#6d28d9' }}>{fmt(log.amount)}</td>
-                    <td style={{ padding:'13px 16px', fontSize:12, color:'#6b7fa3' }}>{log.bill?.billNumber || 'Open'}</td>
+                    <td style={{ padding:'13px 18px', fontSize:13.5, color:'#6b7fa3' }}>{log.bill?.billNumber || 'Open'}</td>
                   </tr>
                 ))}
               </tbody>

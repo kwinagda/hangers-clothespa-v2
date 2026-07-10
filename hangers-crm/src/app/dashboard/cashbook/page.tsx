@@ -57,7 +57,7 @@ export default function CashBookPage() {
   const pagedEntries = entries.slice((page - 1) * pageSize, page * pageSize)
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 800, margin: '0 auto', ...s }}>
+    <div style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', ...s }}>
       <PageHeader
         title="Cash Book"
         subtitle="Daily ledger of cash in and out at the counter"
@@ -83,7 +83,7 @@ export default function CashBookPage() {
         ))}
       </div>
 
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', overflow: 'hidden' }}>
+      <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
         {entries.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8', fontSize: 14 }}>No entries for this date</div>
         ) : (

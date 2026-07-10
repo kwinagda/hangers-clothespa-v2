@@ -40,9 +40,9 @@ export default function AttendancePage() {
   const pagedRecords = records.slice((page - 1) * pageSize, page * pageSize)
   const s = {fontFamily:"var(--crm-font-ui)"}
   return (
-    <div style={{padding:'32px 36px',maxWidth:1000,margin:'0 auto',...s}}>
+    <div style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',...s}}>
       <PageHeader title="Attendance" subtitle="Staff check-in and check-out records" />
-      <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:20,marginBottom:20}}>
+      <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',padding:20,marginBottom:20}}>
         <div style={{fontWeight:700,fontSize:13,color:'#6b7fa3',marginBottom:12,textTransform:'uppercase' as const,letterSpacing:'0.06em'}}>Quick Clock In/Out</div>
         <div style={{display:'flex',gap:10,flexWrap:'wrap' as const,alignItems:'center'}}>
           <select value={selectedStaff} onChange={e=>setSelectedStaff(e.target.value)} style={{border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,flex:1,minWidth:200}}>
@@ -63,19 +63,19 @@ export default function AttendancePage() {
         </select>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
-        <div style={{background:'#eff6ff',borderRadius:12,padding:16}}><div style={{fontSize:11,color:'#1d4ed8',marginBottom:4,textTransform:'uppercase' as const,letterSpacing:'0.06em'}}>Days Present</div><div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:24,color:'#1d4ed8'}}>{records.length}</div></div>
-        <div style={{background:'#f5f3ff',borderRadius:12,padding:16}}><div style={{fontSize:11,color:'#6d28d9',marginBottom:4,textTransform:'uppercase' as const,letterSpacing:'0.06em'}}>Total Hours</div><div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:24,color:'#6d28d9'}}>{totalHours.toFixed(1)}h</div></div>
+        <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',padding:16}}><div style={{fontSize:11,color:'#6b7fa3',marginBottom:4,textTransform:'uppercase' as const,letterSpacing:'0.07em',fontWeight:700}}>Days Present</div><div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:28,color:'#023c62'}}>{records.length}</div></div>
+        <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',padding:16}}><div style={{fontSize:11,color:'#6b7fa3',marginBottom:4,textTransform:'uppercase' as const,letterSpacing:'0.07em',fontWeight:700}}>Total Hours</div><div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:28,color:'#023c62'}}>{totalHours.toFixed(1)}h</div></div>
       </div>
-      <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',overflow:'hidden'}}>
+      <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
         {records.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No records found</div>:
-        <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-          <thead><tr style={{background:'#f8fafc'}}>{['Date','Staff','Clock In','Clock Out','Hours'].map(h=><th key={h} style={{padding:'10px 16px',textAlign:h==='Hours'?'right':'left',fontSize:11,color:'#9dafc8',textTransform:'uppercase' as const,letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>)}</tr></thead>
-          <tbody>{pagedRecords.map((r:any)=><tr key={r.id} style={{borderBottom:'1px solid #f8fafc'}}>
-            <td style={{padding:'10px 16px'}}>{new Date(r.date).toLocaleDateString('en-IN')}</td>
-            <td style={{padding:'10px 16px'}}>{staff.find((s:any)=>s.id===r.staffId)?.name||r.staffId}</td>
-            <td style={{padding:'10px 16px',color:'#166534'}}>{r.clockIn?new Date(r.clockIn).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'—'}</td>
-            <td style={{padding:'10px 16px',color:'#991b1b'}}>{r.clockOut?new Date(r.clockOut).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'—'}</td>
-            <td style={{padding:'10px 16px',textAlign:'right',fontWeight:600}}>{r.hoursWorked?`${r.hoursWorked}h`:'—'}</td>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr style={{background:'#f8fafc'}}>{['Date','Staff','Clock In','Clock Out','Hours'].map(h=><th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>)}</tr></thead>
+          <tbody>{pagedRecords.map((r:any)=><tr key={r.id} style={{borderBottom:'1px solid #eef4f8'}}>
+            <td style={{padding:'13px 18px',fontSize:13.5,color:'#1a2332'}}>{new Date(r.date).toLocaleDateString('en-IN')}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5,color:'#1a2332'}}>{staff.find((s:any)=>s.id===r.staffId)?.name||r.staffId}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5,fontFamily:"var(--crm-font-mono)",color:'#023c62'}}>{r.clockIn?new Date(r.clockIn).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'—'}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5,fontFamily:"var(--crm-font-mono)",color:'#6b7fa3'}}>{r.clockOut?new Date(r.clockOut).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'—'}</td>
+            <td style={{padding:'13px 18px',fontWeight:700,fontFamily:"var(--crm-font-mono)",color:'#023c62'}}>{r.hoursWorked?`${r.hoursWorked}h`:'—'}</td>
           </tr>)}</tbody>
         </table>}
       </div>

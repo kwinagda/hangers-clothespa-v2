@@ -67,7 +67,7 @@ export default function CustomersPage() {
   }
 
   return (
-    <div style={{padding:'32px 36px',maxWidth:1200,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
+    <div style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
       <PageHeader
         title="Customers"
         subtitle={`${total} registered customers`}
@@ -75,7 +75,7 @@ export default function CustomersPage() {
       />
 
       {showAdd&&(
-        <div style={{background:'#fff',borderRadius:20,padding:24,border:'1px solid #e8f0f7',boxShadow:'0 4px 20px rgba(2,60,98,0.1)',marginBottom:20}}>
+        <div style={{background:'#fff',borderRadius:14,padding:24,border:'1px solid #e3edf6',marginBottom:20}}>
           <h3 style={{fontFamily:"var(--crm-font-display)",fontWeight:700,fontSize:16,color:'#023c62',margin:'0 0 16px'}}>Add New Customer</h3>
           <div style={{display:'grid',gridTemplateColumns:'1.1fr 1fr 0.9fr auto auto',gap:12,alignItems:'end'}}>
             <div>
@@ -120,22 +120,22 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      <div style={{background:'#fff',borderRadius:20,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)',overflow:'hidden'}}>
+      <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
           <thead><tr style={{background:'#f7f9fc'}}>
-            {['Customer','Phone','Orders','Last Order','Joined',''].map(h=><th key={h} style={{padding:'11px 20px',textAlign:'left',fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.08em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>)}
+            {['Customer','Phone','Orders','Last Order','Joined',''].map(h=><th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>)}
           </tr></thead>
           <tbody>
             {loading?<tr><td colSpan={6} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>Loading...</td></tr>
             :!customers.length?<tr><td colSpan={6} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>No customers found.</td></tr>
             :customers.map((c:any,i)=>(
-              <tr key={c.id} style={{borderBottom:'1px solid #f0f4f8',background:i%2===0?'#fff':'#fafbfd'}}>
-                <td style={{padding:'13px 20px'}}>
+              <tr key={c.id} style={{borderBottom:'1px solid #eef4f8'}}>
+                <td style={{padding:'13px 18px'}}>
                   <div style={{fontSize:14,fontWeight:600,color:'#1a2332'}}>{c.name||<span style={{color:'#9dafc8',fontStyle:'italic'}}>No name</span>}</div>
                 </td>
-                <td style={{padding:'13px 20px',fontFamily:"var(--crm-font-mono)",fontSize:13,color:'#023c62'}}>+91 {c.phone}</td>
-                <td style={{padding:'13px 20px',fontSize:14,color:'#6b7fa3'}}>{c._count?.orders||0} order{c._count?.orders!==1?'s':''}</td>
-                <td style={{padding:'13px 20px'}}>
+                <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>+91 {c.phone}</td>
+                <td style={{padding:'13px 18px',fontSize:13.5,color:'#1a2332'}}>{c._count?.orders||0} order{c._count?.orders!==1?'s':''}</td>
+                <td style={{padding:'13px 18px'}}>
                   {c.orders?.[0]?(
                     <div>
                       <div style={{fontSize:13,fontFamily:"var(--crm-font-mono)",color:'#023c62'}}>{c.orders[0].orderNumber}</div>
@@ -143,8 +143,8 @@ export default function CustomersPage() {
                     </div>
                   ):<span style={{fontSize:13,color:'#9dafc8'}}>—</span>}
                 </td>
-                <td style={{padding:'13px 20px',fontSize:13,color:'#6b7fa3'}}>{format(new Date(c.createdAt),'dd MMM yy')}</td>
-                <td style={{padding:'13px 20px'}}>
+                <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{format(new Date(c.createdAt),'dd MMM yy')}</td>
+                <td style={{padding:'13px 18px'}}>
                   <Link href={`/dashboard/customers/${c.id}`} style={{fontSize:13,color:'#035a8f',fontWeight:500,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>View <ArrowRight size={14} /></Link>
                 </td>
               </tr>

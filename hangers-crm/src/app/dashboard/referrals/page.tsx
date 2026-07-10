@@ -76,7 +76,7 @@ export default function ReferralsReportPage() {
   }
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 1240, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
+    <div style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
       <PageHeader
         title="Referrals"
         subtitle="Customers who brought in new business"
@@ -94,7 +94,7 @@ export default function ReferralsReportPage() {
           { label: 'Rewarded', value: summary?.rewardedReferrals || 0, note: 'Qualified referrals already rewarded' },
           { label: 'Pending', value: summary?.pendingReferrals || 0, note: 'Waiting for first delivered paid order' },
         ].map((card) => (
-          <div key={card.label} style={{ background: '#fff', borderRadius: 18, border: '1px solid #e4edf5', padding: '18px 18px 16px', boxShadow: '0 10px 24px rgba(2,60,98,0.05)' }}>
+          <div key={card.label} style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: '18px 18px 16px' }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7fa3', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>{card.label}</div>
             <div style={{ fontSize: 28, fontWeight: 800, color: '#142033' }}>{card.value}</div>
             <div style={{ marginTop: 8, fontSize: 12, color: '#8ba0bb', lineHeight: 1.45 }}>{card.note}</div>
@@ -102,7 +102,7 @@ export default function ReferralsReportPage() {
         ))}
       </div>
 
-      <section style={{ background: '#fff', borderRadius: 22, border: '1px solid #e4edf5', boxShadow: '0 12px 28px rgba(2,60,98,0.06)', overflow: 'hidden', marginBottom: 22 }}>
+      <section style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden', marginBottom: 22 }}>
         <div style={{ padding: '20px 24px 18px', borderBottom: '1px solid #edf3f8', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
           <div>
             <h2 style={{ margin: '0 0 4px', fontFamily: 'var(--crm-font-display)', fontWeight: 700, fontSize: 19, color: '#023c62' }}>Program Settings</h2>
@@ -147,7 +147,7 @@ export default function ReferralsReportPage() {
               <div style={{ fontSize: 11, color: '#8ba0bb', marginTop: 6, lineHeight: 1.4 }}>Disable to stop new referral rewards without deleting history.</div>
             </div>
           </div>
-          <div style={{ background: '#f8fbfd', border: '1px solid #e4edf5', borderRadius: 16, padding: 16 }}>
+          <div style={{ background: '#f8fbfd', border: '1px solid #e3edf6', borderRadius: 14, padding: 16 }}>
             <div style={{ fontWeight: 700, color: '#023c62', marginBottom: 8 }}>Current Rule</div>
             <div style={{ fontSize: 13, color: '#41556f', lineHeight: 1.65 }}>
               New customers can enter a referral code at signup. The referral stays pending until that customer completes their first delivered and fully paid order meeting the minimum amount. Then both sides receive wallet credit based on the configured percentage, capped to the configured maximum.
@@ -163,7 +163,7 @@ export default function ReferralsReportPage() {
       </section>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.05fr 0.95fr', gap: 16 }}>
-        <section style={{ background: '#fff', borderRadius: 22, border: '1px solid #e4edf5', boxShadow: '0 12px 28px rgba(2,60,98,0.06)', overflow: 'hidden' }}>
+        <section style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
           <div style={{ padding: '20px 24px 18px', borderBottom: '1px solid #edf3f8' }}>
             <h2 style={{ margin: '0 0 4px', fontFamily: 'var(--crm-font-display)', fontWeight: 700, fontSize: 19, color: '#023c62' }}>Top Referrers</h2>
             <p style={{ margin: 0, fontSize: 13, color: '#6b7fa3', lineHeight: 1.45 }}>Customers driving the highest number of rewarded referral conversions.</p>
@@ -175,7 +175,7 @@ export default function ReferralsReportPage() {
           ) : (
             <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {topReferrers.map((entry: any, index: number) => (
-                <div key={entry.referrer?.id || index} style={{ display: 'grid', gridTemplateColumns: '56px 1fr auto', gap: 14, alignItems: 'center', padding: '12px 14px', borderRadius: 14, border: '1px solid #edf3f8', background: '#fbfdff' }}>
+                <div key={entry.referrer?.id || index} style={{ display: 'grid', gridTemplateColumns: '56px 1fr auto', gap: 14, alignItems: 'center', padding: '12px 14px', borderRadius: 12, border: '1px solid #eef4f8', background: '#fff' }}>
                   <div style={{ width: 42, height: 42, borderRadius: 999, display: 'grid', placeItems: 'center', background: '#eff6ff', color: '#1d4ed8', fontWeight: 800 }}>
                     {index + 1}
                   </div>
@@ -199,7 +199,7 @@ export default function ReferralsReportPage() {
           )}
         </section>
 
-        <section style={{ background: '#fff', borderRadius: 22, border: '1px solid #e4edf5', boxShadow: '0 12px 28px rgba(2,60,98,0.06)', overflow: 'hidden' }}>
+        <section style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
           <div style={{ padding: '20px 24px 18px', borderBottom: '1px solid #edf3f8' }}>
             <h2 style={{ margin: '0 0 4px', fontFamily: 'var(--crm-font-display)', fontWeight: 700, fontSize: 19, color: '#023c62' }}>Recent Referrals</h2>
             <p style={{ margin: 0, fontSize: 13, color: '#6b7fa3', lineHeight: 1.45 }}>Most recent customer-to-customer referral joins recorded in the system.</p>
@@ -211,7 +211,7 @@ export default function ReferralsReportPage() {
           ) : (
             <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {recentReferrals.map((item: any) => (
-                <div key={item.id} style={{ padding: '12px 14px', borderRadius: 14, border: '1px solid #edf3f8', background: '#fbfdff' }}>
+                <div key={item.id} style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid #eef4f8', background: '#fff' }}>
                   <div style={{ fontWeight: 700, color: '#023c62' }}>
                     {item.referrer?.name || 'Unknown referrer'} referred {item.referred?.name || 'Unnamed customer'}
                   </div>

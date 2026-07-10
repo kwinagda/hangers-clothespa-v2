@@ -92,24 +92,24 @@ export default function RecurringPage() {
     return pickup.frequency
   }
   return (
-    <div style={{padding:'32px 36px',maxWidth:1100,margin:'0 auto',...s}}>
+    <div style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',...s}}>
       <PageHeader
         title="Recurring Pickups"
         subtitle={`${pickups.length} schedules · ${pickups.filter((p:any)=>p.isActive).length} active · ${pickups.filter((p:any)=>!p.isActive).length} paused`}
         actions={<Button variant="primary" icon={<Plus size={14}/>} onClick={()=>setShowAdd(true)}>Schedule Recurring</Button>}
       />
-      <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',overflow:'hidden'}}>
+      <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
         {loadError?<div style={{padding:40,textAlign:'center',color:'#b91c1c'}}>{loadError}</div>:pickups.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No recurring pickups scheduled</div>:
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-          <thead><tr style={{background:'#f8fafc'}}>{['Customer','Frequency','Schedule','Address','Next Pickup','Status',''].map(h=><th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:11,color:'#9dafc8',textTransform:'uppercase' as const,letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>)}</tr></thead>
-          <tbody>{pagedPickups.map((p:any)=><tr key={p.id} style={{borderBottom:'1px solid #f8fafc'}}>
-            <td style={{padding:'10px 16px',fontWeight:600}}>{customers.find((c:any)=>c.id===p.customerId)?.name||p.customerId}</td>
-            <td style={{padding:'10px 16px'}}><span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:'#dbeafe',color:'#1e40af'}}>{p.frequency}</span></td>
-            <td style={{padding:'10px 16px'}}>{pickupScheduleLabel(p)}</td>
-            <td style={{padding:'10px 16px',color:'#6b7fa3',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' as const}}>{p.address}</td>
-            <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{p.nextPickup?new Date(p.nextPickup).toLocaleDateString('en-IN'):'—'}</td>
-            <td style={{padding:'10px 16px'}}><span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:p.isActive?'#dcfce7':'#f3f4f6',color:p.isActive?'#166534':'#6b7280'}}>{p.isActive?'Active':'Paused'}</span></td>
-            <td style={{padding:'10px 16px'}}><button onClick={async()=>{try{await recurringAPI.toggle(p.id);setPickups(pickups.map(x=>x.id===p.id?{...x,isActive:!x.isActive}:x));toast.success(p.isActive?'Recurring pickup paused':'Recurring pickup resumed')}catch(e:any){toast.error(e.message || 'Failed to update recurring pickup')}}} style={{fontSize:12,color:'#023c62',background:'none',border:'none',cursor:'pointer'}}>{p.isActive?'Pause':'Resume'}</button></td>
+          <thead><tr style={{background:'#f8fafc'}}>{['Customer','Frequency','Schedule','Address','Next Pickup','Status',''].map(h=><th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>)}</tr></thead>
+          <tbody>{pagedPickups.map((p:any)=><tr key={p.id} style={{borderBottom:'1px solid #eef4f8'}}>
+            <td style={{padding:'13px 18px',fontWeight:600,fontSize:13.5}}>{customers.find((c:any)=>c.id===p.customerId)?.name||p.customerId}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5}}><span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:'#dbeafe',color:'#1e40af'}}>{p.frequency}</span></td>
+            <td style={{padding:'13px 18px',fontSize:13.5}}>{pickupScheduleLabel(p)}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' as const}}>{p.address}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{p.nextPickup?new Date(p.nextPickup).toLocaleDateString('en-IN'):'—'}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5}}><span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:p.isActive?'#dcfce7':'#f3f4f6',color:p.isActive?'#166534':'#6b7280'}}>{p.isActive?'Active':'Paused'}</span></td>
+            <td style={{padding:'13px 18px',fontSize:13.5}}><button onClick={async()=>{try{await recurringAPI.toggle(p.id);setPickups(pickups.map(x=>x.id===p.id?{...x,isActive:!x.isActive}:x));toast.success(p.isActive?'Recurring pickup paused':'Recurring pickup resumed')}catch(e:any){toast.error(e.message || 'Failed to update recurring pickup')}}} style={{fontSize:12,color:'#023c62',background:'none',border:'none',cursor:'pointer'}}>{p.isActive?'Pause':'Resume'}</button></td>
           </tr>)}</tbody>
         </table>}
       </div>

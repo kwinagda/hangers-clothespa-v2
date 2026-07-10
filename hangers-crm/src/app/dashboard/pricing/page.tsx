@@ -273,7 +273,7 @@ export default function PricingPage() {
   }
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 1300, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
+    <div style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
       <PageHeader
         title="Pricing"
         subtitle="Rate card used across quotations, orders and the customer app"
@@ -290,12 +290,12 @@ export default function PricingPage() {
       </div>
 
       {!catalog.length ? (
-        <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e8f0f7', padding: '40px 32px', textAlign: 'center', color: '#6b7fa3' }}>
+        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: '40px 32px', textAlign: 'center', color: '#6b7fa3' }}>
           {loadError || 'No pricing catalog found in the database. Bootstrap it once from seed or create services from CRM.'}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>
-          <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e8f0f7', padding: 12, position: 'sticky', top: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 12, position: 'sticky', top: 20 }}>
             {catalog.map((cat) => (
               <button
                 key={cat.category}
@@ -315,7 +315,7 @@ export default function PricingPage() {
             {filteredCatalog.map((cat) => {
               const realCatIdx = catalog.findIndex((section) => section.category === cat.category)
               return (
-                <div key={cat.category} style={{ background: '#fff', borderRadius: 16, border: '1px solid #e8f0f7', boxShadow: '0 2px 12px rgba(2,60,98,0.06)', marginBottom: 16, overflow: 'hidden' }}>
+                <div key={cat.category} style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', boxShadow: '0 2px 12px rgba(2,60,98,0.06)', marginBottom: 16, overflow: 'hidden' }}>
                   <div style={{ background: '#023c62', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 700, fontSize: 15, color: '#fff' }}>{cat.category}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -371,8 +371,8 @@ export default function PricingPage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f7f9fc' }}>
-                        <th style={{ padding: '9px 20px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.06em', width: '70%' }}>Service / Item</th>
-                        <th style={{ padding: '9px 20px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Price (₹)</th>
+                        <th style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.06em', width: '70%' }}>Service / Item</th>
+                        <th style={{ padding: '11px 18px', textAlign: 'right', fontSize: 10.5, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Price (₹)</th>
                         <th style={{ width: 96 }} />
                       </tr>
                     </thead>

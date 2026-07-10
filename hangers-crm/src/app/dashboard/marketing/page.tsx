@@ -54,7 +54,7 @@ export default function MarketingPage() {
   const tabBtn = (t:Tab,l:string) => <button onClick={()=>setTab(t)} style={{padding:'8px 18px',borderRadius:8,fontSize:13,fontWeight:600,border:'none',cursor:'pointer',background:tab===t?'#fff':'transparent',color:tab===t?'#023c62':'#6b7fa3',boxShadow:tab===t?'0 1px 4px rgba(0,0,0,0.08)':'none'}}>{l}</button>
   const SS: Record<string,any> = {DRAFT:{bg:'#f3f4f6',color:'#374151'},SENT:{bg:'#dcfce7',color:'#166534'},FAILED:{bg:'#fee2e2',color:'#991b1b'}}
   return (
-    <div style={{padding:'32px 36px',maxWidth:900,margin:'0 auto',...s}}>
+    <div style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',...s}}>
       <PageHeader title="Campaigns" subtitle="WhatsApp and SMS blasts to your customer base" />
       <div style={{display:'flex',gap:4,marginBottom:24,background:'#f1f5f9',borderRadius:12,padding:4,width:'fit-content'}}>
         {tabBtn('campaigns','WhatsApp Campaigns')}{tabBtn('automations','Automations')}
@@ -64,8 +64,8 @@ export default function MarketingPage() {
           <button onClick={()=>setShowCamp(true)} style={{padding:'10px 20px',background:'#166534',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer'}}>+ New Campaign</button>
         </div>
         <div style={{display:'flex',flexDirection:'column' as const,gap:12}}>
-          {campaigns.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:12,border:'1px solid #e8f0f7'}}>No campaigns yet</div>:
-          pagedCampaigns.map((c:any)=><div key={c.id} style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:20}}>
+          {campaigns.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:14,border:'1px solid #e3edf6'}}>No campaigns yet</div>:
+          pagedCampaigns.map((c:any)=><div key={c.id} style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',padding:20}}>
             <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16}}>
               <div style={{flex:1}}>
                 <div style={{fontWeight:700,color:'#023c62',marginBottom:4}}>{c.name}</div>
@@ -96,8 +96,8 @@ export default function MarketingPage() {
           <button onClick={()=>setShowAuto(true)} style={{padding:'10px 20px',background:'#023c62',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',flexShrink:0}}>+ New Automation</button>
         </div>
         <div style={{display:'flex',flexDirection:'column' as const,gap:12}}>
-          {automations.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:12,border:'1px solid #e8f0f7'}}>No automations configured</div>:
-          pagedAutomations.map((a:any)=><div key={a.id} style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:20}}>
+          {automations.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:14,border:'1px solid #e3edf6'}}>No automations configured</div>:
+          pagedAutomations.map((a:any)=><div key={a.id} style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',padding:20}}>
             <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16}}>
               <div style={{flex:1}}>
                 <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>

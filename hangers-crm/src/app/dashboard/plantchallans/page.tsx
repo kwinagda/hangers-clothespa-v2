@@ -443,7 +443,7 @@ export default function ChallansPage() {
   const pagedVendorBills = vendorBills.slice((billPage - 1) * pageSize, billPage * pageSize)
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 1200, margin: '0 auto', fontFamily: "var(--crm-font-ui)" }}>
+    <div style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', fontFamily: "var(--crm-font-ui)" }}>
 
       <PageHeader
         title="Plant Challans"
@@ -464,31 +464,31 @@ export default function ChallansPage() {
       {/* CHALLANS */}
       {tab === 'challans' && (
         <>
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', overflow: 'hidden' }}>
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
             {!challans.length ? <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8' }}>No challans yet. Create one from the Orders page or click + New Challan.</div> : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr style={{ background: '#f8fafc' }}>
                   {['Challan No', 'Orders', 'Plant', 'Driver', 'Customer Value', 'Vendor Cost', 'Date', 'Status', 'Actions'].map(h => (
-                    <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.06em', borderBottom: '1px solid #e8f0f7' }}>{h}</th>
+                    <th key={h} style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase' as const, letterSpacing: '0.07em', borderBottom: '1px solid #e8f0f7', background: '#f7f9fc' }}>{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
                   {pagedChallans.map((c: any) => (
-                    <tr key={c.id} style={{ borderBottom: '1px solid #f8fafc' }}>
-                      <td style={{ padding: '10px 16px', fontFamily: 'monospace', fontSize: 12, color: '#023c62', fontWeight: 700 }}>{c.challanNo}</td>
-                      <td style={{ padding: '10px 16px' }}>
+                    <tr key={c.id} style={{ borderBottom: '1px solid #eef4f8' }}>
+                      <td style={{ padding: '13px 18px', fontFamily: 'var(--crm-font-mono)', fontSize: 13.5, color: '#023c62', fontWeight: 700 }}>{c.challanNo}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                         {c.challanOrders?.slice(0, 2).map((co: any) => (
                           <div key={co.id} style={{ fontSize: 11, color: '#023c62', fontFamily: 'monospace' }}>{co.order?.orderNumber}</div>
                         ))}
                         {(c.challanOrders?.length || 0) > 2 && <div style={{ fontSize: 10, color: '#9dafc8' }}>+{c.challanOrders.length - 2} more</div>}
                       </td>
-                      <td style={{ padding: '10px 16px' }}>{c.plant}</td>
-                      <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{c.driverName || '—'}</td>
-                      <td style={{ padding: '10px 16px', fontWeight: 600, color: '#023c62' }}>{fmt(c.customerValue)}</td>
-                      <td style={{ padding: '10px 16px', fontWeight: 600, color: '#991b1b' }}>{fmt(c.vendorCost)}</td>
-                      <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{new Date(c.createdAt).toLocaleDateString('en-IN')}</td>
-                      <td style={{ padding: '10px 16px' }}>{badge(c.status)}</td>
-                      <td style={{ padding: '10px 16px' }}>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{c.plant}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{c.driverName || '—'}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5, fontWeight: 700, color: '#023c62' }}>{fmt(c.customerValue)}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5, fontWeight: 700, color: '#991b1b' }}>{fmt(c.vendorCost)}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{new Date(c.createdAt).toLocaleDateString('en-IN')}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{badge(c.status)}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                           <button onClick={() => openReceive(c)} style={{ fontSize: 12, color: '#fff', background: '#166534', border: '1px solid #166534', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}>
                             {c.status === 'RECEIVED' ? 'Edit Receipt' : 'Receive from Plant'}
@@ -525,7 +525,7 @@ export default function ChallansPage() {
               const pb = vendorBills.filter((b: any) => b.plant === plant)
               const pending = pb.filter((b: any) => b.status === 'PENDING').reduce((s: number, b: any) => s + b.totalAmount, 0)
               return (
-                <div key={plant} style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', padding: 20 }}>
+                <div key={plant} style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
                   <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 16, color: '#023c62', marginBottom: 12 }}>{label}</div>
                   <div style={{ display: 'flex', gap: 20 }}>
                     <div><div style={{ fontSize: 11, color: '#9dafc8', marginBottom: 2 }}>PENDING</div><div style={{ fontWeight: 700, color: '#854d0e' }}>{fmt(pending)}</div></div>
@@ -535,24 +535,24 @@ export default function ChallansPage() {
               )
             })}
           </div>
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', overflow: 'hidden' }}>
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
             {!vendorBills.length ? <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8' }}>No vendor bills yet.</div> : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr style={{ background: '#f8fafc' }}>
                   {['Bill No', 'Plant', 'Challans', 'Total Amount', 'Date', 'Status', ''].map(h => (
-                    <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.06em', borderBottom: '1px solid #e8f0f7' }}>{h}</th>
+                    <th key={h} style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase' as const, letterSpacing: '0.07em', borderBottom: '1px solid #e8f0f7', background: '#f7f9fc' }}>{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
                   {pagedVendorBills.map((b: any) => (
-                    <tr key={b.id} style={{ borderBottom: '1px solid #f8fafc' }}>
-                      <td style={{ padding: '10px 16px', fontFamily: 'monospace', fontSize: 12, color: '#023c62', fontWeight: 700 }}>{b.billNo}</td>
-                      <td style={{ padding: '10px 16px' }}>{b.plant}</td>
-                      <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{b.challans?.length || 0} challans</td>
+                    <tr key={b.id} style={{ borderBottom: '1px solid #eef4f8' }}>
+                      <td style={{ padding: '13px 18px', fontFamily: 'var(--crm-font-mono)', fontSize: 13.5, color: '#023c62', fontWeight: 700 }}>{b.billNo}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{b.plant}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{b.challans?.length || 0} challans</td>
                       <td style={{ padding: '10px 16px', fontWeight: 700, color: '#991b1b' }}>{fmt(b.totalAmount)}</td>
-                      <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{new Date(b.createdAt).toLocaleDateString('en-IN')}</td>
-                      <td style={{ padding: '10px 16px' }}>{badge(b.status)}</td>
-                      <td style={{ padding: '10px 16px' }}>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{new Date(b.createdAt).toLocaleDateString('en-IN')}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{badge(b.status)}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                         <div style={{ display: 'flex', gap: 8 }}>
                           {b.status === 'PENDING' && <button onClick={() => markBillPaid(b.id)} style={{ fontSize: 12, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>Mark Paid</button>}
                           <a href={`${API_BASE_URL}/vendor-bills/${b.id}/pdf`} target="_blank" rel="noreferrer"
@@ -614,7 +614,7 @@ export default function ChallansPage() {
           </div>
 
           {!vendorPrices.length ? (
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', padding: 40, textAlign: 'center', color: '#9dafc8' }}>Loading...</div>
+            <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 40, textAlign: 'center', color: '#9dafc8' }}>Loading...</div>
           ) : (() => {
             // Group by category
             const catMap: Record<string, any[]> = {}
@@ -627,7 +627,7 @@ export default function ChallansPage() {
               return (
                 <div>
                 {/* Category tabs */}
-                <div style={{ background: '#fff', borderRadius: '12px 12px 0 0', borderBottom: '1px solid #e8f0f7', padding: '0 16px', display: 'flex', gap: 0, overflowX: 'auto' as const, border: '1px solid #e8f0f7' }}>
+                <div style={{ background: '#fff', borderRadius: '14px 14px 0 0', borderBottom: '1px solid #e3edf6', padding: '0 16px', display: 'flex', gap: 0, overflowX: 'auto' as const, border: '1px solid #e3edf6' }}>
                   {cats.map(cat => (
                     <button key={cat} onClick={() => setActivePriceCatState(cat)}
                       style={{ padding: '12px 16px', border: 'none', borderBottom: `2px solid ${activePriceCatState === cat ? '#023c62' : 'transparent'}`, background: 'transparent', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: activePriceCatState === cat ? '#023c62' : '#6b7fa3', whiteSpace: 'nowrap' as const, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
@@ -637,13 +637,13 @@ export default function ChallansPage() {
                 </div>
 
                 {/* Items grid */}
-                <div style={{ background: '#fff', border: '1px solid #e8f0f7', borderTop: 'none', borderRadius: '0 0 12px 12px', padding: 16 }}>
+                <div style={{ background: '#fff', border: '1px solid #e3edf6', borderTop: 'none', borderRadius: '0 0 14px 14px', padding: 16 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
                     {(catMap[activePriceCatState] || catMap[cats[0]] || []).map((vp: any) => {
                       const key = `${vp.serviceId}||${vp.serviceName}`
                       const currentVal = priceEdits[key] !== undefined ? priceEdits[key] : String(vp.costPrice || '')
                       return (
-                        <div key={vp.serviceId} style={{ background: '#f8fafc', borderRadius: 10, padding: 12, border: '1px solid #e8f0f7' }}>
+                        <div key={vp.serviceId} style={{ background: '#f8fafc', borderRadius: 10, padding: 12, border: '1px solid #e3edf6' }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: '#1a2332', marginBottom: 8, lineHeight: 1.3, minHeight: 32 }}>{vp.serviceName}</div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                             <span style={{ fontSize: 13, color: '#6b7fa3' }}>₹</span>

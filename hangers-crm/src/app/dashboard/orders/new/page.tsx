@@ -1549,7 +1549,7 @@ function NewOrderPageContent() {
               })}
 
               {hasRegularItems && (
-                <div style={{ margin: '12px 14px 0', padding: '12px 14px', borderRadius: 16, border: '1px solid #e8f0f7', background: '#fafbfd' }}>
+                <div style={{ margin: '12px 14px 0', padding: '12px 14px', borderRadius: 14, border: '1px solid #e3edf6', background: '#fafbfd' }}>
                   <div style={{ fontSize: 11, color: '#6b7fa3', marginBottom: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
                     Billing Controls
                   </div>
@@ -1608,7 +1608,7 @@ function NewOrderPageContent() {
                 </div>
               )}
 
-              <div style={{ margin: '12px 14px 0', padding: '12px 14px', borderRadius: 16, border: '1px solid #e8f0f7', background: '#fff' }}>
+              <div style={{ margin: '12px 14px 0', padding: '12px 14px', borderRadius: 14, border: '1px solid #e3edf6', background: '#fff' }}>
                 {isMixedCart && (
                   <div style={{ marginBottom: 10, padding: '10px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, fontSize: 12, color: '#9a3412', lineHeight: 1.45 }}>
                     This submit will create a regular order for dry clean items and Daily Iron logs for ironing items. Counter payment below applies only to the regular-order portion.
@@ -1888,8 +1888,8 @@ function NewOrderPageContent() {
 
 function NewOrderPageFallback() {
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 1400, margin: '0 auto', fontFamily: "var(--crm-font-ui)" }}>
-      <div style={{ background: '#fff', borderRadius: 20, padding: 28, border: '1px solid #e8f0f7', color: '#6b7fa3' }}>
+    <div style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', fontFamily: "var(--crm-font-ui)" }}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: 28, border: '1px solid #e3edf6', color: '#6b7fa3' }}>
         Loading order form...
       </div>
     </div>

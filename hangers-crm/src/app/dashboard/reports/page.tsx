@@ -305,7 +305,7 @@ export default function ReportsPage() {
   }
 
   return (
-    <div style={{ padding: '22px 24px', fontFamily: 'var(--crm-font-ui)', background: '#f3f6fb', minHeight: '100vh' }}>
+    <div style={{ padding: '30px 36px 60px', fontFamily: 'var(--crm-font-ui)' }}>
       <PageHeader title="Reports" subtitle="Business performance across orders, revenue and customers" />
       <div style={{ display: 'grid', gridTemplateColumns: '250px minmax(0,1fr)', gap: 18, alignItems: 'start' }}>
         <aside style={{ background: '#fff', border: '1px solid #dce8f0', borderRadius: 14, overflow: 'hidden', position: 'sticky', top: 18, maxHeight: 'calc(100vh - 36px)' }}>

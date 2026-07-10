@@ -272,7 +272,7 @@ export default function StaffPage() {
   const active=pagedFiltered.filter(s=>s.isActive), inactive=pagedFiltered.filter(s=>!s.isActive)
 
   return (
-    <div style={{padding:'28px 32px',fontFamily:"var(--crm-font-ui)",background:'#f4f7fb',minHeight:'100vh'}}>
+    <div style={{padding:'30px 36px 60px',fontFamily:"var(--crm-font-ui)"}}>
       <PageHeader
         title="Staff"
         subtitle={`Team roles, access and contact details · ${staff.filter(s=>s.isActive).length} active`}

@@ -92,7 +92,7 @@ export default function ExpensesPage() {
   const pagedExpenses = expenses.slice((page - 1) * pageSize, page * pageSize)
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 1000, margin: '0 auto', ...s }}>
+    <div style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', ...s }}>
       <PageHeader
         title="Expenses"
         subtitle="Shop expenses outside customer orders"
@@ -123,7 +123,7 @@ export default function ExpensesPage() {
         ))}
       </div>
 
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', overflow: 'hidden' }}>
+      <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
         {expenses.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8', fontSize: 14 }}>No expenses this month</div>
         ) : (
@@ -131,23 +131,23 @@ export default function ExpensesPage() {
             <thead>
               <tr style={{ background: '#f8fafc' }}>
                 {['Date','Category','Description','Paid By','Amount',''].map(h => (
-                  <th key={h} style={{ padding: '10px 16px', textAlign: h === 'Amount' ? 'right' : 'left', fontSize: 11, color: '#9dafc8', textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid #e8f0f7' }}>{h}</th>
+                  <th key={h} style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.07em', borderBottom: '1px solid #e8f0f7', background: '#f7f9fc' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {pagedExpenses.map((e: any) => (
-                <tr key={e.id} style={{ borderBottom: '1px solid #f8fafc' }}>
-                  <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{new Date(e.date).toLocaleDateString('en-IN')}</td>
-                  <td style={{ padding: '10px 16px' }}>
+                <tr key={e.id} style={{ borderBottom: '1px solid #eef4f8' }}>
+                  <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{new Date(e.date).toLocaleDateString('en-IN')}</td>
+                  <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                     <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: CAT_STYLE[e.category]?.bg || '#f9fafb', color: CAT_STYLE[e.category]?.color || '#374151' }}>
                       {e.category}
                     </span>
                   </td>
-                  <td style={{ padding: '10px 16px' }}>{e.description}</td>
-                  <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{e.paidBy || '—'}</td>
-                  <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, color: '#991b1b' }}>{fmt(e.amount)}</td>
-                  <td style={{ padding: '10px 16px' }}>
+                  <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{e.description}</td>
+                  <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{e.paidBy || '—'}</td>
+                  <td style={{ padding: '13px 18px', textAlign: 'right', fontFamily: "var(--crm-font-mono)", fontWeight: 700, color: '#023c62' }}>{fmt(e.amount)}</td>
+                  <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                     <button onClick={() => del(e.id)} style={{ fontSize: 12, color: '#f87171', background: 'none', border: 'none', cursor: 'pointer' }}>Delete</button>
                   </td>
                 </tr>

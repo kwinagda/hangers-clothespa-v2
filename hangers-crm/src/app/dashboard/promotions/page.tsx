@@ -49,7 +49,7 @@ export default function PromotionsPage() {
   const tabBtn = (t:Tab,l:string) => <button onClick={()=>setTab(t)} style={{padding:'8px 18px',borderRadius:8,fontSize:13,fontWeight:600,border:'none',cursor:'pointer',background:tab===t?'#fff':'transparent',color:tab===t?'#023c62':'#6b7fa3',boxShadow:tab===t?'0 1px 4px rgba(0,0,0,0.08)':'none'}}>{l}</button>
   const inp = (label:string,value:string,onChange:any,type='text',placeholder='') => <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>{label}</label><input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/></div>
   return (
-    <div style={{padding:'32px 36px',maxWidth:1000,margin:'0 auto',...s}}>
+    <div style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',...s}}>
       <PageHeader title="Promotions" subtitle="Discount codes and offers available to customers" />
       <div style={{display:'flex',gap:4,marginBottom:24,background:'#f1f5f9',borderRadius:12,padding:4,width:'fit-content'}}>
         {tabBtn('coupons','Coupons')}{tabBtn('loyalty','Loyalty Points')}{tabBtn('upcharges','Upcharges')}
@@ -58,13 +58,13 @@ export default function PromotionsPage() {
         <div style={{display:'flex',justifyContent:'flex-end',marginBottom:16}}>
           <button onClick={()=>setShowCoupon(true)} style={{padding:'10px 20px',background:'#023c62',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer'}}>+ Create Coupon</button>
         </div>
-        <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',overflow:'hidden'}}>
+        <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
           {loadError?<div style={{padding:20,color:'#b91c1c',fontSize:13}}>{loadError}</div>:null}
           {coupons.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No coupons yet</div>:
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
             <thead><tr style={{background:'#f8fafc'}}>{['Code','Type','Value','Min Order','Used','Valid Until','Status',''].map(h=><th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:11,color:'#9dafc8',textTransform:'uppercase' as const,letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>)}</tr></thead>
-            <tbody>{pagedCoupons.map((c:any)=><tr key={c.id} style={{borderBottom:'1px solid #f8fafc'}}>
-              <td style={{padding:'10px 16px',fontFamily:'monospace',fontWeight:700,color:'#023c62'}}>{c.code}</td>
+            <tbody>{pagedCoupons.map((c:any)=><tr key={c.id} style={{borderBottom:'1px solid #eef4f8'}}>
+              <td style={{padding:'13px 18px',fontFamily:'var(--crm-font-mono)',fontWeight:700,color:'#023c62',fontSize:13.5}}>{c.code}</td>
               <td style={{padding:'10px 16px'}}><span style={{padding:'3px 8px',background:'#f3f4f6',borderRadius:4,fontSize:11}}>{c.type}</span></td>
               <td style={{padding:'10px 16px'}}>{c.type==='PERCENT'?`${c.value}%`:`₹${c.value}`}</td>
               <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{c.minOrderValue>0?`₹${c.minOrderValue}`:'—'}</td>
@@ -85,7 +85,7 @@ export default function PromotionsPage() {
           pageSizeOptions={[10,20,30,50,100]}
         />
       </div>}
-      {tab==='loyalty'&&<div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:24,maxWidth:480}}>
+      {tab==='loyalty'&&<div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',padding:24,maxWidth:480}}>
         <div style={{fontWeight:700,fontSize:14,color:'#023c62',marginBottom:20}}>Loyalty Points Configuration</div>
         <div style={{display:'flex',flexDirection:'column' as const,gap:16}}>
           {[{label:'Points earned per ₹1 spent',key:'earnPerRupee',step:'0.1'},{label:'₹ value per point redeemed',key:'redeemPerPoint',step:'0.1'},{label:'Minimum points to redeem',key:'minRedeemPoints',step:'1'}].map((f:any)=>(

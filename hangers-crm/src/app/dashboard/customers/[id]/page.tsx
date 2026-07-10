@@ -797,7 +797,7 @@ export default function CustomerProfilePage() {
               <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 20, color: '#991b1b' }}>− Deduct</div>
             </button>
           </div>
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', overflow: 'hidden' }}>
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
             {!wallet?.transactions?.length ? (
               <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8' }}>No wallet transactions yet</div>
             ) : (
@@ -842,7 +842,7 @@ export default function CustomerProfilePage() {
             </button>
           </div>
           {!addresses.length ? (
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', padding: 40, textAlign: 'center', color: '#9dafc8' }}>No addresses saved yet</div>
+            <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 40, textAlign: 'center', color: '#9dafc8' }}>No addresses saved yet</div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12 }}>
               {addresses.map((addr: any) => (
@@ -871,11 +871,11 @@ export default function CustomerProfilePage() {
       {/* ── DAILY IRON TAB ──────────────────────────────────────── */}
       {tab === 'iron' && (
         ironLoading && !ironLoaded ? (
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', padding: 40, textAlign: 'center', color: '#9dafc8' }}>Loading Daily Iron…</div>
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 40, textAlign: 'center', color: '#9dafc8' }}>Loading Daily Iron…</div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: '1.05fr 0.95fr', gap: 16 }}>
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
-              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', padding: 20 }}>
+              <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 16 }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13, color: '#6b7fa3', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 6 }}>Subscription</div>
@@ -944,7 +944,7 @@ export default function CustomerProfilePage() {
                 )}
               </div>
 
-              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', overflow: 'hidden' }}>
+              <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
                 <div style={{ padding: '18px 20px', borderBottom: '1px solid #e8f0f7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ fontWeight: 700, color: '#023c62' }}>Log History</div>
@@ -986,7 +986,7 @@ export default function CustomerProfilePage() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
-              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', padding: 20 }}>
+              <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
                 <div style={{ fontWeight: 700, fontSize: 13, color: '#6b7fa3', marginBottom: 16, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Quick Log Entry</div>
                 <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
                   <div>
@@ -1014,7 +1014,7 @@ export default function CustomerProfilePage() {
                 </div>
               </div>
 
-              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', padding: 20 }}>
+              <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
                 <div style={{ fontWeight: 700, fontSize: 13, color: '#6b7fa3', marginBottom: 16, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Generate Bill</div>
                 <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
                   <div>
@@ -1035,7 +1035,7 @@ export default function CustomerProfilePage() {
                 </div>
               </div>
 
-              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', overflow: 'hidden' }}>
+              <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
                 <div style={{ padding: '18px 20px', borderBottom: '1px solid #e8f0f7' }}>
                   <div style={{ fontWeight: 700, color: '#023c62' }}>Bills</div>
                   <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 3 }}>Send on WhatsApp or mark payments here.</div>
@@ -1045,7 +1045,7 @@ export default function CustomerProfilePage() {
                 ) : (
                   <div style={{ padding: 14, display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
                     {ironBills.map((bill: any) => (
-                      <div key={bill.id} style={{ border: '1px solid #e8f0f7', borderRadius: 10, padding: 14 }}>
+                      <div key={bill.id} style={{ border: '1px solid #e3edf6', borderRadius: 10, padding: 14 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
                           <div>
                             <div style={{ fontWeight: 700, color: '#023c62', marginBottom: 2 }}>{bill.billNumber}</div>
@@ -1097,7 +1097,7 @@ export default function CustomerProfilePage() {
 
       {/* ── ORDERS TAB ───────────────────────────────────────────── */}
       {tab === 'orders' && (
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8f0f7', overflow: 'hidden' }}>
+        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
           {!orders.length ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8' }}>No orders yet</div>
           ) : (

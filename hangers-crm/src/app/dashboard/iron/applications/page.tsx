@@ -78,7 +78,7 @@ export default function IronApplicationsPage() {
   const pagedSubscriptions = subscriptions.slice((page - 1) * pageSize, page * pageSize)
 
   return (
-    <div style={{ padding:'32px 36px', maxWidth:1200, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
+    <div style={{ padding:'30px 36px 60px', maxWidth:1360, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
       <PageHeader
         title="Iron Applications"
         subtitle="New sign-ups for the Daily Iron subscription plan"
@@ -89,12 +89,12 @@ export default function IronApplicationsPage() {
 
       <IronSectionTabs />
 
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16, marginBottom:24 }}>
-        <div className="crm-surface crm-card-hover" style={{ borderRadius:16, padding:'18px 20px' }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:20 }}>
+        <div style={{ background:'#fff', border:'1px solid #e3edf6', borderRadius:14, padding:'18px 20px' }}>
           <div style={{ fontSize:11, color:'#6b7fa3', letterSpacing:'0.06em', textTransform:'uppercase' as const, marginBottom:6 }}>Pending Review</div>
           <div style={{ fontFamily:"var(--crm-font-ui)", fontWeight:800, fontSize:30, color:'#023c62' }}>{loading ? '—' : subscriptions.length}</div>
         </div>
-        <div className="crm-surface crm-card-hover" style={{ borderRadius:16, padding:'18px 20px' }}>
+        <div style={{ background:'#fff', border:'1px solid #e3edf6', borderRadius:14, padding:'18px 20px' }}>
           <div style={{ fontSize:11, color:'#6b7fa3', letterSpacing:'0.06em', textTransform:'uppercase' as const, marginBottom:6 }}>Next Step</div>
           <div style={{ fontWeight:700, color:'#023c62', lineHeight:1.4 }}>Confirm from here, then staff can start logging garments from the customer profile.</div>
         </div>
@@ -104,12 +104,12 @@ export default function IronApplicationsPage() {
         </Link>
       </div>
 
-      <div className="crm-surface crm-card-hover" style={{ borderRadius:20, overflow:'hidden' }}>
+      <div style={{ background:'#fff', border:'1px solid #e3edf6', borderRadius:14, overflow:'hidden' }}>
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#f7f9fc' }}>
               {['Customer','Applied','Language','Notes','Actions'].map((heading) => (
-                <th key={heading} style={{ padding:'11px 18px', textAlign:'left', fontSize:11, color:'#6b7fa3', fontWeight:600, textTransform:'uppercase' as const, letterSpacing:'0.08em', borderBottom:'1px solid #e8f0f7' }}>{heading}</th>
+                <th key={heading} style={{ padding:'11px 18px', textAlign:'left', fontSize:10.5, color:'#6b7fa3', fontWeight:700, textTransform:'uppercase' as const, letterSpacing:'0.07em', borderBottom:'1px solid #e8f0f7', background:'#f7f9fc' }}>{heading}</th>
               ))}
             </tr>
           </thead>
@@ -119,15 +119,15 @@ export default function IronApplicationsPage() {
             ) : !subscriptions.length ? (
               <tr><td colSpan={5} style={{ padding:44, textAlign:'center', color:'#9dafc8' }}>No pending Daily Iron applications right now.</td></tr>
             ) : pagedSubscriptions.map((sub: any) => (
-              <tr key={sub.id} className="crm-table-row" style={{ borderBottom:'1px solid #f1f5f9' }}>
+              <tr key={sub.id} className="crm-table-row" style={{ borderBottom:'1px solid #eef4f8' }}>
                 <td style={{ padding:'14px 18px' }}>
                   <div style={{ fontSize:14, fontWeight:700, color:'#023c62', marginBottom:2 }}>{sub.customer?.name || 'Unnamed Customer'}</div>
                   <div style={{ fontSize:12, color:'#6b7fa3' }}>+91 {sub.customer?.phone}</div>
                   <Link href={`/dashboard/customers/${sub.customerId}?tab=iron`} style={{ fontSize:12, color:'#035a8f', textDecoration:'none' }}>Open customer →</Link>
                 </td>
-                <td style={{ padding:'14px 18px', color:'#6b7fa3', fontSize:13 }}>{format(new Date(sub.appliedAt), 'dd MMM yyyy, h:mm a')}</td>
-                <td style={{ padding:'14px 18px', fontSize:13 }}>{languageLabels[sub.customer?.preferredLanguage] || sub.customer?.preferredLanguage || 'English'}</td>
-                <td style={{ padding:'14px 18px', fontSize:13, color:'#6b7fa3', maxWidth:240 }}>{sub.notes || '—'}</td>
+                <td style={{ padding:'13px 18px', color:'#6b7fa3', fontSize:13.5 }}>{format(new Date(sub.appliedAt), 'dd MMM yyyy, h:mm a')}</td>
+                <td style={{ padding:'13px 18px', fontSize:13.5 }}>{languageLabels[sub.customer?.preferredLanguage] || sub.customer?.preferredLanguage || 'English'}</td>
+                <td style={{ padding:'13px 18px', fontSize:13.5, color:'#6b7fa3', maxWidth:240 }}>{sub.notes || '—'}</td>
                 <td style={{ padding:'14px 18px' }}>
                   <div style={{ display:'flex', gap:8 }}>
                     <button onClick={() => handleConfirm(sub.id)} disabled={busyId === `confirm-${sub.id}`} style={{ background:'#166534', color:'#fff', border:'none', borderRadius:9, padding:'9px 14px', fontSize:12, fontWeight:700, cursor:'pointer' }}>
