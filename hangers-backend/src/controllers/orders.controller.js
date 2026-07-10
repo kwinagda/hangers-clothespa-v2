@@ -6,7 +6,7 @@
 const prisma                                       = require('../config/database');
 const { log, getRequestMeta }                      = require('../services/activity.service');
 const { success, badRequest, error, notFound, forbidden }     = require('../utils/response');
-const { sendStatusNotification }                   = require('../services/whatsapp-notifications.service');
+const { sendOrderStatusMessage, sendPaymentReceivedMessage } = require('../services/whatomate.service');
 const { sendPushNotification }                     = require('../services/push.service');
 const { processReferralQualification }            = require('../services/referral.service');
 const { generateOrderNumber }                      = require('../utils/order-number');
@@ -20,7 +20,7 @@ const { creditWallet }                             = require('../services/wallet
 const { buildOrderSearchOr }                       = require('../utils/order-search');
 const { normalizePaymentMethod }                   = require('../utils/payment-method');
 
-const WA_NOTIFY_STATUSES = new Set(['PICKED_UP','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED']);
+const WA_NOTIFY_STATUSES = new Set(['PENDING','PICKED_UP','SENT_TO_PLANT','PROCESSING','IRONING','READY_FOR_DELIVERY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED']);
 const ORDER_STATUS_SEQUENCE = ['PENDING', 'PICKED_UP', 'SENT_TO_PLANT', 'PROCESSING', 'IRONING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'RETURNED'];
 const STATUS_CORRECTION_ROLES = ['SUPER_ADMIN', 'MANAGER'];
 const HIGH_RISK_STATUS_CORRECTION_ROLES = ['SUPER_ADMIN'];
@@ -474,6 +474,9 @@ const createOrder = async (req, res) => {
       ...getRequestMeta(req),
     });
 
+    // WhatsApp order created notification (non-blocking)
+    sendOrderStatusMessage({ ...order, customer }, 'PENDING').catch(() => {});
+
     return success(res, { order }, `Order ${order.orderNumber} created successfully`, 201);
   } catch (err) {
     console.error('createOrder error:', err);
@@ -835,6 +838,14 @@ const recordPayment = async (req, res) => {
 
       return { updatedOrder, overpayment };
     }, { isolationLevel: 'Serializable' });
+
+    // WhatsApp payment received notification (non-blocking)
+    if (amountNum > 0) {
+      prisma.order.findFirst({
+        where:   { id },
+        include: { customer: { select: { name: true, phone: true } } },
+      }).then((o) => { if (o) sendPaymentReceivedMessage(o, amountNum); }).catch(() => {});
+    }
 
     return success(res, { order: updatedOrder, overpayment });
   } catch (err) {

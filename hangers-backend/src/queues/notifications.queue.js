@@ -42,8 +42,8 @@ function getQueue() {
 async function directFallback(type, data) {
   try {
     if (type === JOB_TYPE.ORDER_STATUS) {
-      const { sendStatusNotification } = require('../services/whatsapp-notifications.service');
-      await sendStatusNotification(data.order, data.status);
+      const { sendOrderStatusMessage } = require('../services/whatomate.service');
+      await sendOrderStatusMessage(data.order, data.status);
     } else if (type === JOB_TYPE.DELIVERY_OTP) {
       const { sendDeliveryOtp } = require('../services/whatsapp-otp.service');
       await sendDeliveryOtp(data.phone, data.name, data.orderNumber, data.otp);
