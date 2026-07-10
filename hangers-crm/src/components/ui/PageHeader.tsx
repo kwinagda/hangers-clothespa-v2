@@ -30,16 +30,17 @@ export function PageHeader({ title, subtitle, actions, breadcrumb }: PageHeaderP
         <h1
           style={{
             margin:     0,
-            fontSize:   '1.4rem',
-            fontWeight: 700,
-            color:      '#1a3c5e',
+            fontFamily: 'var(--crm-font-display)',
+            fontSize:   26,
+            fontWeight: 800,
+            color:      '#023c62',
             lineHeight: 1.2,
           }}
         >
           {title}
         </h1>
         {subtitle && (
-          <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#64748b' }}>{subtitle}</p>
+          <p style={{ margin: '6px 0 0', fontSize: 13.5, color: '#6b7fa3', lineHeight: 1.5 }}>{subtitle}</p>
         )}
       </div>
       {actions && (

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet data-dc-atomics>
+<link rel="stylesheet" href="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/_ds_bundle.css">
+<link rel="stylesheet" href="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/styles.css">
+<script src="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/_ds_bundle.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #f7f9fc; font-family: var(--crm-font-ui); }
+  a { color: #035a8f; text-decoration: none; } a:hover { color: #023c62; }
+  .main { max-width: 1180px; margin: 0 auto; padding: 30px 36px 60px; }
+  .back { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7fa3; margin-bottom: 18px; font-weight: 600; }
+  .back:hover { color: #023c62; }
+  .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
+  .order-id { font-family: var(--crm-font-display); font-weight: 800; font-size: 26px; color: #023c62; }
+  .order-sub { font-size: 13px; color: #6b7fa3; margin-top: 4px; }
+  .grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; align-items: start; }
+  .panel { background: #fff; border: 1px solid #e3edf6; border-radius: 14px; margin-bottom: 20px; }
+  .panel-head { padding: 16px 20px; border-bottom: 1px solid #edf3f8; font-family: var(--crm-font-display); font-weight: 700; font-size: 15px; color: #023c62; display: flex; align-items: center; justify-content: space-between; }
+  .row { display: flex; justify-content: space-between; padding: 10px 20px; font-size: 13.5px; border-bottom: 1px solid #f3f7fa; }
+  .row:last-child { border-bottom: none; }
+  .row-label { color: #6b7fa3; }
+  .row-val { color: #1a2332; font-weight: 600; text-align: right; }
+  .item-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f3f7fa; }
+  .item-row:last-child { border-bottom: none; }
+  .item-name { font-weight: 600; font-size: 13.5px; color: #1a2332; }
+  .item-meta { font-size: 11.5px; color: #9dafc8; margin-top: 2px; }
+  .item-amt { font-family: var(--crm-font-mono); font-weight: 700; color: #023c62; font-size: 13.5px; }
+  .total-row { display: flex; justify-content: space-between; padding: 12px 20px; font-size: 14px; }
+  .total-final { font-family: var(--crm-font-display); font-weight: 700; font-size: 16px; color: #023c62; border-top: 2px solid #023c62; padding-top: 14px; margin-top: 4px; }
+  .timeline-item { display: flex; gap: 12px; padding: 0 20px 18px; position: relative; }
+  .timeline-item:last-child { padding-bottom: 20px; }
+  .timeline-dot { width: 10px; height: 10px; border-radius: 999px; background: #023c62; margin-top: 4px; flex-shrink: 0; position: relative; }
+  .timeline-line { position: absolute; left: 24px; top: 14px; bottom: -6px; width: 2px; background: #e3edf6; }
+  .timeline-title { font-size: 13px; font-weight: 700; color: #142033; }
+  .timeline-meta { font-size: 11.5px; color: #9dafc8; margin-top: 2px; }
+  .action-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 11px; border-radius: 9px; font-size: 13.5px; font-weight: 700; border: none; cursor: pointer; margin-bottom: 8px; font-family: var(--crm-font-ui); }
+  .action-primary { background: #023c62; color: #fff; }
+  .action-secondary { background: #fff; color: #023c62; border: 1.5px solid #dce8f0; }
+  .action-danger { background: #fff; color: #c0392b; border: 1.5px solid #f3c7bf; }
+  .icon-row { display: flex; gap: 8px; margin-top: 4px; }
+  .icon-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px; border-radius: 8px; background: #fff; border: 1px solid #dce8f0; color: #3d5470; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .customer-name { font-family: var(--crm-font-display); font-weight: 700; font-size: 15px; color: #023c62; }
+</style>
+</helmet>
+
+<div class="main">
+  <a class="back" href="Orders.dc.html">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    Back to Orders
+  </a>
+
+  <div class="top">
+    <div>
+      <div class="order-id">HCS-1271</div>
+      <div class="order-sub">Placed 8 Jul 2026, 10:20 am · Created by Kevin Nagda</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <x-import component-from-global-scope="HangersCRM.Badge" label="Ready for Delivery" status="READY_FOR_DELIVERY" size="md" hint-size="auto,26px"></x-import>
+      <x-import component-from-global-scope="HangersCRM.Badge" label="Unpaid" status="UNPAID" size="md" hint-size="auto,26px"></x-import>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <div class="panel-head">Customer</div>
+        <div class="row"><span class="row-label">Name</span><span class="row-val">MITUL</span></div>
+        <div class="row"><span class="row-label">Phone</span><span class="row-val" style="font-family:var(--crm-font-mono);">9322870363</span></div>
+        <div class="row"><span class="row-label">Address</span><span class="row-val">A-204, Silver Oak, Andheri West</span></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">Items <a href="#" style="font-size:12.5px;font-weight:600;color:#035a8f;">+ Add Items</a></div>
+        <div class="item-row">
+          <div><div class="item-name">Kurta – Normal (DC/M)</div><div class="item-meta">Qty 4 · ₹120 each</div></div>
+          <div class="item-amt">₹480</div>
+        </div>
+        <div class="item-row">
+          <div><div class="item-name">Sherwani Set (DC/M)</div><div class="item-meta">Qty 1 · ₹470 each</div></div>
+          <div class="item-amt">₹470</div>
+        </div>
+        <div class="total-row"><span style="color:#6b7fa3;">Subtotal</span><span style="font-family:var(--crm-font-mono);">₹950</span></div>
+        <div class="total-row"><span style="color:#6b7fa3;">Discount</span><span style="font-family:var(--crm-font-mono);">− ₹0</span></div>
+        <div class="total-row total-final"><span>Total</span><span style="font-family:var(--crm-font-mono);">₹950</span></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">Delivery</div>
+        <div class="row"><span class="row-label">Pickup Date</span><span class="row-val">8 Jul 2026</span></div>
+        <div class="row"><span class="row-label">Expected Delivery</span><span class="row-val">13 Jul 2026</span></div>
+        <div class="row"><span class="row-label">Assigned Staff</span><span class="row-val">Kevin</span></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div class="panel-head">Actions</div>
+        <div style="padding:16px;">
+          <button class="action-btn action-primary">Mark Cleaned</button>
+          <button class="action-btn action-secondary">Record Payment</button>
+          <div class="icon-row">
+            <button class="icon-btn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1.3-3.9A7.5 7.5 0 1 1 9 18.5L4 20z"/></svg>
+              Message
+            </button>
+            <button class="icon-btn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V4h12v5"/><path d="M6 18h12v3H6z"/><path d="M4 9h16v7H4z"/></svg>
+              Print
+            </button>
+          </div>
+          <button class="action-btn action-danger" style="margin-top:8px;">Cancel Order</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">Timeline</div>
+        <div style="padding-top:16px;">
+          <div class="timeline-item"><div class="timeline-dot"><div class="timeline-line"></div></div><div><div class="timeline-title">Order Placed</div><div class="timeline-meta">8 Jul, 10:20 am · Kevin</div></div></div>
+          <div class="timeline-item"><div class="timeline-dot"><div class="timeline-line"></div></div><div><div class="timeline-title">Sent to Plant</div><div class="timeline-meta">8 Jul, 11:40 am · CH-0087</div></div></div>
+          <div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">Ready for Delivery</div><div class="timeline-meta">9 Jul, 4:15 pm · Kevin</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<a href="New Order.dc.html" style="position:fixed;right:24px;bottom:24px;display:inline-flex;align-items:center;gap:10px;padding:12px 14px;border-radius:999px;background:linear-gradient(135deg,#023c62,#035a8f);color:#fff;text-decoration:none;box-shadow:0 18px 42px rgba(2,60,98,0.28);border:1px solid rgba(184,208,232,0.26);z-index:40;font-family:var(--crm-font-ui);">
+  <span style="width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.16);flex-shrink:0;">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+  </span>
+  <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+    <span style="font-size:14px;font-weight:800;line-height:1.1;">New Order</span>
+    <span style="font-size:10.5px;color:rgba(255,255,255,0.72);line-height:1.1;">Quick create</span>
+  </span>
+</a></x-dc>
+</body>
+</html>

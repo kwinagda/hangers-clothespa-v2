@@ -41,8 +41,10 @@ function ReturnOrderPageContent() {
       setLoading(false)
     }
   }
+  const inputStyle = {width:'100%',border:'1.5px solid #dce8f0',borderRadius:9,padding:'10px 13px',fontSize:13.5,boxSizing:'border-box' as const,fontFamily:'var(--crm-font-ui)',color:'#1a2332'}
+  const labelStyle = {fontSize:12,fontWeight:600,color:'#3d5470',display:'block',marginBottom:7}
   if(success) return (
-    <div style={{padding:'60px 36px',maxWidth:480,margin:'0 auto',...s,textAlign:'center'}}>
+    <div style={{padding:'60px 36px',maxWidth:520,margin:'0 auto',...s,textAlign:'center'}}>
       <div style={{display:'flex',justifyContent:'center',marginBottom:16}}><CheckCircle2 size={48} color="#166534" /></div>
       <h2 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:22,color:'#166534',marginBottom:8}}>Return Order Created</h2>
       <p style={{color:'#166534',marginBottom:24}}>Order: <strong style={{fontFamily:'monospace'}}>{success.orderNumber}</strong></p>
@@ -53,22 +55,22 @@ function ReturnOrderPageContent() {
     </div>
   )
   return (
-    <div style={{padding:'32px 36px',maxWidth:500,margin:'0 auto',...s}}>
-      <button onClick={()=>router.back()} style={{fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer',marginBottom:16}}>← Back</button>
-      <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:26,color:'#023c62',marginBottom:24}}>Return / Re-clean Order</h1>
-      <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:24}}>
+    <div style={{padding:'30px 36px 60px',maxWidth:520,margin:'0 auto',...s}}>
+      <button onClick={()=>router.back()} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer',marginBottom:18,fontWeight:600,fontFamily:'var(--crm-font-ui)'}}>← Back</button>
+      <div style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:24,color:'#023c62',marginBottom:22}}>Return / Re-clean Order</div>
+      <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',padding:22}}>
         <div style={{display:'flex',flexDirection:'column' as const,gap:16}}>
-          <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Original Order ID *</label>
-            <input type="text" value={orderId} onChange={(e: ChangeEvent<HTMLInputElement>)=>setOrderId(e.target.value)} placeholder="Paste order ID" readOnly={!!sp.get('orderId')} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,fontFamily:'monospace',boxSizing:'border-box' as const}}/></div>
-          <div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Reason *</label>
-            <select value={reason} onChange={(e: ChangeEvent<HTMLSelectElement>)=>setReason(e.target.value)} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
+          <div><label style={labelStyle}>Original Order ID *</label>
+            <input type="text" value={orderId} onChange={(e: ChangeEvent<HTMLInputElement>)=>setOrderId(e.target.value)} placeholder="Paste order ID" readOnly={!!sp.get('orderId')} style={{...inputStyle,fontFamily:'var(--crm-font-mono)'}}/></div>
+          <div><label style={labelStyle}>Reason *</label>
+            <select value={reason} onChange={(e: ChangeEvent<HTMLSelectElement>)=>setReason(e.target.value)} style={inputStyle}>
               {reasons.map(r=><option key={r.value} value={r.value}>{r.label}</option>)}
             </select></div>
-          {reason==='Other'&&<div><label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Specify</label>
-            <input type="text" value={custom} onChange={(e: ChangeEvent<HTMLInputElement>)=>setCustom(e.target.value)} style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/></div>}
+          {reason==='Other'&&<div><label style={labelStyle}>Specify</label>
+            <input type="text" value={custom} onChange={(e: ChangeEvent<HTMLInputElement>)=>setCustom(e.target.value)} style={inputStyle}/></div>}
           {error&&<div style={{background:'#fef2f2',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#991b1b'}}>{error}</div>}
-          <div style={{background:'#fefce8',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#854d0e'}}>A new order will be created for re-cleaning at no charge, linked to the original.</div>
-          <button onClick={submit} disabled={loading} style={{padding:'12px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Creating...':'Create Return Order'}</button>
+          <div style={{background:'#fefce8',borderRadius:9,padding:'12px 14px',fontSize:13,color:'#854d0e'}}>A new order will be created for re-cleaning at no charge, linked to the original.</div>
+          <button onClick={submit} disabled={loading} style={{padding:'12px',background:'#023c62',color:'#fff',borderRadius:9,fontSize:14,fontWeight:700,border:'none',cursor:'pointer',opacity:loading?0.5:1,fontFamily:'var(--crm-font-ui)'}}>{loading?'Creating...':'Create Return Order'}</button>
         </div>
       </div>
     </div>

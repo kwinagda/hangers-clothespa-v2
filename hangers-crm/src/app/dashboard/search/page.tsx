@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { metadataAPI, searchAPI } from '@/lib/api'
+import { Badge, PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -62,57 +63,60 @@ export default function SearchPage() {
     }
   }
   const s = {fontFamily:"var(--crm-font-ui)"}
-  const sel = (v:string,onChange:any,opts:{v:string,l:string}[],placeholder:string) => <select value={v} onChange={e=>onChange(e.target.value)} style={{border:'1px solid #e2e8f0',borderRadius:8,padding:'7px 10px',fontSize:13,width:'100%'}}><option value="">{placeholder}</option>{opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select>
+  const inputStyle = {border:'1.5px solid #dce8f0',borderRadius:9,padding:'10px 14px',fontSize:13.5,width:'100%',boxSizing:'border-box' as const,outline:'none',fontFamily:'var(--crm-font-ui)'}
+  const thStyle = {padding:'11px 18px',textAlign:'left' as const,fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}
+  const tdStyle = {padding:'12px 18px',fontSize:13.5,color:'#1a2332',borderBottom:'1px solid #eef4f8',verticalAlign:'top' as const}
+  const sel = (v:string,onChange:any,opts:{v:string,l:string}[],placeholder:string) => <select value={v} onChange={e=>onChange(e.target.value)} style={inputStyle}><option value="">{placeholder}</option>{opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select>
   return (
-    <div style={{padding:'32px 36px',maxWidth:1100,margin:'0 auto',...s}}>
-      <h1 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:26,color:'#023c62',marginBottom:24}}>Advanced Search</h1>
-      <div style={{display:'flex',gap:4,marginBottom:20,background:'#f1f5f9',borderRadius:12,padding:4,width:'fit-content'}}>
-        {(['orders','customers'] as const).map(t=><button key={t} onClick={()=>{setSt(t);setResults(null)}} style={{padding:'8px 18px',borderRadius:8,fontSize:13,fontWeight:600,border:'none',cursor:'pointer',background:st===t?'#fff':'transparent',color:st===t?'#023c62':'#6b7fa3',boxShadow:st===t?'0 1px 4px rgba(0,0,0,0.08)':'none',textTransform:'capitalize' as const}}>{t}</button>)}
+    <div style={{padding:'30px 36px 60px',maxWidth:1100,margin:'0 auto',...s}}>
+      <PageHeader title="Advanced Search" subtitle="Find orders and customers with operational filters" />
+      <div className="crm-tab-shell">
+        {(['orders','customers'] as const).map(t=><button key={t} onClick={()=>{setSt(t);setResults(null)}} className={`crm-tab-link ${st===t?'crm-tab-link-active':''}`} style={{border:'none',cursor:'pointer',fontFamily:'var(--crm-font-ui)',textTransform:'capitalize' as const}}>{t}</button>)}
       </div>
-      <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',padding:20,marginBottom:16}}>
+      <div className="crm-surface" style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',padding:20,marginBottom:18}}>
         <input type="text" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&search(1)}
           placeholder={st==='orders'?'Search by order number, customer name or phone...':'Search by name or phone...'}
-          style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'10px 14px',fontSize:13,boxSizing:'border-box' as const,marginBottom:12}}/>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:12}}>
-          {st==='orders'&&<>{sel(status,setStatus,statusOptions,'All Statuses')}{sel(pStatus,setPStatus,paymentStatusOptions,'Payment Status')}<div style={{display:'flex',gap:6}}><input type="number" value={minAmt} onChange={e=>setMinAmt(e.target.value)} placeholder="Min ₹" style={{width:'50%',border:'1px solid #e2e8f0',borderRadius:8,padding:'7px 10px',fontSize:13,boxSizing:'border-box' as const}}/><input type="number" value={maxAmt} onChange={e=>setMaxAmt(e.target.value)} placeholder="Max ₹" style={{width:'50%',border:'1px solid #e2e8f0',borderRadius:8,padding:'7px 10px',fontSize:13,boxSizing:'border-box' as const}}/></div></>}
+          style={{...inputStyle,marginBottom:12}}/>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10,marginBottom:14}}>
+          {st==='orders'&&<>{sel(status,setStatus,statusOptions,'All Statuses')}{sel(pStatus,setPStatus,paymentStatusOptions,'Payment Status')}<input type="number" value={minAmt} onChange={e=>setMinAmt(e.target.value)} placeholder="Min ₹" style={inputStyle}/><input type="number" value={maxAmt} onChange={e=>setMaxAmt(e.target.value)} placeholder="Max ₹" style={inputStyle}/></>}
           {st==='customers'&&sel(tag,setTag,tagOptions,'All Tags')}
-          <input type="date" value={from} onChange={e=>setFrom(e.target.value)} style={{border:'1px solid #e2e8f0',borderRadius:8,padding:'7px 10px',fontSize:13}}/>
-          <input type="date" value={to} onChange={e=>setTo(e.target.value)} style={{border:'1px solid #e2e8f0',borderRadius:8,padding:'7px 10px',fontSize:13}}/>
+          <input type="date" value={from} onChange={e=>setFrom(e.target.value)} style={inputStyle}/>
+          <input type="date" value={to} onChange={e=>setTo(e.target.value)} style={inputStyle}/>
         </div>
         <div style={{display:'flex',gap:8}}>
-          <button onClick={()=>search(1)} disabled={loading} style={{padding:'10px 20px',background:'#023c62',color:'#fff',borderRadius:8,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',opacity:loading?0.5:1}}>{loading?'Searching...':'Search'}</button>
-          <button onClick={()=>{setQ('');setStatus('');setPStatus('');setTag('');setFrom('');setTo('');setMinAmt('');setMaxAmt('');setResults(null)}} style={{padding:'10px 20px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,background:'#fff',cursor:'pointer'}}>Clear</button>
+          <button onClick={()=>search(1)} disabled={loading} style={{padding:'10px 22px',background:'#023c62',color:'#fff',borderRadius:9,fontSize:13.5,fontWeight:700,border:'none',cursor:'pointer',opacity:loading?0.5:1,fontFamily:'var(--crm-font-ui)'}}>{loading?'Searching...':'Search'}</button>
+          <button onClick={()=>{setQ('');setStatus('');setPStatus('');setTag('');setFrom('');setTo('');setMinAmt('');setMaxAmt('');setResults(null)}} style={{padding:'10px 22px',border:'1.5px solid #dce8f0',borderRadius:9,fontSize:13.5,fontWeight:700,background:'#fff',color:'#3d5470',cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Clear</button>
         </div>
       </div>
       {results&&<div>
         <div style={{fontSize:13,color:'#6b7fa3',marginBottom:12}}>{results.total} result{results.total!==1?'s':''} found</div>
-        {st==='orders'&&<div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',overflow:'hidden'}}>
+        {st==='orders'&&<div className="crm-surface" style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
           {!results.orders?.length?<div style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No orders found</div>:
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-            <thead><tr style={{background:'#f8fafc'}}>{['Order #','Customer','Date','Status','Amount','Payment'].map(h=><th key={h} style={{padding:'10px 16px',textAlign:h==='Amount'||h==='Payment'?'right':'left',fontSize:11,color:'#9dafc8',textTransform:'uppercase' as const,letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>)}</tr></thead>
-            <tbody>{results.orders.map((o:any)=><tr key={o.id} style={{borderBottom:'1px solid #f8fafc'}}>
-              <td style={{padding:'10px 16px'}}><Link href={`/dashboard/orders/${o.id}`} style={{color:'#023c62',fontFamily:'monospace',fontSize:12}}>{o.orderNumber}</Link></td>
-              <td style={{padding:'10px 16px'}}><div style={{fontWeight:600}}>{o.customer?.name}</div><div style={{fontSize:11,color:'#9dafc8'}}>{o.customer?.phone}</div></td>
-              <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{new Date(o.createdAt).toLocaleDateString('en-IN')}</td>
-              <td style={{padding:'10px 16px'}}><span style={{padding:'3px 8px',background:'#f1f5f9',borderRadius:4,fontSize:11}}>{o.status}</span></td>
-              <td style={{padding:'10px 16px',textAlign:'right',fontWeight:600}}>{fmt(o.totalAmount||o.total||0)}</td>
-              <td style={{padding:'10px 16px',textAlign:'right'}}>{(() => {
+            <thead><tr>{['Order #','Customer','Date','Status','Amount','Payment'].map(h=><th key={h} style={{...thStyle,textAlign:h==='Amount'||h==='Payment'?'right':'left'}}>{h}</th>)}</tr></thead>
+            <tbody>{results.orders.map((o:any)=><tr key={o.id} className="crm-table-row">
+              <td style={tdStyle}><Link href={`/dashboard/orders/${o.id}`} style={{color:'#023c62',fontFamily:'var(--crm-font-mono)',fontSize:12.5,fontWeight:700,textDecoration:'none'}}>{o.orderNumber}</Link></td>
+              <td style={tdStyle}><div style={{fontWeight:700}}>{o.customer?.name}</div><div style={{fontSize:11.5,color:'#9dafc8',marginTop:3}}>{o.customer?.phone}</div></td>
+              <td style={{...tdStyle,color:'#6b7fa3'}}>{new Date(o.createdAt).toLocaleDateString('en-IN')}</td>
+              <td style={tdStyle}><Badge label={String(o.status || '').replace(/_/g,' ')} status={o.status} size="sm" /></td>
+              <td style={{...tdStyle,textAlign:'right',fontWeight:800,color:'#023c62',fontFamily:'var(--crm-font-mono)'}}>{fmt(o.totalAmount||o.total||0)}</td>
+              <td style={{...tdStyle,textAlign:'right'}}>{(() => {
                 const paymentStyle = paymentStatusMeta[o.paymentStatus || 'UNPAID'] || { l: o.paymentStatus || 'UNPAID', color: '#023c62', bg: '#f4f7fb' }
-                return <span style={{padding:'3px 8px',borderRadius:4,fontSize:11,background:paymentStyle.bg,color:paymentStyle.color}}>{paymentStyle.l}</span>
+                return <Badge label={paymentStyle.l} color={paymentStyle.color} status={o.paymentStatus || 'UNPAID'} size="sm" />
               })()}</td>
             </tr>)}</tbody>
           </table>}
         </div>}
-        {st==='customers'&&<div style={{background:'#fff',borderRadius:12,border:'1px solid #e8f0f7',overflow:'hidden'}}>
+        {st==='customers'&&<div className="crm-surface" style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
           {!results.customers?.length?<div style={{padding:40,textAlign:'center',color:'#9dafc8'}}>No customers found</div>:
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-            <thead><tr style={{background:'#f8fafc'}}>{['Name','Phone','Tag','Member Since',''].map(h=><th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:11,color:'#9dafc8',textTransform:'uppercase' as const,letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>)}</tr></thead>
-            <tbody>{results.customers.map((c:any)=><tr key={c.id} style={{borderBottom:'1px solid #f8fafc'}}>
-              <td style={{padding:'10px 16px',fontWeight:600}}>{c.name}</td>
-              <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{c.phone}</td>
-              <td style={{padding:'10px 16px'}}><span style={{padding:'3px 8px',background:'#f1f5f9',borderRadius:4,fontSize:11}}>{c.tag||'REGULAR'}</span></td>
-              <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{new Date(c.createdAt).toLocaleDateString('en-IN')}</td>
-              <td style={{padding:'10px 16px'}}><Link href={`/dashboard/customers/${c.id}`} style={{fontSize:12,color:'#023c62'}}>View →</Link></td>
+            <thead><tr>{['Name','Phone','Tag','Member Since',''].map(h=><th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+            <tbody>{results.customers.map((c:any)=><tr key={c.id} className="crm-table-row">
+              <td style={{...tdStyle,fontWeight:700}}>{c.name}</td>
+              <td style={{...tdStyle,color:'#6b7fa3'}}>{c.phone}</td>
+              <td style={tdStyle}><Badge label={c.tag||'REGULAR'} size="sm" /></td>
+              <td style={{...tdStyle,color:'#6b7fa3'}}>{new Date(c.createdAt).toLocaleDateString('en-IN')}</td>
+              <td style={tdStyle}><Link href={`/dashboard/customers/${c.id}`} style={{fontSize:12.5,color:'#023c62',fontWeight:700,textDecoration:'none'}}>View</Link></td>
             </tr>)}</tbody>
           </table>}
         </div>}

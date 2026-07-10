@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet data-dc-atomics>
+<link rel="stylesheet" href="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/_ds_bundle.css">
+<link rel="stylesheet" href="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/styles.css">
+<script src="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/_ds_bundle.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #f7f9fc; font-family: var(--crm-font-ui); }
+  a { color: #035a8f; text-decoration: none; } a:hover { color: #023c62; }
+  .main { max-width: 1180px; margin: 0 auto; padding: 30px 36px 60px; }
+  .back { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7fa3; margin-bottom: 18px; font-weight: 600; }
+  .back:hover { color: #023c62; }
+  .title { font-family: var(--crm-font-display); font-weight: 800; font-size: 26px; color: #023c62; margin-bottom: 22px; }
+  .grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; align-items: start; }
+  .panel { background: #fff; border: 1px solid #e3edf6; border-radius: 14px; margin-bottom: 20px; }
+  .panel-head { padding: 16px 20px; border-bottom: 1px solid #edf3f8; font-family: var(--crm-font-display); font-weight: 700; font-size: 15px; color: #023c62; }
+  .field { padding: 16px 20px; }
+  .label { font-size: 12px; font-weight: 600; color: #3d5470; margin-bottom: 7px; display: block; }
+  .input { width: 100%; border: 1.5px solid #dce8f0; border-radius: 9px; padding: 10px 13px; font-size: 13.5px; font-family: var(--crm-font-ui); color: #1a2332; }
+  .cat-row { display: flex; gap: 8px; padding: 0 20px 14px; flex-wrap: wrap; }
+  .cat-chip { padding: 7px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; border: 1.5px solid #dce8f0; color: #3d5470; cursor: pointer; }
+  .cat-chip.active { background: #023c62; border-color: #023c62; color: #fff; }
+  .svc-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 20px; border-bottom: 1px solid #f3f7fa; }
+  .svc-row:last-child { border-bottom: none; }
+  .svc-name { font-size: 13.5px; font-weight: 600; color: #1a2332; }
+  .svc-price { font-family: var(--crm-font-mono); color: #023c62; font-weight: 700; font-size: 13px; margin-right: 14px; }
+  .add-btn { width: 30px; height: 30px; border-radius: 8px; background: #e8f0f7; color: #023c62; border: none; font-size: 16px; font-weight: 700; cursor: pointer; }
+  .cart-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid #f3f7fa; font-size: 13px; }
+  .cart-row:last-child { border-bottom: none; }
+  .qty-badge { font-family: var(--crm-font-mono); font-size: 12px; color: #6b7fa3; }
+  .total-row { display: flex; justify-content: space-between; padding: 10px 20px; font-size: 13.5px; }
+  .total-final { font-family: var(--crm-font-display); font-weight: 700; font-size: 16px; color: #023c62; border-top: 2px solid #023c62; padding-top: 14px; margin-top: 4px; }
+  .pay-chip { padding: 8px 14px; border-radius: 9px; font-size: 12.5px; font-weight: 600; border: 1.5px solid #dce8f0; color: #3d5470; cursor: pointer; }
+  .pay-chip.active { background: #023c62; border-color: #023c62; color: #fff; }
+  .submit-btn { width: 100%; padding: 13px; background: #023c62; color: #fff; border-radius: 10px; border: none; font-size: 14.5px; font-weight: 700; cursor: pointer; font-family: var(--crm-font-ui); }
+</style>
+</helmet>
+
+<div class="main">
+  <a class="back" href="Orders.dc.html">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    Back to Orders
+  </a>
+  <div class="title">New Order</div>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <div class="panel-head">Customer</div>
+        <div class="field">
+          <label class="label">Search by name or phone</label>
+          <input class="input" placeholder="e.g. Priya Menon or 98765 43210">
+        </div>
+        <div style="padding:0 20px 16px;font-size:12px;color:#9dafc8;">No customer selected — search above or <a href="#">add a new customer</a>.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">Add Items</div>
+        <div class="cat-row" style="padding-top:16px;">
+          <span class="cat-chip active">Dry Clean</span>
+          <span class="cat-chip">Wash &amp; Fold</span>
+          <span class="cat-chip">Steam Iron</span>
+        </div>
+        <div class="svc-row"><span class="svc-name">Formal Shirt</span><div style="display:flex;align-items:center;"><span class="svc-price">₹120</span><button class="add-btn">+</button></div></div>
+        <div class="svc-row"><span class="svc-name">Trousers</span><div style="display:flex;align-items:center;"><span class="svc-price">₹150</span><button class="add-btn">+</button></div></div>
+        <div class="svc-row"><span class="svc-name">Sherwani Set</span><div style="display:flex;align-items:center;"><span class="svc-price">₹450</span><button class="add-btn">+</button></div></div>
+        <div class="svc-row"><span class="svc-name">Kurta – Normal</span><div style="display:flex;align-items:center;"><span class="svc-price">₹120</span><button class="add-btn">+</button></div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div class="panel-head">Cart</div>
+        <div class="cart-row"><span>Kurta – Normal <span class="qty-badge">× 4</span></span><span style="font-family:var(--crm-font-mono);font-weight:700;">₹480</span></div>
+        <div class="cart-row"><span>Sherwani Set <span class="qty-badge">× 1</span></span><span style="font-family:var(--crm-font-mono);font-weight:700;">₹450</span></div>
+        <div class="total-row"><span style="color:#6b7fa3;">Subtotal</span><span style="font-family:var(--crm-font-mono);">₹930</span></div>
+        <div class="total-row"><span style="color:#6b7fa3;">Discount</span><span style="font-family:var(--crm-font-mono);">− ₹0</span></div>
+        <div class="total-row total-final"><span>Total</span><span style="font-family:var(--crm-font-mono);">₹930</span></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">Payment</div>
+        <div style="display:flex;gap:8px;padding:16px 20px;flex-wrap:wrap;">
+          <span class="pay-chip active">Cash</span>
+          <span class="pay-chip">UPI</span>
+          <span class="pay-chip">Card</span>
+          <span class="pay-chip">Wallet</span>
+        </div>
+        <div class="field" style="padding-top:0;">
+          <label class="label">Amount Paid Now</label>
+          <input class="input" placeholder="₹0">
+        </div>
+      </div>
+
+      <button class="submit-btn">Create Order</button>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

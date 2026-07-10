@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet data-dc-atomics>
+<link rel="stylesheet" href="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/_ds_bundle.css">
+<link rel="stylesheet" href="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/styles.css">
+<script src="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/_ds_bundle.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #eef2f6; font-family: var(--crm-font-ui); }
+  .thm-page { width: 302px; background: #fff; margin: 24px auto; padding: 22px 18px 26px; box-shadow: 0 8px 24px rgba(2,60,98,0.14); color: #1a2332; }
+  .thm-divider { border-top: 1px dashed #b9c3d1; margin: 14px 0; }
+  .thm-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; line-height: 1.5; margin-bottom: 6px; }
+  .thm-item-row { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px dashed #eef0f4; }
+</style>
+</helmet>
+
+<div class="thm-page">
+
+  <div style="text-align:center;">
+    <img src="https://wadashboardapi.161apps.com/media-file/406df8a3-4651-46d8-9e0b-9ee9aa3b0173/Hangers%20logo%20unit%20transparent.png" alt="Hangers Clothes Spa" style="height:34px;object-fit:contain;display:block;margin:0 auto 8px;">
+    <div style="font-family:var(--crm-font-display);font-weight:800;font-size:14px;letter-spacing:-0.01em;color:#023c62;">Customer Copy</div>
+    <div style="font-size:10px;color:#6b7fa3;margin-top:3px;">Care in Every Clean</div>
+    <div style="font-size:10px;color:#6b7fa3;">+91 79774 17014</div>
+  </div>
+
+  <div class="thm-divider"></div>
+
+  <div class="thm-row"><span style="color:#6b7fa3;">Order No.</span><strong style="font-family:var(--crm-font-mono);color:#023c62;">HG-2201</strong></div>
+  <div class="thm-row"><span style="color:#6b7fa3;">Date</span><span>8 Jul 2026, 10:20 am</span></div>
+  <div class="thm-row" style="align-items:flex-start;"><span style="color:#6b7fa3;">Customer</span><span style="text-align:right;">Priya Menon<br>+91 98765 43210</span></div>
+
+  <div class="thm-divider"></div>
+
+  <div class="thm-item-row">
+    <div><div style="font-size:11.5px;font-weight:700;">Dry Clean — Formal Shirt</div><div style="font-size:10px;color:#8ba0bb;">3 × ₹120</div></div>
+    <div style="font-family:var(--crm-font-mono);font-size:11.5px;font-weight:600;white-space:nowrap;">₹360</div>
+  </div>
+  <div class="thm-item-row">
+    <div><div style="font-size:11.5px;font-weight:700;">Dry Clean — Trousers</div><div style="font-size:10px;color:#8ba0bb;">2 × ₹150</div></div>
+    <div style="font-family:var(--crm-font-mono);font-size:11.5px;font-weight:600;white-space:nowrap;">₹300</div>
+  </div>
+  <div class="thm-item-row">
+    <div><div style="font-size:11.5px;font-weight:700;">Steam Iron — Saree</div><div style="font-size:10px;color:#8ba0bb;">1 × ₹280</div></div>
+    <div style="font-family:var(--crm-font-mono);font-size:11.5px;font-weight:600;white-space:nowrap;">₹280</div>
+  </div>
+  <div class="thm-item-row" style="border-bottom:none;">
+    <div><div style="font-size:11.5px;font-weight:700;">Wash &amp; Fold — Bedsheet Set</div><div style="font-size:10px;color:#8ba0bb;">1 × ₹300</div></div>
+    <div style="font-family:var(--crm-font-mono);font-size:11.5px;font-weight:600;white-space:nowrap;">₹300</div>
+  </div>
+
+  <div class="thm-divider"></div>
+
+  <div class="thm-row"><span style="color:#6b7fa3;">Subtotal</span><span style="font-family:var(--crm-font-mono);">₹1,240</span></div>
+  <div class="thm-row" style="align-items:center;">
+    <span style="font-family:var(--crm-font-display);font-weight:800;font-size:14px;color:#023c62;">Total</span>
+    <span style="font-family:var(--crm-font-mono);font-weight:800;font-size:16px;color:#023c62;">₹1,240</span>
+  </div>
+  <div class="thm-row" style="align-items:center;">
+    <span style="color:#6b7fa3;">Status</span>
+    <x-import component-from-global-scope="HangersCRM.Badge" label="Paid" status="PAID" size="sm" hint-size="auto,20px"></x-import>
+  </div>
+
+  <div class="thm-divider"></div>
+
+  <div style="text-align:center;font-size:10px;color:#9dafc8;line-height:1.6;">Retain this slip for pickup and delivery queries.</div>
+
+</div>
+
+</x-dc>
+</body>
+</html>

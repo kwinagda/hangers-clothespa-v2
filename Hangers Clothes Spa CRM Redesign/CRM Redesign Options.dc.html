@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/_ds_bundle.css">
+<link rel="stylesheet" href="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/styles.css">
+<script src="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/_ds_bundle.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #eef2f6; font-family: var(--font-body, 'Inter', sans-serif); }
+  .dv-turn { padding: 40px 44px 60px; }
+  .dv-thd { display: flex; align-items: baseline; gap: 10px; margin: 0 0 6px; }
+  .dv-tid { font: 600 10px ui-monospace, Menlo, monospace; padding: 3px 7px; background: #1a1a1a; color: #fff; border-radius: 4px; text-decoration: none; }
+  .dv-tname { font: 600 14px/1.2 system-ui, sans-serif; color: #1a1a1a; }
+  .dv-tsub { margin: 0 0 26px; font: 13px/1.5 system-ui, sans-serif; color: rgba(0,0,0,.55); max-width: 640px; }
+  .dv-opts { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
+  .dv-opt { flex: none; display: flex; flex-direction: column; gap: 10px; scroll-margin-top: 16px; }
+  .dv-oid { font: 700 11px ui-monospace, Menlo, monospace; padding: 3px 8px; background: #023c62; color: #fff; border-radius: 5px; text-decoration: none; }
+  .dv-olabel { display: flex; flex-direction: column; gap: 3px; }
+  .dv-oname { font: 700 13.5px/1.3 system-ui, sans-serif; color: #142033; }
+  .dv-odesc { font: 12px/1.5 system-ui, sans-serif; color: #6b7fa3; max-width: 420px; }
+  .dv-card { width: 1360px; background: #fff; border: 1px solid #dce8f0; border-radius: 12px; box-shadow: 0 8px 28px rgba(2,60,98,0.10); overflow: hidden; }
+  .dv-next { margin: 30px 0 0; font: 13px/1.6 system-ui, sans-serif; color: rgba(0,0,0,.5); max-width: 700px; }
+
+  /* ---- shared mock CRM shell ---- */
+  .crm-shell { display: flex; min-height: 900px; font-family: var(--crm-font-ui); }
+  .crm-side { width: 250px; flex-shrink: 0; background: #023c62; display: flex; flex-direction: column; }
+  .crm-side-logo { padding: 20px 20px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .crm-side-logo-mark { width: 30px; height: 30px; border-radius: 8px; background: rgba(255,255,255,0.14); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 14px; font-family: var(--crm-font-display); flex-shrink: 0; }
+  .crm-side-word { color: #fff; font-family: var(--crm-font-display); font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
+  .crm-side-tag { color: rgba(184,208,232,0.5); font-size: 10px; letter-spacing: 0.1em; margin-top: 1px; }
+  .crm-nav { flex: 1; padding: 14px 12px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
+  .crm-nav-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(184,208,232,0.4); padding: 0 10px 8px; }
+  .crm-nav-group { display: flex; flex-direction: column; gap: 2px; }
+  .crm-nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: rgba(214,232,247,0.8); font-size: 13px; font-weight: 500; text-decoration: none; }
+  .crm-nav-item.active { background: rgba(255,255,255,0.14); color: #fff; font-weight: 600; }
+  .crm-side-foot { padding: 12px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .crm-side-staff { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .crm-side-staff-name { color: #fff; font-size: 12.5px; font-weight: 600; }
+  .crm-side-staff-role { color: rgba(184,208,232,0.55); font-size: 10.5px; }
+  .crm-side-logout { width: 28px; height: 28px; border-radius: 7px; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; color: rgba(214,232,247,0.6); flex-shrink: 0; }
+
+  .crm-main { flex: 1; background: #f7f9fc; padding: 28px 32px 40px; min-width: 0; }
+  .crm-table { width: 100%; border-collapse: collapse; }
+  .crm-table th { text-align: left; font-size: 10.5px; font-weight: 700; color: #6b7fa3; letter-spacing: 0.07em; text-transform: uppercase; padding: 10px 16px; border-bottom: 1px solid #e8f0f7; background: #f7f9fc; }
+  .crm-table td { padding: 12px 16px; font-size: 13.5px; color: #1a2332; border-bottom: 1px solid #eef4f8; }
+  .crm-table tr:last-child td { border-bottom: none; }
+  .crm-panel { background: #fff; border: 1px solid #e3edf6; border-radius: 12px; }
+  .crm-panel-head { padding: 16px 20px; border-bottom: 1px solid #edf3f8; font-family: var(--crm-font-display); font-weight: 700; font-size: 15px; color: #023c62; }
+  .crm-qa-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; color: #1a2332; font-size: 13px; font-weight: 600; text-decoration: none; }
+  .crm-qa-item:hover { background: #f7fafc; }
+  .crm-qa-icon { width: 30px; height: 30px; border-radius: 8px; background: #e8f0f7; color: #023c62; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .crm-attn-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-radius: 8px; font-size: 13px; color: #3d5470; text-decoration: none; }
+  .crm-attn-row:hover { background: #f7fafc; }
+  .crm-attn-count { min-width: 26px; height: 22px; padding: 0 7px; border-radius: 999px; background: #e8f0f7; color: #023c62; font-size: 11.5px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+</style>
+</helmet>
+
+<section class="dv-turn" id="t1">
+  <div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Dashboard redesign — 3 directions</span></div>
+  <p class="dv-tsub">Same quiet sidebar and plain page header in all three. Gradient hero and duplicate stats removed per your feedback — the difference is how much detail the middle section carries. <a class="dv-oid" href="#1b">1b</a> is my recommendation for "balanced" density.</p>
+  <div class="dv-opts">
+
+    <div class="dv-opt" id="1a">
+      <div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a><span class="dv-oname">Minimal</span><span class="dv-odesc">Stats + one table. Nothing else competes for attention. Leanest option — good if quick actions/attention items move to their own pages.</span></div>
+      <div class="dv-card">
+        <div class="crm-shell">
+          <aside class="crm-side">
+            <div class="crm-side-logo">
+              <div class="crm-side-logo-mark">H</div>
+              <div><div class="crm-side-word">Hangers</div><div class="crm-side-tag">CRM</div></div>
+            </div>
+            <nav class="crm-nav">
+              <div>
+                <div class="crm-nav-label">Overview</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item active">Dashboard</span>
+                  <span class="crm-nav-item">Search</span>
+                  <span class="crm-nav-item">Reports</span>
+                  <span class="crm-nav-item">Referrals</span>
+                </div>
+              </div>
+              <div>
+                <div class="crm-nav-label">Orders</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item">All Orders</span>
+                  <span class="crm-nav-item">In Process</span>
+                  <span class="crm-nav-item">Ready</span>
+                  <span class="crm-nav-item">Delivered</span>
+                </div>
+              </div>
+              <div>
+                <div class="crm-nav-label">Operations</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item">Customers</span>
+                  <span class="crm-nav-item">Quotations</span>
+                  <span class="crm-nav-item">Plant Challans</span>
+                  <span class="crm-nav-item">Recurring</span>
+                </div>
+              </div>
+              <div>
+                <div class="crm-nav-label">Money</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item">Pricing</span>
+                  <span class="crm-nav-item">Finance</span>
+                  <span class="crm-nav-item">Cash Book</span>
+                </div>
+              </div>
+            </nav>
+            <div class="crm-side-foot">
+              <div class="crm-side-staff"><span class="crm-side-staff-name">Aditi Rao</span><span class="crm-side-staff-role">Manager</span></div>
+              <div class="crm-side-logout">⏻</div>
+            </div>
+          </aside>
+          <div class="crm-main">
+            <x-import component-from-global-scope="HangersCRM.PageHeader" title="Dashboard" subtitle="Tuesday, 8 July 2026" hint-size="100%,auto">
+              <x-import component-from-global-scope="HangersCRM.Button" variant="primary" size="md" hint-size="auto,40px">+ New Order</x-import>
+            </x-import>
+            <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:22px;">
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Today's Orders" value="24" sub="vs 19 yesterday" hint-size="100%,110px"></x-import>
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Queue Load" value="11" sub="pending + in process" hint-size="100%,110px"></x-import>
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Ready To Dispatch" value="7" sub="awaiting delivery" hint-size="100%,110px"></x-import>
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Collections Today" value="₹18,400" sub="cash + digital" hint-size="100%,110px"></x-import>
+            </div>
+            <div class="crm-panel">
+              <div class="crm-panel-head" style="display:flex;align-items:center;justify-content:space-between;">Recent Orders <span style="font-size:12px;font-weight:500;color:#035a8f;">View all →</span></div>
+              <table class="crm-table">
+                <thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Amount</th><th>Date</th></tr></thead>
+                <tbody>
+                  <tr><td style="font-family:var(--crm-font-mono);color:#023c62;">HG-2201</td><td>Priya Menon</td><td><x-import component-from-global-scope="HangersCRM.Badge" label="Ready for Delivery" status="READY_FOR_DELIVERY" size="sm" hint-size="auto,22px"></x-import></td><td style="font-weight:700;color:#023c62;">₹1,240</td><td>8 Jul, 10:20 am</td></tr>
+                  <tr><td style="font-family:var(--crm-font-mono);color:#023c62;">HG-2200</td><td>Rahul Sinha</td><td><x-import component-from-global-scope="HangersCRM.Badge" label="Processing" status="PROCESSING" size="sm" hint-size="auto,22px"></x-import></td><td style="font-weight:700;color:#023c62;">₹860</td><td>8 Jul, 9:55 am</td></tr>
+                  <tr><td style="font-family:var(--crm-font-mono);color:#023c62;">HG-2199</td><td>Fatima Sheikh</td><td><x-import component-from-global-scope="HangersCRM.Badge" label="Delivered" status="DELIVERED" size="sm" hint-size="auto,22px"></x-import></td><td style="font-weight:700;color:#023c62;">₹2,050</td><td>8 Jul, 9:10 am</td></tr>
+                  <tr><td style="font-family:var(--crm-font-mono);color:#023c62;">HG-2198</td><td>Karan Vora</td><td><x-import component-from-global-scope="HangersCRM.Badge" label="Pending" status="PENDING" size="sm" hint-size="auto,22px"></x-import></td><td style="font-weight:700;color:#023c62;">₹540</td><td>7 Jul, 6:40 pm</td></tr>
+                  <tr><td style="font-family:var(--crm-font-mono);color:#023c62;">HG-2197</td><td>Neha Kulkarni</td><td><x-import component-from-global-scope="HangersCRM.Badge" label="Out for Delivery" status="OUT_FOR_DELIVERY" size="sm" hint-size="auto,22px"></x-import></td><td style="font-weight:700;color:#023c62;">₹1,780</td><td>7 Jul, 5:15 pm</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dv-opt" id="1b">
+      <div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a><span class="dv-oname">Balanced (recommended)</span><span class="dv-odesc">Stats, a compact Quick Actions + Needs Attention row, then the table. Keeps most of today's information but each block is a single clean list — no repeated helper text per row.</span></div>
+      <div class="dv-card">
+        <div class="crm-shell">
+          <aside class="crm-side">
+            <div class="crm-side-logo">
+              <div class="crm-side-logo-mark">H</div>
+              <div><div class="crm-side-word">Hangers</div><div class="crm-side-tag">CRM</div></div>
+            </div>
+            <nav class="crm-nav">
+              <div>
+                <div class="crm-nav-label">Overview</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item active">Dashboard</span>
+                  <span class="crm-nav-item">Search</span>
+                  <span class="crm-nav-item">Reports</span>
+                  <span class="crm-nav-item">Referrals</span>
+                </div>
+              </div>
+              <div>
+                <div class="crm-nav-label">Orders</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item">All Orders</span>
+                  <span class="crm-nav-item">In Process</span>
+                  <span class="crm-nav-item">Ready</span>
+                  <span class="crm-nav-item">Delivered</span>
+                </div>
+              </div>
+              <div>
+                <div class="crm-nav-label">Operations</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item">Customers</span>
+                  <span class="crm-nav-item">Quotations</span>
+                  <span class="crm-nav-item">Plant Challans</span>
+                  <span class="crm-nav-item">Recurring</span>
+                </div>
+              </div>
+              <div>
+                <div class="crm-nav-label">Money</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item">Pricing</span>
+                  <span class="crm-nav-item">Finance</span>
+                  <span class="crm-nav-item">Cash Book</span>
+                </div>
+              </div>
+            </nav>
+            <div class="crm-side-foot">
+              <div class="crm-side-staff"><span class="crm-side-staff-name">Aditi Rao</span><span class="crm-side-staff-role">Manager</span></div>
+              <div class="crm-side-logout">⏻</div>
+            </div>
+          </aside>
+          <div class="crm-main">
+            <x-import component-from-global-scope="HangersCRM.PageHeader" title="Dashboard" subtitle="Tuesday, 8 July 2026" hint-size="100%,auto">
+              <x-import component-from-global-scope="HangersCRM.Button" variant="primary" size="md" hint-size="auto,40px">+ New Order</x-import>
+            </x-import>
+            <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:20px;">
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Today's Orders" value="24" sub="vs 19 yesterday" hint-size="100%,110px"></x-import>
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Queue Load" value="11" sub="pending + in process" hint-size="100%,110px"></x-import>
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Ready To Dispatch" value="7" sub="awaiting delivery" hint-size="100%,110px"></x-import>
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Collections Today" value="₹18,400" sub="cash + digital" hint-size="100%,110px"></x-import>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:16px;margin-bottom:20px;">
+              <div class="crm-panel">
+                <div class="crm-panel-head">Quick Actions</div>
+                <div style="padding:8px;display:flex;flex-direction:column;gap:2px;">
+                  <span class="crm-qa-item"><span class="crm-qa-icon">＋</span>Create Walk-in Order</span>
+                  <span class="crm-qa-item"><span class="crm-qa-icon">🚚</span>Open Ready Orders</span>
+                  <span class="crm-qa-item"><span class="crm-qa-icon">👤</span>Customer Directory</span>
+                  <span class="crm-qa-item"><span class="crm-qa-icon">₹</span>Review Finance</span>
+                </div>
+              </div>
+              <div class="crm-panel">
+                <div class="crm-panel-head">Needs Attention</div>
+                <div style="padding:8px;display:flex;flex-direction:column;gap:2px;">
+                  <span class="crm-attn-row">Ready orders needing dispatch <span class="crm-attn-count">7</span></span>
+                  <span class="crm-attn-row">Daily Iron bills pending <span class="crm-attn-count">3</span></span>
+                  <span class="crm-attn-row">Daily Iron applications pending <span class="crm-attn-count">2</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="crm-panel">
+              <div class="crm-panel-head" style="display:flex;align-items:center;justify-content:space-between;">Recent Orders <span style="font-size:12px;font-weight:500;color:#035a8f;">View all →</span></div>
+              <table class="crm-table">
+                <thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Amount</th><th>Date</th></tr></thead>
+                <tbody>
+                  <tr><td style="font-family:var(--crm-font-mono);color:#023c62;">HG-2201</td><td>Priya Menon</td><td><x-import component-from-global-scope="HangersCRM.Badge" label="Ready for Delivery" status="READY_FOR_DELIVERY" size="sm" hint-size="auto,22px"></x-import></td><td style="font-weight:700;color:#023c62;">₹1,240</td><td>8 Jul, 10:20 am</td></tr>
+                  <tr><td style="font-family:var(--crm-font-mono);color:#023c62;">HG-2200</td><td>Rahul Sinha</td><td><x-import component-from-global-scope="HangersCRM.Badge" label="Processing" status="PROCESSING" size="sm" hint-size="auto,22px"></x-import></td><td style="font-weight:700;color:#023c62;">₹860</td><td>8 Jul, 9:55 am</td></tr>
+                  <tr><td style="font-family:var(--crm-font-mono);color:#023c62;">HG-2199</td><td>Fatima Sheikh</td><td><x-import component-from-global-scope="HangersCRM.Badge" label="Delivered" status="DELIVERED" size="sm" hint-size="auto,22px"></x-import></td><td style="font-weight:700;color:#023c62;">₹2,050</td><td>8 Jul, 9:10 am</td></tr>
+                  <tr><td style="font-family:var(--crm-font-mono);color:#023c62;">HG-2198</td><td>Karan Vora</td><td><x-import component-from-global-scope="HangersCRM.Badge" label="Pending" status="PENDING" size="sm" hint-size="auto,22px"></x-import></td><td style="font-weight:700;color:#023c62;">₹540</td><td>7 Jul, 6:40 pm</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dv-opt" id="1c">
+      <div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a><span class="dv-oname">Compact / segmented</span><span class="dv-odesc">Densest option: queue health folded into one inline strip above a tighter-row table. Best if you want maximum data-per-scroll and don't mind smaller text.</span></div>
+      <div class="dv-card">
+        <div class="crm-shell">
+          <aside class="crm-side">
+            <div class="crm-side-logo">
+              <div class="crm-side-logo-mark">H</div>
+              <div><div class="crm-side-word">Hangers</div><div class="crm-side-tag">CRM</div></div>
+            </div>
+            <nav class="crm-nav">
+              <div>
+                <div class="crm-nav-label">Overview</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item active">Dashboard</span>
+                  <span class="crm-nav-item">Search</span>
+                  <span class="crm-nav-item">Reports</span>
+                  <span class="crm-nav-item">Referrals</span>
+                </div>
+              </div>
+              <div>
+                <div class="crm-nav-label">Orders</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item">All Orders</span>
+                  <span class="crm-nav-item">In Process</span>
+                  <span class="crm-nav-item">Ready</span>
+                  <span class="crm-nav-item">Delivered</span>
+                </div>
+              </div>
+              <div>
+                <div class="crm-nav-label">Operations</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item">Customers</span>
+                  <span class="crm-nav-item">Quotations</span>
+                  <span class="crm-nav-item">Plant Challans</span>
+                  <span class="crm-nav-item">Recurring</span>
+                </div>
+              </div>
+              <div>
+                <div class="crm-nav-label">Money</div>
+                <div class="crm-nav-group">
+                  <span class="crm-nav-item">Pricing</span>
+                  <span class="crm-nav-item">Finance</span>
+                  <span class="crm-nav-item">Cash Book</span>
+                </div>
+              </div>
+            </nav>
+            <div class="crm-side-foot">
+              <div class="crm-side-staff"><span class="crm-side-staff-name">Aditi Rao</span><span class="crm-side-staff-role">Manager</span></div>
+              <div class="crm-side-logout">⏻</div>
+            </div>
+          </aside>
+          <div class="crm-main">
+            <x-import component-from-global-scope="HangersCRM.PageHeader" title="Dashboard" subtitle="Tuesday, 8 July 2026" hint-size="100%,auto">
+              <x-import component-from-global-scope="HangersCRM.Button" variant="primary" size="md" hint-size="auto,40px">+ New Order</x-import>
+            </x-import>
+            <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px;">
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Today's Orders" value="24" sub="vs 19 yesterday" hint-size="100%,100px"></x-import>
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Queue Load" value="11" sub="pending + in process" hint-size="100%,100px"></x-import>
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Ready To Dispatch" value="7" sub="awaiting delivery" hint-size="100%,100px"></x-import>
+              <x-import component-from-global-scope="HangersCRM.StatCard" label="Collections Today" value="₹18,400" sub="cash + digital" hint-size="100%,100px"></x-import>
+            </div>
+            <div class="crm-panel" style="margin-bottom:16px;">
+              <div style="display:flex;align-items:center;padding:12px 20px;gap:0;">
+                <span style="flex:1;display:flex;align-items:center;gap:8px;font-size:13px;color:#3d5470;"><span class="crm-attn-count">7</span>Ready for dispatch</span>
+                <span style="width:1px;height:20px;background:#e8f0f7;"></span>
+                <span style="flex:1;display:flex;align-items:center;gap:8px;font-size:13px;color:#3d5470;padding-left:16px;"><span class="crm-attn-count">3</span>Iron bills pending</span>
+                <span style="width:1px;height:20px;background:#e8f0f7;"></span>
+                <span style="flex:1;display:flex;align-items:center;gap:8px;font-size:13px;color:#3d5470;padding-left:16px;"><span class="crm-attn-count">2</span>Iron applications pending</span>
+                <span style="width:1px;height:20px;background:#e8f0f7;"></span>
+                <span style="flex:1;display:flex;align-items:center;gap:8px;font-size:13px;color:#3d5470;padding-left:16px;">＋ New Walk-in · 👤 Customers · ₹ Finance</span>
+              </div>
+            </div>
+            <div class="crm-panel">
+              <div class="crm-panel-head" style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;">Recent Orders <span style="font-size:12px;font-weight:500;color:#035a8f;">View all →</span></div>
+              <table class="crm-table">
+                <thead><tr><th style="padding:8px 16px;">Order</th><th style="padding:8px 16px;">Customer</th><th style="padding:8px 16px;">Status</th><th style="padding:8px 16px;">Amount</th><th style="padding:8px 16px;">Date</th></tr></thead>
+                <tbody>
+                  <tr><td style="padding:8px 16px;font-family:var(--crm-font-mono);color:#023c62;">HG-2201</td><td style="padding:8px 16px;">Priya Menon</td><td style="padding:8px 16px;"><x-import component-from-global-scope="HangersCRM.Badge" label="Ready for Delivery" status="READY_FOR_DELIVERY" size="sm" hint-size="auto,22px"></x-import></td><td style="padding:8px 16px;font-weight:700;color:#023c62;">₹1,240</td><td style="padding:8px 16px;">8 Jul, 10:20 am</td></tr>
+                  <tr><td style="padding:8px 16px;font-family:var(--crm-font-mono);color:#023c62;">HG-2200</td><td style="padding:8px 16px;">Rahul Sinha</td><td style="padding:8px 16px;"><x-import component-from-global-scope="HangersCRM.Badge" label="Processing" status="PROCESSING" size="sm" hint-size="auto,22px"></x-import></td><td style="padding:8px 16px;font-weight:700;color:#023c62;">₹860</td><td style="padding:8px 16px;">8 Jul, 9:55 am</td></tr>
+                  <tr><td style="padding:8px 16px;font-family:var(--crm-font-mono);color:#023c62;">HG-2199</td><td style="padding:8px 16px;">Fatima Sheikh</td><td style="padding:8px 16px;"><x-import component-from-global-scope="HangersCRM.Badge" label="Delivered" status="DELIVERED" size="sm" hint-size="auto,22px"></x-import></td><td style="padding:8px 16px;font-weight:700;color:#023c62;">₹2,050</td><td style="padding:8px 16px;">8 Jul, 9:10 am</td></tr>
+                  <tr><td style="padding:8px 16px;font-family:var(--crm-font-mono);color:#023c62;">HG-2198</td><td style="padding:8px 16px;">Karan Vora</td><td style="padding:8px 16px;"><x-import component-from-global-scope="HangersCRM.Badge" label="Pending" status="PENDING" size="sm" hint-size="auto,22px"></x-import></td><td style="padding:8px 16px;font-weight:700;color:#023c62;">₹540</td><td style="padding:8px 16px;">7 Jul, 6:40 pm</td></tr>
+                  <tr><td style="padding:8px 16px;font-family:var(--crm-font-mono);color:#023c62;">HG-2197</td><td style="padding:8px 16px;">Neha Kulkarni</td><td style="padding:8px 16px;"><x-import component-from-global-scope="HangersCRM.Badge" label="Out for Delivery" status="OUT_FOR_DELIVERY" size="sm" hint-size="auto,22px"></x-import></td><td style="padding:8px 16px;font-weight:700;color:#023c62;">₹1,780</td><td style="padding:8px 16px;">7 Jul, 5:15 pm</td></tr>
+                  <tr><td style="padding:8px 16px;font-family:var(--crm-font-mono);color:#023c62;">HG-2196</td><td style="padding:8px 16px;">Suresh Iyer</td><td style="padding:8px 16px;"><x-import component-from-global-scope="HangersCRM.Badge" label="Delivered" status="DELIVERED" size="sm" hint-size="auto,22px"></x-import></td><td style="padding:8px 16px;font-weight:700;color:#023c62;">₹990</td><td style="padding:8px 16px;">7 Jul, 3:05 pm</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">Try next: "go with <a class="dv-oid" href="#1b">1b</a>, build out the full CRM with this system" · "mix <a class="dv-oid" href="#1a">1a</a>'s spacing with <a class="dv-oid" href="#1c">1c</a>'s inline strip" · "show me the Orders and Customers pages in this style"</p>
+</section>
+
+</x-dc>
+</body>
+</html>

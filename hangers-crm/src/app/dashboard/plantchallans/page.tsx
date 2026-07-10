@@ -49,55 +49,10 @@ const normalizeServiceName = (value: string) => String(value || '')
   .replace(/\s*-\s*/g, '-')
   .replace(/\s+/g, ' ')
   .trim()
-const getServiceMatchKeys = (value: string) => {
+const getStrictServiceMatchKeys = (value: string) => {
   const normalized = normalizeServiceName(value)
   const keys = new Set([String(value || ''), normalized])
   if (normalized) keys.add(normalized.replace(/[^a-z0-9]/g, ''))
-  const addKey = (key: string) => {
-    if (!key) return
-    keys.add(key)
-    keys.add(key.replace(/[^a-z0-9]/g, ''))
-  }
-  ;['normal', 'plain'].forEach((suffix) => addKey(`${normalized}-${suffix}`))
-  if (normalized.endsWith('s')) addKey(normalized.slice(0, -1))
-  else if (normalized) addKey(`${normalized}s`)
-  if (normalized.includes('/')) addKey(normalized.split('/').reverse().join('/'))
-  const curtainBase = normalized
-    .replace(/\s+\d+(?:\.\d+)?\.?p$/i, '')
-    .replace(/\s+large$/i, '')
-    .replace(/\s+medium$/i, '')
-    .replace(/\s+small$/i, '')
-    .trim()
-  if (curtainBase !== normalized && /^curtain-/.test(curtainBase)) {
-    addKey(curtainBase)
-  }
-  if (/^curtain\s+/.test(normalized)) {
-    addKey(normalized.replace(/^curtain\s+/, 'curtain-door '))
-  }
-  if (/^dress-long(?:-|\s|$)/.test(normalized) || /\blong dress\b/.test(normalized)) {
-    addKey('long dress')
-  }
-  if (normalized === 'tshirt' || normalized === 't-shirt') {
-    addKey('tshirt')
-    addKey('t-shirt')
-  }
-  if (normalized === 'dhoti') addKey('dhoti-normal')
-  if (normalized === 'kurta') addKey('kurta-normal')
-  if (normalized === 'blouse') addKey('blouse-normal')
-  if (normalized === 'kurti') addKey('kurti/kameez-plain')
-  if (normalized === 'top') addKey('top-plain')
-  if (normalized === 'long coat') addKey('long coat-normal')
-  if (normalized === 'trouser') addKey('pants')
-  if (normalized === 'pillow') addKey('pillow covers')
-  if (normalized === 'duvet') addKey('duvet-single')
-  if (normalized === 'normal iron') addKey('normal ironing')
-  if (normalized === 'blazer') addKey('suit-(1 pcs-blazer)')
-  if (normalized === 'coat') addKey('coat/blazer')
-  if (normalized === 'sweater') addKey('sweater-full sleeves-plain')
-  if (normalized === 'sweater with hoodie') addKey('sweater-full sleeves-heavy')
-  if (normalized === 'jackettop') addKey('jacket-full sleeves')
-  if (normalized === 'bottom') addKey('pants')
-  if (normalized === 'night wear') addKey('night suit')
   return Array.from(keys).filter(Boolean)
 }
 type VendorPriceMatch = { costPrice: number; updatedAt: number }
@@ -173,6 +128,7 @@ export default function ChallansPage() {
   const [billPlant, setBillPlant]               = useState('')
   const [selectedChallans, setSelectedChallans] = useState<Set<string>>(new Set())
   const [billNotes, setBillNotes]               = useState('')
+  const [pdfBusyId, setPdfBusyId]               = useState('')
 
   // Vendor prices
   const [pricesPlant, setPricesPlant]   = useState('')
@@ -226,7 +182,7 @@ export default function ChallansPage() {
         const costPrice = Number(p.costPrice || 0)
         const priceEntry = { costPrice, updatedAt: new Date(p.updatedAt || 0).getTime() || 0 }
         if (p.serviceId) priceMap[p.serviceId] = pickVendorPrice(priceMap[p.serviceId], priceEntry)
-        getServiceMatchKeys(p.serviceName).forEach((key) => {
+        getStrictServiceMatchKeys(p.serviceName).forEach((key) => {
           priceMap[key] = pickVendorPrice(priceMap[key], priceEntry)
         })
       })
@@ -241,7 +197,7 @@ export default function ChallansPage() {
         id: item.id,
         serviceId: item.id,
         serviceName: item.name,
-        costPrice: (priceMap[item.id] ?? getServiceMatchKeys(item.name).map((key) => priceMap[key]).find((value) => value !== undefined))?.costPrice ?? 0,
+        costPrice: (priceMap[item.id] ?? getStrictServiceMatchKeys(item.name).map((key) => priceMap[key]).find((value) => value !== undefined))?.costPrice ?? 0,
         category: item.category,
       }))
       setVendorPrices(merged)
@@ -351,6 +307,38 @@ export default function ChallansPage() {
       loadAll()
     } catch (e: any) {
       toast.error(e.message || 'Failed to mark bill as paid')
+    }
+  }
+
+  const openPdf = async (url: string, filename: string, busyId: string) => {
+    const popup = window.open('', '_blank')
+    if (!popup) {
+      toast.error('Allow popups to open the PDF')
+      return
+    }
+    popup.document.write('<p style="font-family:sans-serif">Loading PDF...</p>')
+    setPdfBusyId(busyId)
+    try {
+      const response = await fetch(url, { credentials: 'include' })
+      if (!response.ok) {
+        let message = `Failed to load PDF (${response.status})`
+        try {
+          const payload = await response.json()
+          message = payload?.message || message
+        } catch {}
+        throw new Error(message)
+      }
+      const blob = await response.blob()
+      const pdfBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' })
+      const blobUrl = URL.createObjectURL(pdfBlob)
+      popup.location.href = blobUrl
+      popup.document.title = filename
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+    } catch (e: any) {
+      popup.close()
+      toast.error(e.message || 'Failed to load PDF')
+    } finally {
+      setPdfBusyId('')
     }
   }
 
@@ -493,10 +481,12 @@ export default function ChallansPage() {
                           <button onClick={() => openReceive(c)} style={{ fontSize: 12, color: '#fff', background: '#166534', border: '1px solid #166534', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}>
                             {c.status === 'RECEIVED' ? 'Edit Receipt' : 'Receive from Plant'}
                           </button>
-                          <a href={`${API_BASE_URL}/challans/${c.id}/pdf`} target="_blank" rel="noreferrer"
-                            style={{ fontSize: 12, color: '#023c62', background: '#e8f0f7', border: 'none', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', textDecoration: 'none', fontWeight: 700 }}>
-                            PDF
-                          </a>
+                          <button
+                            onClick={() => openPdf(`${API_BASE_URL}/challans/${c.id}/pdf`, `${c.challanNo}.pdf`, `challan:${c.id}`)}
+                            disabled={pdfBusyId === `challan:${c.id}`}
+                            style={{ fontSize: 12, color: '#023c62', background: '#e8f0f7', border: 'none', borderRadius: 8, padding: '7px 10px', cursor: pdfBusyId === `challan:${c.id}` ? 'wait' : 'pointer', textDecoration: 'none', fontWeight: 700, opacity: pdfBusyId === `challan:${c.id}` ? 0.7 : 1 }}>
+                            {pdfBusyId === `challan:${c.id}` ? 'Opening...' : 'PDF'}
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -555,8 +545,12 @@ export default function ChallansPage() {
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                         <div style={{ display: 'flex', gap: 8 }}>
                           {b.status === 'PENDING' && <button onClick={() => markBillPaid(b.id)} style={{ fontSize: 12, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>Mark Paid</button>}
-                          <a href={`${API_BASE_URL}/vendor-bills/${b.id}/pdf`} target="_blank" rel="noreferrer"
-                            style={{ fontSize: 12, color: '#023c62', background: '#e8f0f7', border: 'none', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', textDecoration: 'none', fontWeight: 600 }}>PDF</a>
+                          <button
+                            onClick={() => openPdf(`${API_BASE_URL}/vendor-bills/${b.id}/pdf`, `${b.billNo}.pdf`, `bill:${b.id}`)}
+                            disabled={pdfBusyId === `bill:${b.id}`}
+                            style={{ fontSize: 12, color: '#023c62', background: '#e8f0f7', border: 'none', borderRadius: 6, padding: '4px 8px', cursor: pdfBusyId === `bill:${b.id}` ? 'wait' : 'pointer', textDecoration: 'none', fontWeight: 600, opacity: pdfBusyId === `bill:${b.id}` ? 0.7 : 1 }}>
+                            {pdfBusyId === `bill:${b.id}` ? 'Opening...' : 'PDF'}
+                          </button>
                         </div>
                       </td>
                     </tr>

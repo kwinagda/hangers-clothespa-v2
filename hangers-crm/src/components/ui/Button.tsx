@@ -16,10 +16,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const BASE = 'inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed select-none';
 
 const VARIANTS: Record<Variant, string> = {
-  primary:   'bg-[#1a3c5e] text-white hover:bg-[#15304d] focus:ring-[#1a3c5e]',
-  secondary: 'bg-white text-[#1a3c5e] border border-[#d1dde8] hover:bg-[#f0f5fa] focus:ring-[#1a3c5e]',
+  primary:   'bg-[#023c62] text-white hover:bg-[#035a8f] focus:ring-[#023c62]',
+  secondary: 'bg-white text-[#023c62] border border-[#dce8f0] hover:bg-[#f0f5fa] focus:ring-[#023c62]',
   danger:    'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
-  ghost:     'bg-transparent text-[#1a3c5e] hover:bg-[#f0f5fa] focus:ring-[#1a3c5e]',
+  ghost:     'bg-transparent text-[#023c62] hover:bg-[#f0f5fa] focus:ring-[#023c62]',
 };
 
 const SIZES: Record<Size, string> = {

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet data-dc-atomics>
+<link rel="stylesheet" href="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/_ds_bundle.css">
+<link rel="stylesheet" href="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/styles.css">
+<script src="_ds/hangers-crm-design-system-68e80ff6-61ab-4f72-9ea5-facbb2cc753c/_ds_bundle.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #f7f9fc; font-family: var(--crm-font-ui); }
+  a { color: #035a8f; } a:hover { color: #023c62; }
+  .crm-shell { display: flex; min-height: 100vh; }
+  .crm-side { width: 254px; flex-shrink: 0; background: #023c62; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
+  .crm-side-logo { padding: 22px 20px 18px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .crm-side-logo img { height: 30px; width: auto; object-fit: contain; }
+  .crm-side-tag { color: rgba(184,208,232,0.5); font-size: 10px; letter-spacing: 0.14em; margin-top: 2px; font-weight: 600; }
+  .crm-nav { flex: 1; padding: 16px 12px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+  .crm-nav-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(184,208,232,0.42); padding: 0 10px 8px; }
+  .crm-nav-group { display: flex; flex-direction: column; gap: 2px; }
+  .crm-nav-item { display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 8px; color: rgba(214,232,247,0.82); font-size: 13.5px; font-weight: 500; text-decoration: none; }
+  .crm-nav-item svg { flex-shrink: 0; opacity: 0.85; }
+  .crm-nav-item.active { background: rgba(255,255,255,0.15); color: #fff; font-weight: 600; }
+  .crm-nav-item.active svg { opacity: 1; }
+  .crm-side-foot { padding: 12px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .crm-side-staff-name { color: #fff; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .crm-side-staff-role { color: rgba(184,208,232,0.55); font-size: 10.5px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .crm-side-logout { width: 30px; height: 30px; border-radius: 8px; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; color: rgba(214,232,247,0.65); flex-shrink: 0; }
+  .crm-main { flex: 1; padding: 30px 36px 60px; min-width: 0; max-width: 1360px; }
+  .crm-table { width: 100%; border-collapse: collapse; }
+  .crm-table th { text-align: left; font-size: 10.5px; font-weight: 700; color: #6b7fa3; letter-spacing: 0.07em; text-transform: uppercase; padding: 11px 18px; border-bottom: 1px solid #e8f0f7; background: #f7f9fc; }
+  .crm-table td { padding: 13px 18px; font-size: 13.5px; color: #1a2332; border-bottom: 1px solid #eef4f8; vertical-align: top; }
+  .crm-table tr:last-child td { border-bottom: none; }
+  .crm-panel { background: #fff; border: 1px solid #e3edf6; border-radius: 14px; }
+  .crm-topbar { display: flex; justify-content: flex-end; margin-bottom: 18px; }
+  .crm-search { display: flex; align-items: center; gap: 9px; width: 320px; padding: 9px 14px; border-radius: 10px; border: 1.5px solid #dce8f0; background: #fff; color: #9dafc8; font-size: 13px; }
+  .crm-filter-row { display: flex; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+  .crm-select { padding: 10px 14px; border-radius: 10px; border: 1.5px solid #dce8f0; background: #fff; font-size: 13.5px; color: #1a2332; min-width: 190px; font-family: var(--crm-font-ui); }
+  .crm-input { flex: 1; min-width: 240px; display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-radius: 10px; border: 1.5px solid #dce8f0; background: #fff; }
+  .crm-input input { border: none; outline: none; font-size: 13.5px; color: #1a2332; width: 100%; font-family: var(--crm-font-ui); }
+  .crm-row-link { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: #035a8f; text-decoration: none; }
+</style>
+</helmet>
+
+<div class="crm-shell">
+  <aside class="crm-side">
+    <div class="crm-side-logo">
+      <img src="https://wadashboardapi.161apps.com/media-file/abf38e8d-f0b7-4727-9996-91f098bf8256/Hangers%20logo%20white.png" alt="Hangers Clothes Spa">
+      <div class="crm-side-tag">CRM</div>
+    </div>
+    <nav class="crm-nav">
+      <div><div class="crm-nav-label">Overview</div><div class="crm-nav-group">
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>Dashboard</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M11 20V4"/><path d="M18 20v-7"/></svg>Reports</span>
+      </div></div>
+      <div><div class="crm-nav-label">Orders</div><div class="crm-nav-group">
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8l8-4 8 4-8 4-8-4z"/><path d="M4 8v8l8 4 8-4V8"/><path d="M12 12v8"/></svg>All Orders</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3.2 2"/></svg>In Process</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.3L18 9l-4.2 1.7L12 15l-1.8-4.3L6 9l4.2-1.7L12 3z"/><path d="M19 15l.8 1.9L22 18l-2.2.9L19 21l-.8-2.1L16 18l2.2-1.1L19 15z"/></svg>Ready For Delivery</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.2l2.6 2.6L16 9.5"/></svg>Delivered</span>
+      </div></div>
+      <div><div class="crm-nav-label">Workflow</div><div class="crm-nav-group">
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M9 12h6M9 16h6M9 8h3"/></svg>Quotations</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 16V8a1 1 0 0 1 1-1H14v9"/><path d="M14 10.5h3.6l3 3V16h-1.6"/><circle cx="7" cy="17.5" r="2"/><circle cx="17" cy="17.5" r="2"/></svg>Plant Challans</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 13.6-5.7L20 8"/><path d="M20 4v4h-4"/><path d="M20 12a8 8 0 0 1-13.6 5.7L4 16"/><path d="M4 20v-4h4"/></svg>Recurring Pickups</span>
+      </div></div>
+      <div><div class="crm-nav-label">Customers &amp; Growth</div><div class="crm-nav-group">
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15 19c.2-2.2 1.6-3.7 3.5-4"/></svg>Customer Directory</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.8l7.6-3.6M8.2 13.2l7.6 3.6"/></svg>Referrals</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2.2a2 2 0 0 0 0 3.6V16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.2a2 2 0 0 0 0-3.6V8z"/><path d="M12 6.5v2M12 11v2M12 15.5v2"/></svg>Promotions</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v4h3.5L13 18V6L6.5 10H3z"/><path d="M16.5 9a4 4 0 0 1 0 6"/><path d="M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>Campaigns</span>
+      </div></div>
+      <div><div class="crm-nav-label">Daily Iron</div><div class="crm-nav-group">
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 4l-4.5 2 1.8 3.2L8 8v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V8l2.2 1.2L20 6l-4.5-2s-.5 2-3.5 2-3.5-2-3.5-2z"/></svg>Iron Logs</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M8.5 12.5l2.3 2.3L15.5 10"/></svg>Applications</span>
+      </div></div>
+      <div><div class="crm-nav-label">Finance</div><div class="crm-nav-group">
+        <span class="crm-nav-item active"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5h12M6 8h12M8 5c0 5 8 5 8 10a4 4 0 0 1-4 4M8 15h8"/></svg>Pricing</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v15l-2.5-1.5L14 19l-2.5-1.5L9 19l-2.5-1.5L5 19V4z"/><path d="M8.5 9h7M8.5 12.5h7"/></svg>Finance</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-6 9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8"/><path d="M3.5 18h17"/></svg>Cash Book</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7l2-3h13l2 3"/><path d="M3.5 7h17v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7z"/><circle cx="16.5" cy="12.5" r="1.4"/></svg>Expenses</span>
+      </div></div>
+      <div><div class="crm-nav-label">Team</div><div class="crm-nav-group">
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5h6l.8 3H8.2l.8-3z"/><path d="M6.5 6.5h11v14a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-14z"/><circle cx="12" cy="12.5" r="2.1"/><path d="M9.3 18h5.4"/></svg>Staff</span>
+        <span class="crm-nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="1.5"/><path d="M8 3v4M16 3v4M4 9.5h16"/><path d="M9 14l2 2 4-4"/></svg>Attendance</span>
+      </div></div>
+    </nav>
+    <div class="crm-side-foot">
+      <div style="flex:1;min-width:0;"><div class="crm-side-staff-name">Aditi Rao</div><div class="crm-side-staff-role">Manager</div></div>
+      <div class="crm-side-logout"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg></div>
+    </div>
+  </aside>
+
+  <div class="crm-main">
+    <div class="crm-topbar"><div class="crm-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6.5"/><path d="M19 19l-4.3-4.3"/></svg>Search orders, customers, phone…</div></div>
+
+    <x-import component-from-global-scope="HangersCRM.PageHeader" title="Pricing" subtitle="Rate card used across quotations, orders and the customer app" hint-size="100%,auto">
+      <x-import component-from-global-scope="HangersCRM.Button" variant="primary" size="md" hint-size="auto,40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><path d="M12 5v14M5 12h14"/></svg>Add Price</x-import>
+    </x-import>
+
+    <div class="crm-filter-row">
+      <select class="crm-select">
+        <option>All Categories</option>
+        <option>Dry Clean</option>
+        <option>Wash &amp; Fold</option>
+        <option>Steam Iron</option>
+      </select>
+      <div class="crm-input"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9dafc8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6.5"/><path d="M19 19l-4.3-4.3"/></svg><input placeholder="Search garment or service…"></div>
+    </div>
+
+    <div class="crm-panel">
+      <div style="overflow-x:auto;">
+      <table class="crm-table">
+        <thead><tr><th>Service</th><th>Category</th><th>Men / Women</th><th>Price</th><th></th></tr></thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:600;">Formal Shirt</td>
+            <td>Dry Clean</td>
+            <td>Unisex</td>
+            <td style="font-family:var(--crm-font-mono);font-weight:700;color:#023c62;">₹120</td>
+            <td><a class="crm-row-link" href="#">Edit</a></td>
+          </tr>
+          <tr>
+            <td style="font-weight:600;">Trousers</td>
+            <td>Dry Clean</td>
+            <td>Unisex</td>
+            <td style="font-family:var(--crm-font-mono);font-weight:700;color:#023c62;">₹150</td>
+            <td><a class="crm-row-link" href="#">Edit</a></td>
+          </tr>
+          <tr>
+            <td style="font-weight:600;">Saree</td>
+            <td>Steam Iron</td>
+            <td>Women</td>
+            <td style="font-family:var(--crm-font-mono);font-weight:700;color:#023c62;">₹280</td>
+            <td><a class="crm-row-link" href="#">Edit</a></td>
+          </tr>
+          <tr>
+            <td style="font-weight:600;">Bedsheet Set</td>
+            <td>Wash &amp; Fold</td>
+            <td>Unisex</td>
+            <td style="font-family:var(--crm-font-mono);font-weight:700;color:#023c62;">₹300</td>
+            <td><a class="crm-row-link" href="#">Edit</a></td>
+          </tr>
+          <tr>
+            <td style="font-weight:600;">Sherwani Set</td>
+            <td>Dry Clean</td>
+            <td>Men</td>
+            <td style="font-family:var(--crm-font-mono);font-weight:700;color:#023c62;">₹450</td>
+            <td><a class="crm-row-link" href="#">Edit</a></td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<a href="New Order.dc.html" style="position:fixed;right:24px;bottom:24px;display:inline-flex;align-items:center;gap:10px;padding:12px 14px;border-radius:999px;background:linear-gradient(135deg,#023c62,#035a8f);color:#fff;text-decoration:none;box-shadow:0 18px 42px rgba(2,60,98,0.28);border:1px solid rgba(184,208,232,0.26);z-index:40;font-family:var(--crm-font-ui);">
+  <span style="width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.16);flex-shrink:0;">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+  </span>
+  <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+    <span style="font-size:14px;font-weight:800;line-height:1.1;">New Order</span>
+    <span style="font-size:10.5px;color:rgba(255,255,255,0.72);line-height:1.1;">Quick create</span>
+  </span>
+</a></x-dc>
+</body>
+</html>

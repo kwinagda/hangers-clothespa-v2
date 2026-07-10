@@ -1,0 +1,90 @@
+/*
+  Hangers Clothes Spa — Brand Tokens
+  Source of truth: hangers-app/src/utils/theme.ts
+  These tokens apply across all three surfaces: Customer App, Staff App, CRM.
+*/
+
+:root {
+  /* ── Brand Colors ───────────────────────────────────────────────────── */
+  --color-primary:       #023c62;   /* Navy — primary actions, headers */
+  --color-primary-mid:   #035a8f;   /* Mid navy — hover states */
+  --color-primary-light: #B8D0E8;   /* Light blue — borders, icons */
+  --color-accent:        #E8F0F7;   /* Very light blue — background tints */
+
+  /* ── Surface Colors ─────────────────────────────────────────────────── */
+  --color-white:         #FFFFFF;
+  --color-off-white:     #F7F9FC;   /* App background */
+  --color-background:    #F7F9FC;
+  --color-border:        #DCE8F0;
+  --color-border-light:  #EEF4F9;
+
+  /* ── Text Colors ────────────────────────────────────────────────────── */
+  --color-text-dark:     #1A2332;   /* Body text */
+  --color-text-mid:      #3D5470;   /* Secondary text */
+  --color-text-muted:    #6B7FA3;   /* Placeholders, hints */
+  --color-text-light:    #9DAFC8;   /* Disabled text */
+
+  /* ── Status Colors ──────────────────────────────────────────────────── */
+  --color-success:       #0D7A4E;
+  --color-success-bg:    #E6F7F0;
+  --color-warning:       #B35A00;
+  --color-warning-bg:    #FFF3E0;
+  --color-error:         #C0392B;
+  --color-error-bg:      #FDEDEC;
+
+  /* ── Staff App — Role Colors ────────────────────────────────────────── */
+  --color-plant:         #7c3aed;   /* Plant ops — purple */
+  --color-plant-light:   #f3e8ff;
+  --color-delivery:      #0284c7;   /* Delivery role — blue */
+  --color-delivery-light:#e0f2fe;
+
+  /* ── Order Status Colors ────────────────────────────────────────────── */
+  --status-pending:            #f59e0b;
+  --status-picked-up:          #3b82f6;
+  --status-processing:         #7c3aed;
+  --status-washing:            #06b6d4;
+  --status-drying:             #f97316;
+  --status-ironing:            #d97706;
+  --status-qc:                 #a855f7;
+  --status-ready-for-delivery: #10b981;
+  --status-out-for-delivery:   #0284c7;
+  --status-delivered:          #22c55e;
+  --status-cancelled:          #ef4444;
+
+  /* ── Typography ─────────────────────────────────────────────────────── */
+  --font-body:    'Inter', sans-serif;         /* Regular UI text */
+  --font-display: 'Space Grotesk', sans-serif; /* Headers, brand moments */
+  --font-mono:    'Space Mono', monospace;     /* Amounts, IDs, codes */
+
+  --font-size-xs:   11px;
+  --font-size-sm:   13px;
+  --font-size-base: 15px;
+  --font-size-md:   17px;
+  --font-size-lg:   20px;
+  --font-size-xl:   24px;
+  --font-size-xxl:  30px;
+  --font-size-xxxl: 38px;
+
+  /* ── Spacing ─────────────────────────────────────────────────────────── */
+  --spacing-xs:  4px;
+  --spacing-sm:  8px;
+  --spacing-md:  16px;
+  --spacing-lg:  24px;
+  --spacing-xl:  32px;
+  --spacing-xxl: 48px;
+
+  /* ── Border Radius ───────────────────────────────────────────────────── */
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   16px;
+  --radius-xl:   24px;
+  --radius-full: 999px;
+
+  /* ── Shadows ─────────────────────────────────────────────────────────── */
+  --shadow-sm:   0 2px 8px  rgba(2, 60, 98, 0.08);
+  --shadow-md:   0 4px 16px rgba(2, 60, 98, 0.12);
+  --shadow-lg:   0 8px 24px rgba(2, 60, 98, 0.16);
+
+  /* ── Overlay ─────────────────────────────────────────────────────────── */
+  --color-overlay: rgba(2, 60, 98, 0.6);
+}

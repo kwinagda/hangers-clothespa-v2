@@ -1,0 +1,228 @@
+{
+  "plugins": [
+    "react",
+    "import"
+  ],
+  "rules": {
+    "react/forbid-elements": [
+      "warn",
+      {
+        "forbid": []
+      }
+    ],
+    "no-restricted-imports": [
+      "warn",
+      {
+        "patterns": [
+          {
+            "group": [
+              "components/general/Badge/**",
+              "components/general/Button/**",
+              "components/general/EmptyState/**",
+              "components/general/ErrorState/**",
+              "components/general/InlineLoader/**",
+              "components/general/PageHeader/**",
+              "components/general/PaginationControls/**",
+              "components/general/SkeletonCard/**",
+              "components/general/SkeletonLine/**",
+              "components/general/StatCard/**",
+              "components/general/TableLoader/**"
+            ],
+            "message": "Import design-system components from 'index.js', not component internals."
+          }
+        ]
+      }
+    ],
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "Literal[value=/#[0-9a-fA-F]{3,8}\\b/]",
+        "message": "Raw hex color — use a design-system color token via var()."
+      },
+      {
+        "selector": "Literal[value=/\\b\\d+px\\b/]",
+        "message": "Raw px value — use a design-system spacing token via var()."
+      },
+      {
+        "selector": "Literal[value=/font-family\\s*:\\s*(?!['\\\"]?(?:Inter|Space Grotesk|Space Mono))/i]",
+        "message": "Font not provided by the design system. Available: Inter, Space Grotesk, Space Mono."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/index.js"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ],
+  "x-omelette": {
+    "components": {
+      "Badge": {
+        "replaces": []
+      },
+      "Button": {
+        "replaces": []
+      },
+      "EmptyState": {
+        "replaces": []
+      },
+      "ErrorState": {
+        "replaces": []
+      },
+      "InlineLoader": {
+        "replaces": []
+      },
+      "PageHeader": {
+        "replaces": []
+      },
+      "PaginationControls": {
+        "replaces": []
+      },
+      "SkeletonCard": {
+        "replaces": []
+      },
+      "SkeletonLine": {
+        "replaces": []
+      },
+      "StatCard": {
+        "replaces": []
+      },
+      "TableLoader": {
+        "replaces": []
+      }
+    },
+    "tokens": [
+      "--crm-ease",
+      "--crm-font-display",
+      "--crm-font-mono",
+      "--crm-font-ui",
+      "--crm-shadow-float",
+      "--crm-shadow-soft",
+      "--tw-backdrop-blur",
+      "--tw-backdrop-brightness",
+      "--tw-backdrop-contrast",
+      "--tw-backdrop-grayscale",
+      "--tw-backdrop-hue-rotate",
+      "--tw-backdrop-invert",
+      "--tw-backdrop-opacity",
+      "--tw-backdrop-saturate",
+      "--tw-backdrop-sepia",
+      "--tw-bg-opacity",
+      "--tw-blur",
+      "--tw-border-opacity",
+      "--tw-border-spacing-x",
+      "--tw-border-spacing-y",
+      "--tw-brightness",
+      "--tw-contain-layout",
+      "--tw-contain-paint",
+      "--tw-contain-size",
+      "--tw-contain-style",
+      "--tw-contrast",
+      "--tw-drop-shadow",
+      "--tw-gradient-from-position",
+      "--tw-gradient-to-position",
+      "--tw-gradient-via-position",
+      "--tw-grayscale",
+      "--tw-hue-rotate",
+      "--tw-invert",
+      "--tw-numeric-figure",
+      "--tw-numeric-fraction",
+      "--tw-numeric-spacing",
+      "--tw-ordinal",
+      "--tw-pan-x",
+      "--tw-pan-y",
+      "--tw-pinch-zoom",
+      "--tw-ring-color",
+      "--tw-ring-inset",
+      "--tw-ring-offset-color",
+      "--tw-ring-offset-shadow",
+      "--tw-ring-offset-width",
+      "--tw-ring-shadow",
+      "--tw-rotate",
+      "--tw-saturate",
+      "--tw-scale-x",
+      "--tw-scale-y",
+      "--tw-scroll-snap-strictness",
+      "--tw-sepia",
+      "--tw-shadow",
+      "--tw-shadow-colored",
+      "--tw-skew-x",
+      "--tw-skew-y",
+      "--tw-slashed-zero",
+      "--tw-text-opacity",
+      "--tw-translate-x",
+      "--tw-translate-y"
+    ],
+    "tokenKinds": {
+      "--tw-border-spacing-x": "spacing",
+      "--tw-border-spacing-y": "spacing",
+      "--tw-translate-x": "other",
+      "--tw-translate-y": "other",
+      "--tw-rotate": "other",
+      "--tw-skew-x": "other",
+      "--tw-skew-y": "other",
+      "--tw-scale-x": "other",
+      "--tw-scale-y": "other",
+      "--tw-pan-x": "other",
+      "--tw-pan-y": "other",
+      "--tw-pinch-zoom": "other",
+      "--tw-scroll-snap-strictness": "other",
+      "--tw-gradient-from-position": "other",
+      "--tw-gradient-via-position": "other",
+      "--tw-gradient-to-position": "other",
+      "--tw-ordinal": "other",
+      "--tw-slashed-zero": "other",
+      "--tw-numeric-figure": "other",
+      "--tw-numeric-spacing": "spacing",
+      "--tw-numeric-fraction": "other",
+      "--tw-ring-inset": "spacing",
+      "--tw-ring-offset-width": "spacing",
+      "--tw-ring-offset-color": "color",
+      "--tw-ring-color": "color",
+      "--tw-ring-offset-shadow": "shadow",
+      "--tw-ring-shadow": "shadow",
+      "--tw-shadow": "shadow",
+      "--tw-shadow-colored": "shadow",
+      "--tw-blur": "other",
+      "--tw-brightness": "other",
+      "--tw-contrast": "other",
+      "--tw-grayscale": "other",
+      "--tw-hue-rotate": "other",
+      "--tw-invert": "other",
+      "--tw-saturate": "other",
+      "--tw-sepia": "other",
+      "--tw-drop-shadow": "shadow",
+      "--tw-backdrop-blur": "other",
+      "--tw-backdrop-brightness": "other",
+      "--tw-backdrop-contrast": "other",
+      "--tw-backdrop-grayscale": "other",
+      "--tw-backdrop-hue-rotate": "other",
+      "--tw-backdrop-invert": "other",
+      "--tw-backdrop-opacity": "other",
+      "--tw-backdrop-saturate": "other",
+      "--tw-backdrop-sepia": "other",
+      "--tw-contain-size": "spacing",
+      "--tw-contain-layout": "other",
+      "--tw-contain-paint": "other",
+      "--tw-contain-style": "other",
+      "--tw-border-opacity": "other",
+      "--tw-bg-opacity": "color",
+      "--tw-text-opacity": "font",
+      "--crm-font-ui": "font",
+      "--crm-font-display": "font",
+      "--crm-font-mono": "font",
+      "--crm-ease": "other",
+      "--crm-shadow-soft": "shadow",
+      "--crm-shadow-float": "shadow"
+    },
+    "fontFamilies": [
+      "Inter",
+      "Space Grotesk",
+      "Space Mono"
+    ]
+  }
+}

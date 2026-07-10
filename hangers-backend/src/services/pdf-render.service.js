@@ -14,7 +14,13 @@ const htmlToPDF = async (html, options = {}) => {
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      const url = request.url();
+      if (/^https?:\/\//i.test(url)) return request.abort();
+      return request.continue();
+    });
+    await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 10000 });
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,

@@ -5,7 +5,7 @@
 //   ✅ No hardcoded catalog or prices anywhere in this file
 //   ✅ TBD shown for items with price = 0
 // ─────────────────────────────────────────────────────────────────────────────
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { authAPI, deliveryAPI, metadataAPI, ordersAPI, staffAPI, servicesAPI } from '@/lib/api'
@@ -16,6 +16,7 @@ import { AlertTriangle, Bike, CalendarRange, ClipboardList, Clock3, IndianRupee,
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const getStatusLabel = (status: string, source?: string, labels: Record<string, string> = {}) => {
+  if (status === 'FABKLEAN_ORDER_CREATED') return 'Order Created'
   if (status === 'PICKED_UP' && (source === 'counter' || source === 'COUNTER' || source === 'walk-in')) return 'Received'
   return labels[status] || status
 }
@@ -41,6 +42,39 @@ const DELIVERED_CORRECTION_TARGETS = ['READY_FOR_DELIVERY']
 const CANCELLABLE_STATUSES = ['PENDING', 'PICKED_UP', 'PROCESSING', 'READY_FOR_DELIVERY']
 const formatCurrency = (value: number) => `₹${(value || 0).toLocaleString('en-IN')}`
 const getOutstandingAmount = (order: any) => Math.max(0, (order?.totalAmount || 0) - (order?.paidAmount || 0) - (order?.writeOffAmount || 0))
+const getTimelineNote = (notes?: string | null) => {
+  if (!notes) return ''
+
+  const trimmed = String(notes).trim()
+  if (!trimmed) return ''
+
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (!parsed || typeof parsed !== 'object') return trimmed
+
+    if (parsed.source === 'FABKLEAN_REPAIR') {
+      if (parsed.dateSource === 'orderLog.eventTime') {
+        const movement = parsed.from && parsed.to ? `${getStatusLabel(String(parsed.from))} to ${getStatusLabel(String(parsed.to))}` : 'Fabklean status update'
+        return parsed.generatedName ? `${movement} by ${parsed.generatedName}` : movement
+      }
+
+      if (parsed.dateSource === 'order.actualPickupDate') return 'Fabklean order created date'
+      if (parsed.dateSource === 'order.actualDeliveryDate') return 'Fabklean delivery date'
+      if (parsed.dateSource === 'order.updatedTime') return 'Fabklean latest status date'
+      if (parsed.dateSource === 'challan.plantsentDate') return parsed.challanNo ? `Sent to plant on challan ${parsed.challanNo}` : 'Sent to plant from Fabklean challan'
+      if (parsed.dateSource === 'challan.orderDate') return parsed.challanNo ? `Plant challan ${parsed.challanNo}` : 'Fabklean challan date'
+      if (parsed.dateSource === 'challan.plantDeliveryDate') return parsed.challanNo ? `Received from plant on challan ${parsed.challanNo}` : 'Received from plant date'
+
+      return 'Fabklean migration date'
+    }
+
+    if (parsed.source && String(parsed.source).startsWith('FABKLEAN')) return 'Fabklean migration note'
+  } catch {
+    return trimmed
+  }
+
+  return trimmed
+}
 const ORDER_TONE = {
   blue: { color: '#023c62', soft: '#e8f0f7', border: '#d6e5f0' },
   amber: { color: '#9a4d00', soft: '#fff4e5', border: '#f1dcc0' },
@@ -387,8 +421,11 @@ export default function OrderDetailPage() {
   const [loading,          setLoading]          = useState(true)
   const [updating,         setUpdating]         = useState(false)
   const [timelineExpanded, setTimelineExpanded] = useState(false)
+  const [showPaymentPanel, setShowPaymentPanel] = useState(false)
   const [riders,           setRiders]           = useState<any[]>([])
   const [assigning,        setAssigning]        = useState(false)
+  const leftColumnRef = useRef<HTMLDivElement>(null)
+  const [leftColumnHeight, setLeftColumnHeight] = useState(0)
   const [statusModal, setStatusModal] = useState<{ open: boolean; target: string; kind: string; reason: string }>({
     open: false,
     target: '',
@@ -415,6 +452,22 @@ export default function OrderDetailPage() {
   }, [deliveryRoles, orderId])
 
   useEffect(() => { loadOrder() }, [loadOrder])
+  useEffect(() => {
+    const node = leftColumnRef.current
+    if (!node) return
+
+    const updateHeight = () => setLeftColumnHeight(Math.ceil(node.getBoundingClientRect().height))
+    updateHeight()
+
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(node)
+    window.addEventListener('resize', updateHeight)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updateHeight)
+    }
+  }, [order, showPaymentPanel])
+
   useEffect(() => {
     authAPI.me().then((r:any) => setCurrentStaff(r?.staff || r?.data?.staff || null)).catch(() => setCurrentStaff(null))
     metadataAPI.getAll().then((r:any) => {
@@ -516,7 +569,7 @@ export default function OrderDetailPage() {
   const isReturnedOriginal = order.status === 'CANCELLED' && order.notes?.includes('[RETURNED')
   const isLocked       = order.status === 'RETURNED' || isReturnedOriginal
   const nextSt         = NEXT_STATUS[order.status]
-  const nextBlocked    = nextSt && !canProgress(nextSt)
+  const nextBlocked    = Boolean(nextSt && !canProgress(nextSt))
   const showItemsPanel = !order.isReturn && ['PENDING','PICKED_UP','PROCESSING'].includes(order.status) && noItems
   const outstandingAmount = getOutstandingAmount(order)
   const totalPieces = order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0
@@ -592,274 +645,215 @@ export default function OrderDetailPage() {
         <OrderMetric icon={Clock3} label="Outstanding" value={formatCurrency(outstandingAmount)} note={outstandingAmount === 0 ? 'No pending collection remains.' : 'Remaining amount still to be collected.'} tone="violet" />
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.45fr) minmax(320px,0.85fr)',gap:24,alignItems:'start'}}>
-        <div style={{display:'flex',flexDirection:'column',gap:20}}>
-
+      <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.6fr) minmax(340px,1fr)',gap:20,alignItems:'start'}}>
+        {/* LEFT COLUMN */}
+        <div ref={leftColumnRef} style={{minWidth:0}}>
           {showItemsPanel && (
             <AddItemsPanel orderId={order.id} currentTotal={order.totalAmount || 0} onAdded={loadOrder} />
           )}
 
-          <OrderShellCard
-            title="Customer & Service Window"
-            subtitle="Who this order belongs to, where it needs to be served, and the main customer-facing touchpoints."
-            action={
-              <div style={{display:'flex',gap:10,flexWrap:'wrap',justifyContent:'flex-end'}}>
-                <Link href={`/dashboard/customers/${order.customer?.id}`} style={{fontSize:13,color:'#035a8f',fontWeight:700,textDecoration:'none',padding:'9px 14px',border:'1px solid #dce8f0',borderRadius:12,display:'inline-flex',alignItems:'center'}}>
-                  View Profile
-                </Link>
-                {!['PENDING','CANCELLED','SENT_TO_PLANT'].includes(order.status) && !order.isReturn && (
-                  <Link href={'/dashboard/orders/return?orderId=' + orderId} style={{fontSize:13,color:'#991b1b',fontWeight:700,textDecoration:'none',padding:'9px 14px',border:'1px solid #fca5a5',borderRadius:12,display:'inline-flex',alignItems:'center'}}>
-                    Return / Re-clean
-                  </Link>
-                )}
-              </div>
-            }
-          >
-            <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:22}}>
-              <div style={{display:'grid',gap:10}}>
-                <DetailRow label="Customer" value={order.customer?.name || '—'} />
-                <DetailRow label="Phone" value={order.customer?.phone ? `+91 ${order.customer.phone}` : '—'} />
-                <DetailRow label="Source" value={order.source==='APP'?'App Pickup':order.source==='COUNTER'?'Walk-in':order.source || '—'} />
-                <DetailRow label="Pickup Date" value={order.pickupDate ? format(new Date(order.pickupDate),'dd MMM yyyy') : 'Not scheduled'} />
-                <DetailRow label="Pickup Slot" value={order.pickupSlot || 'Not scheduled'} />
-              </div>
-              <div style={{background:'#f8fbfe',border:'1px solid #e4edf5',borderRadius:20,padding:18}}>
-                <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,fontWeight:800,color:'#023c62',marginBottom:10}}>
-                  <MapPin size={15} />
-                  Service Address
-                </div>
-                <div style={{fontSize:14,color:'#42556f',lineHeight:1.65}}>
-                  {order.pickupAddress || 'No pickup address recorded for this order.'}
-                </div>
-                {order.deliveryDate && (
-                  <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid #e4edf5',fontSize:13,color:'#6b7fa3'}}>
-                    Expected delivery date: <span style={{color:'#142033',fontWeight:700}}>{format(new Date(order.deliveryDate),'dd MMM yyyy')}</span>
-                  </div>
-                )}
-              </div>
+          {/* Customer panel */}
+          <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,marginBottom:20}}>
+            <div style={{padding:'16px 20px',borderBottom:'1px solid #edf3f8',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:15,color:'#023c62',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              Customer
+              <Link href={'/dashboard/customers/'+(order.customer?.id||'')} style={{fontSize:12.5,fontWeight:600,color:'#035a8f',textDecoration:'none'}}>View Profile</Link>
             </div>
-          </OrderShellCard>
-
-          <OrderShellCard
-            title={`Garments ${order.items?.length > 0 ? `(${order.items.length})` : ''}`}
-            subtitle="Itemized garments and services currently attached to this order."
-            action={noItems ? <span style={{fontSize:12,color:'#b45309',background:'#fff8e6',border:'1px solid #f59e0b',borderRadius:20,padding:'5px 12px',fontWeight:700}}>No items yet</span> : undefined}
-          >
-            {noItems ? (
-              <div style={{textAlign:'center',padding:'28px 0',color:'#9dafc8'}}>
-                <div style={{fontSize:36,marginBottom:10,display:'flex',justifyContent:'center'}}><ClipboardList size={36} color="#9dafc8" /></div>
-                <div style={{fontSize:14,fontWeight:500,color:'#6b7fa3',marginBottom:4}}>No garments logged yet</div>
-                <div style={{fontSize:13,color:'#9dafc8'}}>
-                  {showItemsPanel ? 'Use the "Add Garment Items" panel above to log what was collected' : 'Items were not added to this order'}
-                </div>
+            {[
+              ['Name', order.customer?.name || '—'],
+              ['Phone', order.customer?.phone ? '+91 '+order.customer.phone : '—'],
+              ['Address', order.pickupAddress || 'No address on file'],
+            ].map(([label,val]:any) => (
+              <div key={label} style={{display:'flex',justifyContent:'space-between',padding:'10px 20px',fontSize:13.5,borderBottom:'1px solid #f3f7fa'}}>
+                <span style={{color:'#6b7fa3'}}>{label}</span>
+                <span style={{color:'#1a2332',fontWeight:600,textAlign:'right' as const,maxWidth:'60%'}}>{val}</span>
               </div>
-            ) : (
-              <table style={{width:'100%',borderCollapse:'collapse'}}>
-                <thead>
-                  <tr style={{background:'#f7f9fc'}}>
-                    {['#','Item / Service','Category','Qty','Unit Price','Total'].map(h=>(
-                      <th key={h} style={{padding:'9px 14px',textAlign:'left',fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #e8f0f7'}}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.items.map((it:any,i:number)=>(
-                    <tr key={it.id} style={{borderBottom:'1px solid #f0f4f8'}}>
-                      <td style={{padding:'11px 14px',color:'#9dafc8',fontSize:13}}>{i+1}</td>
-                      <td style={{padding:'11px 14px',fontSize:14,fontWeight:500}}>{it.serviceName}</td>
-                      <td style={{padding:'11px 14px',fontSize:13,color:'#6b7fa3'}}>{it.garmentType}</td>
-                      <td style={{padding:'11px 14px',fontSize:14}}>{it.quantity}</td>
-                      <td style={{padding:'11px 14px',fontSize:14,color:'#6b7fa3'}}>₹{it.unitPrice}</td>
-                      <td style={{padding:'11px 14px',fontSize:14,fontWeight:600,color:'#023c62'}}>₹{it.subtotal||it.unitPrice*it.quantity}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </OrderShellCard>
+            ))}
+          </div>
 
-          {!order.isReturn && <OrderShellCard
-            title="Workflow Timeline"
-            subtitle="Operational movement of the order so far, with direct status controls for the CRM where allowed."
-            action={(order.stages?.length||0) > 3 ? (
-              <button onClick={()=>setTimelineExpanded(v=>!v)}
-                style={{fontSize:12,color:'#035a8f',fontWeight:700,background:'#f0f5fa',border:'1px solid #dce8f0',borderRadius:20,padding:'6px 12px',cursor:'pointer'}}>
-                {timelineExpanded ? 'Show less' : `Show all ${order.stages.length} entries`}
-              </button>
-            ) : undefined}
-          >
-            {(()=>{
-              const stages  = order.stages || []
-              const visible = timelineExpanded ? stages : stages.slice(-3)
-              const hidden  = stages.length - visible.length
-              return (
-                <>
-                  {hidden > 0 && !timelineExpanded && (
-                    <button onClick={()=>setTimelineExpanded(true)}
-                      style={{width:'100%',background:'#f7f9fc',border:'1px dashed #dce8f0',borderRadius:10,padding:'8px',fontSize:12,color:'#6b7fa3',cursor:'pointer',marginBottom:14,fontWeight:500}}>
-                      ↑ {hidden} earlier {hidden===1?'entry':'entries'} hidden — click to expand
-                    </button>
-                  )}
-                  {visible.map((st:any,i:number)=>(
-                    <div key={st.id} style={{display:'flex',gap:14,marginBottom:i<visible.length-1?14:0}}>
-                      <div style={{display:'flex',flexDirection:'column',alignItems:'center'}}>
-                        <div style={{width:10,height:10,borderRadius:'50%',background:i===visible.length-1?'#023c62':'#b8d0e8',marginTop:4,flexShrink:0}}/>
-                        {i<visible.length-1&&<div style={{width:2,flex:1,background:'#e8f0f7',margin:'3px 0'}}/>}
-                      </div>
-                      <div style={{paddingBottom:i<visible.length-1?14:0}}>
-                        <div style={{fontSize:13,fontWeight:i===visible.length-1?700:500,color:i===visible.length-1?'#023c62':'#1a2332'}}>{statusLabel(st.stage)}</div>
-                        <div style={{fontSize:11,color:'#9dafc8',marginTop:2}}>{format(new Date(st.createdAt),'dd MMM yyyy, h:mm a')}{renderStageNote(st.notes)}</div>
-                      </div>
+          {/* Items panel */}
+          <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,marginBottom:20}}>
+            <div style={{padding:'16px 20px',borderBottom:'1px solid #edf3f8',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:15,color:'#023c62',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              {'Items'+(order.items?.length>0?' ('+order.items.length+')':'')}
+              {noItems && <span style={{fontSize:12,padding:'4px 10px',background:'#fff8e6',color:'#b45309',borderRadius:20,fontWeight:700}}>No items yet</span>}
+            </div>
+            {noItems ? (
+              <div style={{padding:'28px 20px',textAlign:'center' as const,color:'#9dafc8',fontSize:13}}>No garments logged yet</div>
+            ) : (
+              <>
+                {order.items.map((it:any) => (
+                  <div key={it.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 20px',borderBottom:'1px solid #f3f7fa'}}>
+                    <div>
+                      <div style={{fontWeight:600,fontSize:13.5,color:'#1a2332'}}>{it.serviceName}</div>
+                      <div style={{fontSize:11.5,color:'#9dafc8',marginTop:2}}>Qty {it.quantity} · ₹{it.unitPrice} each</div>
                     </div>
-                  ))}
-                </>
-              )
-            })()}
-            <div style={{marginTop:20,paddingTop:16,borderTop:'1px solid #e8f0f7'}}>
-              <div style={{fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Update Status</div>
-              {plantStatuses.includes(order.status) && statusChoices.length <= 1 ? (
-                <div style={{fontSize:13,color:'#1e40af',background:'#dbeafe',borderRadius:10,padding:'12px 16px',lineHeight:1.6,display:'flex',alignItems:'center',gap:10}}>
-                  <Lock size={18} color="#1e40af" />
-                  <div>
-                    <div style={{fontWeight:700,marginBottom:2}}>Order is at the Plant</div>
-                    <div style={{fontSize:12,color:'#3b82f6'}}>Status can only be updated by the plant team via the Staff App.</div>
+                    <div style={{fontFamily:'var(--crm-font-mono)',fontWeight:700,color:'#023c62',fontSize:13.5}}>₹{(it.subtotal||it.unitPrice*it.quantity).toLocaleString('en-IN')}</div>
                   </div>
+                ))}
+                <div style={{display:'flex',justifyContent:'space-between',padding:'12px 20px',fontSize:14}}>
+                  <span style={{color:'#6b7fa3'}}>Subtotal</span>
+                  <span style={{fontFamily:'var(--crm-font-mono)'}}>₹{(order.subtotal||order.totalAmount||0).toLocaleString('en-IN')}</span>
                 </div>
-              ) : (
-                <>
-                {plantStatuses.includes(order.status) && statusChoices.length > 1 && (
-                  <div style={{fontSize:12,color:'#5b21b6',background:'#f5f3ff',borderRadius:8,padding:'7px 12px',marginBottom:10,lineHeight:1.5}}>
-                    Correction mode enabled — authorized rollback targets are available for this plant-managed status.
+                {(order.discount||0)>0 && (
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'12px 20px',fontSize:14}}>
+                    <span style={{color:'#6b7fa3'}}>Discount</span>
+                    <span style={{fontFamily:'var(--crm-font-mono)'}}>−₹{order.discount.toLocaleString('en-IN')}</span>
                   </div>
                 )}
-                {noItems && (
-                  <div style={{fontSize:12,color:'#b45309',background:'#fff8e6',borderRadius:8,padding:'7px 12px',marginBottom:10,lineHeight:1.5}}>
-                    Processing statuses are locked — add items first
-                  </div>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'14px 20px',fontSize:16,fontFamily:'var(--crm-font-display)',fontWeight:700,color:'#023c62',borderTop:'2px solid #023c62'}}>
+                  <span>Total</span>
+                  <span style={{fontFamily:'var(--crm-font-mono)'}}>₹{(order.totalAmount||0).toLocaleString('en-IN')}</span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Delivery panel */}
+          <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14}}>
+            <div style={{padding:'16px 20px',borderBottom:'1px solid #edf3f8',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:15,color:'#023c62'}}>Delivery</div>
+            {[
+              ['Pickup Date', order.pickupDate ? format(new Date(order.pickupDate),'d MMM yyyy') : 'Not scheduled'],
+              ['Expected Delivery', order.deliveryDate ? format(new Date(order.deliveryDate),'d MMM yyyy') : 'Not scheduled'],
+              ['Assigned Staff', order.assignedTo?.name || '—'],
+            ].map(([label,val]:any) => (
+              <div key={label} style={{display:'flex',justifyContent:'space-between',padding:'10px 20px',fontSize:13.5,borderBottom:'1px solid #f3f7fa'}}>
+                <span style={{color:'#6b7fa3'}}>{label}</span>
+                <span style={{color:'#1a2332',fontWeight:600}}>{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN */}
+        <div
+          className="order-detail-sidebox"
+          style={{
+            display:'flex',
+            flexDirection:'column' as const,
+            gap:12,
+            height:leftColumnHeight ? leftColumnHeight : undefined,
+            maxHeight:leftColumnHeight ? leftColumnHeight : undefined,
+          }}
+        >
+          {/* Actions panel */}
+          <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14}}>
+            <div style={{padding:'16px 20px',borderBottom:'1px solid #edf3f8',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:15,color:'#023c62'}}>Actions</div>
+            <div style={{padding:16,display:'flex',flexDirection:'column' as const,gap:8}}>
+              {nextSt && !isLocked && !order.isReturn && (
+                <button onClick={()=>updateStatus(nextSt)} disabled={updating||nextBlocked}
+                  style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,width:'100%',padding:11,borderRadius:9,fontSize:13.5,fontWeight:700,border:'none',cursor:nextBlocked?'not-allowed':'pointer',background:nextBlocked?'#f1f5f9':'#023c62',color:nextBlocked?'#9dafc8':'#fff',opacity:updating?0.6:1,whiteSpace:'normal' as const,lineHeight:1.35}}>
+                  {nextBlocked && <AlertTriangle size={14} color="#f59e0b"/>}
+                  {updating ? 'Updating…' : 'Mark as '+statusLabel(nextSt)}
+                </button>
+              )}
+              {outstandingAmount>0 && (
+                <button onClick={()=>setShowPaymentPanel(v=>!v)}
+                  style={{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',padding:11,borderRadius:9,fontSize:13.5,fontWeight:700,background:'#fff',color:'#023c62',border:'1.5px solid #dce8f0',cursor:'pointer'}}>
+                  {showPaymentPanel ? 'Hide Payment Panel' : 'Record Payment'}
+                </button>
+              )}
+              <div style={{display:'flex',gap:8}}>
+                {order.customer?.phone && (
+                  <a href={'https://wa.me/91'+order.customer.phone}
+                    target="_blank" rel="noreferrer"
+                    style={{flex:'1 1 0',minWidth:0,display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:9,borderRadius:8,background:'#fff',border:'1px solid #dce8f0',color:'#3d5470',fontSize:12,fontWeight:600,textDecoration:'none'}}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20l1.3-3.9A7.5 7.5 0 1 1 9 18.5L4 20z"/></svg>
+                    Message
+                  </a>
                 )}
-                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                {statusChoices.map(s => {
-                  const isCurrent = s === order.status
-                  const isBlocked = !isCurrent && !canProgress(s)
+                <Link href={'/dashboard/print?orderId='+order.id+'&type=receipt'}
+                  style={{flex:'1 1 0',minWidth:0,display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:9,borderRadius:8,background:'#fff',border:'1px solid #dce8f0',color:'#3d5470',fontSize:12,fontWeight:600,textDecoration:'none'}}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V4h12v5"/><path d="M6 18h12v3H6z"/><path d="M4 9h16v7H4z"/></svg>
+                  Print
+                </Link>
+              </div>
+              {CANCELLABLE_STATUSES.includes(order.status)&&!order.isReturn&&(
+                <button onClick={()=>updateStatus('CANCELLED')}
+                  style={{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',padding:11,borderRadius:9,fontSize:13.5,fontWeight:700,background:'#fff',color:'#c0392b',border:'1.5px solid #f3c7bf',cursor:'pointer',marginTop:4}}>
+                  Cancel Order
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Timeline panel */}
+          <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14}}>
+            <div style={{padding:'16px 20px',borderBottom:'1px solid #edf3f8',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:15,color:'#023c62'}}>Timeline</div>
+            <div style={{paddingTop:16}}>
+              {!order.stages?.length ? (
+                <div style={{padding:'20px',color:'#9dafc8',fontSize:13}}>No timeline entries yet</div>
+              ) : (order.stages||[]).map((st:any,i:number,arr:any[])=>{
+                const timelineNote = getTimelineNote(st.notes)
+                return (
+	                <div key={st.id} style={{display:'flex',gap:12,padding:'0 20px 18px',position:'relative' as const,minWidth:0}}>
+                    <div style={{display:'flex',flexDirection:'column' as const,alignItems:'center'}}>
+                      <div style={{width:10,height:10,borderRadius:999,background:'#023c62',marginTop:4,flexShrink:0}}/>
+                      {i<arr.length-1&&<div style={{width:2,flex:1,background:'#e3edf6',margin:'3px 0'}}/>}
+                    </div>
+	                  <div style={{minWidth:0,flex:1}}>
+	                    <div style={{fontSize:13,fontWeight:700,color:'#142033'}}>{statusLabel(st.stage)}</div>
+	                    <div style={{fontSize:11.5,color:'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{format(new Date(st.createdAt),'d MMM, h:mm a')}{timelineNote ? ` · ${timelineNote}` : ''}</div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Payment panel (toggled) */}
+          {showPaymentPanel && (
+            <PaymentPanel orderId={order.id} customerId={order.customer?.id} totalAmount={order.totalAmount||0} paidAmount={order.paidAmount||0} paymentStatus={order.paymentStatus||'UNPAID'} writeOffAlreadyDone={order.writeOffAmount||0} onPaymentRecorded={loadOrder} />
+          )}
+
+          {/* Rider assignment */}
+          {['READY_FOR_DELIVERY','OUT_FOR_DELIVERY','PENDING','PICKED_UP'].includes(order.status) && riders.length>0 && (
+            <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,padding:16}}>
+              <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase' as const,marginBottom:12}}>Assign Rider</div>
+              <select defaultValue={order.assignedToId||''} onChange={e=>assignRider(e.target.value)} disabled={assigning}
+                style={{width:'100%',border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 12px',fontSize:13,color:'#1a2332',opacity:assigning?0.6:1}}>
+                <option value="">— Select a rider —</option>
+                {riders.map((r:any)=><option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Status correction */}
+          {statusChoices.length>1 && (
+            <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,padding:16}}>
+              <div style={{fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.06em',marginBottom:10}}>Correct Status</div>
+              {noItems && (
+                <div style={{fontSize:12,color:'#b45309',background:'#fff8e6',borderRadius:8,padding:'7px 12px',marginBottom:10}}>Add items first to unlock processing statuses</div>
+              )}
+              <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
+                {statusChoices.map((s:string)=>{
+                  const isCurrent=s===order.status; const isBlocked=!isCurrent&&!canProgress(s)
                   return (
-                    <button key={s} onClick={() => updateStatus(s)} disabled={isCurrent || updating}
-                      title={isBlocked ? 'Add items first' : ''}
-                      style={{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:isCurrent||updating?'default':isBlocked?'not-allowed':'pointer',border:`1px solid ${isCurrent?'#023c62':isBlocked?'#f59e0b':'#dce8f0'}`,background:isCurrent?'#023c62':isBlocked?'#fff8e6':'#fff',color:isCurrent?'#fff':isBlocked?'#b45309':'#6b7fa3',opacity:updating?0.6:1}}>
-                      {isBlocked ? 'Locked: ' : ''}{statusLabel(s)}
+                    <button key={s} onClick={()=>updateStatus(s)} disabled={isCurrent||updating}
+                      style={{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:isCurrent||updating?'default':isBlocked?'not-allowed':'pointer',border:'1px solid '+(isCurrent?'#023c62':isBlocked?'#f59e0b':'#dce8f0'),background:isCurrent?'#023c62':isBlocked?'#fff8e6':'#fff',color:isCurrent?'#fff':isBlocked?'#b45309':'#6b7fa3',opacity:updating?0.6:1}}>
+                      {statusLabel(s)}
                     </button>
                   )
                 })}
               </div>
-              </>
-            )}
             </div>
-          </OrderShellCard>}
-
-          {order.notes && (
-            <OrderShellCard title="Notes & Exceptions" subtitle="Operational notes, returned-order markers, and other context attached to the order.">
-              <p style={{fontSize:14,color:'#6b7fa3',margin:0,lineHeight:1.6}}>{order.notes}</p>
-            </OrderShellCard>
           )}
-        </div>
 
-        <div style={{display:'flex',flexDirection:'column',gap:16}}>
-
-          <div style={{background:'linear-gradient(135deg,#023c62,#035a8f)',borderRadius:24,padding:24,color:'#fff',boxShadow:'0 18px 44px rgba(2,60,98,0.18)'}}>
-            <div style={{fontSize:11,color:'rgba(184,208,232,0.7)',fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:16}}>Payment Summary</div>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:8,fontSize:14,color:'rgba(184,208,232,0.8)'}}>
-              <span>Subtotal</span><span>{formatCurrency(order.subtotal || 0)}</span>
+          {/* Print options */}
+          <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,padding:16}}>
+            <div style={{fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.06em',marginBottom:10}}>More Print Options</div>
+            <div style={{display:'grid',gap:8}}>
+              {([
+                ['/dashboard/print?orderId='+order.id+'&type=thermal','80mm Thermal'],
+                ['/dashboard/print?orderId='+order.id+'&type=garment','Garment Tags'],
+                ['/dashboard/print?orderId='+order.id+'&type=bag','Bag Tags'],
+              ] as Array<[string, string]>).map(([href,label])=>(
+                <Link key={href} href={href} style={{display:'flex',alignItems:'center',padding:'9px 12px',borderRadius:10,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
+                  {label}
+                </Link>
+              ))}
             </div>
-            {order.discount>0&&(
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:8,fontSize:14,color:'rgba(184,208,232,0.8)'}}>
-                <span>Discount</span><span>−{formatCurrency(order.discount)}</span>
-              </div>
-            )}
-            <div style={{borderTop:'1px solid rgba(184,208,232,0.2)',paddingTop:12,display:'flex',justifyContent:'space-between',fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:24}}>
-              <span>Total</span><span>{formatCurrency(order.totalAmount || 0)}</span>
-            </div>
-            <div style={{marginTop:12,fontSize:13,color:order.paidAmount>=(order.totalAmount||0)?'#4ade80':'#fbbf24'}}>
-              {((order.paidAmount||0) + (order.writeOffAmount||0)) >= (order.totalAmount||0) ? 'Fully Paid' : `Pending: ${formatCurrency(outstandingAmount)}`}
-            </div>
-            {noItems && order.totalAmount===0 && (
-              <div style={{marginTop:10,fontSize:11,color:'rgba(184,208,232,0.5)',fontStyle:'italic'}}>Total will update once items are added</div>
-            )}
           </div>
-
-          <PaymentPanel orderId={order.id} customerId={order.customer?.id} totalAmount={order.totalAmount||0} paidAmount={order.paidAmount||0} paymentStatus={order.paymentStatus||'UNPAID'} writeOffAlreadyDone={order.writeOffAmount||0} onPaymentRecorded={loadOrder} />
-
-          {['READY_FOR_DELIVERY','OUT_FOR_DELIVERY','PENDING','PICKED_UP'].includes(order.status) && (
-            <OrderShellCard title="Delivery Assignment" subtitle="Assign or reassign the rider responsible for the next handoff.">
-              <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:14,display:'flex',alignItems:'center',gap:6}}><Bike size={12} />Assign Delivery Rider</div>
-              {order.assignedTo ? (
-                <div style={{background:'#e8f0f7',borderRadius:12,padding:'10px 14px',marginBottom:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:700,color:'#023c62'}}>{order.assignedTo.name}</div>
-                    <div style={{fontSize:11,color:'#6b7fa3',marginTop:2}}>{order.assignedTo.phone} · {order.assignedTo.role.replace('_',' ')}</div>
-                  </div>
-                  <span style={{fontSize:11,background:'#d1fae5',color:'#065f46',fontWeight:700,padding:'3px 10px',borderRadius:20}}>Assigned</span>
-                </div>
-              ) : (
-                <div style={{fontSize:12,color:'#f59e0b',background:'#fff8e6',borderRadius:8,padding:'7px 12px',marginBottom:12}}>No rider assigned yet</div>
-              )}
-              {riders.length === 0 ? (
-                <div style={{fontSize:12,color:'#9dafc8'}}>No active delivery riders found. Add riders in Staff Management.</div>
-              ) : (
-                <select defaultValue={order.assignedToId||''} onChange={e=>assignRider(e.target.value)} disabled={assigning}
-                  style={{width:'100%',border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 12px',fontSize:13,outline:'none',color:'#1a2332',background:'#f4f7fb',cursor:'pointer',opacity:assigning?0.6:1}}>
-                  <option value="">— Select a rider —</option>
-                  {riders.map((r:any) => <option key={r.id} value={r.id}>{r.name} · {r.role.replace('_',' ')}</option>)}
-                </select>
-              )}
-            </OrderShellCard>
-          )}
-
-          <OrderShellCard title="Order Facts" subtitle="Reference fields and service scheduling information from the live order record.">
-            {[
-              {l:'Order #', v:order.orderNumber},
-              {l:'Source',  v:order.source==='APP'?'App Pickup':order.source==='COUNTER'?'Walk-in':order.source || '—'},
-              {l:'Status',  v:statusLabel(order.status)},
-              {l:'Created', v:format(new Date(order.createdAt),'dd MMM yyyy')},
-              ...(order.pickupDate?[{l:'Pickup Date',v:format(new Date(order.pickupDate),'dd MMM yyyy')}]:[]),
-              ...(order.pickupSlot?[{l:'Pickup Slot',v:order.pickupSlot}]:[]),
-              ...(order.deliveryDate?[{l:'Delivery',v:format(new Date(order.deliveryDate),'dd MMM yyyy')}]:[]),
-            ].map(row=>(
-              <DetailRow key={row.l} label={row.l} value={<span style={{fontFamily:row.l==='Order #'?"var(--crm-font-mono)":"var(--crm-font-ui)"}}>{row.v}</span>} />
-            ))}
-          </OrderShellCard>
-
-          <OrderShellCard title="Print & Handover" subtitle="Generate the current print outputs used by the counter, plant, and tagging flows.">
-            <div style={{fontSize:11,color:'#6b7fa3',fontWeight:600,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:16,display:'flex',alignItems:'center',gap:6}}><Printer size={12} />Print</div>
-            <div style={{display:'grid',gap:10}}>
-              <Link href={`/dashboard/print?orderId=${order.id}&type=receipt`} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
-                <Receipt size={15} /> A4 Receipt
-              </Link>
-              <Link href={`/dashboard/print?orderId=${order.id}&type=thermal`} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
-                <ScrollText size={15} /> 80mm Thermal Receipt
-              </Link>
-              <Link href={`/dashboard/print?orderId=${order.id}&type=garment`} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
-                <Tag size={15} /> Garment Tags
-              </Link>
-              <Link href={`/dashboard/print?orderId=${order.id}&type=bag`} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:12,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
-                <ClipboardList size={15} /> Bag Tags
-              </Link>
-            </div>
-          </OrderShellCard>
-
-          {noItems && !['DELIVERED','CANCELLED'].includes(order.status) && (
-            <div style={{background:'#fff8e6',borderRadius:16,padding:18,border:'1px solid #f59e0b'}}>
-              <div style={{fontWeight:700,color:'#92400e',fontSize:13,marginBottom:10,display:'flex',alignItems:'center',gap:6}}><ClipboardList size={14} />Next Steps</div>
-              <div style={{fontSize:12,color:'#b45309',lineHeight:1.8}}>
-                <div>1. Pickup confirmed — status is "{statusLabel(order.status)}"</div>
-                <div>2. Use the panel to add garments</div>
-                <div>3. Processing statuses unlock automatically</div>
-                <div>4. Payment amount updates with items</div>
-              </div>
-            </div>
-          )}
-
         </div>
       </div>
-
       {statusModal.open && (() => {
         const meta = getCorrectionMeta(statusModal.kind)
         return (

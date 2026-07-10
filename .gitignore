@@ -54,3 +54,4 @@ hangers-crm/ds-compiled-styles.css
 # Local migration source data / backups contain customer and payment records.
 migration/fabklean/raw/
 migration/fabklean/local-backups/
+migration/fabklean/backups/
