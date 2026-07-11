@@ -107,6 +107,7 @@ const getOrderStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.orderStatuse
 const getOrderWorkflow = () => getMasterSetting(MASTER_SETTING_KEYS.orderWorkflow);
 const getPaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.paymentMethods);
 const getCorePaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.corePaymentMethods);
+const getDeliveryFailReasons = () => getMasterSetting(MASTER_SETTING_KEYS.deliveryFailReasons);
 const getReportTypes = () => getMasterSetting(MASTER_SETTING_KEYS.reportTypes);
 const getServiceCodes = () => getMasterSetting(MASTER_SETTING_KEYS.serviceCodes);
 const getRoleServiceAccess = () => getMasterSetting(MASTER_SETTING_KEYS.roleServiceAccess);
@@ -142,9 +143,10 @@ const syncMasterDataSettings = async () => {
     for (const [key, value] of Object.entries(BOOTSTRAP_MASTER_SETTINGS)) {
       const existing = await tx.setting.findUnique({ where: { key }, select: { id: true, value: true } });
       if (existing) {
-        if (key === MASTER_SETTING_KEYS.whatsappTemplates) {
-          const merged = mergeMissingKeys(value, parseJsonSetting(existing, key));
-          if (JSON.stringify(merged) !== JSON.stringify(parseJsonSetting(existing, key))) {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          const current = parseJsonSetting(existing, key);
+          const merged = mergeMissingKeys(value, current);
+          if (JSON.stringify(merged) !== JSON.stringify(current)) {
             await tx.setting.update({
               where: { key },
               data: {
@@ -171,6 +173,7 @@ module.exports = {
   MASTER_SETTING_KEYS,
   getCollectablePaymentMethods,
   getCorePaymentMethods,
+  getDeliveryFailReasons,
   getMasterSetting,
   getMasterMetadata,
   getOrderStatuses,

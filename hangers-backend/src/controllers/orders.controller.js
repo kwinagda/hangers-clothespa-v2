@@ -87,13 +87,6 @@ const getTransitionContext = (currentStatus, nextStatus, workflow) => {
   return { kind: 'forward' };
 };
 
-const PUSH_MESSAGES = {
-  PICKED_UP:          { title: 'Clothes Picked Up!',       body: 'Your order has been picked up. We\'re on our way to the plant.' },
-  READY_FOR_DELIVERY: { title: 'Ready for Delivery!',      body: 'Your order is cleaned and ready. Delivery will be scheduled soon.' },
-  OUT_FOR_DELIVERY:   { title: 'Out for Delivery!',        body: 'Your order is on its way. Expect delivery soon.' },
-  DELIVERED:          { title: 'Delivered!',               body: 'Your order has been delivered. Thank you for choosing Hangers!' },
-};
-
 const calculatePaymentState = (order, incomingAmount, writeOffAmount = 0) => {
   const requestedAmount = Number.parseFloat(incomingAmount);
   const writeOff = Math.max(0, Number.parseFloat(writeOffAmount) || 0);
@@ -250,7 +243,10 @@ const getOrderStats = async (req, res) => {
         where: ORDER_ONLY_WHERE,
         take:    8,
         orderBy: { createdAt: 'desc' },
-        include: { customer: { select: { name: true, phone: true } } },
+        include: {
+          customer: { select: { name: true, phone: true } },
+          payments: { select: { amount: true, status: true } },
+        },
       }),
     ]);
 
@@ -267,7 +263,7 @@ const getOrderStats = async (req, res) => {
       allTime: {
         revenue: totalCollections._sum.amount || 0,
       },
-      recentOrders,
+      recentOrders: recentOrders.map(withDerivedPaymentState),
     });
   } catch (err) {
     console.error('getOrderStats error:', err);
@@ -289,7 +285,7 @@ const getOrder = async (req, res) => {
       },
     });
     if (!order) return notFound(res, 'Order not found');
-    return success(res, { order });
+    return success(res, { order: withDerivedPaymentState(order) });
   } catch (err) {
     return error(res, 'Failed to fetch order');
   }
@@ -637,7 +633,7 @@ const updateOrderStatus = async (req, res) => {
       enqueueNotification(NOTIFY_JOB.ORDER_STATUS, { order: updated, status }).catch(() => {});
 
       // Push notification — fetch customer's token + prefs if not already included
-      const pushMsg = PUSH_MESSAGES[status];
+      const pushMsg = orderWorkflow.pushNotifications?.[status];
       if (pushMsg && updated.customer) {
         const customerWithPrefs = await prisma.customer.findUnique({
           where:  { id: updated.customer.id },

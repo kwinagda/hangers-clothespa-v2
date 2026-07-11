@@ -6,6 +6,7 @@ const { processReferralQualification } = require('../services/referral.service')
 const { success, created, badRequest, error, notFound } = require('../utils/response');
 const { recordPaymentSchema } = require('../validation/finance.schemas');
 const { normalizePaymentMethod } = require('../utils/payment-method');
+const { deriveOrderPaymentState, withDerivedPaymentState } = require('../utils/order-payment-state');
 const { getCorePaymentMethods } = require('../services/masterData.service');
 const { sendPaymentReceivedMessage } = require('../services/whatomate.service');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
@@ -185,18 +186,22 @@ const getDailySummary = async (req, res) => {
 const getReceivables = async (req, res) => {
   try {
     const orders = await prisma.order.findMany({
-      where:   { ...ORDER_ONLY_WHERE, paymentStatus: { in: ['UNPAID', 'PARTIAL'] }, status: { not: 'CANCELLED' } },
-      include: { customer: { select: { name: true, phone: true } } },
+      where:   { ...ORDER_ONLY_WHERE, status: { not: 'CANCELLED' } },
+      include: {
+        customer: { select: { name: true, phone: true } },
+        payments: { select: { amount: true, status: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
+    const receivableOrders = orders.filter((order) => deriveOrderPaymentState(order).balanceDue > 0);
 
-    const total = orders.reduce((s, o) => s + Math.max(0, o.totalAmount - o.paidAmount - (o.writeOffAmount || 0)), 0);
+    const total = receivableOrders.reduce((s, o) => s + deriveOrderPaymentState(o).balanceDue, 0);
 
     return success(res, {
       total,
-      orders: orders.map((o) => ({
-        ...o,
-        balance: Math.max(0, o.totalAmount - o.paidAmount - (o.writeOffAmount || 0)),
+      orders: receivableOrders.map((o) => ({
+        ...withDerivedPaymentState(o),
+        balance: deriveOrderPaymentState(o).balanceDue,
       })),
     });
   } catch (err) {

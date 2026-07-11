@@ -72,6 +72,12 @@ const ORDER_WORKFLOW = {
     failedTarget: 'READY_FOR_DELIVERY',
     deliveredTarget: 'DELIVERED',
   },
+  pushNotifications: {
+    PICKED_UP: { title: 'Clothes Picked Up!', body: 'Your order has been picked up. We are on our way to the plant.' },
+    READY_FOR_DELIVERY: { title: 'Ready for Delivery!', body: 'Your order is cleaned and ready. Delivery will be scheduled soon.' },
+    OUT_FOR_DELIVERY: { title: 'Out for Delivery!', body: 'Your order is on its way. Expect delivery soon.' },
+    DELIVERED: { title: 'Delivered!', body: 'Your order has been delivered. Thank you for choosing Hangers!' },
+  },
   liveStatuses: ['PENDING', 'PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT', 'IRONING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'RETURNED'],
   legacyStatuses: ['WASHING', 'DRYING', 'QC'],
   views: {

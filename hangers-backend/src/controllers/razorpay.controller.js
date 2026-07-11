@@ -11,19 +11,11 @@ const Razorpay = require('razorpay');
 const prisma  = require('../config/database');
 const { success, badRequest, error, unauthorized, notFound } = require('../utils/response');
 const { processReferralQualification } = require('../services/referral.service');
+const { deriveOrderPaymentState } = require('../utils/order-payment-state');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 const calculateBalanceDue = (order) =>
-  Math.max(
-    0,
-    Number(
-      (
-        Number(order?.totalAmount || 0) -
-        Number(order?.paidAmount || 0) -
-        Number(order?.writeOffAmount || 0)
-      ).toFixed(2)
-    )
-  );
+  deriveOrderPaymentState(order).balanceDue;
 
 // ── Razorpay instance ─────────────────────────────────────────────────────────
 const getRazorpay = () => {
@@ -49,19 +41,20 @@ const createRazorpayOrder = async (req, res) => {
     // Fetch the hangers order — must belong to this customer
     const order = await prisma.order.findFirst({
       where: { id: orderId, customerId, ...ORDER_ONLY_WHERE },
-      select: { id: true, orderNumber: true, totalAmount: true, paidAmount: true, writeOffAmount: true, paymentStatus: true },
+      include: { payments: { select: { amount: true, status: true } } },
     });
 
     if (!order)                        return notFound(res, 'Order not found');
-    if (order.paymentStatus === 'PAID') return badRequest(res, 'Order is already paid');
+    const paymentState = deriveOrderPaymentState(order);
+    if (paymentState.paymentStatus === 'PAID') return badRequest(res, 'Order is already paid');
     const balanceDue = calculateBalanceDue(order);
     if (balanceDue <= 0)               return badRequest(res, 'Order is already fully settled');
 
-    // Dev mode — skip Razorpay, return a fake order
+    // Dev mode: return a local simulator order only when Razorpay keys are not configured.
     if (isDevMode()) {
-      const fakeRzpOrderId = `order_DEV_${Date.now()}`;
+      const simulatedRzpOrderId = `order_DEV_${Date.now()}`;
       return success(res, {
-        razorpayOrderId: fakeRzpOrderId,
+        razorpayOrderId: simulatedRzpOrderId,
         amount:          Math.round(balanceDue * 100),
         currency:        'INR',
         key:             'rzp_test_DEV_MODE',
@@ -117,11 +110,12 @@ const verifyRazorpayPayment = async (req, res) => {
     // Verify the order belongs to this customer
     const order = await prisma.order.findFirst({
       where: { id: orderId, customerId, ...ORDER_ONLY_WHERE },
-      select: { id: true, orderNumber: true, totalAmount: true, paidAmount: true, writeOffAmount: true, paymentStatus: true },
+      include: { payments: { select: { amount: true, status: true } } },
     });
 
     if (!order)                        return notFound(res, 'Order not found');
-    if (order.paymentStatus === 'PAID') return badRequest(res, 'Order is already paid');
+    const paymentState = deriveOrderPaymentState(order);
+    if (paymentState.paymentStatus === 'PAID') return badRequest(res, 'Order is already paid');
     const balanceDue = calculateBalanceDue(order);
     if (balanceDue <= 0) return badRequest(res, 'Order is already fully settled');
 
@@ -173,7 +167,7 @@ const verifyRazorpayPayment = async (req, res) => {
         },
       });
 
-      const nextPaidAmount = Number((Number(order.paidAmount || 0) + appliedAmount).toFixed(2));
+      const nextPaidAmount = Number((paymentState.paidAmount + appliedAmount).toFixed(2));
       const effectivePaid = Number((nextPaidAmount + Number(order.writeOffAmount || 0)).toFixed(2));
       const paymentStatus = effectivePaid >= Number(order.totalAmount || 0) ? 'PAID' : effectivePaid > 0 ? 'PARTIAL' : 'UNPAID';
 
@@ -253,20 +247,21 @@ const getPaymentHistory = async (req, res) => {
     });
 
     const formatted = orders.flatMap((order) => {
+      const paymentState = deriveOrderPaymentState(order);
       const baseOrder = {
         id: order.id,
         orderNumber: order.orderNumber,
         status: order.status,
         totalAmount: order.totalAmount,
-        paymentStatus: order.paymentStatus,
-        paidAmount: order.paidAmount,
+        paymentStatus: paymentState.paymentStatus,
+        paidAmount: paymentState.paidAmount,
       };
 
       const paymentEntries = order.payments.map((payment) => ({
         id: payment.id,
         amount: payment.amount,
         method: payment.method,
-        status: ['PAID', 'PARTIAL', 'UNPAID'].includes(order.paymentStatus) ? order.paymentStatus : payment.status,
+        status: ['PAID', 'PARTIAL', 'UNPAID'].includes(paymentState.paymentStatus) ? paymentState.paymentStatus : payment.status,
         reference: payment.reference,
         createdAt: payment.createdAt,
         razorpayPaymentId: payment.razorpayPaymentId,
@@ -275,7 +270,7 @@ const getPaymentHistory = async (req, res) => {
 
       const walletAmount = order.walletTxns.reduce((sum, txn) => sum + (txn.amount || 0), 0);
       const paymentAmount = order.payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
-      const adjustmentAmount = Math.max(0, Number(((order.paidAmount || 0) - walletAmount - paymentAmount).toFixed(2)));
+      const adjustmentAmount = Math.max(0, Number((paymentState.paidAmount - walletAmount - paymentAmount).toFixed(2)));
       const supplementalEntries = [];
 
       if (walletAmount > 0) {
@@ -283,7 +278,7 @@ const getPaymentHistory = async (req, res) => {
           id: `wallet-${order.id}`,
           amount: walletAmount,
           method: 'WALLET',
-          status: order.paymentStatus,
+          status: paymentState.paymentStatus,
           reference: null,
           createdAt: order.walletTxns[0]?.createdAt || order.updatedAt || order.createdAt,
           razorpayPaymentId: null,
@@ -296,7 +291,7 @@ const getPaymentHistory = async (req, res) => {
           id: `adjustment-${order.id}`,
           amount: adjustmentAmount,
           method: 'ADJUSTMENT',
-          status: order.paymentStatus,
+          status: paymentState.paymentStatus,
           reference: null,
           createdAt: order.updatedAt || order.createdAt,
           razorpayPaymentId: null,
@@ -304,12 +299,12 @@ const getPaymentHistory = async (req, res) => {
         });
       }
 
-      if (!paymentEntries.length && !supplementalEntries.length && (order.paidAmount || 0) > 0) {
+      if (!paymentEntries.length && !supplementalEntries.length && paymentState.paidAmount > 0) {
         supplementalEntries.push({
           id: `settled-${order.id}`,
-          amount: order.paidAmount,
+          amount: paymentState.paidAmount,
           method: 'SETTLEMENT',
-          status: order.paymentStatus,
+          status: paymentState.paymentStatus,
           reference: null,
           createdAt: order.updatedAt || order.createdAt,
           razorpayPaymentId: null,

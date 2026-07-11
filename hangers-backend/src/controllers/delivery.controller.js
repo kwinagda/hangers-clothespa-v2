@@ -14,10 +14,10 @@ const prisma = require('../config/database');
 const { log, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error, notFound, forbidden } = require('../utils/response');
 const { generateOtp, hashOtp, sendDeliveryOtp } = require('../services/whatsapp-otp.service');
-const { sendStatusNotification } = require('../services/whatsapp-notifications.service');
 const { processReferralQualification } = require('../services/referral.service');
 const { DELIVERY_MANAGER_ROLES, DELIVERY_PIN_ROLES } = require('../config/master-data');
-const { getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
+const { getDeliveryFailReasons, getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
+const { deriveOrderPaymentState } = require('../utils/order-payment-state');
 const { AUTH_CHALLENGE_PURPOSE, createAuthChallenge, verifyAuthChallenge } = require('../services/authChallenge.service');
 const { enqueueNotification, NOTIFY_JOB } = require('../queues');
 
@@ -109,26 +109,29 @@ const getMyOrders = async (req, res) => {
       include: {
         customer: { select: { name: true, phone: true } },
         items: { select: { serviceName: true, quantity: true } },
-        payments: { select: { amount: true, method: true, createdAt: true } },
+        payments: { select: { amount: true, method: true, status: true, createdAt: true } },
       },
       orderBy: { updatedAt: 'asc' },
     });
 
     return success(res, {
-      orders: orders.map(o => ({
+      orders: orders.map(o => {
+        const paymentState = deriveOrderPaymentState(o);
+        return ({
         id: o.id, orderNumber: o.orderNumber, status: o.status,
         statusLabel:  statusLabels[o.status] || o.status,
         customer:     { name: o.customer?.name, phone: o.customer?.phone },
         pickupAddress: o.pickupAddress,
         totalAmount:  o.totalAmount,
-        paidAmount:   o.paidAmount,
-        paymentStatus: o.paymentStatus,
-        balanceDue:   Math.max(0, (o.totalAmount || 0) - (o.paidAmount || 0) - (o.writeOffAmount || 0)),
+        paidAmount:   paymentState.paidAmount,
+        paymentStatus: paymentState.paymentStatus,
+        balanceDue:   paymentState.balanceDue,
         items:        o.items,
         itemCount:    o.items.reduce((s, i) => s + i.quantity, 0),
         notes:        o.notes,
         updatedAt:    o.updatedAt,
-      })),
+      });
+      }),
       total: orders.length,
     });
   } catch (err) {
@@ -153,12 +156,15 @@ const getDeliveryOrder = async (req, res) => {
     if (!canAccessDeliveryOrder(order, req.staff, orderWorkflow)) {
       return forbidden(res, 'You can only access delivery orders assigned to you');
     }
+    const paymentState = deriveOrderPaymentState(order);
 
     return success(res, {
       order: {
         ...order,
+        paidAmount: paymentState.paidAmount,
+        paymentStatus: paymentState.paymentStatus,
         statusLabel: statusLabels[order.status] || order.status,
-        balanceDue: Math.max(0, (order.totalAmount || 0) - (order.paidAmount || 0) - (order.writeOffAmount || 0)),
+        balanceDue: paymentState.balanceDue,
         itemCount:  order.items.reduce((s, i) => s + i.quantity, 0),
       },
     });
@@ -173,7 +179,10 @@ const markPickedUp = async (req, res) => {
   const { bagCount, notes } = req.body;
 
   try {
-    const order = await prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
+    const order = await prisma.order.findFirst({
+      where: { id, ...ORDER_ONLY_WHERE },
+      include: { payments: { select: { amount: true, status: true } } },
+    });
     if (!order) return notFound(res, 'Order not found');
     const [orderWorkflow, orderStatuses] = await Promise.all([getOrderWorkflow(), getOrderStatuses()]);
     const statusLabels = statusLabelsFrom(orderStatuses);
@@ -291,18 +300,18 @@ const markDelivered = async (req, res) => {
 // ── Mark Failed Delivery ──────────────────────────────────────────────────────
 const markFailed = async (req, res) => {
   const { id } = req.params;
-  const { reason } = req.body;  // NOT_HOME | REFUSED | WRONG_ADDRESS | OTHER
-
-  const REASONS = ['NOT_HOME','REFUSED','WRONG_ADDRESS','CUSTOMER_CANCELLED','OTHER'];
-  if (!reason || !REASONS.includes(reason)) {
-    return badRequest(res, `Reason required. Options: ${REASONS.join(', ')}`);
-  }
+  const { reason } = req.body;
 
   try {
     const order = await prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
     if (!order) return notFound(res, 'Order not found');
-    const [orderWorkflow, orderStatuses] = await Promise.all([getOrderWorkflow(), getOrderStatuses()]);
+    const [orderWorkflow, orderStatuses, deliveryFailReasons] = await Promise.all([getOrderWorkflow(), getOrderStatuses(), getDeliveryFailReasons()]);
     const statusLabels = statusLabelsFrom(orderStatuses);
+    const reasonMap = Object.fromEntries(deliveryFailReasons.map((item) => [item.value, item.label]));
+    const reasonValues = Object.keys(reasonMap);
+    if (!reason || !reasonValues.includes(reason)) {
+      return badRequest(res, `Reason required. Options: ${reasonValues.join(', ')}`);
+    }
     const deliveryActions = orderWorkflow.deliveryActions || {};
     if (!(deliveryActions.deliverableFrom || []).includes(order.status)) {
       return badRequest(res, `Cannot mark delivery failed — order is currently: ${statusLabels[order.status] || order.status}`);
@@ -312,13 +321,7 @@ const markFailed = async (req, res) => {
     }
     if (!deliveryActions.failedTarget) return badRequest(res, 'Delivery failed target is not configured');
 
-    const reasonLabel = {
-      NOT_HOME: 'Customer not home',
-      REFUSED: 'Customer refused delivery',
-      WRONG_ADDRESS: 'Wrong address',
-      CUSTOMER_CANCELLED: 'Customer cancelled',
-      OTHER: 'Other reason',
-    }[reason];
+    const reasonLabel = reasonMap[reason];
 
     await prisma.$transaction([
       // Move back to READY_FOR_DELIVERY for re-attempt
@@ -364,7 +367,8 @@ const collectCash = async (req, res) => {
     }
 
     const amt = parseFloat(amount);
-    const balanceDue = Math.max(0, (order.totalAmount || 0) - (order.paidAmount || 0) - (order.writeOffAmount || 0));
+    const currentPaymentState = deriveOrderPaymentState(order);
+    const balanceDue = currentPaymentState.balanceDue;
     if (balanceDue <= 0) {
       return badRequest(res, 'This order has no balance due');
     }
@@ -382,15 +386,11 @@ const collectCash = async (req, res) => {
           collectedBy: req.staff.id,
         },
       });
-      const updated = await tx.order.update({
-        where:  { id },
-        data:   { paidAmount: { increment: amt } },
-        select: { paidAmount: true, totalAmount: true, writeOffAmount: true },
-      });
-      const paid = Number(updated.paidAmount);
-      const status = paid + Number(updated.writeOffAmount || 0) >= Number(updated.totalAmount || 0) ? 'PAID' : 'PARTIAL';
-      await tx.order.update({ where: { id }, data: { paymentStatus: status } });
-      return { newPaid: paid, newStatus: status };
+      const newPaid = Number((currentPaymentState.paidAmount + amt).toFixed(2));
+      const effectivePaid = newPaid + Number(order.writeOffAmount || 0);
+      const status = effectivePaid >= Number(order.totalAmount || 0) ? 'PAID' : 'PARTIAL';
+      await tx.order.update({ where: { id }, data: { paidAmount: newPaid, paymentStatus: status } });
+      return { newPaid, newStatus: status };
     });
 
     return success(res, {

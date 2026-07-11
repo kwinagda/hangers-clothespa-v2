@@ -9,6 +9,7 @@
 const prisma = require('../config/database');
 const { success, badRequest, error, notFound } = require('../utils/response');
 const { walletAdjustmentSchema, walletApplySchema } = require('../validation/finance.schemas');
+const { deriveOrderPaymentState } = require('../utils/order-payment-state');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // GET /api/v1/wallet/:customerId
@@ -144,7 +145,7 @@ const applyWalletToOrder = async (req, res) => {
         tx.customer.findUnique({ where: { id: customerId }, select: { walletBalance: true } }),
         tx.order.findFirst({
           where: { id: orderId, ...ORDER_ONLY_WHERE },
-          select: { id: true, customerId: true, totalAmount: true, paidAmount: true, writeOffAmount: true, paymentStatus: true },
+          include: { payments: { select: { amount: true, status: true } } },
         }),
       ]);
 
@@ -154,7 +155,8 @@ const applyWalletToOrder = async (req, res) => {
         throw Object.assign(new Error('WRONG_CUSTOMER'), { code: 'WRONG_CUSTOMER' });
       }
 
-      const balanceDue = Math.max(0, Number((Number(order.totalAmount) - Number(order.paidAmount) - Number(order.writeOffAmount || 0)).toFixed(2)));
+      const paymentState = deriveOrderPaymentState(order);
+      const balanceDue = paymentState.balanceDue;
       const applyAmount = Math.min(amount, Number(customer.walletBalance), balanceDue);
       if (applyAmount <= 0) throw Object.assign(new Error('NOTHING_TO_APPLY'), { code: 'NOTHING_TO_APPLY' });
 
@@ -173,7 +175,7 @@ const applyWalletToOrder = async (req, res) => {
         },
       });
 
-      const newPaid = Number(order.paidAmount) + applyAmount;
+      const newPaid = Number((paymentState.paidAmount + applyAmount).toFixed(2));
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {

@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const { badRequest, error } = require('../utils/response');
 const { reportQuerySchema } = require('../validation/reports.schemas');
 const { normalizePaymentMethod } = require('../utils/payment-method');
+const { deriveOrderPaymentState } = require('../utils/order-payment-state');
 const { getReportTypes } = require('../services/masterData.service');
 
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
@@ -23,8 +24,8 @@ const rowsFromAmountMap = (map) => [...map.entries()].sort((a, b) => b[1] - a[1]
 const rowsFromCountMap = (map) => [...map.entries()].sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value: Number(value || 0) }));
 const sum = (rows, key) => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
 const isReturnOrder = (order) => Boolean(order.isReturn || order.status === 'RETURNED' || /-RT(?:-|$)/i.test(String(order.orderNumber || '')));
-const paidValue = (order) => Number(order.paidAmount || 0) + Number(order.writeOffAmount || 0);
-const pendingValue = (order) => Math.max(0, Number(order.totalAmount || 0) - paidValue(order));
+const paidValue = (order) => deriveOrderPaymentState(order).paidAmount + Number(order.writeOffAmount || 0);
+const pendingValue = (order) => deriveOrderPaymentState(order).balanceDue;
 const itemGrossValue = (order) => order.items.reduce((total, current) => total + Number(current.subtotal || 0), 0);
 const lineDiscountValue = (order) => order.items.reduce((total, item) => total + Number(item.lineDiscountAmount || 0), 0);
 const explicitDiscountValue = (order) => Number(order.discount || 0) + Number(order.couponDiscount || 0) + lineDiscountValue(order);
@@ -43,6 +44,7 @@ const allocatedItemAmount = (order, item) => {
   if (!itemGross) return 0;
   return Number(order.totalAmount || 0) * (Number(item.subtotal || 0) / itemGross);
 };
+const paymentDateWhere = (dateFilter) => ({ ...dateFilter, status: { not: 'FAILED' } });
 
 const getOrders = (dateFilter, extra = {}) => prisma.order.findMany({
   where: { ...dateFilter, ...extra },
@@ -80,7 +82,7 @@ const getReport = async (req, res) => {
         const [orders, customers, payments] = await Promise.all([
           getOrders(dateFilter, ORDER_ONLY_WHERE),
           prisma.customer.findMany({ where: dateFilter }),
-          prisma.payment.findMany({ where: dateFilter }),
+          prisma.payment.findMany({ where: paymentDateWhere(dateFilter) }),
         ]);
         const billableOrders = orders.filter((order) => order.status !== 'CANCELLED' && !isReturnOrder(order));
         const revenue = sum(billableOrders, 'totalAmount');
@@ -174,7 +176,7 @@ const getReport = async (req, res) => {
           label: order.orderNumber,
           customer: order.customer?.name || order.customer?.phone || 'Walk-in',
           value: rupees(order.totalAmount),
-          paid: rupees(Number(order.paidAmount || 0) + Number(order.writeOffAmount || 0)),
+          paid: rupees(paidValue(order)),
           status: order.status,
           date: order.createdAt,
         }));
@@ -188,7 +190,7 @@ const getReport = async (req, res) => {
           const key = order.customer?.name || order.customer?.phone || 'Walk-in';
           const current = map.get(key) || { label: key, value: 0, orders: 0, paid: 0 };
           current.value += Number(order.totalAmount || 0);
-          current.paid += Number(order.paidAmount || 0) + Number(order.writeOffAmount || 0);
+          current.paid += paidValue(order);
           current.orders += 1;
           map.set(key, current);
         });
@@ -197,7 +199,7 @@ const getReport = async (req, res) => {
       }
       case 'payments': {
         const payments = await prisma.payment.findMany({
-          where: dateFilter,
+          where: paymentDateWhere(dateFilter),
           include: { order: { select: { orderNumber: true } }, collectedByStaff: { select: { name: true } } },
           orderBy: { createdAt: 'desc' },
         });
@@ -227,13 +229,16 @@ const getReport = async (req, res) => {
       case 'pending_payments': {
         const orders = await getOrders(dateFilter, FINANCE_ORDER_WHERE);
         const rows = orders
-          .map((order) => ({ label: order.orderNumber, customer: order.customer?.name || order.customer?.phone || 'Walk-in', value: rupees(pendingValue(order)), status: order.paymentStatus }))
+          .map((order) => {
+            const paymentState = deriveOrderPaymentState(order);
+            return { label: order.orderNumber, customer: order.customer?.name || order.customer?.phone || 'Walk-in', value: rupees(paymentState.balanceDue), status: paymentState.paymentStatus };
+          })
           .filter((row) => row.value > 0)
           .sort((a, b) => b.value - a.value);
         return res.json({ success: true, data: { rows, total: rupees(rows.reduce((total, row) => total + row.value, 0)), count: rows.length } });
       }
       case 'income': {
-        const [orders, payments] = await Promise.all([financeOrders(), prisma.payment.findMany({ where: dateFilter })]);
+        const [orders, payments] = await Promise.all([financeOrders(), prisma.payment.findMany({ where: paymentDateWhere(dateFilter) })]);
         const revenue = sum(orders, 'totalAmount');
         const collected = sum(payments, 'amount');
         const outstanding = orders.reduce((total, order) => total + pendingValue(order), 0);
@@ -272,7 +277,7 @@ const getReport = async (req, res) => {
         return res.json({ success: true, data: { total: rupees(sum(rows, 'amount')), rows: rowsFromAmountMap(byType), entries: rows } });
       }
       case 'staff_collection': {
-        const payments = await prisma.payment.findMany({ where: dateFilter, include: { collectedByStaff: { select: { name: true } } } });
+        const payments = await prisma.payment.findMany({ where: paymentDateWhere(dateFilter), include: { collectedByStaff: { select: { name: true } } } });
         const byStaff = new Map();
         payments.forEach((payment) => addAmount(byStaff, payment.collectedByStaff?.name || 'Unassigned', payment.amount));
         const rows = rowsFromAmountMap(byStaff);

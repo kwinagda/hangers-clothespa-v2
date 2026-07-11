@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const { success, notFound, error } = require('../utils/response');
+const { withDerivedPaymentState } = require('../utils/order-payment-state');
 
 const publicOrderSelect = {
   id: true,
@@ -39,6 +40,7 @@ const publicOrderSelect = {
     select: {
       amount: true,
       method: true,
+      status: true,
       createdAt: true,
     },
     orderBy: { createdAt: 'asc' },
@@ -256,15 +258,7 @@ const getPublicInvoice = async (req, res) => {
       return success(res, { invoice: normalizeIronBillInvoice(bill) });
     }
 
-    return success(res, {
-      invoice: {
-        ...order,
-        balanceDue: Math.max(
-          0,
-          Number(order.totalAmount || 0) - Number(order.paidAmount || 0) - Number(order.writeOffAmount || 0)
-        ),
-      },
-    });
+    return success(res, { invoice: withDerivedPaymentState(order) });
   } catch (err) {
     console.error('getPublicInvoice error:', err);
     return error(res, 'Failed to load invoice');
