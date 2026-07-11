@@ -150,6 +150,8 @@ function NewOrderPageContent() {
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [customerStats, setCustomerStats] = useState<CustomerStats | null>(null)
   const searchTimeout = useRef<any>(null)
+  const [dailyIronPrompt, setDailyIronPrompt] = useState<{ title: string; message: string; confirmLabel: string } | null>(null)
+  const dailyIronPromptResolver = useRef<((value: boolean) => void) | null>(null)
 
   // Catalog
   const [catalog, setCatalog] = useState<Record<string, Item[]>>({})
@@ -736,29 +738,56 @@ function NewOrderPageContent() {
   const totalDiscount  = manualDiscount + couponDiscount + loyaltyDiscount
   const total          = isPureDailyIron ? dailyIronEstimatedValue : Math.max(0, regularSubtotal - totalDiscount)
 
+  const askDailyIronEnable = (prompt: { title: string; message: string; confirmLabel: string }) =>
+    new Promise<boolean>((resolve) => {
+      dailyIronPromptResolver.current = resolve
+      setDailyIronPrompt(prompt)
+    })
+
+  const closeDailyIronPrompt = (accepted: boolean) => {
+    dailyIronPromptResolver.current?.(accepted)
+    dailyIronPromptResolver.current = null
+    setDailyIronPrompt(null)
+  }
+
   const ensureActiveIronSubscription = async () => {
     if (!customer) return null
 
     try {
-      const response = await ironAPI.getSubscription(customer.id)
+      const response = await ironAPI.getSubscription(customer.id).catch((e: any) => {
+        if (String(e?.message || '').toLowerCase().includes('subscription not found')) return { data: { subscription: null } }
+        throw e
+      })
       let subscription = response?.data?.subscription || null
 
       if (!subscription) {
-        const shouldEnroll = window.confirm('This customer is not enrolled in Daily Iron. Enroll now and continue logging?')
+        const shouldEnroll = await askDailyIronEnable({
+          title: 'Enable Daily Iron?',
+          message: `${customer.name || customer.phone} is not enrolled in Daily Iron. Enable it now and continue creating this Daily Iron log.`,
+          confirmLabel: 'Enable & Continue',
+        })
         if (!shouldEnroll) return null
         const created = await ironAPI.createSubscription({ customerId: customer.id, applicationStatus: 'ACTIVE' })
         subscription = created?.data?.subscription || null
       }
 
       if (subscription?.applicationStatus === 'PENDING_REVIEW') {
-        const shouldConfirm = window.confirm('This customer has a pending Daily Iron application. Confirm it and continue logging?')
+        const shouldConfirm = await askDailyIronEnable({
+          title: 'Confirm Daily Iron?',
+          message: `${customer.name || customer.phone} has a pending Daily Iron application. Confirm it and continue creating this log.`,
+          confirmLabel: 'Confirm & Continue',
+        })
         if (!shouldConfirm) return null
         const confirmed = await ironAPI.confirmSubscription(subscription.id)
         subscription = confirmed?.data?.subscription || subscription
       }
 
       if (subscription?.applicationStatus === 'PAUSED' || subscription?.applicationStatus === 'CANCELLED') {
-        const shouldReactivate = window.confirm(`This Daily Iron subscription is ${subscription.applicationStatus}. Reactivate it and continue logging?`)
+        const shouldReactivate = await askDailyIronEnable({
+          title: 'Reactivate Daily Iron?',
+          message: `This Daily Iron subscription is ${subscription.applicationStatus}. Reactivate it and continue creating this log.`,
+          confirmLabel: 'Reactivate & Continue',
+        })
         if (!shouldReactivate) return null
         const updated = await ironAPI.updateSubscriptionStatus(subscription.id, 'ACTIVE')
         subscription = updated?.data?.subscription || subscription
@@ -1026,6 +1055,31 @@ function NewOrderPageContent() {
     >
 
       {/* ── Customer Search Modal ──────────────────────────────────────────── */}
+      {dailyIronPrompt && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,28,60,0.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 120, backdropFilter: 'blur(4px)', padding: 18 }}>
+          <div style={{ background: '#fff', borderRadius: 18, padding: 26, width: '100%', maxWidth: 460, boxShadow: '0 28px 70px rgba(0,0,0,0.24)', border: '1px solid #dbe8f2' }}>
+            <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 900, fontSize: 21, color: '#023c62', marginBottom: 8 }}>{dailyIronPrompt.title}</div>
+            <p style={{ fontSize: 14, color: '#52657f', lineHeight: 1.6, margin: '0 0 22px' }}>{dailyIronPrompt.message}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => closeDailyIronPrompt(false)}
+                style={{ padding: '10px 16px', border: '1px solid #dbe8f2', background: '#fff', color: '#52657f', borderRadius: 10, fontWeight: 800, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => closeDailyIronPrompt(true)}
+                style={{ padding: '10px 16px', border: 'none', background: '#023c62', color: '#fff', borderRadius: 10, fontWeight: 900, cursor: 'pointer' }}
+              >
+                {dailyIronPrompt.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showCustomerModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,28,60,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 32, width: '100%', maxWidth: 520, boxShadow: '0 32px 80px rgba(0,0,0,0.25)' }}>
