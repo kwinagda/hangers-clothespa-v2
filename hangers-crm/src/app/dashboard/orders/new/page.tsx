@@ -786,17 +786,16 @@ function NewOrderPageContent() {
 
     setSubmitting(true)
     try {
-      await Promise.all(
-        dailyIronCart.map(item =>
-          ironAPI.createLog({
-            customerId: customer.id,
-            serviceId: item.serviceId,
-            date: dailyIronDate,
-            pieces: item.quantity,
-            notes: notes || undefined,
-          })
-        )
-      )
+      await ironAPI.createLogsBatch({
+        customerId: customer.id,
+        date: dailyIronDate,
+        notes: notes || undefined,
+        items: dailyIronCart.map(item => ({
+          serviceId: item.serviceId,
+          pieces: item.quantity,
+          notes: item.notes || undefined,
+        })),
+      })
       toast.success(`${cart.length} Daily Iron log${cart.length === 1 ? '' : 's'} created`)
       clearDraft()
       setCart([])
@@ -891,17 +890,16 @@ function NewOrderPageContent() {
 
       if (hasDailyIronItems) {
         try {
-          await Promise.all(
-            dailyIronCart.map(item =>
-              ironAPI.createLog({
-                customerId: customer.id,
-                serviceId: item.serviceId,
-                date: dailyIronDate,
-                pieces: item.quantity,
-                notes: notes || undefined,
-              })
-            )
-          )
+          await ironAPI.createLogsBatch({
+            customerId: customer.id,
+            date: dailyIronDate,
+            notes: notes || undefined,
+            items: dailyIronCart.map(item => ({
+              serviceId: item.serviceId,
+              pieces: item.quantity,
+              notes: item.notes || undefined,
+            })),
+          })
         } catch (e: any) {
           toast.error(`Order ${createdOrder?.orderNumber || ''} created, but Daily Iron logs failed. Please retry from the customer Daily Iron tab.`.trim())
           router.push('/dashboard/orders')

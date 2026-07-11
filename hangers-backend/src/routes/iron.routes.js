@@ -16,6 +16,7 @@ const {
   getLogs,
   getLogsByPeriod,
   createLog,
+  createLogsBatch,
   deleteLog,
   generateBill,
   listBillsForCustomer,
@@ -46,6 +47,7 @@ router.get('/logs', staffAuth, crmAccess, ironStaffRoles, listAllLogs);
 router.get('/logs/:customerId/period', staffAuth, crmAccess, ironStaffRoles, getLogsByPeriod);
 router.get('/logs/:customerId', staffAuth, crmAccess, ironStaffRoles, getLogs);
 router.post('/logs', staffAuth, crmAccess, ironStaffRoles, createLog);
+router.post('/logs/batch', staffAuth, crmAccess, ironStaffRoles, createLogsBatch);
 router.delete('/logs/:id', staffAuth, crmAccess, requireRole('SUPER_ADMIN', 'MANAGER'), deleteLog);
 
 router.post('/bills/generate', staffAuth, crmAccess, ironStaffRoles, generateBill);

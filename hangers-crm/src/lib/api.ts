@@ -109,6 +109,7 @@ export const ironAPI = {
   getLogsByPeriod: (customerId: string, start: string, end: string) =>
     api.get(`/iron/logs/${customerId}/period`, { params: { start, end } }) as any,
   createLog: (data: any) => api.post('/iron/logs', data) as any,
+  createLogsBatch: (data: any) => api.post('/iron/logs/batch', data) as any,
   deleteLog: (id: string) => api.delete(`/iron/logs/${id}`) as any,
   generateBill: (data: any) => api.post('/iron/bills/generate', data) as any,
   getBills: (customerId: string) => api.get(`/iron/bills/customer/${customerId}`) as any,

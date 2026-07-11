@@ -599,6 +599,128 @@ const createLog = async (req, res) => {
   }
 };
 
+const createLogsBatch = async (req, res) => {
+  const { customerId, date, notes, items } = req.body;
+  const logDate = toDate(date) || new Date();
+  const inputItems = Array.isArray(items) ? items : [];
+
+  if (!customerId) return badRequest(res, 'customerId is required');
+  if (!inputItems.length) return badRequest(res, 'At least one Daily Iron item is required');
+
+  const normalizedItems = inputItems.map((item) => ({
+    serviceId: String(item?.serviceId || '').trim(),
+    pieces: Number(item?.pieces),
+    notes: item?.notes || notes || null,
+  }));
+
+  if (normalizedItems.some((item) => !item.serviceId)) return badRequest(res, 'serviceId is required for every item');
+  if (normalizedItems.some((item) => !Number.isInteger(item.pieces) || item.pieces <= 0)) {
+    return badRequest(res, 'pieces must be a positive integer for every item');
+  }
+
+  try {
+    const subscription = await prisma.ironSubscription.findUnique({
+      where: { customerId },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            preferredLanguage: true,
+            notifWhatsApp: true,
+          },
+        },
+      },
+    });
+
+    if (!subscription) return notFound(res, 'Iron subscription not found');
+    if (!ACTIVE_IRON_SUB_STATUSES.includes(subscription.applicationStatus)) {
+      return badRequest(res, `Subscription is ${subscription.applicationStatus} and cannot accept new logs`);
+    }
+
+    const serviceIds = [...new Set(normalizedItems.map((item) => item.serviceId))];
+    const services = await prisma.service.findMany({
+      where: { id: { in: serviceIds } },
+      select: { id: true, name: true, category: true, basePrice: true, isActive: true },
+    });
+    const serviceById = new Map(services.map((service) => [service.id, service]));
+
+    const invalid = normalizedItems.find((item) => {
+      const service = serviceById.get(item.serviceId);
+      return !service || service.category !== 'DAILY_IRON' || !service.isActive;
+    });
+    if (invalid) return badRequest(res, 'Every item must be an active DAILY_IRON service');
+
+    const createdLogs = await prisma.$transaction(async (tx) => {
+      const rows = [];
+      for (const item of normalizedItems) {
+        const service = serviceById.get(item.serviceId);
+        const ratePerPiece = Number(service.basePrice || 0);
+        rows.push(await tx.ironLog.create({
+          data: {
+            subscriptionId: subscription.id,
+            customerId,
+            serviceId: item.serviceId,
+            serviceName: service.name,
+            date: logDate,
+            pieces: item.pieces,
+            ratePerPiece,
+            amount: Number((item.pieces * ratePerPiece).toFixed(2)),
+            notes: item.notes,
+            loggedById: req.staff.id,
+          },
+          include: {
+            service: { select: { id: true, name: true, category: true } },
+            loggedBy: { select: { id: true, name: true } },
+          },
+        }));
+      }
+      return rows;
+    });
+
+    const runningTotals = await getMonthlyRunningTotals(customerId, logDate);
+    let whatsappSent = false;
+
+    if (subscription.customer?.notifWhatsApp !== false) {
+      const itemSummary = createdLogs
+        .map((log) => `${log.serviceName} x${log.pieces}`)
+        .join(', ');
+      const totalPieces = createdLogs.reduce((sum, log) => sum + Number(log.pieces || 0), 0);
+
+      whatsappSent = await sendDailyIronLogMessage({
+        customer: {
+          ...subscription.customer,
+          preferredLanguage: normalizeLanguage(subscription.customer.preferredLanguage),
+        },
+        subscription,
+        log: {
+          date: logDate,
+          pieces: totalPieces,
+          serviceName: itemSummary,
+          dateLabel: formatLogDate(logDate),
+        },
+        monthToDate: runningTotals,
+      });
+    }
+
+    if (whatsappSent) {
+      await prisma.ironLog.updateMany({
+        where: { id: { in: createdLogs.map((log) => log.id) } },
+        data: { whatsappSent: true },
+      });
+    }
+
+    return created(res, {
+      logs: createdLogs.map((log) => ({ ...log, whatsappSent })),
+      monthToDate: runningTotals,
+    }, 'Iron logs created');
+  } catch (err) {
+    console.error('createLogsBatch error:', err);
+    return error(res, 'Failed to create iron logs');
+  }
+};
+
 const deleteLog = async (req, res) => {
   try {
     const logEntry = await prisma.ironLog.findUnique({ where: { id: req.params.id } });
@@ -1071,6 +1193,7 @@ module.exports = {
   getLogs,
   getLogsByPeriod,
   createLog,
+  createLogsBatch,
   deleteLog,
   generateBill,
   listBillsForCustomer,
