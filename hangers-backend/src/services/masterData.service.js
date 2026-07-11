@@ -127,11 +127,35 @@ const getCollectablePaymentMethods = async () => {
   return paymentMethods.filter((method) => corePaymentMethods.includes(method.value));
 };
 
+const mergeMissingKeys = (base, current) => {
+  if (Array.isArray(base) || Array.isArray(current)) return current === undefined ? base : current;
+  if (!base || typeof base !== 'object') return current === undefined ? base : current;
+  const output = { ...(current && typeof current === 'object' ? current : {}) };
+  for (const [key, value] of Object.entries(base)) {
+    output[key] = mergeMissingKeys(value, output[key]);
+  }
+  return output;
+};
+
 const syncMasterDataSettings = async () => {
   await prisma.$transaction(async (tx) => {
     for (const [key, value] of Object.entries(BOOTSTRAP_MASTER_SETTINGS)) {
-      const existing = await tx.setting.findUnique({ where: { key }, select: { id: true } });
-      if (existing) continue;
+      const existing = await tx.setting.findUnique({ where: { key }, select: { id: true, value: true } });
+      if (existing) {
+        if (key === MASTER_SETTING_KEYS.whatsappTemplates) {
+          const merged = mergeMissingKeys(value, parseJsonSetting(existing, key));
+          if (JSON.stringify(merged) !== JSON.stringify(parseJsonSetting(existing, key))) {
+            await tx.setting.update({
+              where: { key },
+              data: {
+                value: JSON.stringify(merged),
+                updatedBy: 'system-bootstrap',
+              },
+            });
+          }
+        }
+        continue;
+      }
       await tx.setting.create({
         data: {
           key,

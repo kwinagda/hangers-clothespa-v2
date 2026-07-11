@@ -449,6 +449,21 @@ const WHATSAPP_TEMPLATES = {
     templateName: 'hangers_crm_payment_received',
     params: ['customerName', 'paymentAmount', 'orderNumber', 'paymentMethod', 'balanceDue'],
   },
+  dailyIron: {
+    logButtonIndex: '0',
+    logUpdated: {
+      templateName: 'hangers_daily_iron_log_updated',
+      params: ['customerName', 'logDate', 'logPieces', 'logServiceName', 'monthToDatePieces', 'monthToDateAmount'],
+    },
+    monthlyBill: {
+      templateName: 'hangers_daily_iron_monthly_bill',
+      params: ['customerName', 'billMonth', 'billPieces', 'billAmount', 'balanceDue'],
+    },
+    paymentReceived: {
+      templateName: 'hangers_daily_iron_payment_received',
+      params: ['customerName', 'paymentAmount', 'paymentMethod', 'balanceDue'],
+    },
+  },
 };
 
 module.exports = {

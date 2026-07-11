@@ -838,6 +838,10 @@ function NewOrderPageContent() {
   const handleConfirmOrder = async () => {
     if (!customer) { toast.error('Select a customer first'); return }
     if (!cart.length) { toast.error('Add at least one item'); return }
+    if (hasRegularItems && hasDailyIronItems) {
+      toast.error('Daily Iron must be logged separately from regular orders')
+      return
+    }
     if (!hasRegularItems) {
       await handleConfirmDailyIron()
       return

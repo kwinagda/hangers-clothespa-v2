@@ -28,6 +28,13 @@ const formatDate = (value) => {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
 };
 
+const formatMonth = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+};
+
 const orderBalance = (order) => {
   const total = Number(order?.totalAmount || 0);
   const paid = Number(order?.paidAmount || 0);
@@ -40,8 +47,18 @@ const invoiceSlugFor = (order, config) => {
   return String(order?.[field] || order?.orderNumber || order?.id || '').trim();
 };
 
-const resolveParam = ({ name, order, payment }) => {
+const ironBalance = (bill) => {
+  const total = Number(bill?.totalAmount || 0);
+  const paid = Number(bill?.paidAmount || 0);
+  return Math.max(0, Number((total - paid).toFixed(2)));
+};
+
+const resolveParam = ({ name, order, payment, iron }) => {
   const customer = order?.customer || {};
+  const ironCustomer = iron?.customer || {};
+  const log = iron?.log || {};
+  const bill = iron?.bill || {};
+  const monthToDate = iron?.monthToDate || {};
   const values = {
     customerName: customer.name || 'Customer',
     orderNumber: order?.orderNumber || '',
@@ -50,7 +67,19 @@ const resolveParam = ({ name, order, payment }) => {
     balanceDue: formatAmount(orderBalance(order)),
     paymentAmount: formatAmount(payment?.amount),
     paymentMethod: payment?.method || '',
+    ironCustomerName: ironCustomer.name || 'Customer',
+    logDate: formatDate(log?.date),
+    logPieces: String(log?.pieces || 0),
+    logServiceName: log?.serviceName || 'Daily Iron',
+    monthToDatePieces: String(monthToDate?.pieces || 0),
+    monthToDateAmount: formatAmount(monthToDate?.amount),
+    billMonth: formatMonth(bill?.billingPeriodStart || bill?.billingPeriodEnd),
+    billPieces: String(bill?.totalPieces || 0),
+    billAmount: formatAmount(bill?.totalAmount),
+    ironBalanceDue: formatAmount(ironBalance(bill)),
   };
+  if (name === 'customerName' && ironCustomer.name) return ironCustomer.name;
+  if (name === 'balanceDue' && iron?.bill) return values.ironBalanceDue;
   return values[name] ?? '';
 };
 
@@ -135,8 +164,73 @@ const sendPaymentReceivedMessage = async (order, amount, method) => {
   return sent;
 };
 
+const dailyIronLogSlugFor = (iron) => String(iron?.subscription?.id || iron?.subscriptionId || '').trim();
+
+const sendDailyIronTemplate = async ({ customer, subscription, template, templateConfig, context, payment }) => {
+  const phone = customer?.phone;
+  if (!phone || !template?.templateName) return false;
+
+  const buttonIndex = templateConfig?.dailyIron?.logButtonIndex || '0';
+  const sent = await postTemplate({
+    phone,
+    templateName: template.templateName,
+    templateParams: buildTemplateParams(template.params, {
+      iron: {
+        ...context,
+        customer,
+        subscription,
+      },
+      payment,
+    }),
+    buttonParams: { [buttonIndex]: dailyIronLogSlugFor({ subscription }) },
+    accountName: templateConfig.accountName,
+  });
+
+  if (sent) console.log(`[Whatomate] Daily Iron template ${template.templateName} sent to ${phone}`);
+  return sent;
+};
+
+const sendDailyIronLogMessage = async ({ customer, subscription, log, monthToDate }) => {
+  const config = await getWhatsAppTemplates();
+  return sendDailyIronTemplate({
+    customer,
+    subscription,
+    template: config?.dailyIron?.logUpdated,
+    templateConfig: config,
+    context: { log, monthToDate },
+  });
+};
+
+const sendDailyIronBillMessage = async ({ customer, subscription, bill }) => {
+  const config = await getWhatsAppTemplates();
+  return sendDailyIronTemplate({
+    customer,
+    subscription,
+    template: config?.dailyIron?.monthlyBill,
+    templateConfig: config,
+    context: { bill },
+  });
+};
+
+const sendDailyIronPaymentMessage = async ({ customer, subscription, bill, amount, method }) => {
+  const config = await getWhatsAppTemplates();
+  return sendDailyIronTemplate({
+    customer,
+    subscription,
+    template: config?.dailyIron?.paymentReceived,
+    templateConfig: config,
+    context: {
+      bill,
+    },
+    payment: { amount, method },
+  });
+};
+
 module.exports = {
   sendOrderStatusMessage,
   sendPaymentReceivedMessage,
+  sendDailyIronLogMessage,
+  sendDailyIronBillMessage,
+  sendDailyIronPaymentMessage,
   postTemplate,
 };

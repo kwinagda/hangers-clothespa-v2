@@ -1,10 +1,10 @@
 const prisma = require('../config/database');
 const { success, created, error, badRequest, notFound, forbidden } = require('../utils/response');
 const {
-  sendIronLogNotification,
-  sendIronBillNotification,
-} = require('../services/whatsapp-notifications.service');
-const { sendPaymentReceivedMessage } = require('../services/whatomate.service');
+  sendDailyIronLogMessage,
+  sendDailyIronBillMessage,
+  sendDailyIronPaymentMessage,
+} = require('../services/whatomate.service');
 const {
   ACTIVE_IRON_SUB_STATUSES,
   DEFAULT_LANGUAGE,
@@ -565,11 +565,12 @@ const createLog = async (req, res) => {
     let whatsappSent = false;
 
     if (logEntry.customer?.notifWhatsApp !== false) {
-      whatsappSent = await sendIronLogNotification({
+      whatsappSent = await sendDailyIronLogMessage({
         customer: {
           ...logEntry.customer,
           preferredLanguage: normalizeLanguage(logEntry.customer.preferredLanguage),
         },
+        subscription,
         log: {
           ...logEntry,
           dateLabel: formatLogDate(logDate),
@@ -808,11 +809,12 @@ const sendBill = async (req, res) => {
     if (!bill.totalAmount || bill.totalAmount <= 0) return badRequest(res, 'Cannot send a zero-value bill');
 
     const whatsappSent = bill.customer?.notifWhatsApp !== false
-      ? await sendIronBillNotification({
+      ? await sendDailyIronBillMessage({
           customer: {
             ...bill.customer,
             preferredLanguage: normalizeLanguage(bill.customer.preferredLanguage),
           },
+          subscription: { id: bill.subscriptionId },
           bill: {
             ...bill,
             monthLabel: monthLabel(bill.billingPeriodEnd),
@@ -892,15 +894,13 @@ const recordBillPayment = async (req, res) => {
       },
     });
 
-    sendPaymentReceivedMessage({
-      id: updated.id,
-      orderNumber: updated.billNumber,
-      totalAmount: updated.totalAmount,
-      paidAmount: updated.paidAmount,
-      writeOffAmount: 0,
-      deliveryDate: updated.billingPeriodEnd,
+    sendDailyIronPaymentMessage({
       customer: updated.customer,
-    }, appliedAmount, normalizedMethod).catch((err) => {
+      subscription: { id: updated.subscriptionId },
+      bill: updated,
+      amount: appliedAmount,
+      method: normalizedMethod,
+    }).catch((err) => {
       console.error('[Whatomate] Iron bill payment notification failed:', err?.message || err);
     });
 
