@@ -18,6 +18,7 @@ const { enqueueNotification, NOTIFY_JOB }          = require('../queues');
 const { creditWallet }                             = require('../services/wallet.service');
 const { buildOrderSearchOr }                       = require('../utils/order-search');
 const { normalizePaymentMethod }                   = require('../utils/payment-method');
+const { withDerivedPaymentState }                  = require('../utils/order-payment-state');
 const { getCorePaymentMethods, getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
 
 const STATUS_CORRECTION_ROLES = ['SUPER_ADMIN', 'MANAGER'];
@@ -132,6 +133,7 @@ const listOrders = async (req, res) => {
       search,
       dateFrom,
       dateTo,
+      customerId,
     } = req.query;
 
     const orderWorkflow = await getOrderWorkflow();
@@ -140,6 +142,9 @@ const listOrders = async (req, res) => {
     if (!parsedPage) return badRequest(res, 'page must be a positive integer');
     if (!parsedLimit || parsedLimit > 100) return badRequest(res, 'limit must be an integer between 1 and 100');
     const where = { ...ORDER_ONLY_WHERE };
+    if (customerId) {
+      where.customerId = String(customerId);
+    }
     if (view && view !== 'all') {
       const statuses = getOrderViewStatuses(orderWorkflow, view);
       if (!statuses) return badRequest(res, 'Invalid order view');
@@ -183,6 +188,7 @@ const listOrders = async (req, res) => {
         include: {
           customer:   { select: { id: true, name: true, phone: true } },
           items:      { include: { service: { select: { name: true, category: true } } } },
+          payments:   { select: { amount: true, status: true } },
           assignedTo: { select: { id: true, name: true, role: true } },
         },
         orderBy:  { createdAt: 'desc' },
@@ -193,7 +199,7 @@ const listOrders = async (req, res) => {
     ]);
 
     return success(res, {
-      orders,
+      orders: orders.map(withDerivedPaymentState),
       pagination: {
         total,
         page:     parsedPage,

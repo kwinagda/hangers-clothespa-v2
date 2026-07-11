@@ -6,6 +6,7 @@ const prisma                                   = require('../config/database');
 const { success, error, notFound, badRequest } = require('../utils/response');
 const { ADDRESS_LABELS, CUSTOMER_TAGS, DEFAULT_LANGUAGE, LANGUAGE_VALUES } = require('../config/master-data');
 const { getReferralProgramSettings, REFERRAL_STATUS } = require('../services/referral.service');
+const { deriveOrderPaymentState, withDerivedPaymentState } = require('../utils/order-payment-state');
 
 const VALID_ADDRESS_LABELS = new Set(ADDRESS_LABELS.map((label) => label.value));
 const VALID_CUSTOMER_TAGS = new Set(CUSTOMER_TAGS.map((tag) => tag.value));
@@ -130,7 +131,10 @@ const getCustomer = async (req, res) => {
           where: ORDER_ONLY_WHERE,
           orderBy: { createdAt: 'desc' },
           take:    20,
-          include: { items: true },
+          include: {
+            items: true,
+            payments: { select: { amount: true, status: true } },
+          },
         },
         _count: { select: { orders: { where: ORDER_ONLY_WHERE } } },
       },
@@ -208,7 +212,10 @@ const getCustomer = async (req, res) => {
     };
 
     return success(res, {
-      customer,
+      customer: {
+        ...customer,
+        orders: customer.orders.map(withDerivedPaymentState),
+      },
       lifetimeValue: ltv._sum.totalAmount || 0,
       referralSummary,
       notificationSummary,
@@ -431,7 +438,9 @@ const getCustomerStats = async (req, res) => {
     const [orders, payments] = await Promise.all([
       prisma.order.findMany({
         where: { customerId: id, ...ORDER_ONLY_WHERE },
-        select: { id: true, totalAmount: true, paidAmount: true, writeOffAmount: true, status: true, createdAt: true, paymentStatus: true }
+        include: {
+          payments: { select: { amount: true, status: true } },
+        },
       }),
       prisma.payment.findMany({
         where: { customerId: id },
@@ -444,8 +453,8 @@ const getCustomerStats = async (req, res) => {
     const avgOrderValue  = totalOrders > 0 ? totalSpend / totalOrders : 0;
     const lastOrder      = orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
     const outstanding    = orders
-      .filter(o => o.paymentStatus === 'UNPAID' || o.paymentStatus === 'PARTIAL')
-      .reduce((s, o) => s + Math.max(0, (o.totalAmount - (o.paidAmount || 0) - (o.writeOffAmount || 0)) || 0), 0);
+      .map(deriveOrderPaymentState)
+      .reduce((s, paymentState) => s + paymentState.balanceDue, 0);
     const completedOrders = orders.filter(o => o.status === 'DELIVERED').length;
 
     const customer = await prisma.customer.findUnique({
