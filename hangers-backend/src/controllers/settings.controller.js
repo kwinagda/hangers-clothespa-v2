@@ -3,6 +3,12 @@ const prisma = require('../config/database');
 const { updateSettingsSchema } = require('../validation/settings.schemas');
 const { log, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error } = require('../utils/response');
+const {
+  PRINT_LAYOUT_SETTING_KEY,
+  PAYMENT_QR_SETTING_KEY,
+  DEFAULT_PRINT_LAYOUT_SETTINGS,
+  DEFAULT_PAYMENT_QR_SETTINGS,
+} = require('../config/print-settings');
 
 const ALLOWED_SETTING_KEYS = new Set([
   'writeoff_max_amount',
@@ -13,14 +19,54 @@ const ALLOWED_SETTING_KEYS = new Set([
   'referral_reward_cap',
   'referral_min_order_amount',
   'referral_program_enabled',
+  PRINT_LAYOUT_SETTING_KEY,
+  PAYMENT_QR_SETTING_KEY,
 ]);
+
+const parseSettingValue = (setting) => {
+  if (!setting) return setting;
+  if (setting.key === PRINT_LAYOUT_SETTING_KEY) {
+    try {
+      return JSON.parse(setting.value);
+    } catch {
+      return DEFAULT_PRINT_LAYOUT_SETTINGS;
+    }
+  }
+  if (setting.key === PAYMENT_QR_SETTING_KEY) {
+    try {
+      return JSON.parse(setting.value);
+    } catch {
+      return DEFAULT_PAYMENT_QR_SETTINGS;
+    }
+  }
+  return setting.value;
+};
+
+const serialiseSettingValue = (key, value) => {
+  if (key === PRINT_LAYOUT_SETTING_KEY || key === PAYMENT_QR_SETTING_KEY) return JSON.stringify(value);
+  if (typeof value === 'boolean') return String(value);
+  return String(Number(value));
+};
+
+const ensureJsonSetting = async (key, value) => {
+  const existing = await prisma.setting.findUnique({ where: { key } });
+  if (existing) return existing;
+  return prisma.setting.create({
+    data: {
+      key,
+      value: JSON.stringify(value),
+    },
+  });
+};
 
 // GET /api/v1/settings — get all settings
 const getSettings = async (req, res) => {
   try {
+    await ensureJsonSetting(PRINT_LAYOUT_SETTING_KEY, DEFAULT_PRINT_LAYOUT_SETTINGS);
+    await ensureJsonSetting(PAYMENT_QR_SETTING_KEY, DEFAULT_PAYMENT_QR_SETTINGS);
     const settings = await prisma.setting.findMany({ orderBy: { key: 'asc' } });
     const map = {};
-    settings.forEach(s => { map[s.key] = s.value; });
+    settings.forEach(s => { map[s.key] = parseSettingValue(s); });
     return success(res, { settings, map });
   } catch (e) {
     return error(res, 'Failed to fetch settings');
@@ -38,8 +84,8 @@ const updateSettings = async (req, res) => {
       entries.map(([key, value]) =>
         prisma.setting.upsert({
           where:  { key },
-          update: { value: typeof value === 'boolean' ? String(value) : String(Number(value)), updatedBy: req.staff?.id || null },
-          create: { key, value: typeof value === 'boolean' ? String(value) : String(Number(value)), updatedBy: req.staff?.id || null },
+          update: { value: serialiseSettingValue(key, value), updatedBy: req.staff?.id || null },
+          create: { key, value: serialiseSettingValue(key, value), updatedBy: req.staff?.id || null },
         })
       )
     );

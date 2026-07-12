@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { PRINT_LAYOUT_SETTING_KEY, PAYMENT_QR_SETTING_KEY } = require('../config/print-settings');
 
 const numericSettingKeys = [
   'writeoff_max_amount',
@@ -22,6 +23,15 @@ schemaShape.referral_program_enabled = z.union([
     throw new Error('referral_program_enabled must be boolean');
   }),
 ]).optional();
+
+schemaShape[PRINT_LAYOUT_SETTING_KEY] = z.record(z.any()).optional();
+schemaShape[PAYMENT_QR_SETTING_KEY] = z.object({
+  enabled: z.boolean().optional(),
+  provider: z.string().trim().optional(),
+  vpa: z.string().trim().optional(),
+  payeeName: z.string().trim().optional(),
+  currency: z.string().trim().optional(),
+}).strict().optional();
 
 const updateSettingsSchema = z.object(schemaShape).strict().refine(
   (value) => Object.keys(value).length > 0,
