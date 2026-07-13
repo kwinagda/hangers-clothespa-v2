@@ -52,13 +52,13 @@ type ReportRow = { label: string; value: number; [key: string]: any }
 
 const REPORT_META: Record<string, { icon: any; group: string; description: string; currency?: boolean; hours?: boolean }> = {
   overview: { icon: BarChart3, group: 'DASHBOARDS', description: 'Orders, revenue, collections, customers, and payments in one view.' },
-  sales: { icon: TrendingUp, group: 'SALES', description: 'Revenue, paid amount, and outstanding balance.' },
+  sales: { icon: TrendingUp, group: 'SALES', description: 'Revenue, collections, write-offs, and outstanding balance.' },
   orders: { icon: BarChart3, group: 'DASHBOARDS', description: 'Order count and workflow status split.' },
   sales_by_item: { icon: Shirt, group: 'SALES', description: 'Garment and item quantity movement.' },
   sales_by_service: { icon: TrendingUp, group: 'SALES', description: 'Revenue split by service name.', currency: true },
   sales_by_date: { icon: CalendarDays, group: 'SALES', description: 'Daily sales total for the selected period.', currency: true },
-  sales_by_order: { icon: Receipt, group: 'SALES', description: 'Order-wise billed value and paid amount.', currency: true },
-  sales_by_customer: { icon: Users, group: 'SALES', description: 'Customer-wise billed value and order count.', currency: true },
+  sales_by_order: { icon: Receipt, group: 'SALES', description: 'Order-wise billed value, collections, and write-offs.', currency: true },
+  sales_by_customer: { icon: Users, group: 'SALES', description: 'Customer-wise billed value, collections, write-offs, and order count.', currency: true },
   customers: { icon: Users, group: 'CUSTOMERS', description: 'New customers and customer tag movement.' },
   payments: { icon: Banknote, group: 'FINANCE', description: 'Collection amount and payment mode split.' },
   pending_payments: { icon: Receipt, group: 'FINANCE', description: 'Orders with unpaid balances.', currency: true },
@@ -68,7 +68,7 @@ const REPORT_META: Record<string, { icon: any; group: string; description: strin
   cash_ups: { icon: Banknote, group: 'FINANCE', description: 'Cash book entries grouped by type.', currency: true },
   staff_collection: { icon: UserCog, group: 'FINANCE', description: 'Collections grouped by staff.', currency: true },
   expenses: { icon: Receipt, group: 'FINANCE', description: 'Expense total and category split.' },
-  customer_vs_sale: { icon: Users, group: 'CUSTOMERS', description: 'Customer-wise sales and collections.', currency: true },
+  customer_vs_sale: { icon: Users, group: 'CUSTOMERS', description: 'Customer-wise sales, collections, and write-offs.', currency: true },
   customer_wallet: { icon: Banknote, group: 'CUSTOMERS', description: 'Current customer wallet balances.', currency: true },
   cancellations: { icon: Receipt, group: 'OPERATIONS', description: 'Cancelled and return order count by reason.' },
   staff: { icon: UserCog, group: 'OPERATIONS', description: 'Attendance records and staff working hours.' },
@@ -126,7 +126,7 @@ function valueFor(type: string, value: number) {
 
 function lineValueFor(type: string, label: string, value: number) {
   if (type === 'sales' && label.toLowerCase() === 'orders') return fmtNumber(value)
-  if (type === 'overview' && ['order sales', 'collected', 'outstanding'].includes(label.toLowerCase())) return fmtCurrency(value)
+  if (type === 'overview' && ['order sales', 'collected', 'write-offs', 'outstanding'].includes(label.toLowerCase())) return fmtCurrency(value)
   if (REPORT_META[type]?.hours || type === 'staff') return `${Number(value || 0).toFixed(1)}h`
   if (REPORT_META[type]?.currency || ['sales', 'payments', 'expenses'].includes(type)) return fmtCurrency(value)
   return fmtNumber(value)
@@ -211,9 +211,10 @@ export default function ReportsPage() {
     const loadReports = async () => {
       setLoading(true)
       try {
-        const entries = await Promise.all(reportTypes.map(async (report) => {
-          const result = await reportsAPI.get(report.value, from, to)
-          return [report.value, result.data] as const
+        const requestedTypes = Array.from(new Set(['overview', selectedType]))
+        const entries = await Promise.all(requestedTypes.map(async (reportType) => {
+          const result = await reportsAPI.get(reportType, from, to)
+          return [reportType, result.data] as const
         }))
         setDataByType(Object.fromEntries(entries))
         const prev = previousRange(from, to)
@@ -237,14 +238,11 @@ export default function ReportsPage() {
   const ChangeIcon = change >= 0 ? ArrowUpRight : ArrowDownRight
 
   const overviewCards = useMemo(() => {
-    const sales = dataByType.sales || dataByType.overview || {}
-    const orders = dataByType.orders || {}
-    const customers = dataByType.customers || {}
-    const payments = dataByType.payments || {}
+    const overview = dataByType.overview || {}
     return [
-      { label: 'Orders', value: fmtNumber(orders.total || sales.orders || 0), subLeft: 'Live order count', subRight: 'Status tracked', tone: 'linear-gradient(135deg,#ffe9f2,#f7d8ff)' },
-      { label: 'Order Sales', value: fmtCurrency(sales.revenue || 0), subLeft: `${fmtCurrency(sales.paid || 0)} collected`, subRight: `${fmtCurrency(sales.outstanding || 0)} due`, tone: 'linear-gradient(135deg,#dffbe8,#fff1a8)' },
-      { label: 'New Customers', value: fmtNumber(customers.total || 0), subLeft: `${Object.keys(customers.byTag || {}).length} tags`, subRight: `${fmtNumber(payments.count || 0)} payments`, tone: 'linear-gradient(135deg,#d5f3ff,#c4f0ed)' },
+      { label: 'Orders', value: fmtNumber(overview.total || 0), subLeft: 'Created in range', subRight: 'Workflow tracked', tone: 'linear-gradient(135deg,#ffe9f2,#f7d8ff)' },
+      { label: 'Order Sales', value: fmtCurrency(overview.revenue || 0), subLeft: `${fmtCurrency(overview.paid || 0)} collected in range`, subRight: `${fmtCurrency(overview.writeOff || 0)} write-off / ${fmtCurrency(overview.outstanding || 0)} cohort due`, tone: 'linear-gradient(135deg,#dffbe8,#fff1a8)' },
+      { label: 'New Customers', value: fmtNumber(overview.customers || 0), subLeft: 'Created in range', subRight: `${fmtNumber(overview.paymentCount || 0)} payment events`, tone: 'linear-gradient(135deg,#d5f3ff,#c4f0ed)' },
     ]
   }, [dataByType])
 
@@ -286,13 +284,18 @@ export default function ReportsPage() {
   const exportCsv = () => {
     if (!selectedData) return
     const hasAmounts = detailRows.some((row) => row.amount !== undefined)
+    const hasPaymentSplit = detailRows.some((row) => row.paid !== undefined || row.writeOff !== undefined)
     const rows: string[][] = [
       ['Report', selectedLabel],
       ['From', from],
       ['To', to],
       [],
-      hasAmounts ? ['Name', 'Count', 'Amount'] : ['Name', 'Value'],
-      ...detailRows.map((row) => hasAmounts ? [String(row.label), String(row.value), String(row.amount || 0)] : [String(row.label), String(row.value)]),
+      hasAmounts ? ['Name', 'Count', 'Amount'] : hasPaymentSplit ? ['Name', 'Value', 'Collected', 'Write Off'] : ['Name', 'Value'],
+      ...detailRows.map((row) => {
+        if (hasAmounts) return [String(row.label), String(row.value), String(row.amount || 0)]
+        if (hasPaymentSplit) return [String(row.label), String(row.value), String(row.paid || 0), String(row.writeOff || 0)]
+        return [String(row.label), String(row.value)]
+      }),
     ]
     const csv = rows.map((row: string[]) => row.map((cell: string) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -423,6 +426,11 @@ export default function ReportsPage() {
                         {String(row.label).replace(/_/g, ' ')}
                         {row.customer && <div style={{ fontSize: 11, color: '#8da2bc', marginTop: 3 }}>{row.customer}</div>}
                         {row.method && <div style={{ fontSize: 11, color: '#8da2bc', marginTop: 3 }}>{row.method}</div>}
+                        {(row.paid !== undefined || row.writeOff !== undefined) && (
+                          <div style={{ fontSize: 11, color: '#8da2bc', marginTop: 3 }}>
+                            Collected {fmtCurrency(row.paid || 0)}{Number(row.writeOff || 0) ? ` · Write-off ${fmtCurrency(row.writeOff || 0)}` : ''}
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '12px 16px', textAlign: 'right', color: '#023c62', fontWeight: 900 }}>{detailValueFor(selectedType, row)}</td>
                     </tr>

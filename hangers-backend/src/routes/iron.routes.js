@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 
 const { staffAuth, customerAuth } = require('../middleware/auth');
-const { requireRole, requireServiceAccess } = require('../middleware/rbac');
+const { requirePermission, requireRole, requireServiceAccess } = require('../middleware/rbac');
 const { PLANT_PIN_ROLES } = require('../config/master-data');
 const { privateNoStore } = require('../middleware/privateCache');
 const { requireTrustedWrite } = require('../middleware/origin');
+const { idempotent } = require('../middleware/idempotency');
 const {
   listSubscriptions,
   getSubscription,
@@ -46,15 +47,15 @@ router.put('/subscriptions/:id/status', staffAuth, crmAccess, ironStaffRoles, up
 router.get('/logs', staffAuth, crmAccess, ironStaffRoles, listAllLogs);
 router.get('/logs/:customerId/period', staffAuth, crmAccess, ironStaffRoles, getLogsByPeriod);
 router.get('/logs/:customerId', staffAuth, crmAccess, ironStaffRoles, getLogs);
-router.post('/logs', staffAuth, crmAccess, ironStaffRoles, createLog);
-router.post('/logs/batch', staffAuth, crmAccess, ironStaffRoles, createLogsBatch);
-router.delete('/logs/:id', staffAuth, crmAccess, requireRole('SUPER_ADMIN', 'MANAGER'), deleteLog);
+router.post('/logs', staffAuth, crmAccess, requirePermission('daily_iron.log'), idempotent({ scope: 'daily-iron.log.create' }), createLog);
+router.post('/logs/batch', staffAuth, crmAccess, requirePermission('daily_iron.log'), idempotent({ scope: 'daily-iron.log.batch' }), createLogsBatch);
+router.delete('/logs/:id', staffAuth, crmAccess, requirePermission('daily_iron.void'), idempotent({ scope: 'daily-iron.log.void' }), deleteLog);
 
-router.post('/bills/generate', staffAuth, crmAccess, ironStaffRoles, generateBill);
+router.post('/bills/generate', staffAuth, crmAccess, requirePermission('daily_iron.manage_billing'), idempotent({ scope: 'daily-iron.bill.generate' }), generateBill);
 router.get('/bills/customer/:customerId', staffAuth, crmAccess, ironStaffRoles, listBillsForCustomer);
 router.get('/bills/:billId', staffAuth, crmAccess, ironStaffRoles, getBillById);
-router.put('/bills/:billId/send', staffAuth, crmAccess, ironStaffRoles, sendBill);
-router.put('/bills/:billId/pay', staffAuth, crmAccess, ironStaffRoles, recordBillPayment);
+router.put('/bills/:billId/send', staffAuth, crmAccess, requirePermission('daily_iron.manage_billing'), idempotent({ scope: 'daily-iron.bill.send' }), sendBill);
+router.put('/bills/:billId/pay', staffAuth, crmAccess, requirePermission('finance.collect_payment'), idempotent({ scope: 'daily-iron.bill.payment' }), recordBillPayment);
 
 router.post('/customer/apply', customerAuth, applyForSubscription);
 router.get('/customer/subscription', customerAuth, getOwnSubscription);

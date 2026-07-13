@@ -89,7 +89,14 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     authAPI.me()
-      .then((r: any) => setStaff(r?.data?.staff || r?.staff || null))
+      .then((r: any) => {
+        const nextStaff = r?.data?.staff || r?.staff || null
+        if (nextStaff?.mustChangePassword) {
+          router.replace('/change-password')
+          return
+        }
+        setStaff(nextStaff)
+      })
       .catch(() => {
         toast.error('Session expired. Please login again.')
         router.replace('/login')

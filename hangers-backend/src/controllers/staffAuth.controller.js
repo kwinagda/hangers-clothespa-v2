@@ -3,6 +3,7 @@
 // POST /api/v1/staff/auth/login    → Staff login with email + password
 // GET  /api/v1/staff/auth/me       → Get current staff profile + permissions
 // POST /api/v1/staff/auth/logout   → Logout staff session
+// POST /api/v1/staff/auth/change-password → Change current staff password
 // ─────────────────────────────────────────────────────────────────────────────
 
 const bcrypt   = require('bcryptjs');
@@ -10,9 +11,10 @@ const prisma   = require('../config/database');
 const { generateStaffToken, getTokenExpiry } = require('../services/jwt.service');
 const { log, getRequestMeta }                = require('../services/activity.service');
 const { clearAuthThrottle, getAuthThrottleBlock, registerAuthThrottleFailure } = require('../services/authThrottle.service');
+const { buildStaffSessionData, createSessionId, staffSessionWhereForToken } = require('../services/sessionToken.service');
 const { success, badRequest, error, unauthorized } = require('../utils/response');
 const { PLANT_PIN_ROLES, STAFF_ROLE_VALUES } = require('../config/master-data');
-const { staffCreateSchema, staffLoginSchema } = require('../validation/auth.schemas');
+const { staffChangePasswordSchema, staffCreateSchema, staffLoginSchema } = require('../validation/auth.schemas');
 const { buildStaffAccessContext } = require('../services/accessControl.service');
 const MAX_ACTIVE_STAFF_SESSIONS = 5;
 const STAFF_LOGIN_MAX_FAILURES = 5;
@@ -48,6 +50,20 @@ const trimStaffSessions = async (staffId) => {
     await prisma.staffSession.deleteMany({ where: { id: { in: staleSessionIds } } });
   }
 };
+
+const buildStaffAuthResponse = (staff, access) => ({
+  appType: PLANT_PIN_ROLES.includes(staff.role) ? 'plant' : 'delivery',
+  staff: {
+    id: staff.id,
+    name: staff.name,
+    phone: staff.phone,
+    email: staff.email,
+    role: staff.role,
+    mustChangePassword: staff.mustChangePassword,
+    permissions: access.permissions,
+    serviceAccess: access.services,
+  },
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/v1/staff/auth/login
@@ -107,17 +123,12 @@ const staffLoginController = async (req, res) => {
       clearAuthThrottle({ scope: 'staff-login:ip', scopeKey: ipScopeKey }),
     ]);
 
-    const token  = generateStaffToken(staff);
+    const sessionId = createSessionId();
+    const token  = generateStaffToken({ ...staff, jti: sessionId });
     const expiry = getTokenExpiry(process.env.JWT_STAFF_EXPIRES_IN || '12h');
 
     await prisma.staffSession.create({
-      data: {
-        staffId:    staff.id,
-        token,
-        deviceInfo: req.headers['user-agent'] || null,
-        ipAddress:  req.ip || null,
-        expiresAt:  expiry,
-      },
+      data: buildStaffSessionData({ staffId: staff.id, token, sessionId, req, expiresAt: expiry }),
     });
     await trimStaffSessions(staff.id);
 
@@ -141,20 +152,7 @@ const staffLoginController = async (req, res) => {
 
     setCrmAuthCookie(res, token, Math.max(0, expiry.getTime() - Date.now()));
 
-    return success(res, {
-      token,
-      appType: PLANT_PIN_ROLES.includes(staff.role) ? 'plant' : 'delivery',
-      staff: {
-        id:          staff.id,
-        name:        staff.name,
-        phone:       staff.phone,
-        email:       staff.email,
-        role:        staff.role,
-        mustChangePassword: staff.mustChangePassword,
-        permissions: access.permissions,
-        serviceAccess: access.services,
-      },
-    }, `Welcome back, ${staff.name}!`);
+    return success(res, buildStaffAuthResponse(staff, access), `Welcome back, ${staff.name}!`);
 
   } catch (err) {
     console.error('staffLogin error:', err);
@@ -205,7 +203,7 @@ const staffLogoutController = async (req, res) => {
   try {
     const token = req.authToken || req.headers.authorization?.substring(7);
     if (token) {
-      await prisma.staffSession.deleteMany({ where: { token } });
+      await prisma.staffSession.deleteMany({ where: staffSessionWhereForToken(token, req.tokenData || {}) });
     }
     clearCrmAuthCookie(res);
 
@@ -223,6 +221,72 @@ const staffLogoutController = async (req, res) => {
     return success(res, {}, 'Logged out successfully');
   } catch (err) {
     return error(res, 'Logout failed');
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/staff/auth/change-password
+// ─────────────────────────────────────────────────────────────────────────────
+const staffChangePasswordController = async (req, res) => {
+  const parsed = staffChangePasswordSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid password payload');
+  const { currentPassword, newPassword } = parsed.data;
+
+  try {
+    const staff = await prisma.staff.findUnique({
+      where: { id: req.staff.id },
+      include: { permissions: true },
+    });
+    if (!staff || !staff.isActive) return unauthorized(res, 'Account not found or inactive');
+
+    const currentMatches = await bcrypt.compare(currentPassword, staff.passwordHash);
+    if (!currentMatches) return unauthorized(res, 'Current password is incorrect');
+
+    const reusingPassword = await bcrypt.compare(newPassword, staff.passwordHash);
+    if (reusingPassword) return badRequest(res, 'New password must be different from the current password');
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const nextSessionVersion = (staff.sessionVersion || 0) + 1;
+    const sessionId = createSessionId();
+    const tokenStaff = { ...staff, passwordHash: undefined, sessionVersion: nextSessionVersion, jti: sessionId };
+    const token = generateStaffToken(tokenStaff);
+    const expiry = getTokenExpiry(process.env.JWT_STAFF_EXPIRES_IN || '12h');
+
+    const updatedStaff = await prisma.$transaction(async (tx) => {
+      const updated = await tx.staff.update({
+        where: { id: staff.id },
+        data: {
+          passwordHash,
+          mustChangePassword: false,
+          sessionVersion: { increment: 1 },
+        },
+        include: { permissions: true },
+      });
+      await tx.staffSession.deleteMany({ where: { staffId: staff.id } });
+      await tx.staffSession.create({
+        data: buildStaffSessionData({ staffId: staff.id, token, sessionId, req, expiresAt: expiry }),
+      });
+      return updated;
+    });
+
+    await log({
+      actorType: 'staff',
+      actorId: updatedStaff.id,
+      actorName: updatedStaff.name,
+      action: 'STAFF_PASSWORD_CHANGED',
+      resource: 'staff',
+      resourceId: updatedStaff.id,
+      description: `${updatedStaff.name} changed password`,
+      ...getRequestMeta(req),
+    });
+
+    const access = await buildStaffAccessContext(updatedStaff);
+    setCrmAuthCookie(res, token, Math.max(0, expiry.getTime() - Date.now()));
+
+    return success(res, buildStaffAuthResponse(updatedStaff, access), 'Password changed successfully');
+  } catch (err) {
+    console.error('staffChangePassword error:', err);
+    return error(res, 'Failed to change password');
   }
 };
 
@@ -290,5 +354,9 @@ module.exports = {
   staffLoginController,
   staffMeController,
   staffLogoutController,
+  staffChangePasswordController,
   createStaffController,
+  _internals: {
+    buildStaffAuthResponse,
+  },
 };

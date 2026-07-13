@@ -8,7 +8,7 @@ const { requireTrustedWrite } = require('../middleware/origin');
 
 const {
   staffLoginController, staffMeController,
-  staffLogoutController, createStaffController,
+  staffLogoutController, staffChangePasswordController, createStaffController,
 } = require('../controllers/staffAuth.controller');
 
 const { pinLoginController, changePinController, resetPinController } =
@@ -27,6 +27,7 @@ router.post('/auth/login',      staffLoginLimiter, staffLoginController);
 router.post('/auth/pin-login',  pinLoginLimiter, pinLoginController);          // Plant & Delivery app
 router.get ('/auth/me',         staffAuth, staffMeController);
 router.post('/auth/logout',     staffAuth, staffLogoutController);
+router.post('/auth/change-password', staffAuth, staffChangePasswordController);
 router.post('/auth/change-pin', staffAuth, staffAppAccess, changePinController);
 
 // ── Create & manage staff ─────────────────────────────────────────────────────

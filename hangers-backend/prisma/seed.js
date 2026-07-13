@@ -268,6 +268,18 @@ const CATALOG = [
 async function main() {
   console.log('🌱 Seeding database...');
 
+  for (const partner of [
+    { code: 'MAMTA', name: 'Mamta' },
+    { code: 'WADREX', name: 'Wadrex' },
+    { code: 'YADGIR', name: 'Yadgir' },
+  ]) {
+    await prisma.plantPartner.upsert({
+      where: { code: partner.code },
+      update: {},
+      create: partner,
+    });
+  }
+
   // ── Admin user (skip if exists) ────────────────────────────────────────────
   const bcrypt = require('bcryptjs');
   const defaultAdminEmail = process.env.DEFAULT_ADMIN_EMAIL || 'admin@hangers.in';
@@ -282,6 +294,7 @@ async function main() {
         name:     'Super Admin',
         email:    defaultAdminEmail,
         passwordHash: await bcrypt.hash(defaultAdminPassword, 10),
+        mustChangePassword: true,
         role:     'SUPER_ADMIN',
         isActive: true,
         phone:    '7977417014'

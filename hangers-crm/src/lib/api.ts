@@ -3,6 +3,13 @@ import axios from 'axios'
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
 const api  = axios.create({ baseURL: API_BASE_URL, timeout: 15000, withCredentials: true })
 
+export const idempotencyConfig = (scope: string) => {
+  const randomId = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return { headers: { 'X-Idempotency-Key': `${scope}:${randomId}` } }
+}
+
 const normalizeApiResponse = (payload: any) => {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload
 
@@ -22,6 +29,12 @@ const normalizeApiResponse = (payload: any) => {
 api.interceptors.response.use(
   (r) => normalizeApiResponse(r.data),
   (err) => {
+    if (err.response?.status === 428 && err.response?.data?.code === 'PASSWORD_CHANGE_REQUIRED' && typeof window !== 'undefined') {
+      const path = window.location.pathname || ''
+      if (path !== '/change-password') {
+        window.location.replace('/change-password')
+      }
+    }
     if (err.response?.status === 401 && typeof window !== 'undefined') {
       const path = window.location.pathname || ''
       if (path !== '/login') {
@@ -36,23 +49,30 @@ export const authAPI = {
   login:  (email: string, password: string) => api.post('/staff/auth/login', { email, password }) as any,
   me:     ()             => api.get('/staff/auth/me') as any,
   logout: ()             => api.post('/staff/auth/logout'),
+  changePassword: (currentPassword: string, newPassword: string) => api.post('/staff/auth/change-password', { currentPassword, newPassword }) as any,
 }
 export const ordersAPI = {
   list:         (params?: any) => api.get('/orders', { params }) as any,
   stats:        ()             => api.get('/orders/stats') as any,
   get:          (id: string)   => api.get(`/orders/${id}`) as any,
-  create:       (data: any)    => api.post('/orders', data) as any,
-  updateStatus: (id: string, status: string, notes?: string) => api.patch(`/orders/${id}/status`, { status, notes }) as any,
-  addItems:     (id: string, data: any) => api.patch(`/orders/${id}/items`, data) as any,
-  delete:       (id: string)   => api.delete(`/orders/${id}`),
+  create:       (data: any)    => api.post('/orders', data, idempotencyConfig('crm-order')) as any,
+  update:       (id: string, data: any) => api.patch(`/orders/${id}`, data, idempotencyConfig('crm-order-edit')) as any,
+  updateStatus: (id: string, status: string, notes?: string, expectedVersion?: number) => api.patch(
+    `/orders/${id}/status`,
+    { status, notes, expectedVersion },
+    idempotencyConfig('crm-order-status')
+  ) as any,
+  addItems:     (id: string, data: any) => api.patch(`/orders/${id}/items`, data, idempotencyConfig('crm-order-itemize')) as any,
+  delete:       (id: string)   => api.delete(`/orders/${id}`, idempotencyConfig('crm-order-archive')),
 }
 export const quotationsAPI = {
   list:         (params?: any) => api.get('/quotations', { params }) as any,
   get:          (id: string)   => api.get(`/quotations/${id}`) as any,
-  create:       (data: any)    => api.post('/quotations', data) as any,
-  update:       (id: string, data: any) => api.patch(`/quotations/${id}`, data) as any,
-  updateStatus: (id: string, quotationStatus: string) => api.patch(`/quotations/${id}/status`, { quotationStatus }) as any,
-  convert:      (id: string)   => api.post(`/quotations/${id}/convert`) as any,
+  create:       (data: any)    => api.post('/quotations', data, idempotencyConfig('crm-quotation')) as any,
+  update:       (id: string, data: any) => api.patch(`/quotations/${id}`, data, idempotencyConfig('crm-quotation-edit')) as any,
+  updateStatus: (id: string, quotationStatus: string, reason?: string) => api.patch(`/quotations/${id}/status`, { quotationStatus, reason }, idempotencyConfig('crm-quotation-status')) as any,
+  convert:      (id: string)   => api.post(`/quotations/${id}/convert`, {}, idempotencyConfig('crm-quotation-convert')) as any,
+  share:        (id: string)   => api.post(`/quotations/${id}/share`) as any,
   pdfUrl:       (id: string) => `${API_BASE_URL}/quotations/${id}/pdf`,
 }
 export const customersAPI = {
@@ -74,8 +94,9 @@ export const staffAPI = {
 }
 export const paymentsAPI = {
   byOrder:     (orderId: string)              => api.get(`/payments/order/${orderId}`) as any,
-  record:      (data: any)                    => api.post('/payments', data) as any,
+  record:      (data: any)                    => api.post('/payments', data, idempotencyConfig('crm-payment')) as any,
   dailySummary:(params?: any)                 => api.get('/payments/daily', { params }) as any,
+  refund:      (orderId: string, data: any)   => api.post(`/orders/${orderId}/refunds`, data, idempotencyConfig('crm-refund')) as any,
 }
 export const servicesAPI = {
   getPriceList: ()           => api.get('/services') as any,
@@ -108,15 +129,15 @@ export const ironAPI = {
   getLogs: (customerId: string) => api.get(`/iron/logs/${customerId}`) as any,
   getLogsByPeriod: (customerId: string, start: string, end: string) =>
     api.get(`/iron/logs/${customerId}/period`, { params: { start, end } }) as any,
-  createLog: (data: any) => api.post('/iron/logs', data) as any,
-  createLogsBatch: (data: any) => api.post('/iron/logs/batch', data) as any,
-  deleteLog: (id: string) => api.delete(`/iron/logs/${id}`) as any,
-  generateBill: (data: any) => api.post('/iron/bills/generate', data) as any,
+  createLog: (data: any) => api.post('/iron/logs', data, idempotencyConfig('crm-iron-log')) as any,
+  createLogsBatch: (data: any) => api.post('/iron/logs/batch', data, idempotencyConfig('crm-iron-log-batch')) as any,
+  deleteLog: (id: string, reason: string) => api.delete(`/iron/logs/${id}`, { ...idempotencyConfig('crm-iron-log-void'), data: { reason } }) as any,
+  generateBill: (data: any) => api.post('/iron/bills/generate', data, idempotencyConfig('crm-iron-bill')) as any,
   getBills: (customerId: string) => api.get(`/iron/bills/customer/${customerId}`) as any,
   getBill: (billId: string) => api.get(`/iron/bills/${billId}`) as any,
-  sendBill: (billId: string) => api.put(`/iron/bills/${billId}/send`) as any,
-  recordPayment: (billId: string, data: { amount: number; paymentMethod?: string }) =>
-    api.put(`/iron/bills/${billId}/pay`, data) as any,
+  sendBill: (billId: string) => api.put(`/iron/bills/${billId}/send`, {}, idempotencyConfig('crm-iron-bill-send')) as any,
+  recordPayment: (billId: string, data: { amount: number; paymentMethod?: string; reference?: string; notes?: string }) =>
+    api.put(`/iron/bills/${billId}/pay`, data, idempotencyConfig('crm-iron-payment')) as any,
 }
 export default api;
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,14 +154,15 @@ export const statsAPI = {
 // A2 — Cash book
 export const cashBookAPI = {
   get:    (date?: string) => api.get(`/cashbook${date ? `?date=${date}` : ''}`),
-  add:    (data: any)     => api.post('/cashbook', data),
+  add:    (data: any)     => api.post('/cashbook', data, idempotencyConfig('crm-cash-entry')),
 }
 
 // A3 — Expenses
 export const expensesAPI = {
   get:    (month?: number, year?: number) => api.get(`/expenses?month=${month||''}&year=${year||''}`),
-  add:    (data: any)  => api.post('/expenses', data),
-  delete: (id: string) => api.delete(`/expenses/${id}`),
+  add:    (data: any)  => api.post('/expenses', data, idempotencyConfig('crm-expense-create')),
+  approve:(id: string, reason: string) => api.post(`/expenses/${id}/approve`, { reason }, idempotencyConfig('crm-expense-approve')),
+  delete: (id: string, reason: string) => api.delete(`/expenses/${id}`, { ...idempotencyConfig('crm-expense-void'), data: { reason } }),
 }
 
 // A4 — AR Ledger
@@ -152,9 +174,9 @@ export const arAPI = {
 export const challanAPI = {
   getAll:        ()                          => api.get('/challans'),
   getOne:        (id: string)                => api.get(`/challans/${id}`) as any,
-  receiveItems:  (id: string, items: any[]) => api.patch(`/challans/${id}/receive-items`, { items }) as any,
-  create:        (data: any)                 => api.post('/challans', data),
-  setStatus:     (id: string, status: string) => api.patch(`/challans/${id}/status`, { status }),
+  receiveItems:  (id: string, items: any[]) => api.patch(`/challans/${id}/receive-items`, { items }, idempotencyConfig('crm-challan-receipt')) as any,
+  create:        (data: any)                 => api.post('/challans', data, idempotencyConfig('crm-challan')),
+  setStatus:     (id: string, status: string) => api.patch(`/challans/${id}/status`, { status }, idempotencyConfig('crm-challan-status')),
 }
 
 export const deliveryAPI = {
@@ -163,21 +185,22 @@ export const deliveryAPI = {
 
 export const vendorBillAPI = {
   getAll:  (plant?: string)           => api.get(`/vendor-bills${plant ? `?plant=${plant}` : ''}`),
-  create:  (data: any)                => api.post('/vendor-bills', data),
-  pay:     (id: string)               => api.patch(`/vendor-bills/${id}/pay`),
+  create:  (data: any)                => api.post('/vendor-bills', data, idempotencyConfig('crm-vendor-bill')),
+  approve: (id: string)               => api.post(`/vendor-bills/${id}/approve`, {}, idempotencyConfig('crm-vendor-bill-approve')),
+  pay:     (id: string, data: any)     => api.post(`/vendor-bills/${id}/payments`, data, idempotencyConfig('crm-vendor-payment')),
 }
 
 export const vendorPriceAPI = {
   getAll:  (plant?: string)           => api.get(`/vendor-prices${plant ? `?plant=${plant}` : ''}`),
-  upsert:  (data: any)                => api.post('/vendor-prices', data),
-  bulkSave:(plant: string, prices: any[]) => api.post('/vendor-prices/bulk', { plant, prices }),
+  upsert:  (data: any)                => api.post('/vendor-prices', data, idempotencyConfig('crm-vendor-price')),
+  bulkSave:(plant: string, prices: any[]) => api.post('/vendor-prices/bulk', { plant, prices }, idempotencyConfig('crm-vendor-price-bulk')),
 }
 
 // A6 — Transfer Orders
 export const transferAPI = {
   getAll:   ()           => api.get('/transfers'),
-  create:   (data: any)  => api.post('/transfers', data),
-  setStatus:(id: string, status: string) => api.patch(`/transfers/${id}/status`, { status }),
+  create:   (data: any)  => api.post('/transfers', data, idempotencyConfig('crm-plant-transfer')),
+  setStatus:(id: string, status: string) => api.patch(`/transfers/${id}/status`, { status }, idempotencyConfig('crm-plant-transfer-status')),
 }
 
 // A7 — Attendance
@@ -222,7 +245,7 @@ export const recurringAPI = {
 
 // A14 — Return orders
 export const returnOrderAPI = {
-  create: (data: any) => api.post('/orders/return', data),
+  create: (data: any) => api.post('/orders/return', data, idempotencyConfig('crm-return-case')),
 }
 
 // A15 — Campaigns
@@ -266,7 +289,7 @@ export const securityAPI = {
 
 export const walletAPI = {
   get:    (customerId: string)                        => api.get(`/wallet/${customerId}`) as any,
-  credit: (customerId: string, data: any)             => api.post(`/wallet/${customerId}/credit`, data) as any,
-  deduct: (customerId: string, data: any)             => api.post(`/wallet/${customerId}/deduct`, data) as any,
-  apply:  (customerId: string, orderId: string, amount: number) => api.post(`/wallet/${customerId}/apply`, { orderId, amount }) as any,
+  credit: (customerId: string, data: any)             => api.post(`/wallet/${customerId}/credit`, data, idempotencyConfig('crm-wallet-credit')) as any,
+  deduct: (customerId: string, data: any)             => api.post(`/wallet/${customerId}/deduct`, data, idempotencyConfig('crm-wallet-debit')) as any,
+  apply:  (customerId: string, orderId: string, amount: number) => api.post(`/wallet/${customerId}/apply`, { orderId, amount }, idempotencyConfig('crm-wallet-apply')) as any,
 }

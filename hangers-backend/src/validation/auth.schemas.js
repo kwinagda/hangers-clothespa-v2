@@ -49,6 +49,11 @@ const staffLoginSchema = z.object({
   password: z.string().min(1).max(256),
 }).strict();
 
+const staffChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(256),
+  newPassword: passwordSchema,
+}).strict();
+
 const staffCreateSchema = z.object({
   name: z.string().trim().min(2).max(120),
   phone: indianPhoneSchema,
@@ -71,6 +76,7 @@ module.exports = {
   sendOtpSchema,
   verifyOtpSchema,
   staffLoginSchema,
+  staffChangePasswordSchema,
   staffCreateSchema,
   staffUpdateSchema,
   passwordSchema,

@@ -15,7 +15,11 @@ export default function LoginPage() {
   useEffect(() => {
     let active = true
     authAPI.me()
-      .then(() => { if (!active) return; router.replace('/dashboard') })
+      .then((r: any) => {
+        if (!active) return
+        const staff = r?.staff || r?.data?.staff
+        router.replace(staff?.mustChangePassword ? '/change-password' : '/dashboard')
+      })
       .catch(() => {})
     return () => { active = false }
   }, [router])
@@ -24,8 +28,9 @@ export default function LoginPage() {
     e.preventDefault(); setLoading(true); setErr('')
     try {
       await authAPI.login(email, pw)
-      await authAPI.me()
-      router.replace('/dashboard')
+      const profile = await authAPI.me()
+      const staff = profile?.staff || profile?.data?.staff
+      router.replace(staff?.mustChangePassword ? '/change-password' : '/dashboard')
     } catch (e: any) { setErr(e.message || 'Invalid credentials') }
     finally { setLoading(false) }
   }

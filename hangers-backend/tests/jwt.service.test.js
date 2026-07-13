@@ -18,13 +18,21 @@ test('customer token carries sessionVersion', () => {
   assert.equal(decoded.type, 'customer');
 });
 
-test('staff token carries sessionVersion and role', () => {
-  const token = generateStaffToken({ id: 's1', phone: '9999999999', email: 'a@b.com', role: 'MANAGER', sessionVersion: 4 }, '1h');
+test('staff token carries sessionVersion, role, and unique jti', () => {
+  const token = generateStaffToken({ id: 's1', phone: '9999999999', email: 'a@b.com', role: 'MANAGER', sessionVersion: 4, jti: 'session-1' }, '1h');
   const decoded = verifyToken(token);
   assert.equal(decoded.id, 's1');
   assert.equal(decoded.sessionVersion, 4);
   assert.equal(decoded.role, 'MANAGER');
   assert.equal(decoded.type, 'staff');
+  assert.equal(decoded.jti, 'session-1');
+});
+
+test('staff token requires caller-provided jti', () => {
+  assert.throws(
+    () => generateStaffToken({ id: 's1', phone: '9999999999', email: 'a@b.com', role: 'MANAGER', sessionVersion: 4 }, '1h'),
+    /unique jti/
+  );
 });
 
 test('getTokenExpiry parses supported expiry formats', () => {

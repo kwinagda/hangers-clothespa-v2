@@ -1,21 +1,8 @@
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-
-const parseOriginList = (value) =>
-  String(value || '')
-    .split(',')
-    .map((origin) => origin.trim().toLowerCase())
-    .filter(Boolean);
+const { getAllowedOrigins } = require('../config/env');
 
 const getTrustedOrigins = () =>
-  new Set([
-    ...parseOriginList(process.env.ALLOWED_ORIGINS),
-    (process.env.CRM_URL || 'http://localhost:5002').toLowerCase(),
-    (process.env.CUSTOMER_APP_URL || 'http://localhost:8081').toLowerCase(),
-    (process.env.STAFF_APP_URL || 'http://localhost:8082').toLowerCase(),
-    'http://127.0.0.1:5002',
-    'http://127.0.0.1:8081',
-    'http://127.0.0.1:8082',
-  ]);
+  new Set(getAllowedOrigins().map((origin) => origin.toLowerCase()));
 
 const isAllowedFetchSite = (value) => {
   if (!value) return null;
@@ -70,4 +57,4 @@ const requireTrustedWrite = (req, res, next) => {
   return requireSameOrigin(req, res, next);
 };
 
-module.exports = { hasValidSameOrigin, requireSameOrigin, requireTrustedWrite };
+module.exports = { getTrustedOrigins, hasValidSameOrigin, requireSameOrigin, requireTrustedWrite };

@@ -44,9 +44,16 @@ export default function QuotationsPage() {
   }, [])
 
   const updateStatus = async (quotationId: string, quotationStatus: string) => {
+    const reason = quotationStatus === 'REJECTED'
+      ? window.prompt('Rejection reason (required)')?.trim()
+      : undefined
+    if (quotationStatus === 'REJECTED' && (!reason || reason.length < 3)) {
+      toast.error('A rejection reason is required')
+      return
+    }
     setBusyId(quotationId)
     try {
-      await quotationsAPI.updateStatus(quotationId, quotationStatus)
+      await quotationsAPI.updateStatus(quotationId, quotationStatus, reason)
       toast.success('Quotation status updated')
       await load()
     } catch (e: any) {
@@ -85,18 +92,21 @@ export default function QuotationsPage() {
   }
 
   const shareQuotation = async (quotation: any) => {
+    setBusyId(`share:${quotation.id}`)
     const validUntil = quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString('en-IN') : 'Open'
-    const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    const quoteUrl = `${origin}/dashboard/quotations/print?quotationId=${quotation.id}`
-    const shareText = [
-      `Quotation ${quotation.orderNumber}`,
-      `Customer: ${quotation.customer?.name || quotation.customer?.phone || 'Customer'}`,
-      `Amount: ${fmt(quotation.totalAmount || 0)}`,
-      `Valid Until: ${validUntil}`,
-      quoteUrl,
-    ].join('\n')
 
     try {
+      const response = await quotationsAPI.share(quotation.id)
+      const quoteUrl = response?.data?.shareUrl || response?.shareUrl
+      if (!quoteUrl) throw new Error('Failed to create quotation share link')
+      const shareText = [
+        `Quotation ${quotation.orderNumber}`,
+        `Customer: ${quotation.customer?.name || quotation.customer?.phone || 'Customer'}`,
+        `Amount: ${fmt(quotation.totalAmount || 0)}`,
+        `Valid Until: ${validUntil}`,
+        quoteUrl,
+      ].join('\n')
+
       if (typeof navigator !== 'undefined' && navigator.share) {
         await navigator.share({
           title: `Quotation ${quotation.orderNumber}`,
@@ -113,6 +123,8 @@ export default function QuotationsPage() {
     } catch (e: any) {
       if (e?.name === 'AbortError') return
       toast.error(e.message || 'Failed to share quotation')
+    } finally {
+      setBusyId('')
     }
   }
 
@@ -183,14 +195,18 @@ export default function QuotationsPage() {
                         disabled={busyId === quotation.id || quotation.quotationStatus === 'CONVERTED'}
                         style={{ border: 'none', borderRadius: 999, padding: '6px 10px', background: style.bg, color: style.color, fontWeight: 700, fontSize: 12 }}
                       >
-                        {statusOptions.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        {statusOptions.filter((option) => {
+                          const current = quotation.quotationStatus || 'DRAFT'
+                          const allowed: Record<string, string[]> = { DRAFT: ['DRAFT', 'SENT'], SENT: ['SENT', 'APPROVED', 'REJECTED', 'EXPIRED'] }
+                          return option.value && (allowed[current] || [current]).includes(option.value)
+                        }).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </td>
                     <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8' }}>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <Link href={'/dashboard/orders/new?mode=quotation' + '&quotationId=' + quotation.id} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #dce8f0', color: '#023c62', textDecoration: 'none', fontWeight: 600 }}>
+                        {(quotation.quotationStatus || 'DRAFT') === 'DRAFT' && <Link href={'/dashboard/orders/new?mode=quotation' + '&quotationId=' + quotation.id} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #dce8f0', color: '#023c62', textDecoration: 'none', fontWeight: 600 }}>
                           Edit
-                        </Link>
+                        </Link>}
                         <button onClick={() => openQuotationPdf(quotation)} disabled={busyId === `pdf:${quotation.id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8, border: '1px solid #dce8f0', background: '#fff', color: '#023c62', fontWeight: 600, cursor: 'pointer', opacity: busyId === `pdf:${quotation.id}` ? 0.6 : 1 }}>
                           <FileDown size={14} />
                           {busyId === `pdf:${quotation.id}` ? 'Opening...' : 'PDF'}
@@ -202,7 +218,7 @@ export default function QuotationsPage() {
                           <Share2 size={14} />
                           Share
                         </button>
-                        {quotation.quotationStatus !== 'CONVERTED' && (
+                        {quotation.quotationStatus === 'APPROVED' && (
                           <button
                             onClick={() => convertQuotation(quotation.id)}
                             disabled={busyId === quotation.id}

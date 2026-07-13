@@ -156,17 +156,19 @@ function QuotationPrintPageContent() {
 
   const shareQuotation = useCallback(async () => {
     if (!quotation) return
-    const origin = window.location.origin
-    const shareUrl = `${origin}/dashboard/quotations/print?quotationId=${quotation.id}`
-    const shareText = [
-      `Quotation ${quotation.orderNumber}`,
-      `Customer: ${quotation.customer?.name || quotation.customer?.phone || 'Customer'}`,
-      `Amount: ${fmt(quotation.totalAmount || 0)}`,
-      `Valid Until: ${formatDate(quotation.validUntil)}`,
-      shareUrl,
-    ].join('\n')
 
     try {
+      const response = await quotationsAPI.share(quotation.id)
+      const shareUrl = response?.data?.shareUrl || response?.shareUrl
+      if (!shareUrl) throw new Error('Failed to create quotation share link')
+      const shareText = [
+        `Quotation ${quotation.orderNumber}`,
+        `Customer: ${quotation.customer?.name || quotation.customer?.phone || 'Customer'}`,
+        `Amount: ${fmt(quotation.totalAmount || 0)}`,
+        `Valid Until: ${formatDate(quotation.validUntil)}`,
+        shareUrl,
+      ].join('\n')
+
       if (navigator.share) {
         await navigator.share({
           title: `Quotation ${quotation.orderNumber}`,

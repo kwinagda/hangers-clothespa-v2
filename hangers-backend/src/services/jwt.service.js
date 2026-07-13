@@ -51,6 +51,7 @@ const generateCustomerToken = (customer, expiresIn = process.env.JWT_CUSTOMER_EX
  * Generate a JWT token for a staff member
  */
 const generateStaffToken = (staff, expiresIn = process.env.JWT_STAFF_EXPIRES_IN || '12h') => {
+  if (!staff.jti) throw new Error('Staff token requires a unique jti');
   return jwt.sign(
     {
       id: staff.id,
@@ -59,6 +60,7 @@ const generateStaffToken = (staff, expiresIn = process.env.JWT_STAFF_EXPIRES_IN 
       role: staff.role,
       sessionVersion: staff.sessionVersion || 0,
       type: 'staff',
+      jti: staff.jti,
     },
     SECRET,
     { expiresIn: resolveExpiryConfig(expiresIn, '12h') }

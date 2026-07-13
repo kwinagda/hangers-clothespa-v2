@@ -78,12 +78,25 @@ export default function ExpensesPage() {
   }
 
   const del = async (id: string) => {
-    if (!confirm('Delete this expense?')) return
+    const reason = window.prompt('Reason for voiding this expense:')?.trim()
+    if (!reason || reason.length < 3) return
     try {
-      await expensesAPI.delete(id)
+      await expensesAPI.delete(id, reason)
       load()
     } catch (e:any) {
-      toast.error(e.message || 'Failed to delete expense')
+      toast.error(e.message || 'Failed to void expense')
+    }
+  }
+
+  const approve = async (id: string) => {
+    const reason = window.prompt('Approval note:')?.trim()
+    if (!reason || reason.length < 3) return
+    try {
+      await expensesAPI.approve(id, reason)
+      toast.success('Expense approved')
+      load()
+    } catch (e:any) {
+      toast.error(e.message || 'Failed to approve expense')
     }
   }
 
@@ -130,7 +143,7 @@ export default function ExpensesPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#f8fafc' }}>
-                {['Date','Category','Description','Paid By','Amount',''].map(h => (
+                {['Date','Category','Description','Paid By','Status','Amount',''].map(h => (
                   <th key={h} style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.07em', borderBottom: '1px solid #e8f0f7', background: '#f7f9fc' }}>{h}</th>
                 ))}
               </tr>
@@ -146,9 +159,11 @@ export default function ExpensesPage() {
                   </td>
                   <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{e.description}</td>
                   <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{e.paidBy || '—'}</td>
+                  <td style={{ padding: '13px 18px', fontSize: 12, fontWeight: 700, color: e.status === 'POSTED' ? '#166534' : e.status === 'VOIDED' ? '#991b1b' : '#92400e' }}>{String(e.status || 'PENDING_APPROVAL').replace(/_/g, ' ')}</td>
                   <td style={{ padding: '13px 18px', textAlign: 'right', fontFamily: "var(--crm-font-mono)", fontWeight: 700, color: '#023c62' }}>{fmt(e.amount)}</td>
                   <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
-                    <button onClick={() => del(e.id)} style={{ fontSize: 12, color: '#f87171', background: 'none', border: 'none', cursor: 'pointer' }}>Delete</button>
+                    {e.status === 'PENDING_APPROVAL' && <button onClick={() => approve(e.id)} style={{ fontSize: 12, color: '#166534', background: 'none', border: 'none', cursor: 'pointer', marginRight: 8 }}>Approve</button>}
+                    {e.status !== 'VOIDED' && <button onClick={() => del(e.id)} style={{ fontSize: 12, color: '#b91c1c', background: 'none', border: 'none', cursor: 'pointer' }}>Void</button>}
                   </td>
                 </tr>
               ))}

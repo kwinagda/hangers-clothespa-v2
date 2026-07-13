@@ -7,6 +7,30 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const prisma = require('../config/database');
+const { roundMoney } = require('../utils/line-pricing');
+
+const validateAmount = (operation, amount) => {
+  const normalized = roundMoney(Number(amount));
+  if (!(normalized > 0)) throw new Error(`${operation}: amount must be a positive number`);
+  return normalized;
+};
+
+const buildTransactionData = (customerId, amount, type, reason, balances, opts) => ({
+  customerId,
+  amount,
+  type,
+  reasonCode: opts.reasonCode || 'MANUAL_ADJUSTMENT',
+  reason,
+  orderId: opts.orderId ?? null,
+  balanceBefore: balances.before,
+  balanceAfter: balances.after,
+  createdById: opts.actorId ?? null,
+  approvedById: opts.approvedById ?? null,
+  idempotencyKey: opts.idempotencyKey ?? null,
+  externalReference: opts.externalReference ?? null,
+  expiresAt: opts.expiresAt ?? null,
+  reversalOfId: opts.reversalOfId ?? null,
+});
 
 /**
  * Credits amount to customer wallet inside an optional existing transaction.
@@ -20,26 +44,22 @@ const prisma = require('../config/database');
  */
 async function creditWallet(customerId, amount, reason, opts = {}) {
   if (!customerId) throw new Error('creditWallet: customerId is required');
-  if (typeof amount !== 'number' || amount <= 0) {
-    throw new Error('creditWallet: amount must be a positive number');
-  }
+  const normalizedAmount = validateAmount('creditWallet', amount);
 
   const run = async (tx) => {
-    const updated = await tx.customer.update({
-      where: { id: customerId },
-      data:  { walletBalance: { increment: amount } },
-      select: { walletBalance: true },
+    const rows = await tx.$queryRaw`
+      UPDATE "customers"
+      SET "walletBalance" = "walletBalance" + ${normalizedAmount},
+          "updatedAt" = NOW()
+      WHERE "id" = ${customerId}
+      RETURNING "walletBalance" - ${normalizedAmount} AS "before", "walletBalance" AS "after"
+    `;
+    if (!rows.length) throw new Error(`Customer ${customerId} not found`);
+    const balances = { before: Number(rows[0].before), after: Number(rows[0].after) };
+    const transaction = await tx.walletTransaction.create({
+      data: buildTransactionData(customerId, normalizedAmount, 'CREDIT', reason, balances, opts),
     });
-    await tx.walletTransaction.create({
-      data: {
-        customerId,
-        amount,
-        type:    'CREDIT',
-        reason,
-        orderId: opts.orderId ?? null,
-      },
-    });
-    return updated.walletBalance;
+    return opts.returnTransaction ? { balance: balances.after, transaction } : balances.after;
   };
 
   return opts.tx ? run(opts.tx) : prisma.$transaction(run);
@@ -51,18 +71,17 @@ async function creditWallet(customerId, amount, reason, opts = {}) {
  */
 async function debitWallet(customerId, amount, reason, opts = {}) {
   if (!customerId) throw new Error('debitWallet: customerId is required');
-  if (typeof amount !== 'number' || amount <= 0) {
-    throw new Error('debitWallet: amount must be a positive number');
-  }
+  const normalizedAmount = validateAmount('debitWallet', amount);
 
   const run = async (tx) => {
     // Atomic: decrement only succeeds if balance >= amount; prevents double-debit races
     const rows = await tx.$queryRaw`
-      UPDATE "Customer"
-      SET    "walletBalance" = "walletBalance" - ${amount}
+      UPDATE "customers"
+      SET    "walletBalance" = "walletBalance" - ${normalizedAmount},
+             "updatedAt" = NOW()
       WHERE  "id" = ${customerId}
-      AND    "walletBalance" >= ${amount}
-      RETURNING "walletBalance"
+      AND    "walletBalance" >= ${normalizedAmount}
+      RETURNING "walletBalance" + ${normalizedAmount} AS "before", "walletBalance" AS "after"
     `;
     if (!rows.length) {
       const row = await tx.customer.findUnique({ where: { id: customerId }, select: { id: true } });
@@ -71,16 +90,11 @@ async function debitWallet(customerId, amount, reason, opts = {}) {
       err.statusCode = 400;
       throw err;
     }
-    await tx.walletTransaction.create({
-      data: {
-        customerId,
-        amount,
-        type:    'DEBIT',
-        reason,
-        orderId: opts.orderId ?? null,
-      },
+    const balances = { before: Number(rows[0].before), after: Number(rows[0].after) };
+    const transaction = await tx.walletTransaction.create({
+      data: buildTransactionData(customerId, normalizedAmount, 'DEBIT', reason, balances, opts),
     });
-    return Number(rows[0].walletBalance);
+    return opts.returnTransaction ? { balance: balances.after, transaction } : balances.after;
   };
 
   return opts.tx ? run(opts.tx) : prisma.$transaction(run);

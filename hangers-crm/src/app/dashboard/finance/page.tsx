@@ -192,7 +192,7 @@ export default function FinancePage() {
             <div>
               <div style={{fontSize:12,color:'rgba(255,200,200,0.7)',fontWeight:600,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:8}}>Total Outstanding Balance</div>
               <div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:36}}>{S(receivableTotal)}</div>
-              <div style={{fontSize:13,color:'rgba(255,200,200,0.7)',marginTop:4}}>Across {receivables.length} orders with pending payments</div>
+              <div style={{fontSize:13,color:'rgba(255,200,200,0.7)',marginTop:4}}>Across {receivables.length} open invoices</div>
             </div>
             <AlertTriangle size={44} style={{opacity:0.35}} />
           </div>
@@ -200,7 +200,7 @@ export default function FinancePage() {
           <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{background:'#f7f9fc'}}>
-                {['Order','Customer','Phone','Order Total','Paid','Balance','Status'].map(h=>(
+                {['Invoice / Source','Customer','Phone','Invoice Total','Paid','Balance','Due'].map(h=>(
                   <th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>
                 ))}
               </tr></thead>
@@ -208,17 +208,18 @@ export default function FinancePage() {
                 {loading?<tr><td colSpan={7} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>Loading...</td></tr>
                 :!receivables.length?<tr><td colSpan={7} style={{padding:48,textAlign:'center',color:'#22c55e',fontSize:15}}>No outstanding balances.</td></tr>
                 :pagedReceivables.map((o:any)=>(
-                  <tr key={o.id} style={{borderBottom:'1px solid #f0f4f8',cursor:'pointer'}} onClick={()=>window.location.href=`/dashboard/orders/${o.id}`}>
-                    <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>{o.orderNumber}</td>
+                  <tr key={o.invoiceId || o.id} style={{borderBottom:'1px solid #f0f4f8',cursor:o.orderId?'pointer':'default'}} onClick={()=>{ if(o.orderId) window.location.href=`/dashboard/orders/${o.orderId}` }}>
+                    <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>
+                      <div>{o.invoiceNumber || o.orderNumber}</div>
+                      <div style={{fontFamily:"var(--crm-font-ui)",fontSize:10,color:'#7b8ca8',marginTop:2}}>{o.orderNumber}{o.sourceType === 'DAILY_IRON' ? ' · Daily Iron' : ''}</div>
+                    </td>
                     <td style={{padding:'13px 18px',fontSize:13.5,fontWeight:600}}>{o.customer?.name||'—'}</td>
                     <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>+91 {o.customer?.phone}</td>
                     <td style={{padding:'13px 18px',fontSize:13.5}}>{S(o.totalAmount)}</td>
                     <td style={{padding:'13px 18px',fontSize:13.5,color:'#22c55e'}}>{S(o.paidAmount)}</td>
                     <td style={{padding:'13px 18px',fontSize:13.5,fontWeight:700,color:'#dc2626'}}>{S(o.balance)}</td>
-                    <td style={{padding:'11px 16px'}}>
-                      <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:(paymentStatusMeta[o.paymentStatus || 'UNPAID']?.bg) || '#f4f7fb',color:(paymentStatusMeta[o.paymentStatus || 'UNPAID']?.color) || '#023c62'}}>
-                        {(paymentStatusMeta[o.paymentStatus || 'UNPAID']?.label) || o.paymentStatus || 'UNPAID'}
-                      </span>
+                    <td style={{padding:'11px 16px',fontSize:12,color:o.isOverdue?'#b91c1c':'#52647e',fontWeight:o.isOverdue?700:500}}>
+                      {o.dueDate ? new Date(o.dueDate).toLocaleDateString('en-IN') : '—'}{o.isOverdue ? ` · ${o.daysOverdue}d overdue` : ''}
                     </td>
                   </tr>
                 ))}

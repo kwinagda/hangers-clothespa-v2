@@ -13,6 +13,7 @@ const SS: Record<string, { bg: string; color: string }> = {
   RECEIVED:   { bg: '#dcfce7', color: '#166534' },
   PARTIAL:    { bg: '#fff7ed', color: '#c2410c' },
   PENDING:    { bg: '#fef9c3', color: '#854d0e' },
+  APPROVED:   { bg: '#dbeafe', color: '#1e40af' },
   PAID:       { bg: '#dcfce7', color: '#166534' },
 }
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
@@ -121,6 +122,7 @@ export default function ChallansPage() {
   const [showReceive, setShowReceive]           = useState(false)
   const [receivingChallan, setReceivingChallan] = useState<any>(null)
   const [receivedQtys, setReceivedQtys]         = useState<Record<string,number>>({})
+  const [receivedUnitIds, setReceivedUnitIds]   = useState<Record<string,string[]>>({})
   const [receiving, setReceiving]               = useState(false)
 
   // Vendor bill creation
@@ -128,6 +130,8 @@ export default function ChallansPage() {
   const [billPlant, setBillPlant]               = useState('')
   const [selectedChallans, setSelectedChallans] = useState<Set<string>>(new Set())
   const [billNotes, setBillNotes]               = useState('')
+  const [billVendorInvoiceNo, setBillVendorInvoiceNo] = useState('')
+  const [billInvoiceDate, setBillInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [pdfBusyId, setPdfBusyId]               = useState('')
 
   // Vendor prices
@@ -260,8 +264,11 @@ export default function ChallansPage() {
       const full = unwrapRecord(r.data, ['challan']) || {}
       setReceivingChallan(full)
       const qtys: Record<string,number> = {}
+      const unitIds: Record<string,string[]> = {}
       full.challanItems?.forEach((i: any) => { qtys[i.id] = i.receivedQty || 0 })
+      full.challanItems?.forEach((i: any) => { unitIds[i.id] = (i.garmentUnits || []).filter((movement: any) => movement.status === 'RECEIVED').map((movement: any) => movement.garmentUnitId) })
       setReceivedQtys(qtys)
+      setReceivedUnitIds(unitIds)
       setShowReceive(true)
     } catch (e: any) {
       toast.error(e.message || 'Failed to load challan details')
@@ -273,7 +280,8 @@ export default function ChallansPage() {
     try {
       const items = receivingChallan.challanItems?.map((i: any) => ({
         id: i.id,
-        receivedQty: receivedQtys[i.id] || 0,
+        receivedQty: (i.garmentUnits || []).length ? (receivedUnitIds[i.id] || []).length : receivedQtys[i.id] || 0,
+        garmentUnitIds: (i.garmentUnits || []).length ? receivedUnitIds[i.id] || [] : undefined,
         totalQty: i.quantity
       })) || []
       const r = await challanAPI.receiveItems(receivingChallan.id, items)
@@ -290,23 +298,44 @@ export default function ChallansPage() {
       const r = await vendorBillAPI.create({
         plant: billPlant,
         challanIds: Array.from(selectedChallans),
-        notes: billNotes
+        notes: billNotes,
+        vendorInvoiceNo: billVendorInvoiceNo || undefined,
+        invoiceDate: billInvoiceDate,
       })
       toast.success(`Bill ${r.data.billNo} created`)
       setShowCreateBill(false)
       setSelectedChallans(new Set())
       setBillNotes('')
+      setBillVendorInvoiceNo('')
       loadAll()
     } catch (e: any) { toast.error(e.message || 'Failed') }
   }
 
-  const markBillPaid = async (id: string) => {
+  const approveBill = async (id: string) => {
     try {
-      await vendorBillAPI.pay(id)
-      toast.success('Bill marked as paid')
+      await vendorBillAPI.approve(id)
+      toast.success('Vendor bill approved')
       loadAll()
     } catch (e: any) {
-      toast.error(e.message || 'Failed to mark bill as paid')
+      toast.error(e.message || 'Failed to approve vendor bill')
+    }
+  }
+
+  const postBillPayment = async (bill: any) => {
+    const balance = Math.max(0, Number(bill.totalAmount) - Number(bill.paidAmount || 0))
+    const rawAmount = window.prompt(`Outstanding ${fmt(balance)}. Enter payment amount:`, String(balance))
+    if (rawAmount === null) return
+    const amount = Number(rawAmount)
+    if (!(amount > 0) || amount > balance) { toast.error('Enter an amount within the outstanding balance'); return }
+    const method = window.prompt('Payment method: CASH, UPI, BANK_TRANSFER, CHEQUE, CARD, or OTHER', 'BANK_TRANSFER')?.trim().toUpperCase()
+    if (!method) return
+    const reference = window.prompt('Bank/UPI/cheque reference (recommended):', '')
+    try {
+      await vendorBillAPI.pay(bill.id, { amount, method, reference: reference || undefined })
+      toast.success('Vendor payment posted and allocated')
+      loadAll()
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to post vendor payment')
     }
   }
 
@@ -478,9 +507,9 @@ export default function ChallansPage() {
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{badge(c.status)}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <button onClick={() => openReceive(c)} style={{ fontSize: 12, color: '#fff', background: '#166534', border: '1px solid #166534', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                            {c.status === 'RECEIVED' ? 'Edit Receipt' : 'Receive from Plant'}
-                          </button>
+                          {c.status !== 'RECEIVED' && <button onClick={() => openReceive(c)} style={{ fontSize: 12, color: '#fff', background: '#166534', border: '1px solid #166534', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                            Receive from Plant
+                          </button>}
                           <button
                             onClick={() => openPdf(`${API_BASE_URL}/challans/${c.id}/pdf`, `${c.challanNo}.pdf`, `challan:${c.id}`)}
                             disabled={pdfBusyId === `challan:${c.id}`}
@@ -513,12 +542,12 @@ export default function ChallansPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
             {plantPartners.map(({ value: plant, label }) => {
               const pb = vendorBills.filter((b: any) => b.plant === plant)
-              const pending = pb.filter((b: any) => b.status === 'PENDING').reduce((s: number, b: any) => s + b.totalAmount, 0)
+              const pending = pb.reduce((s: number, b: any) => s + Math.max(0, Number(b.totalAmount) - Number(b.paidAmount || 0)), 0)
               return (
                 <div key={plant} style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
                   <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 16, color: '#023c62', marginBottom: 12 }}>{label}</div>
                   <div style={{ display: 'flex', gap: 20 }}>
-                    <div><div style={{ fontSize: 11, color: '#9dafc8', marginBottom: 2 }}>PENDING</div><div style={{ fontWeight: 700, color: '#854d0e' }}>{fmt(pending)}</div></div>
+                    <div><div style={{ fontSize: 11, color: '#9dafc8', marginBottom: 2 }}>OUTSTANDING</div><div style={{ fontWeight: 700, color: '#854d0e' }}>{fmt(pending)}</div></div>
                     <div><div style={{ fontSize: 11, color: '#9dafc8', marginBottom: 2 }}>TOTAL BILLS</div><div style={{ fontWeight: 700 }}>{pb.length}</div></div>
                   </div>
                 </div>
@@ -529,7 +558,7 @@ export default function ChallansPage() {
             {!vendorBills.length ? <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8' }}>No vendor bills yet.</div> : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr style={{ background: '#f8fafc' }}>
-                  {['Bill No', 'Plant', 'Challans', 'Total Amount', 'Date', 'Status', ''].map(h => (
+                  {['Bill No', 'Plant', 'Challans', 'Total / Paid', 'Due Date', 'Status', ''].map(h => (
                     <th key={h} style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase' as const, letterSpacing: '0.07em', borderBottom: '1px solid #e8f0f7', background: '#f7f9fc' }}>{h}</th>
                   ))}
                 </tr></thead>
@@ -539,12 +568,13 @@ export default function ChallansPage() {
                       <td style={{ padding: '13px 18px', fontFamily: 'var(--crm-font-mono)', fontSize: 13.5, color: '#023c62', fontWeight: 700 }}>{b.billNo}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{b.plant}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{b.challans?.length || 0} challans</td>
-                      <td style={{ padding: '10px 16px', fontWeight: 700, color: '#991b1b' }}>{fmt(b.totalAmount)}</td>
-                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{new Date(b.createdAt).toLocaleDateString('en-IN')}</td>
+                      <td style={{ padding: '10px 16px', fontWeight: 700, color: '#991b1b' }}>{fmt(b.totalAmount)}<div style={{fontSize:10,color:'#166534'}}>Paid {fmt(b.paidAmount || 0)}</div></td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{b.dueDate ? new Date(b.dueDate).toLocaleDateString('en-IN') : '—'}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{badge(b.status)}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                         <div style={{ display: 'flex', gap: 8 }}>
-                          {b.status === 'PENDING' && <button onClick={() => markBillPaid(b.id)} style={{ fontSize: 12, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>Mark Paid</button>}
+                          {b.status === 'PENDING' && <button onClick={() => approveBill(b.id)} style={{ fontSize: 12, color: '#1e40af', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>Approve</button>}
+                          {['APPROVED', 'PARTIAL'].includes(b.status) && <button onClick={() => postBillPayment(b)} style={{ fontSize: 12, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>Post Payment</button>}
                           <button
                             onClick={() => openPdf(`${API_BASE_URL}/vendor-bills/${b.id}/pdf`, `${b.billNo}.pdf`, `bill:${b.id}`)}
                             disabled={pdfBusyId === `bill:${b.id}`}
@@ -757,7 +787,16 @@ export default function ChallansPage() {
                 ).map((item: any) => (
                   <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderBottom: '1px solid #f1f5f9' }}>
                     <div style={{ flex: 1, fontSize: 13 }}>{item.serviceName}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {(item.garmentUnits || []).length ? <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {item.garmentUnits.map((movement:any) => {
+                        const unitId = movement.garmentUnitId
+                        const checked = (receivedUnitIds[item.id] || []).includes(unitId)
+                        return <label key={unitId} style={{display:'flex',alignItems:'center',gap:4,border:`1px solid ${checked?'#86b4d2':'#dce8f0'}`,borderRadius:6,padding:'4px 6px',fontSize:9,fontFamily:'var(--crm-font-mono)',background:checked?'#eef7fc':'#fff',cursor:'pointer'}}>
+                          <input type="checkbox" checked={checked} disabled={movement.status === 'RECEIVED'} onChange={()=>setReceivedUnitIds(current=>{const values=current[item.id]||[];return {...current,[item.id]:checked?values.filter(id=>id!==unitId):[...values,unitId]}})}/>
+                          {movement.garmentUnit?.tagNumber || unitId}
+                        </label>
+                      })}
+                    </div> : <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 11, color: '#9dafc8' }}>Received:</span>
                       <input type="number" min="0" max={item.quantity}
                         value={receivedQtys[item.id] || 0}
@@ -766,7 +805,7 @@ export default function ChallansPage() {
                       <span style={{ fontSize: 11, color: '#9dafc8' }}>/ {item.quantity}</span>
                       {(receivedQtys[item.id] || 0) >= item.quantity && <span style={{ fontSize: 10, background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: 10, fontWeight: 600 }}>Full</span>}
                       {(receivedQtys[item.id] || 0) > 0 && (receivedQtys[item.id] || 0) < item.quantity && <span style={{ fontSize: 10, background: '#fff7ed', color: '#c2410c', padding: '2px 6px', borderRadius: 10, fontWeight: 600 }}>Partial</span>}
-                    </div>
+                    </div>}
                   </div>
                 ))}
               </div>
@@ -826,6 +865,18 @@ export default function ChallansPage() {
                 </span>
               </div>
             )}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Vendor Invoice No</label>
+                <input type="text" value={billVendorInvoiceNo} onChange={e => setBillVendorInvoiceNo(e.target.value)} placeholder="Vendor document reference"
+                  style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Invoice Date *</label>
+                <input type="date" value={billInvoiceDate} onChange={e => setBillInvoiceDate(e.target.value)}
+                  style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
+              </div>
+            </div>
             <div>
               <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Notes</label>
               <input type="text" value={billNotes} onChange={e => setBillNotes(e.target.value)} placeholder="e.g. March 2026 payment"

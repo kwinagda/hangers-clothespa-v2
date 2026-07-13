@@ -9,7 +9,9 @@
 const prisma = require('../config/database');
 const { success, badRequest, error, notFound } = require('../utils/response');
 const { walletAdjustmentSchema, walletApplySchema } = require('../validation/finance.schemas');
-const { deriveOrderPaymentState } = require('../utils/order-payment-state');
+const { creditWallet: creditWalletLedger, debitWallet: debitWalletLedger } = require('../services/wallet.service');
+const { PaymentRuleError, recordOrderSettlement } = require('../services/payment.service');
+const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // GET /api/v1/wallet/:customerId
@@ -61,22 +63,24 @@ const creditWallet = async (req, res) => {
     if (!customer) return notFound(res, 'Customer not found');
 
     const result = await prisma.$transaction(async (tx) => {
-      const txn = await tx.walletTransaction.create({
-        data: {
-          customerId,
-          amount,
-          type:    'CREDIT',
-          reason,
-          orderId: orderId || null,
-        }
+      const ledger = await creditWalletLedger(customerId, amount, reason, {
+        tx,
+        orderId,
+        actorId: req.staff?.id,
+        approvedById: req.staff?.id,
+        reasonCode: 'MANUAL_CREDIT',
+        idempotencyKey: req.idempotencyKey,
+        returnTransaction: true,
       });
-      const updated = await tx.customer.update({
-        where: { id: customerId },
-        data:  { walletBalance: { increment: amount } },
-        select: { walletBalance: true }
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'WALLET_CREDITED', resource: 'customer', resourceId: customerId,
+        description: `Wallet credited by Rs ${amount.toFixed(2)}`,
+        metadata: { transactionId: ledger.transaction.id, amount, reason, orderId: orderId || null, balanceAfter: ledger.balance },
+        ...getRequestMeta(req),
       });
-      return { txn, newBalance: updated.walletBalance };
-    });
+      return { txn: ledger.transaction, newBalance: ledger.balance };
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, result, `₹${amount} credited to wallet`);
   } catch (e) {
@@ -99,35 +103,29 @@ const deductWallet = async (req, res) => {
     if (!exists) return notFound(res, 'Customer not found');
 
     const result = await prisma.$transaction(async (tx) => {
-      const customer = await tx.customer.findUnique({
-        where: { id: customerId },
-        select: { walletBalance: true },
+      const ledger = await debitWalletLedger(customerId, amount, reason, {
+        tx,
+        orderId,
+        actorId: req.staff?.id,
+        approvedById: req.staff?.id,
+        reasonCode: 'MANUAL_DEBIT',
+        idempotencyKey: req.idempotencyKey,
+        returnTransaction: true,
       });
-      if (!customer) throw Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' });
-      if (Number(customer.walletBalance) < amount) {
-        throw Object.assign(new Error('INSUFFICIENT'), { code: 'INSUFFICIENT', balance: Number(customer.walletBalance) });
-      }
-      const txn = await tx.walletTransaction.create({
-        data: {
-          customerId,
-          amount,
-          type:    'DEBIT',
-          reason,
-          orderId: orderId || null,
-        },
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'WALLET_DEBITED', resource: 'customer', resourceId: customerId,
+        description: `Wallet debited by Rs ${amount.toFixed(2)}`,
+        metadata: { transactionId: ledger.transaction.id, amount, reason, orderId: orderId || null, balanceAfter: ledger.balance },
+        ...getRequestMeta(req),
       });
-      const updated = await tx.customer.update({
-        where: { id: customerId },
-        data:  { walletBalance: { decrement: amount } },
-        select: { walletBalance: true },
-      });
-      return { txn, newBalance: updated.walletBalance };
-    });
+      return { txn: ledger.transaction, newBalance: ledger.balance };
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, result, `₹${amount} deducted from wallet`);
   } catch (e) {
-    if (e.code === 'INSUFFICIENT') return badRequest(res, `Insufficient wallet balance. Current balance: ₹${e.balance}`);
-    if (e.code === 'NOT_FOUND') return notFound(res, 'Customer not found');
+    if (e.message === 'Insufficient wallet balance') return badRequest(res, e.message);
+    if (/Customer .* not found/.test(e.message || '')) return notFound(res, 'Customer not found');
     return error(res, 'Failed to deduct wallet balance');
   }
 };
@@ -141,58 +139,34 @@ const applyWalletToOrder = async (req, res) => {
     const { orderId, amount } = parsed.data;
 
     const result = await prisma.$transaction(async (tx) => {
-      const [customer, order] = await Promise.all([
-        tx.customer.findUnique({ where: { id: customerId }, select: { walletBalance: true } }),
-        tx.order.findFirst({
-          where: { id: orderId, ...ORDER_ONLY_WHERE },
-          include: { payments: { select: { amount: true, status: true } } },
-        }),
-      ]);
+      const order = await tx.order.findFirst({ where: { id: orderId, ...ORDER_ONLY_WHERE } });
+      if (!order) throw new PaymentRuleError('ORDER_NOT_FOUND', 'Order not found', 404);
+      if (order.customerId !== customerId) throw new PaymentRuleError('WRONG_CUSTOMER', 'Wallet can only be applied to an order owned by the same customer');
 
-      if (!customer) throw Object.assign(new Error('CUSTOMER_NOT_FOUND'), { code: 'CUSTOMER_NOT_FOUND' });
-      if (!order) throw Object.assign(new Error('ORDER_NOT_FOUND'), { code: 'ORDER_NOT_FOUND' });
-      if (order.customerId !== customerId) {
-        throw Object.assign(new Error('WRONG_CUSTOMER'), { code: 'WRONG_CUSTOMER' });
-      }
-
-      const paymentState = deriveOrderPaymentState(order);
-      const balanceDue = paymentState.balanceDue;
-      const applyAmount = Math.min(amount, Number(customer.walletBalance), balanceDue);
-      if (applyAmount <= 0) throw Object.assign(new Error('NOTHING_TO_APPLY'), { code: 'NOTHING_TO_APPLY' });
-
-      await tx.customer.update({
-        where: { id: customerId },
-        data:  { walletBalance: { decrement: applyAmount } },
+      const settlement = await recordOrderSettlement(tx, {
+        orderId,
+        walletAmount: amount,
+        staff: req.staff,
+        idempotencyKey: req.idempotencyKey,
       });
-
-      await tx.walletTransaction.create({
-        data: {
-          customerId,
-          amount:  applyAmount,
-          type:    'DEBIT',
-          reason:  `Applied to order ${order.id}`,
-          orderId,
-        },
+      const wallet = await tx.customer.findUnique({ where: { id: customerId }, select: { walletBalance: true } });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'WALLET_APPLIED_TO_ORDER', resource: 'order', resourceId: orderId,
+        description: `Rs ${amount.toFixed(2)} applied from wallet to ${order.orderNumber}`,
+        metadata: { customerId, amount, paymentIds: settlement.payments.map((payment) => payment.id), balanceAfter: wallet.walletBalance },
+        ...getRequestMeta(req),
       });
-
-      const newPaid = Number((paymentState.paidAmount + applyAmount).toFixed(2));
-      const updated = await tx.order.update({
-        where: { id: orderId },
-        data: {
-          paidAmount:    newPaid,
-          paymentStatus: newPaid + Number(order.writeOffAmount || 0) >= Number(order.totalAmount) ? 'PAID' : newPaid > 0 || Number(order.writeOffAmount || 0) > 0 ? 'PARTIAL' : 'UNPAID',
-        },
-      });
-
-      return { appliedAmount: applyAmount, newBalance: Number(customer.walletBalance) - applyAmount, order: updated };
-    });
+      return { appliedAmount: amount, newBalance: wallet.walletBalance, order: settlement.order };
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, result, `₹${result.appliedAmount} applied from wallet to order`);
   } catch (e) {
-    if (e.code === 'CUSTOMER_NOT_FOUND') return notFound(res, 'Customer not found');
-    if (e.code === 'ORDER_NOT_FOUND') return notFound(res, 'Order not found');
-    if (e.code === 'WRONG_CUSTOMER') return badRequest(res, 'Wallet can only be applied to orders belonging to the same customer');
-    if (e.code === 'NOTHING_TO_APPLY') return badRequest(res, 'Nothing to apply');
+    if (e instanceof PaymentRuleError) {
+      if (e.statusCode === 404) return notFound(res, e.message);
+      return badRequest(res, e.message);
+    }
+    if (e.message === 'Insufficient wallet balance') return badRequest(res, e.message);
     return error(res, 'Failed to apply wallet to order');
   }
 };

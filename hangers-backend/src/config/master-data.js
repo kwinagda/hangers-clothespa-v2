@@ -20,6 +20,32 @@ const ORDER_STATUS_LABELS = ORDER_STATUSES.reduce((acc, status) => {
   return acc;
 }, {});
 const PLANT_STATUS_KEYS = ORDER_STATUSES.filter((status) => status.plantManaged).map((status) => status.key);
+const ORDER_SOURCES = [
+  {
+    value: 'COUNTER',
+    label: 'Store / Counter',
+    initialStatus: 'PICKED_UP',
+    aliases: ['COUNTER', 'counter', 'walk-in', 'walk_in', 'walkin', 'store', 'in_store', 'CRM', 'crm'],
+  },
+  {
+    value: 'CUSTOMER_APP',
+    label: 'Customer App',
+    initialStatus: 'PENDING',
+    aliases: ['CUSTOMER_APP', 'customer_app', 'customer-app', 'app', 'mobile', 'online'],
+  },
+  {
+    value: 'STAFF_APP',
+    label: 'Staff App',
+    initialStatus: 'PENDING',
+    aliases: ['STAFF_APP', 'staff_app', 'staff-app', 'rider_app'],
+  },
+  {
+    value: 'FABKLEAN_IMPORT',
+    label: 'Fabklean Import',
+    initialStatus: 'PICKED_UP',
+    aliases: ['FABKLEAN_IMPORT', 'fabklean', 'fabklean_import'],
+  },
+];
 const ORDER_WORKFLOW = {
   sequence: ['PENDING', 'PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT', 'IRONING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED'],
   next: {
@@ -160,12 +186,16 @@ const ROLE_PERMISSIONS = {
     'orders.view', 'orders.create', 'orders.edit', 'orders.update_status',
     'orders.delete',
     'customers.view', 'customers.edit',
-    'pricing.view', 'pricing.edit', 'pricing.import',
-    'finance.view',
-    'reports.view',
+    'pricing.view', 'pricing.edit', 'pricing.import', 'pricing.override', 'pricing.discount', 'pricing.zero_value',
+    'finance.view', 'finance.collect_payment', 'finance.refund', 'finance.writeoff', 'finance.wallet_adjust', 'finance.reconcile',
+    'finance.expense_create', 'finance.expense_approve', 'finance.expense_void',
+    'finance.cash_manage',
+    'daily_iron.log', 'daily_iron.void', 'daily_iron.manage_billing',
+    'reports.view', 'ops.view',
     'staff.view',
-    'plant.view', 'plant.create_challan',
-    'delivery.view', 'delivery.assign',
+    'plant.view', 'plant.scan', 'plant.quality_check', 'plant.update_stage', 'plant.create_challan', 'plant.manage_rates', 'plant.receive', 'plant.process', 'plant.transfer', 'plant.manage_partners',
+    'finance.vendor_invoice', 'finance.vendor_payment',
+    'delivery.view', 'delivery.assign', 'delivery.execute',
     'whatsapp.send',
     'print.all',
   ],
@@ -174,6 +204,8 @@ const ROLE_PERMISSIONS = {
     'orders.view', 'orders.create', 'orders.update_status',
     'customers.view', 'customers.edit',
     'pricing.view',
+    'finance.collect_payment',
+    'daily_iron.log',
     'print.all',
     'plant.create_challan',
   ],
@@ -182,22 +214,28 @@ const ROLE_PERMISSIONS = {
     'orders.view',
     'customers.view',
     'pricing.view',
-    'finance.view', 'finance.edit',
-    'reports.view',
+    'finance.view', 'finance.edit', 'finance.collect_payment', 'finance.refund', 'finance.writeoff', 'finance.wallet_adjust', 'finance.reconcile',
+    'finance.expense_create',
+    'finance.cash_manage',
+    'daily_iron.manage_billing',
+    'finance.vendor_invoice', 'finance.vendor_payment',
+    'reports.view', 'ops.view',
   ],
   DELIVERY_MANAGER: [
     'dashboard.view',
     'orders.view', 'orders.update_status',
     'customers.view',
-    'delivery.view', 'delivery.assign', 'delivery.edit',
+    'delivery.view', 'delivery.assign', 'delivery.edit', 'delivery.execute',
     'reports.delivery',
   ],
   DELIVERY_RIDER: [
     'delivery.own_orders',
+    'delivery.execute',
+    'finance.collect_payment',
     'orders.update_status',
   ],
   PLANT_MANAGER: [
-    'plant.view', 'plant.edit', 'plant.update_stage', 'plant.create_challan',
+    'plant.view', 'plant.edit', 'plant.update_stage', 'plant.create_challan', 'plant.manage_rates', 'plant.receive', 'plant.process', 'plant.transfer',
     'plant.reports',
     'orders.view', 'orders.update_status',
     'staff.plant_view',
@@ -271,6 +309,50 @@ const PAYMENT_STATUSES = [
   { value: 'PAID', label: 'Paid', color: '#166534', bg: '#dcfce7' },
 ];
 
+const PAYMENT_TRANSACTION_STATUSES = [
+  { value: 'INITIATED', label: 'Initiated', countsAsCollection: false, final: false },
+  { value: 'PENDING', label: 'Pending', countsAsCollection: false, final: false, legacyOnly: true },
+  { value: 'CAPTURED', label: 'Captured', countsAsCollection: true, final: true },
+  { value: 'SUCCESS', label: 'Success', countsAsCollection: true, final: true, legacyOnly: true },
+  { value: 'FAILED', label: 'Failed', countsAsCollection: false, final: true },
+  { value: 'VOIDED', label: 'Voided', countsAsCollection: false, final: true },
+  { value: 'REFUNDED', label: 'Refunded', countsAsCollection: false, final: true },
+];
+
+const LAUNCH_CAPABILITIES = {
+  campaigns: {
+    label: 'Campaigns',
+    enabled: false,
+    reason: 'Disabled until provider-backed queued campaign delivery, audience snapshots, consent checks, and delivery ledger are implemented.',
+    capabilities: {
+      read: true,
+      create: false,
+      send: false,
+    },
+  },
+  automations: {
+    label: 'Automations',
+    enabled: false,
+    reason: 'Disabled until an event-driven automation engine, idempotent execution, scheduling, audit, and execution history are implemented.',
+    capabilities: {
+      read: true,
+      create: false,
+      update: false,
+      toggle: false,
+    },
+  },
+  recurringPickups: {
+    label: 'Recurring Pickups',
+    enabled: false,
+    reason: 'Disabled until next-pickup calculation, scheduler, exception calendar, capacity rules, generated-order link, and idempotency are implemented.',
+    capabilities: {
+      read: true,
+      create: false,
+      toggle: false,
+    },
+  },
+};
+
 const DOCUMENT_TYPES = [
   { value: 'ORDER', label: 'Order' },
   { value: 'QUOTATION', label: 'Quotation' },
@@ -280,6 +362,7 @@ const QUOTATION_STATUSES = [
   { value: 'DRAFT', label: 'Draft', color: '#5b21b6', bg: '#f5f3ff' },
   { value: 'SENT', label: 'Sent', color: '#1d4ed8', bg: '#eff6ff' },
   { value: 'APPROVED', label: 'Approved', color: '#166534', bg: '#dcfce7' },
+  { value: 'REJECTED', label: 'Rejected', color: '#9f1239', bg: '#fff1f2' },
   { value: 'EXPIRED', label: 'Expired', color: '#991b1b', bg: '#fee2e2' },
   { value: 'CONVERTED', label: 'Converted', color: '#0f766e', bg: '#f0fdfa' },
 ];
@@ -307,7 +390,7 @@ const LANGUAGE_CODES = {
 };
 
 const IRON_SUBSCRIPTION_STATUSES = ['PENDING_REVIEW', 'ACTIVE', 'PAUSED', 'CANCELLED'];
-const ACTIVE_IRON_SUB_STATUSES = ['ACTIVE', 'PAUSED'];
+const ACTIVE_IRON_SUB_STATUSES = ['ACTIVE'];
 const LOCKED_BILL_STATUSES = ['SENT', 'PAID', 'PARTIAL'];
 const IRON_SUBSCRIPTION_STATUS_META = [
   { value: 'PENDING_REVIEW', label: 'Application Under Review', shortLabel: 'Pending Review', bg: '#fef3c7', text: '#92400e' },
@@ -455,6 +538,10 @@ const WHATSAPP_TEMPLATES = {
     templateName: 'hangers_crm_payment_received',
     params: ['customerName', 'paymentAmount', 'orderNumber', 'paymentMethod', 'balanceDue'],
   },
+  orderUpdated: {
+    templateName: 'hangers_crm_order_updated',
+    params: ['customerName', 'orderNumber', 'updatedTotalAmount', 'balanceDue'],
+  },
   dailyIron: {
     logButtonIndex: '0',
     logUpdated: {
@@ -487,16 +574,19 @@ module.exports = {
   LANGUAGES,
   LANGUAGE_CODES,
   LANGUAGE_VALUES,
+  LAUNCH_CAPABILITIES,
   LOCKED_BILL_STATUSES,
   MARKETING_AUDIENCES,
   MARKETING_TRIGGERS,
   ORDER_STATUSES,
+  ORDER_SOURCES,
   ORDER_WORKFLOW,
   ORDER_STATUS_KEYS,
   ORDER_STATUS_LABELS,
   PAYMENT_METHODS,
   PAYMENT_METHOD_VALUES,
   PAYMENT_STATUSES,
+  PAYMENT_TRANSACTION_STATUSES,
   PLANT_PIN_ROLES,
   PLANT_ISSUE_TYPES,
   PLANT_STATUS_KEYS,

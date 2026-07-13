@@ -9,6 +9,7 @@ const prisma  = require('../config/database');
 const { generateStaffToken, getTokenExpiry } = require('../services/jwt.service');
 const { log, getRequestMeta }                = require('../services/activity.service');
 const { clearAuthThrottle, getAuthThrottleBlock, registerAuthThrottleFailure } = require('../services/authThrottle.service');
+const { buildStaffSessionData, createSessionId } = require('../services/sessionToken.service');
 const { success, badRequest, error, unauthorized } = require('../utils/response');
 const { DELIVERY_PIN_ROLES, PLANT_PIN_ROLES } = require('../config/master-data');
 const { buildStaffAccessContext } = require('../services/accessControl.service');
@@ -100,17 +101,12 @@ const pinLoginController = async (req, res) => {
       return unauthorized(res, 'PIN login is only available for Plant and Delivery staff. Use email + password.');
     }
 
-    const token  = generateStaffToken(staff, STAFF_PIN_EXPIRES_IN);
+    const sessionId = createSessionId();
+    const token  = generateStaffToken({ ...staff, jti: sessionId }, STAFF_PIN_EXPIRES_IN);
     const expiry = getTokenExpiry(STAFF_PIN_EXPIRES_IN);
 
     await prisma.staffSession.create({
-      data: {
-        staffId:    staff.id,
-        token,
-        deviceInfo: req.headers['user-agent'] || 'Staff App',
-        ipAddress:  req.ip || null,
-        expiresAt:  expiry,
-      },
+      data: buildStaffSessionData({ staffId: staff.id, token, sessionId, req, expiresAt: expiry }),
     });
 
     await prisma.staff.update({

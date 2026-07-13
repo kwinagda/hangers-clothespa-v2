@@ -12,6 +12,18 @@ const buildLimiter = (windowMs, max, message) =>
     },
   });
 
+const globalApiLimiter = buildLimiter(
+  15 * 60 * 1000,
+  1200,
+  'Too many requests. Please slow down and try again later.'
+);
+
+const publicShareLimiter = buildLimiter(
+  10 * 60 * 1000,
+  60,
+  'Too many public link requests. Please wait a few minutes and try again.'
+);
+
 const otpSendLimiter = buildLimiter(
   10 * 60 * 1000,
   5,
@@ -49,6 +61,9 @@ const deliveryOtpVerifyLimiter = buildLimiter(
 );
 
 module.exports = {
+  buildLimiter,
+  globalApiLimiter,
+  publicShareLimiter,
   otpSendLimiter,
   otpVerifyLimiter,
   staffLoginLimiter,

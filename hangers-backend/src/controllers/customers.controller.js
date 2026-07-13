@@ -7,6 +7,7 @@ const { success, error, notFound, badRequest } = require('../utils/response');
 const { ADDRESS_LABELS, CUSTOMER_TAGS, DEFAULT_LANGUAGE, LANGUAGE_VALUES } = require('../config/master-data');
 const { getReferralProgramSettings, REFERRAL_STATUS } = require('../services/referral.service');
 const { deriveOrderPaymentState, withDerivedPaymentState } = require('../utils/order-payment-state');
+const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 
 const VALID_ADDRESS_LABELS = new Set(ADDRESS_LABELS.map((label) => label.value));
 const VALID_CUSTOMER_TAGS = new Set(CUSTOMER_TAGS.map((tag) => tag.value));
@@ -141,10 +142,24 @@ const getCustomer = async (req, res) => {
     });
     if (!customer) return notFound(res, 'Customer not found');
 
-    // Calculate lifetime value
-    const ltv = await prisma.order.aggregate({
-      where: { customerId: customer.id, documentType: 'ORDER', status: 'DELIVERED' },
-      _sum:  { totalAmount: true },
+    const customerInvoices = await prisma.invoice.findMany({
+      where: { customerId: customer.id, status: { not: 'VOID' } },
+      include: {
+        order: {
+          select: {
+            financialAdjustments: {
+              where: { kind: 'WRITE_OFF', status: 'POSTED' },
+              select: { amount: true },
+            },
+          },
+        },
+      },
+    });
+    const referralAggregates = await prisma.referral.groupBy({
+      by: ['status'],
+      where: { referrerId: customer.id },
+      _count: { _all: true },
+      _sum: { creditAwarded: true },
     });
 
     const paymentEvents = await prisma.payment.findMany({
@@ -177,14 +192,15 @@ const getCustomer = async (req, res) => {
     });
 
     const referralProgram = await getReferralProgramSettings(prisma);
-    const rewardedReferrals = customer.referralsMade.filter((referral) => referral.status === REFERRAL_STATUS.REWARDED);
-    const pendingReferrals = customer.referralsMade.filter((referral) => referral.status === REFERRAL_STATUS.PENDING);
+    const referralByStatus = new Map(referralAggregates.map((entry) => [entry.status, entry]));
+    const rewardedAggregate = referralByStatus.get(REFERRAL_STATUS.REWARDED);
+    const pendingAggregate = referralByStatus.get(REFERRAL_STATUS.PENDING);
     const referralSummary = {
       referralCode: customer.referralCode || null,
       referredBy: customer.referrer || null,
-      referredCount: rewardedReferrals.length,
-      pendingCount: pendingReferrals.length,
-      totalEarned: rewardedReferrals.reduce((sum, referral) => sum + Number(referral.creditAwarded || 0), 0),
+      referredCount: rewardedAggregate?._count?._all || 0,
+      pendingCount: pendingAggregate?._count?._all || 0,
+      totalEarned: Number(rewardedAggregate?._sum?.creditAwarded || 0),
       program: referralProgram,
       recentReferrals: customer.referralsMade.map((referral) => ({
         id: referral.id,
@@ -206,7 +222,7 @@ const getCustomer = async (req, res) => {
     };
     const paymentSummary = {
       totalEvents: paymentEvents.length,
-      totalRecorded: paymentEvents.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+      totalRecorded: paymentEvents.reduce((sum, payment) => sum + (payment.kind === 'REFUND' ? -Number(payment.amount || 0) : Number(payment.amount || 0)), 0),
       onlineEvents: paymentEvents.filter((payment) => payment.method === 'RAZORPAY').length,
       lastPaymentAt: paymentEvents[0]?.createdAt || null,
     };
@@ -216,7 +232,16 @@ const getCustomer = async (req, res) => {
         ...customer,
         orders: customer.orders.map(withDerivedPaymentState),
       },
-      lifetimeValue: ltv._sum.totalAmount || 0,
+      lifetimeValue: customerInvoices.reduce((sum, invoice) => {
+        const writeOff = (invoice.order?.financialAdjustments || []).reduce((value, adjustment) => value + Number(adjustment.amount || 0), 0);
+        return sum + Number(invoice.totalAmount || 0) - writeOff;
+      }, 0),
+      financialSummary: {
+        grossInvoiced: customerInvoices.reduce((sum, invoice) => sum + Number(invoice.totalAmount || 0), 0),
+        collected: customerInvoices.reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0),
+        outstanding: customerInvoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0),
+        invoices: customerInvoices.length,
+      },
       referralSummary,
       notificationSummary,
       paymentSummary,
@@ -406,23 +431,32 @@ const addCustomerAddress = async (req, res) => {
       return badRequest(res, 'Invalid address coordinates');
     }
 
-    const existingCount = await prisma.address.count({ where: { customerId: customer.id } });
-    const makeDefault = req.body.setAsDefault === true || existingCount === 0;
-
-    if (makeDefault) {
-      await prisma.address.updateMany({
-        where: { customerId: customer.id, isDefault: true },
-        data: { isDefault: false },
+    const address = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM customers WHERE "id" = ${customer.id} FOR UPDATE`;
+      const existingCount = await tx.address.count({ where: { customerId: customer.id } });
+      const makeDefault = req.body.setAsDefault === true || existingCount === 0;
+      if (makeDefault) {
+        await tx.address.updateMany({
+          where: { customerId: customer.id, isDefault: true },
+          data: { isDefault: false },
+        });
+      }
+      const createdAddress = await tx.address.create({
+        data: {
+          customerId: customer.id,
+          ...payload,
+          isDefault: makeDefault,
+        },
       });
-    }
-
-    const address = await prisma.address.create({
-      data: {
-        customerId: customer.id,
-        ...payload,
-        isDefault: makeDefault,
-      },
-    });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'CUSTOMER_ADDRESS_ADDED', resource: 'customer', resourceId: customer.id,
+        description: `${payload.label} address added${makeDefault ? ' and made default' : ''}`,
+        metadata: { addressId: createdAddress.id, label: payload.label, isDefault: makeDefault },
+        ...getRequestMeta(req),
+      });
+      return createdAddress;
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, { address }, 'Address saved', 201);
   } catch (err) {
@@ -435,7 +469,7 @@ const getCustomerStats = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [orders, payments] = await Promise.all([
+    const [orders, payments, invoices] = await Promise.all([
       prisma.order.findMany({
         where: { customerId: id, ...ORDER_ONLY_WHERE },
         include: {
@@ -444,17 +478,20 @@ const getCustomerStats = async (req, res) => {
       }),
       prisma.payment.findMany({
         where: { customerId: id },
-        select: { amount: true, createdAt: true }
-      })
+        select: { amount: true, kind: true, createdAt: true }
+      }),
+      prisma.invoice.findMany({
+        where: { customerId: id, status: { not: 'VOID' } },
+        select: { totalAmount: true, paidAmount: true, balanceDue: true },
+      }),
     ]);
 
     const totalOrders    = orders.length;
-    const totalSpend     = payments.reduce((s, p) => s + p.amount, 0);
-    const avgOrderValue  = totalOrders > 0 ? totalSpend / totalOrders : 0;
+    const totalSpend     = payments.reduce((sum, payment) => sum + (payment.kind === 'REFUND' ? -Number(payment.amount || 0) : Number(payment.amount || 0)), 0);
+    const grossInvoiced  = invoices.reduce((sum, invoice) => sum + Number(invoice.totalAmount || 0), 0);
+    const avgOrderValue  = totalOrders > 0 ? grossInvoiced / totalOrders : 0;
     const lastOrder      = orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
-    const outstanding    = orders
-      .map(deriveOrderPaymentState)
-      .reduce((s, paymentState) => s + paymentState.balanceDue, 0);
+    const outstanding    = invoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
     const completedOrders = orders.filter(o => o.status === 'DELIVERED').length;
 
     const customer = await prisma.customer.findUnique({
@@ -467,6 +504,7 @@ const getCustomerStats = async (req, res) => {
       data: {
         totalOrders,
         totalSpend,
+        grossInvoiced,
         avgOrderValue,
         outstanding,
         completedOrders,

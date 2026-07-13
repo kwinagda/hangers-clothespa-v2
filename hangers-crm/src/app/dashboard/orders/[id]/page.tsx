@@ -16,6 +16,7 @@ import { AlertTriangle, Bike, CalendarRange, ClipboardList, Clock3, IndianRupee,
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const getStatusLabel = (status: string, source?: string, labels: Record<string, string> = {}) => {
+  if (status === 'ORDER_EDITED') return 'Order Updated'
   if (status === 'FABKLEAN_ORDER_CREATED') return 'Order Created'
   if (status === 'PICKED_UP' && (source === 'counter' || source === 'COUNTER' || source === 'walk-in')) return 'Received'
   return labels[status] || status
@@ -37,6 +38,7 @@ const getTimelineNote = (notes?: string | null) => {
 
   const trimmed = String(notes).trim()
   if (!trimmed) return ''
+  if (trimmed.startsWith('[ORDER_EDIT]')) return trimmed.replace('[ORDER_EDIT]', 'Order edited:').trim()
 
   try {
     const parsed = JSON.parse(trimmed)
@@ -72,7 +74,16 @@ const ORDER_TONE = {
   violet: { color: '#5b2fb0', soft: '#f0ebff', border: '#dfd3fb' },
 } as const
 
-interface CartItem { category: string; name: string; qty: number; price: number }
+interface CartItem {
+  lineKey: string
+  serviceId?: string | null
+  category: string
+  name: string
+  qty: number
+  price: number
+  basePrice?: number
+  notes?: string | null
+}
 
 function OrderShellCard({
   title,
@@ -200,6 +211,11 @@ const renderStageNote = (note?: string | null) => {
   )
 }
 
+const getTimelineTitle = (stage: string, note: string, statusLabel: (status: string) => string) => {
+  if (stage === 'ORDER_EDITED' || String(note || '').trim().startsWith('[ORDER_EDIT]')) return 'Order Updated'
+  return statusLabel(stage)
+}
+
 const hasCorrectionAuthority = (staff: any) => {
   const perms = staff?.effectivePermissions || staff?.permissions || []
   return staff?.role === 'SUPER_ADMIN' || staff?.role === 'MANAGER' || perms.includes('*') || perms.includes('orders.edit')
@@ -232,25 +248,38 @@ const getStatusChoices = (
   return Array.from(next)
 }
 
-// ── Inline Add Items Panel ────────────────────────────────────────────────────
-function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; currentTotal: number; onAdded: () => void }) {
-  const [catalog,    setCatalog]    = useState<Record<string, { name: string; price: number }[]>>({})
+// ── Inline Edit Order Panel ──────────────────────────────────────────────────
+function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: any; mode?: 'edit' | 'add'; onSaved: () => void; onCancel?: () => void }) {
+  const orderId = order.id
+  const [catalog,    setCatalog]    = useState<Record<string, { id?: string; name: string; price: number }[]>>({})
   const [categories, setCategories] = useState<string[]>([])
   const [activeCat,  setActiveCat]  = useState('')
   const [search,     setSearch]     = useState('')
-  const [cart,       setCart]       = useState<CartItem[]>([])
-  const [discount,   setDiscount]   = useState(0)
+  const [cart,       setCart]       = useState<CartItem[]>(() => (order.items || []).map((item: any) => ({
+    lineKey: item.id || `${item.serviceName}-${item.garmentType}-${Math.random()}`,
+    serviceId: item.serviceId || null,
+    category: item.garmentType || 'Uncategorised',
+    name: item.serviceName,
+    qty: Number(item.quantity || 1),
+    price: Number(item.unitPrice || 0),
+    basePrice: Number(item.baseUnitPrice ?? item.unitPrice ?? 0),
+    notes: item.notes || null,
+  })))
+  const [discount,   setDiscount]   = useState(Number(order.discount || 0))
+  const [deliveryDate, setDeliveryDate] = useState(order.deliveryDate ? String(order.deliveryDate).slice(0, 10) : '')
+  const [notes, setNotes] = useState(order.notes || '')
+  const [reason, setReason] = useState(mode === 'add' ? 'Garments logged after pickup' : '')
   const [saving,     setSaving]     = useState(false)
   const [loadingCat, setLoadingCat] = useState(true)
 
   useEffect(() => {
     servicesAPI.getCatalog()
       .then((res: any) => {
-        const map: Record<string, { name: string; price: number }[]> = {}
+        const map: Record<string, { id?: string; name: string; price: number }[]> = {}
         const items = Array.isArray(res) ? res : (res.catalog ? res.catalog.flatMap((c: any) => c.items.map((i: any) => ({...i, category: c.category}))) : []);
         items.forEach((item: any) => {
           if (!map[item.category]) map[item.category] = [];
-          map[item.category].push({ name: item.name, price: item.basePrice || item.price || 0 });
+          map[item.category].push({ id: item.id, name: item.name, price: item.basePrice || item.price || 0 });
         });
         if (false) {
         } setCatalog(map)
@@ -262,11 +291,11 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
       .finally(() => setLoadingCat(false))
   }, [])
 
-  const addToCart = (cat: string, name: string, price: number) => {
+  const addToCart = (cat: string, item: { id?: string; name: string; price: number }) => {
     setCart(prev => {
-      const idx = prev.findIndex(i => i.category === cat && i.name === name)
+      const idx = prev.findIndex(i => i.category === cat && i.name === item.name)
       if (idx >= 0) { const n=[...prev]; n[idx]={...n[idx],qty:n[idx].qty+1}; return n }
-      return [...prev, { category:cat, name, qty:1, price }]
+      return [...prev, { lineKey:`new-${Date.now()}-${Math.random()}`, serviceId:item.id || null, category:cat, name:item.name, qty:1, price:item.price, basePrice:item.price }]
     })
   }
   const updateQty = (idx: number, delta: number) => {
@@ -276,6 +305,14 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
       n[idx]={...n[idx],qty:nq}; return n
     })
   }
+  const updatePrice = (idx: number, price: number) => {
+    setCart(prev => {
+      const n = [...prev]
+      n[idx] = { ...n[idx], price: Math.max(0, price || 0) }
+      return n
+    })
+  }
+  const removeLine = (idx: number) => setCart(prev => prev.filter((_, i) => i !== idx))
 
   const cartSubtotal = cart.reduce((s,i)=>s+i.qty*i.price, 0)
   const cartTotal    = Math.max(0, cartSubtotal - discount)
@@ -284,17 +321,31 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
 
   const save = async () => {
     if (!cart.length) { toast.error('Add at least one item'); return }
+    if (!reason.trim() || reason.trim().length < 3) { toast.error('Reason is required for order edits'); return }
     setSaving(true)
     try {
-      await ordersAPI.addItems(orderId, {
-        items: cart.map(i => ({ serviceName:i.name, garmentType:i.category, quantity:i.qty, unitPrice:i.price, subtotal:i.qty*i.price })),
+      await ordersAPI.update(orderId, {
+        version: Number(order.version || 1),
+        items: cart.map(i => ({
+          id: i.lineKey.startsWith('new-') ? undefined : i.lineKey,
+          serviceId: i.serviceId || undefined,
+          serviceName:i.name,
+          garmentType:i.category,
+          quantity:i.qty,
+          unitPrice:i.price,
+          baseUnitPrice:i.basePrice ?? i.price,
+          notes:i.notes || undefined,
+        })),
         discount,
+        deliveryDate: deliveryDate || null,
+        notes,
+        reason: reason.trim(),
+        commercialReason: reason.trim(),
       })
-      toast.success(`${totalItems} garment${totalItems!==1?'s':''} added to order!`)
-      setCart([]); setDiscount(0)
-      onAdded()
+      toast.success('Order updated')
+      onSaved()
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to add items')
+      toast.error(e?.message || 'Failed to update order')
     } finally { setSaving(false) }
   }
 
@@ -308,8 +359,8 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
     <div style={{background:'#fff',borderRadius:20,border:'1.5px solid #023c62',overflow:'hidden',boxShadow:'0 4px 20px rgba(2,60,98,0.12)'}}>
       <div style={{background:'linear-gradient(135deg,#023c62,#035a8f)',padding:'16px 24px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
         <div>
-          <div style={{color:'#fff',fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:16}}>＋ Add Garment Items</div>
-          <div style={{color:'rgba(184,208,232,0.7)',fontSize:12,marginTop:2}}>Select garments collected during pickup</div>
+          <div style={{color:'#fff',fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:16}}>{mode === 'add' ? '＋ Add Garment Items' : 'Edit Order Items & Pricing'}</div>
+          <div style={{color:'rgba(184,208,232,0.7)',fontSize:12,marginTop:2}}>{mode === 'add' ? 'Select garments collected during pickup' : 'Correct wrong items, quantities, pricing, discount, notes, and delivery date'}</div>
         </div>
         {cart.length > 0 && (
           <div style={{background:'rgba(255,255,255,0.15)',borderRadius:20,padding:'4px 14px',color:'#fff',fontSize:13,fontWeight:700}}>
@@ -351,7 +402,7 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
                       style={{width:28,height:28,borderRadius:7,background:'#023c62',border:'none',color:'#fff',fontWeight:700,cursor:'pointer',fontSize:16,lineHeight:'1'}}>+</button>
                   </div>
                 ) : (
-                  <button onClick={()=>addToCart(activeCat,item.name,item.price)}
+                    <button onClick={()=>addToCart(activeCat,item)}
                     style={{background:'#f0f5fa',border:'1.5px solid #023c62',borderRadius:8,padding:'5px 14px',color:'#023c62',fontWeight:700,cursor:'pointer',fontSize:12}}>
                     + Add
                   </button>
@@ -367,13 +418,38 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
               Cart — {totalItems} garment{totalItems!==1?'s':''}
             </div>
             {cart.map((it,i)=>(
-              <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:13,padding:'4px 0',borderBottom:'1px solid #e8f0f7'}}>
-                <span style={{color:'#6b7fa3'}}>{it.name} <span style={{fontSize:11}}>({it.category})</span></span>
-                <span style={{fontWeight:600}}>
-                  {it.price===0 ? `×${it.qty} = TBD` : `×${it.qty} = ₹${it.qty*it.price}`}
-                </span>
+              <div key={it.lineKey} style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto auto auto',gap:10,alignItems:'center',fontSize:13,padding:'8px 0',borderBottom:'1px solid #e8f0f7'}}>
+                <div style={{minWidth:0}}>
+                  <div style={{color:'#142033',fontWeight:700,overflowWrap:'anywhere'}}>{it.name}</div>
+                  <div style={{fontSize:11,color:'#6b7fa3'}}>{it.category}</div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <button onClick={()=>updateQty(i,-1)} style={{width:26,height:26,borderRadius:7,background:'#edf3f8',border:'1px solid #dce8f0',color:'#023c62',fontWeight:800,cursor:'pointer'}}>−</button>
+                  <span style={{minWidth:18,textAlign:'center',fontWeight:800,color:'#023c62'}}>{it.qty}</span>
+                  <button onClick={()=>updateQty(i,+1)} style={{width:26,height:26,borderRadius:7,background:'#edf3f8',border:'1px solid #dce8f0',color:'#023c62',fontWeight:800,cursor:'pointer'}}>+</button>
+                </div>
+                <input type="number" min={0} value={it.price} onChange={e=>updatePrice(i, Number(e.target.value)||0)}
+                  style={{width:82,border:'1.5px solid #dce8f0',borderRadius:8,padding:'6px 8px',fontSize:13,textAlign:'right',outline:'none'}}/>
+                <button onClick={()=>removeLine(i)} style={{border:'1px solid #f3c7bf',background:'#fff',color:'#c0392b',borderRadius:8,padding:'6px 9px',fontWeight:700,cursor:'pointer'}}>Remove</button>
               </div>
             ))}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:12}}>
+              <label style={{fontSize:12,color:'#6b7fa3',fontWeight:700}}>
+                Delivery date
+                <input type="date" value={deliveryDate} onChange={e=>setDeliveryDate(e.target.value)}
+                  style={{display:'block',width:'100%',marginTop:5,border:'1.5px solid #dce8f0',borderRadius:8,padding:'7px 8px',fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              </label>
+              <label style={{fontSize:12,color:'#6b7fa3',fontWeight:700}}>
+                Edit reason
+                <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Required"
+                  style={{display:'block',width:'100%',marginTop:5,border:'1.5px solid #dce8f0',borderRadius:8,padding:'7px 8px',fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              </label>
+            </div>
+            <label style={{display:'block',fontSize:12,color:'#6b7fa3',fontWeight:700,marginTop:10}}>
+              Order notes
+              <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={2}
+                style={{display:'block',width:'100%',marginTop:5,border:'1.5px solid #dce8f0',borderRadius:8,padding:'7px 8px',fontSize:13,outline:'none',resize:'vertical',boxSizing:'border-box'}}/>
+            </label>
             <div style={{display:'flex',alignItems:'center',gap:10,marginTop:10}}>
               <label style={{fontSize:12,color:'#6b7fa3',flexShrink:0}}>Discount (₹)</label>
               <input type="number" value={discount} onChange={e=>setDiscount(Number(e.target.value)||0)} min={0}
@@ -381,12 +457,20 @@ function AddItemsPanel({ orderId, currentTotal, onAdded }: { orderId: string; cu
             </div>
             <div style={{marginTop:10,display:'flex',justifyContent:'space-between',fontWeight:700,color:'#023c62',fontSize:15}}>
               <span>Order Total</span>
-              <span>₹{(currentTotal + cartTotal).toLocaleString('en-IN')}</span>
+              <span>₹{cartTotal.toLocaleString('en-IN')}</span>
             </div>
-            <button onClick={save} disabled={saving}
-              style={{width:'100%',marginTop:12,background:'#023c62',color:'#fff',border:'none',borderRadius:12,padding:'13px',fontWeight:700,cursor:'pointer',fontSize:14,fontFamily:"var(--crm-font-ui)"}}>
-              {saving ? 'Saving…' : `Save ${totalItems} Item${totalItems!==1?'s':''} to Order`}
-            </button>
+            <div style={{display:'flex',gap:10,marginTop:12}}>
+              {onCancel && (
+                <button onClick={onCancel} disabled={saving}
+                  style={{flex:1,background:'#fff',color:'#51657f',border:'1.5px solid #dce8f0',borderRadius:12,padding:'13px',fontWeight:700,cursor:'pointer',fontSize:14}}>
+                  Cancel
+                </button>
+              )}
+              <button onClick={save} disabled={saving}
+                style={{flex:2,background:'#023c62',color:'#fff',border:'none',borderRadius:12,padding:'13px',fontWeight:700,cursor:'pointer',fontSize:14,fontFamily:"var(--crm-font-ui)"}}>
+                {saving ? 'Saving…' : `Save Order Update`}
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -412,6 +496,7 @@ export default function OrderDetailPage() {
   const [updating,         setUpdating]         = useState(false)
   const [timelineExpanded, setTimelineExpanded] = useState(false)
   const [showPaymentPanel, setShowPaymentPanel] = useState(false)
+  const [showEditPanel, setShowEditPanel] = useState(false)
   const [riders,           setRiders]           = useState<any[]>([])
   const [assigning,        setAssigning]        = useState(false)
   const leftColumnRef = useRef<HTMLDivElement>(null)
@@ -456,7 +541,7 @@ export default function OrderDetailPage() {
       observer.disconnect()
       window.removeEventListener('resize', updateHeight)
     }
-  }, [order, showPaymentPanel])
+  }, [order, showPaymentPanel, showEditPanel])
 
   useEffect(() => {
     authAPI.me().then((r:any) => setCurrentStaff(r?.staff || r?.data?.staff || null)).catch(() => setCurrentStaff(null))
@@ -511,7 +596,7 @@ export default function OrderDetailPage() {
     }
     setUpdating(true)
     try {
-      await ordersAPI.updateStatus(orderId, status)
+      await ordersAPI.updateStatus(orderId, status, undefined, Number(order.version || 1))
       await loadOrder()
       toast.success(`Status updated → ${statusLabel(status)}`)
     } catch (e: any) {
@@ -530,7 +615,7 @@ export default function OrderDetailPage() {
     }
     setUpdating(true)
     try {
-      await ordersAPI.updateStatus(orderId, statusModal.target, statusModal.reason.trim())
+      await ordersAPI.updateStatus(orderId, statusModal.target, statusModal.reason.trim(), Number(order.version || 1))
       await loadOrder()
       setStatusModal({ open: false, target: '', kind: 'forward', reason: '' })
       toast.success(`Status updated → ${statusLabel(statusModal.target)}`)
@@ -562,6 +647,9 @@ export default function OrderDetailPage() {
   const nextSt         = orderWorkflow.next[order.status]
   const nextBlocked    = Boolean(nextSt && !canProgress(nextSt))
   const showItemsPanel = !order.isReturn && !isLocked && !plantStatuses.includes(order.status) && noItems && statusChoices.some((status) => orderWorkflow.requiresItems.includes(status))
+  const canEditOrder = !order.isReturn && !isLocked && !plantStatuses.includes(order.status) && !['DELIVERED', 'CANCELLED', 'RETURNED'].includes(order.status) && hasCorrectionAuthority(currentStaff)
+  const currentPermissions = currentStaff?.effectivePermissions || currentStaff?.permissions || []
+  const canRefund = currentPermissions.includes('*') || currentPermissions.includes('finance.refund')
   const canAssignRider = orderWorkflow.riderAssignableStatuses.includes(order.status)
   const outstandingAmount = getOutstandingAmount(order)
   const totalPieces = order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0
@@ -628,7 +716,13 @@ export default function OrderDetailPage() {
         {/* LEFT COLUMN */}
         <div ref={leftColumnRef} style={{minWidth:0}}>
           {showItemsPanel && (
-            <AddItemsPanel orderId={order.id} currentTotal={order.totalAmount || 0} onAdded={loadOrder} />
+            <EditOrderPanel order={order} mode="add" onSaved={() => { setShowEditPanel(false); loadOrder() }} />
+          )}
+
+          {showEditPanel && !showItemsPanel && (
+            <div style={{ marginBottom: 20 }}>
+              <EditOrderPanel order={order} mode="edit" onSaved={() => { setShowEditPanel(false); loadOrder() }} onCancel={() => setShowEditPanel(false)} />
+            </div>
           )}
 
           {/* Customer panel */}
@@ -653,7 +747,15 @@ export default function OrderDetailPage() {
           <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,marginBottom:20}}>
             <div style={{padding:'16px 20px',borderBottom:'1px solid #edf3f8',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:15,color:'#023c62',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               {'Items'+(order.items?.length>0?' ('+order.items.length+')':'')}
-              {noItems && <span style={{fontSize:12,padding:'4px 10px',background:'#fff8e6',color:'#b45309',borderRadius:20,fontWeight:700}}>No items yet</span>}
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                {noItems && <span style={{fontSize:12,padding:'4px 10px',background:'#fff8e6',color:'#b45309',borderRadius:20,fontWeight:700}}>No items yet</span>}
+                {canEditOrder && !showItemsPanel && (
+                  <button onClick={() => setShowEditPanel((open) => !open)}
+                    style={{fontSize:12,padding:'6px 11px',background:showEditPanel?'#023c62':'#fff',color:showEditPanel?'#fff':'#023c62',border:'1.5px solid #dce8f0',borderRadius:9,fontWeight:800,cursor:'pointer'}}>
+                    {showEditPanel ? 'Close Edit' : 'Edit Order'}
+                  </button>
+                )}
+              </div>
             </div>
             {noItems ? (
               <div style={{padding:'28px 20px',textAlign:'center' as const,color:'#9dafc8',fontSize:13}}>No garments logged yet</div>
@@ -730,6 +832,12 @@ export default function OrderDetailPage() {
                   {showPaymentPanel ? 'Hide Payment Panel' : 'Record Payment'}
                 </button>
               )}
+              {canEditOrder && (
+                <button onClick={()=>setShowEditPanel(v=>!v)}
+                  style={{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',padding:11,borderRadius:9,fontSize:13.5,fontWeight:700,background:showEditPanel?'#023c62':'#fff',color:showEditPanel?'#fff':'#023c62',border:'1.5px solid #dce8f0',cursor:'pointer'}}>
+                  {showEditPanel ? 'Close Order Edit' : 'Edit Items / Pricing'}
+                </button>
+              )}
               <div style={{display:'flex',gap:8}}>
                 {order.customer?.phone && (
                   <a href={'https://wa.me/91'+order.customer.phone}
@@ -769,7 +877,7 @@ export default function OrderDetailPage() {
                       {i<arr.length-1&&<div style={{width:2,flex:1,background:'#e3edf6',margin:'3px 0'}}/>}
                     </div>
 	                  <div style={{minWidth:0,flex:1}}>
-	                    <div style={{fontSize:13,fontWeight:700,color:'#142033'}}>{statusLabel(st.stage)}</div>
+	                    <div style={{fontSize:13,fontWeight:700,color:'#142033'}}>{getTimelineTitle(st.stage, st.notes, statusLabel)}</div>
 	                    <div style={{fontSize:11.5,color:'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{format(new Date(st.createdAt),'d MMM, h:mm a')}{timelineNote ? ` · ${timelineNote}` : ''}</div>
                     </div>
                   </div>
@@ -780,7 +888,7 @@ export default function OrderDetailPage() {
 
           {/* Payment panel (toggled) */}
           {showPaymentPanel && (
-            <PaymentPanel orderId={order.id} customerId={order.customer?.id} totalAmount={order.totalAmount||0} paidAmount={order.paidAmount||0} paymentStatus={order.paymentStatus||'UNPAID'} writeOffAlreadyDone={order.writeOffAmount||0} onPaymentRecorded={loadOrder} />
+            <PaymentPanel orderId={order.id} customerId={order.customer?.id} totalAmount={order.totalAmount||0} paidAmount={order.paidAmount||0} paymentStatus={order.paymentStatus||'UNPAID'} writeOffAlreadyDone={order.writeOffAmount||0} payments={order.payments || []} canRefund={canRefund} onPaymentRecorded={loadOrder} />
           )}
 
           {/* Rider assignment */}

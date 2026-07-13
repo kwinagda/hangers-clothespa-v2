@@ -39,4 +39,16 @@ function isRedisAvailable() {
   return isAvailable;
 }
 
-module.exports = { getConnection, isRedisAvailable };
+async function closeConnection() {
+  if (!connection) return;
+  const active = connection;
+  connection = null;
+  isAvailable = false;
+  try {
+    await active.quit();
+  } catch {
+    active.disconnect();
+  }
+}
+
+module.exports = { getConnection, isRedisAvailable, closeConnection };

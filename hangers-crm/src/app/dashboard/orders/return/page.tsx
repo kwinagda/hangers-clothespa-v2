@@ -2,7 +2,7 @@
 import { ChangeEvent, Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CheckCircle2 } from 'lucide-react'
-import { metadataAPI, returnOrderAPI } from '@/lib/api'
+import { metadataAPI, ordersAPI, returnOrderAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 function ReturnOrderPageContent() {
   const router = useRouter()
@@ -14,6 +14,9 @@ function ReturnOrderPageContent() {
   const [loading,setLoading] = useState(false)
   const [error,setError] = useState('')
   const [success,setSuccess] = useState<any>(null)
+  const [sourceOrder,setSourceOrder] = useState<any>(null)
+  const [selectedQty,setSelectedQty] = useState<Record<string,number>>({})
+  const [selectedUnits,setSelectedUnits] = useState<Record<string,string[]>>({})
   const s = {fontFamily:"var(--crm-font-ui)"}
   useEffect(() => {
     metadataAPI.getAll().then((r:any) => {
@@ -25,14 +28,41 @@ function ReturnOrderPageContent() {
       toast.error(e.message || 'Failed to load return reasons')
     })
   }, [])
+  const loadSourceOrder = async () => {
+    if (!orderId.trim()) return
+    try {
+      const response:any = await ordersAPI.get(orderId.trim())
+      const next = response?.order || response?.data?.order || response?.data
+      setSourceOrder(next)
+      setSelectedQty(Object.fromEntries((next?.items || []).map((item:any) => [item.id, Number(item.quantity || 1)])))
+      setSelectedUnits(Object.fromEntries((next?.items || []).map((item:any) => [item.id, (item.garmentUnits || []).map((unit:any) => unit.id)])))
+      if (next?.status !== 'DELIVERED') setError('Only delivered orders can enter the return / re-clean workflow')
+      else setError('')
+    } catch (e:any) {
+      setSourceOrder(null)
+      setError(e.message || 'Original order not found')
+    }
+  }
+  useEffect(() => { if (sp.get('orderId')) loadSourceOrder() }, [])
   const submit = async () => {
     if(!orderId){setError('Enter the original order ID');return}
-    if(reason === 'Other' && !custom.trim()){setError('Enter the custom return reason');return}
+    if(!sourceOrder){setError('Load the original order first');return}
+    if(sourceOrder.status !== 'DELIVERED'){setError('Only delivered orders can be returned or re-cleaned');return}
+    if(reason.toUpperCase() === 'OTHER' && !custom.trim()){setError('Enter the custom return reason');return}
+    const lines = (sourceOrder.items || []).map((item:any) => {
+      const garmentUnitIds = selectedUnits[item.id] || []
+      return { orderItemId:item.id, quantity:garmentUnitIds.length || Number(selectedQty[item.id] || 0), garmentUnitIds:garmentUnitIds.length ? garmentUnitIds : undefined }
+    }).filter((line:any) => line.quantity > 0)
+    if(!lines.length){setError('Select at least one garment line and quantity');return}
     setLoading(true); setError('')
     try {
-      const r = await returnOrderAPI.create({originalOrderId:orderId.trim(),reason:reason==='Other'?custom.trim():reason})
+      const r:any = await returnOrderAPI.create({
+        originalOrderId:orderId.trim(), kind:'RECLEAN', reasonCode:reason.toUpperCase(),
+        reasonNarrative:reason.toUpperCase()==='OTHER'?custom.trim():undefined,
+        responsibility:'UNDER_REVIEW', disposition:'RECLEAN', priority:'NORMAL', lines,
+      })
       if(r.data?.success!==false&&r.data) {
-        setSuccess(r.data)
+        setSuccess(r.returnOrder || r.data?.returnOrder || r.data)
         toast.success('Return order created')
       } else setError(r.data?.message||'Failed to create return order')
     } catch (e:any) {
@@ -61,16 +91,25 @@ function ReturnOrderPageContent() {
       <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',padding:22}}>
         <div style={{display:'flex',flexDirection:'column' as const,gap:16}}>
           <div><label style={labelStyle}>Original Order ID *</label>
-            <input type="text" value={orderId} onChange={(e: ChangeEvent<HTMLInputElement>)=>setOrderId(e.target.value)} placeholder="Paste order ID" readOnly={!!sp.get('orderId')} style={{...inputStyle,fontFamily:'var(--crm-font-mono)'}}/></div>
+            <div style={{display:'flex',gap:8}}><input type="text" value={orderId} onChange={(e: ChangeEvent<HTMLInputElement>)=>{setOrderId(e.target.value);setSourceOrder(null)}} placeholder="Paste order ID" readOnly={!!sp.get('orderId')} style={{...inputStyle,fontFamily:'var(--crm-font-mono)'}}/>{!sp.get('orderId')&&<button onClick={loadSourceOrder} style={{padding:'0 14px',border:'none',borderRadius:9,background:'#e8f0f7',color:'#023c62',fontWeight:700,cursor:'pointer'}}>Load</button>}</div></div>
           <div><label style={labelStyle}>Reason *</label>
             <select value={reason} onChange={(e: ChangeEvent<HTMLSelectElement>)=>setReason(e.target.value)} style={inputStyle}>
               {reasons.map(r=><option key={r.value} value={r.value}>{r.label}</option>)}
             </select></div>
-          {reason==='Other'&&<div><label style={labelStyle}>Specify</label>
+          {reason.toUpperCase()==='OTHER'&&<div><label style={labelStyle}>Specify</label>
             <input type="text" value={custom} onChange={(e: ChangeEvent<HTMLInputElement>)=>setCustom(e.target.value)} style={inputStyle}/></div>}
+          {sourceOrder&&<div><label style={labelStyle}>Garments to Re-clean *</label>
+            <div style={{display:'grid',gap:8}}>{(sourceOrder.items||[]).map((item:any)=><div key={item.id} style={{padding:'10px 12px',border:'1px solid #e3edf6',borderRadius:9}}>
+              <div><div style={{fontSize:13,fontWeight:700,color:'#182538'}}>{item.serviceName}</div><div style={{fontSize:11,color:'#6b7fa3'}}>{item.variant||item.garmentType||'Garment'} · delivered qty {item.quantity}</div></div>
+              {(item.garmentUnits||[]).length ? <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>{item.garmentUnits.map((unit:any)=>{
+                const checked=(selectedUnits[item.id]||[]).includes(unit.id)
+                return <label key={unit.id} style={{display:'flex',alignItems:'center',gap:5,border:`1px solid ${checked?'#86b4d2':'#dce8f0'}`,background:checked?'#eef7fc':'#fff',borderRadius:7,padding:'5px 8px',fontSize:10,fontFamily:'var(--crm-font-mono)',cursor:'pointer'}}><input type="checkbox" checked={checked} onChange={()=>setSelectedUnits(current=>{const values=current[item.id]||[];return {...current,[item.id]:checked?values.filter(id=>id!==unit.id):[...values,unit.id]}})}/>{unit.tagNumber}</label>
+              })}</div> : <input type="number" min="0" max={item.quantity} value={selectedQty[item.id]??0} onChange={e=>setSelectedQty({...selectedQty,[item.id]:Math.max(0,Math.min(Number(item.quantity),Number(e.target.value)||0))})} style={{...inputStyle,padding:'7px 9px',marginTop:8}}/>}
+            </div>)}</div>
+          </div>}
           {error&&<div style={{background:'#fef2f2',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#991b1b'}}>{error}</div>}
           <div style={{background:'#fefce8',borderRadius:9,padding:'12px 14px',fontSize:13,color:'#854d0e'}}>A new order will be created for re-cleaning at no charge, linked to the original.</div>
-          <button onClick={submit} disabled={loading} style={{padding:'12px',background:'#023c62',color:'#fff',borderRadius:9,fontSize:14,fontWeight:700,border:'none',cursor:'pointer',opacity:loading?0.5:1,fontFamily:'var(--crm-font-ui)'}}>{loading?'Creating...':'Create Return Order'}</button>
+          <button onClick={submit} disabled={loading||!sourceOrder||sourceOrder.status!=='DELIVERED'} style={{padding:'12px',background:'#023c62',color:'#fff',borderRadius:9,fontSize:14,fontWeight:700,border:'none',cursor:'pointer',opacity:loading||!sourceOrder||sourceOrder.status!=='DELIVERED'?0.5:1,fontFamily:'var(--crm-font-ui)'}}>{loading?'Creating...':'Open Return Case'}</button>
         </div>
       </div>
     </div>

@@ -1,19 +1,17 @@
 const prisma = require('../config/database');
 const { success, created, error, badRequest, notFound, forbidden } = require('../utils/response');
 const {
-  sendDailyIronLogMessage,
-  sendDailyIronBillMessage,
-  sendDailyIronPaymentMessage,
-} = require('../services/whatomate.service');
-const {
   ACTIVE_IRON_SUB_STATUSES,
-  DEFAULT_LANGUAGE,
   IRON_SUBSCRIPTION_STATUSES,
-  LANGUAGE_VALUES,
   LOCKED_BILL_STATUSES,
 } = require('../config/master-data');
 const { getCorePaymentMethods } = require('../services/masterData.service');
 const { normalizePaymentMethod } = require('../utils/payment-method');
+const { nextDocumentNumber } = require('../services/document-number.service');
+const { BillingRuleError, ensureIronBillInvoice, refreshIronBillInvoice } = require('../services/billing.service');
+const { PaymentRuleError, recordInvoiceSettlement } = require('../services/payment.service');
+const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
+const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
 
 const toDate = (value) => {
   const date = value ? new Date(value) : null;
@@ -44,23 +42,6 @@ const endOfMonth = (value) => {
   return date;
 };
 
-const monthLabel = (value) => value.toLocaleDateString('en-IN', {
-  month: 'long',
-  year: 'numeric',
-});
-
-const formatLogDate = (value) => value.toLocaleDateString('en-IN', {
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric',
-});
-
-const normalizeLanguage = (language) => {
-  if (!language) return DEFAULT_LANGUAGE;
-  const normalized = String(language).trim().toUpperCase();
-  return LANGUAGE_VALUES.includes(normalized) ? normalized : DEFAULT_LANGUAGE;
-};
-
 const syncCustomerSubscriptionStatus = async (tx, customerId, applicationStatus) => {
   await tx.customer.update({
     where: { id: customerId },
@@ -68,18 +49,43 @@ const syncCustomerSubscriptionStatus = async (tx, customerId, applicationStatus)
   });
 };
 
-const resolveIronRate = async (serviceId) => {
-  const service = await prisma.service.findUnique({
+const resolveIronRate = async (serviceId, customerId = null, client = prisma) => {
+  const [service, customer] = await Promise.all([
+    client.service.findUnique({
     where: { id: serviceId },
     select: { id: true, name: true, category: true, basePrice: true, isActive: true },
-  });
+    }),
+    customerId ? client.customer.findUnique({ where: { id: customerId }, select: { ironRateOverride: true } }) : null,
+  ]);
 
   if (!service || service.category !== 'DAILY_IRON' || !service.isActive) {
-    throw new Error('INVALID_DAILY_IRON_SERVICE');
+    throw Object.assign(new Error('Selected service is not an active Daily Iron service'), { code: 'INVALID_DAILY_IRON_SERVICE' });
+  }
+  if (!(Number(service.basePrice) > 0)) {
+    throw Object.assign(new Error('Selected Daily Iron item must be priced before logging'), { code: 'INVALID_DAILY_IRON_SERVICE' });
   }
 
-  return service.basePrice;
+  const override = Number(customer?.ironRateOverride || 0);
+  return {
+    rate: override > 0 ? override : Number(service.basePrice),
+    source: override > 0 ? 'CUSTOMER_OVERRIDE' : 'CATALOG',
+    catalogRate: Number(service.basePrice),
+  };
 };
+
+const normalizeIronServiceDate = (value) => startOfDay(value);
+const validateIronServiceDate = (value) => {
+  const serviceDate = normalizeIronServiceDate(value);
+  const today = startOfDay(new Date());
+  const earliest = new Date(today);
+  earliest.setDate(earliest.getDate() - Math.max(0, Number(process.env.IRON_LOG_BACKDATE_DAYS || 7)));
+  if (serviceDate > today) throw new Error('FUTURE_IRON_LOG_DATE');
+  if (serviceDate < earliest) throw new Error('IRON_LOG_BACKDATE_LIMIT');
+  return serviceDate;
+};
+
+const isBillableDailyIronService = (service) =>
+  Boolean(service && service.category === 'DAILY_IRON' && service.isActive && Number(service.basePrice) > 0);
 
 const getCustomerSubscription = async (customerId) => prisma.ironSubscription.findUnique({
   where: { customerId },
@@ -106,6 +112,7 @@ const getMonthlyRunningTotals = async (customerId, logDate) => {
   const aggregate = await prisma.ironLog.aggregate({
     where: {
       customerId,
+      status: 'ACTIVE',
       date: {
         gte: startOfMonth(logDate),
         lte: endOfMonth(logDate),
@@ -126,17 +133,18 @@ const getMonthlyRunningTotals = async (customerId, logDate) => {
 const generateBillNumber = async (tx, periodEnd) => {
   const month = String(periodEnd.getMonth() + 1).padStart(2, '0');
   const year = periodEnd.getFullYear();
-  const prefix = `IRON-${month}${year}-`;
-  const count = await tx.ironBill.count({
-    where: {
-      billNumber: { startsWith: prefix },
-    },
+  return nextDocumentNumber({
+    tx,
+    documentType: 'IRON_BILL',
+    period: `${year}-${month}`,
+    prefix: `IRON-${month}${year}-`,
+    padding: 4,
   });
-  return `${prefix}${String(count + 1).padStart(4, '0')}`;
 };
 
 const buildLogWhere = (customerId, start, end) => ({
   customerId,
+  status: 'ACTIVE',
   date: {
     gte: startOfDay(start),
     lte: endOfDay(end),
@@ -373,6 +381,7 @@ const listAllLogs = async (req, res) => {
 
   try {
     const where = {
+      status: 'ACTIVE',
       date: {
         gte: startOfDay(start),
         lte: endOfDay(end),
@@ -496,112 +505,73 @@ const getLogsByPeriod = async (req, res) => {
 
 const createLog = async (req, res) => {
   const { customerId, serviceId, date, pieces, notes } = req.body;
-  const logDate = toDate(date) || new Date();
   const piecesCount = Number(pieces);
 
   if (!customerId || !serviceId) return badRequest(res, 'customerId and serviceId are required');
   if (!Number.isInteger(piecesCount) || piecesCount <= 0) return badRequest(res, 'pieces must be a positive integer');
 
   try {
-    const subscription = await prisma.ironSubscription.findUnique({
-      where: { customerId },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-            preferredLanguage: true,
-            notifWhatsApp: true,
-          },
-        },
-      },
-    });
-
-    if (!subscription) return notFound(res, 'Iron subscription not found');
-    if (!ACTIVE_IRON_SUB_STATUSES.includes(subscription.applicationStatus)) {
-      return badRequest(res, `Subscription is ${subscription.applicationStatus} and cannot accept new logs`);
-    }
-
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      select: { id: true, name: true, category: true, basePrice: true, isActive: true },
-    });
-    if (!service || service.category !== 'DAILY_IRON' || !service.isActive) {
-      return badRequest(res, 'Selected service is not an active DAILY_IRON item');
-    }
-
-    const ratePerPiece = await resolveIronRate(serviceId);
-    const amount = Number((piecesCount * ratePerPiece).toFixed(2));
-
-    const logEntry = await prisma.ironLog.create({
-      data: {
-        subscriptionId: subscription.id,
-        customerId,
-        serviceId,
-        serviceName: service.name,
-        date: logDate,
-        pieces: piecesCount,
-        ratePerPiece,
-        amount,
-        notes: notes || null,
-        loggedById: req.staff.id,
-      },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-            preferredLanguage: true,
-            notifWhatsApp: true,
-          },
-        },
-        loggedBy: { select: { id: true, name: true } },
-      },
-    });
-
-    const runningTotals = await getMonthlyRunningTotals(customerId, logDate);
-    let whatsappSent = false;
-
-    if (logEntry.customer?.notifWhatsApp !== false) {
-      whatsappSent = await sendDailyIronLogMessage({
-        customer: {
-          ...logEntry.customer,
-          preferredLanguage: normalizeLanguage(logEntry.customer.preferredLanguage),
-        },
-        subscription,
-        log: {
-          ...logEntry,
-          dateLabel: formatLogDate(logDate),
-        },
-        monthToDate: runningTotals,
+    const logDate = validateIronServiceDate(toDate(date) || new Date());
+    const logEntry = await prisma.$transaction(async (tx) => {
+      const subscriptionRef = await tx.ironSubscription.findUnique({ where: { customerId }, select: { id: true } });
+      if (!subscriptionRef) throw Object.assign(new Error('Iron subscription not found'), { code: 'SUBSCRIPTION_NOT_FOUND' });
+      await tx.$queryRaw`SELECT "id" FROM iron_subscriptions WHERE "id" = ${subscriptionRef.id} FOR UPDATE`;
+      const subscription = await tx.ironSubscription.findUnique({
+        where: { id: subscriptionRef.id },
+        include: { customer: { select: { id: true, name: true, phone: true, preferredLanguage: true, notifWhatsApp: true } } },
       });
-    }
-
-    const updatedLog = await prisma.ironLog.update({
-      where: { id: logEntry.id },
-      data: { whatsappSent },
-      include: {
-        service: { select: { id: true, name: true, category: true } },
-        loggedBy: { select: { id: true, name: true } },
-      },
-    });
-
+      if (!ACTIVE_IRON_SUB_STATUSES.includes(subscription.applicationStatus)) {
+        throw Object.assign(new Error(`Subscription is ${subscription.applicationStatus} and cannot accept new logs`), { code: 'SUBSCRIPTION_INACTIVE' });
+      }
+      const rate = await resolveIronRate(serviceId, customerId, tx);
+      const service = await tx.service.findUnique({ where: { id: serviceId }, select: { id: true, name: true, category: true, basePrice: true, isActive: true } });
+      if (!isBillableDailyIronService(service)) throw Object.assign(new Error('Selected Daily Iron item must be active and priced before logging'), { code: 'INVALID_DAILY_IRON_SERVICE' });
+      const amount = Number((piecesCount * rate.rate).toFixed(2));
+      const createdLog = await tx.ironLog.create({
+        data: {
+          subscriptionId: subscription.id, customerId, serviceId, serviceName: service.name,
+          date: logDate, pieces: piecesCount, ratePerPiece: rate.rate, amount,
+          rateSource: rate.source,
+          pricingSnapshot: { source: rate.source, catalogRate: rate.catalogRate, appliedRate: rate.rate, resolvedAt: new Date().toISOString() },
+          notes: notes || null, loggedById: req.staff.id,
+        },
+        include: { service: true, customer: true, loggedBy: { select: { id: true, name: true } } },
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'DAILY_IRON_LOG_CREATED', resource: 'iron_log', resourceId: createdLog.id,
+        description: `${service.name} x${piecesCount} logged for ${subscription.customer.name || subscription.customer.phone}`,
+        metadata: { customerId, serviceId, serviceDate: logDate, pieces: piecesCount, rateSource: rate.source, rate: rate.rate, amount },
+        ...getRequestMeta(req),
+      });
+      if (subscription.customer.notifWhatsApp !== false) {
+        await enqueueOutboxEvent(tx, {
+          eventType: OUTBOX_EVENT.DAILY_IRON_LOG, aggregateType: 'iron_log', aggregateId: createdLog.id,
+          payload: {}, dedupeKey: `daily-iron-log:${createdLog.id}`,
+        });
+      }
+      return createdLog;
+    }, { isolationLevel: 'Serializable' });
+    const runningTotals = await getMonthlyRunningTotals(customerId, logDate);
     return created(res, {
-      log: updatedLog,
+      log: logEntry,
       monthToDate: runningTotals,
+      notificationQueued: logEntry.customer?.notifWhatsApp !== false,
     }, 'Iron log created');
   } catch (err) {
     console.error('createLog error:', err);
-    if (err.message === 'INVALID_DAILY_IRON_SERVICE') return badRequest(res, 'Invalid DAILY_IRON service');
+    if (err.code === 'SUBSCRIPTION_NOT_FOUND') return notFound(res, err.message);
+    if (['SUBSCRIPTION_INACTIVE', 'INVALID_DAILY_IRON_SERVICE'].includes(err.code)) return badRequest(res, err.message);
+    if (err.message === 'FUTURE_IRON_LOG_DATE') return badRequest(res, 'Daily Iron service date cannot be in the future');
+    if (err.message === 'IRON_LOG_BACKDATE_LIMIT') return badRequest(res, `Daily Iron service date cannot be more than ${process.env.IRON_LOG_BACKDATE_DAYS || 7} days old`);
+    if (err.code === 'P2002') return res.status(409).json({ success: false, message: 'This customer and service already have a Daily Iron log for that date; use a correction instead' });
+    if (err.message === 'UNPRICED_DAILY_IRON_SERVICE') return badRequest(res, 'Selected Daily Iron item must be priced before logging');
     return error(res, 'Failed to create iron log');
   }
 };
 
 const createLogsBatch = async (req, res) => {
   const { customerId, date, notes, items } = req.body;
-  const logDate = toDate(date) || new Date();
   const inputItems = Array.isArray(items) ? items : [];
 
   if (!customerId) return badRequest(res, 'customerId is required');
@@ -617,46 +587,36 @@ const createLogsBatch = async (req, res) => {
   if (normalizedItems.some((item) => !Number.isInteger(item.pieces) || item.pieces <= 0)) {
     return badRequest(res, 'pieces must be a positive integer for every item');
   }
+  if (new Set(normalizedItems.map((item) => item.serviceId)).size !== normalizedItems.length) {
+    return badRequest(res, 'Each Daily Iron service may appear only once per service date');
+  }
 
   try {
-    const subscription = await prisma.ironSubscription.findUnique({
-      where: { customerId },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-            preferredLanguage: true,
-            notifWhatsApp: true,
-          },
-        },
-      },
-    });
-
-    if (!subscription) return notFound(res, 'Iron subscription not found');
-    if (!ACTIVE_IRON_SUB_STATUSES.includes(subscription.applicationStatus)) {
-      return badRequest(res, `Subscription is ${subscription.applicationStatus} and cannot accept new logs`);
-    }
-
-    const serviceIds = [...new Set(normalizedItems.map((item) => item.serviceId))];
-    const services = await prisma.service.findMany({
-      where: { id: { in: serviceIds } },
-      select: { id: true, name: true, category: true, basePrice: true, isActive: true },
-    });
-    const serviceById = new Map(services.map((service) => [service.id, service]));
-
-    const invalid = normalizedItems.find((item) => {
-      const service = serviceById.get(item.serviceId);
-      return !service || service.category !== 'DAILY_IRON' || !service.isActive;
-    });
-    if (invalid) return badRequest(res, 'Every item must be an active DAILY_IRON service');
-
+    const logDate = validateIronServiceDate(toDate(date) || new Date());
     const createdLogs = await prisma.$transaction(async (tx) => {
+      const subscriptionRef = await tx.ironSubscription.findUnique({ where: { customerId }, select: { id: true } });
+      if (!subscriptionRef) throw Object.assign(new Error('Iron subscription not found'), { code: 'SUBSCRIPTION_NOT_FOUND' });
+      await tx.$queryRaw`SELECT "id" FROM iron_subscriptions WHERE "id" = ${subscriptionRef.id} FOR UPDATE`;
+      const subscription = await tx.ironSubscription.findUnique({
+        where: { id: subscriptionRef.id },
+        include: { customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } } },
+      });
+      if (!ACTIVE_IRON_SUB_STATUSES.includes(subscription.applicationStatus)) {
+        throw Object.assign(new Error(`Subscription is ${subscription.applicationStatus} and cannot accept new logs`), { code: 'SUBSCRIPTION_INACTIVE' });
+      }
+      const serviceIds = normalizedItems.map((item) => item.serviceId);
+      const services = await tx.service.findMany({
+        where: { id: { in: serviceIds } },
+        select: { id: true, name: true, category: true, basePrice: true, isActive: true },
+      });
+      const serviceById = new Map(services.map((service) => [service.id, service]));
+      if (normalizedItems.some((item) => !isBillableDailyIronService(serviceById.get(item.serviceId)))) {
+        throw Object.assign(new Error('Every Daily Iron item must be active and priced before logging'), { code: 'INVALID_DAILY_IRON_SERVICE' });
+      }
       const rows = [];
       for (const item of normalizedItems) {
         const service = serviceById.get(item.serviceId);
-        const ratePerPiece = Number(service.basePrice || 0);
+        const rate = await resolveIronRate(item.serviceId, customerId, tx);
         rows.push(await tx.ironLog.create({
           data: {
             subscriptionId: subscription.id,
@@ -665,8 +625,10 @@ const createLogsBatch = async (req, res) => {
             serviceName: service.name,
             date: logDate,
             pieces: item.pieces,
-            ratePerPiece,
-            amount: Number((item.pieces * ratePerPiece).toFixed(2)),
+            ratePerPiece: rate.rate,
+            amount: Number((item.pieces * rate.rate).toFixed(2)),
+            rateSource: rate.source,
+            pricingSnapshot: { source: rate.source, catalogRate: rate.catalogRate, appliedRate: rate.rate, resolvedAt: new Date().toISOString() },
             notes: item.notes,
             loggedById: req.staff.id,
           },
@@ -676,61 +638,69 @@ const createLogsBatch = async (req, res) => {
           },
         }));
       }
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'DAILY_IRON_LOG_BATCH_CREATED', resource: 'iron_subscription', resourceId: subscription.id,
+        description: `${rows.length} Daily Iron service lines logged for ${subscription.customer.name || subscription.customer.phone}`,
+        metadata: { customerId, serviceDate: logDate, logs: rows.map((log) => ({ id: log.id, serviceId: log.serviceId, pieces: log.pieces, rate: log.ratePerPiece, amount: log.amount })) },
+        ...getRequestMeta(req),
+      });
+      if (subscription.customer.notifWhatsApp !== false) {
+        for (const log of rows) {
+          await enqueueOutboxEvent(tx, {
+            eventType: OUTBOX_EVENT.DAILY_IRON_LOG, aggregateType: 'iron_log', aggregateId: log.id,
+            payload: {}, dedupeKey: `daily-iron-log:${log.id}`,
+          });
+        }
+      }
       return rows;
-    });
+    }, { isolationLevel: 'Serializable' });
 
     const runningTotals = await getMonthlyRunningTotals(customerId, logDate);
-    let whatsappSent = false;
-
-    if (subscription.customer?.notifWhatsApp !== false) {
-      const itemSummary = createdLogs
-        .map((log) => `${log.serviceName} x${log.pieces}`)
-        .join(', ');
-      const totalPieces = createdLogs.reduce((sum, log) => sum + Number(log.pieces || 0), 0);
-
-      whatsappSent = await sendDailyIronLogMessage({
-        customer: {
-          ...subscription.customer,
-          preferredLanguage: normalizeLanguage(subscription.customer.preferredLanguage),
-        },
-        subscription,
-        log: {
-          date: logDate,
-          pieces: totalPieces,
-          serviceName: itemSummary,
-          dateLabel: formatLogDate(logDate),
-        },
-        monthToDate: runningTotals,
-      });
-    }
-
-    if (whatsappSent) {
-      await prisma.ironLog.updateMany({
-        where: { id: { in: createdLogs.map((log) => log.id) } },
-        data: { whatsappSent: true },
-      });
-    }
-
     return created(res, {
-      logs: createdLogs.map((log) => ({ ...log, whatsappSent })),
+      logs: createdLogs,
       monthToDate: runningTotals,
+      notificationsQueued: createdLogs.length,
     }, 'Iron logs created');
   } catch (err) {
     console.error('createLogsBatch error:', err);
+    if (err.code === 'SUBSCRIPTION_NOT_FOUND') return notFound(res, err.message);
+    if (['SUBSCRIPTION_INACTIVE', 'INVALID_DAILY_IRON_SERVICE'].includes(err.code)) return badRequest(res, err.message);
+    if (err.message === 'FUTURE_IRON_LOG_DATE') return badRequest(res, 'Daily Iron service date cannot be in the future');
+    if (err.message === 'IRON_LOG_BACKDATE_LIMIT') return badRequest(res, `Daily Iron service date cannot be more than ${process.env.IRON_LOG_BACKDATE_DAYS || 7} days old`);
+    if (err.code === 'P2002') return res.status(409).json({ success: false, message: 'One or more services already have a Daily Iron log for that date; use a correction instead' });
     return error(res, 'Failed to create iron logs');
   }
 };
 
 const deleteLog = async (req, res) => {
+  const reason = String(req.body?.reason || '').trim();
+  if (reason.length < 3) return badRequest(res, 'A void reason is required');
   try {
-    const logEntry = await prisma.ironLog.findUnique({ where: { id: req.params.id } });
-    if (!logEntry) return notFound(res, 'Iron log not found');
-    if (logEntry.billId) return badRequest(res, 'Billed log entries cannot be deleted');
-
-    await prisma.ironLog.delete({ where: { id: req.params.id } });
-    return success(res, {}, 'Iron log deleted');
+    const logEntry = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM iron_logs WHERE "id" = ${req.params.id} FOR UPDATE`;
+      const existing = await tx.ironLog.findUnique({ where: { id: req.params.id } });
+      if (!existing) throw Object.assign(new Error('Iron log not found'), { code: 'LOG_NOT_FOUND' });
+      if (existing.status === 'VOID') throw Object.assign(new Error('Iron log is already voided'), { code: 'LOG_ALREADY_VOID' });
+      if (existing.billId) throw Object.assign(new Error('Billed log entries require a credit note or void/rebill workflow'), { code: 'LOG_BILLED' });
+      const voided = await tx.ironLog.update({
+        where: { id: existing.id },
+        data: { status: 'VOID', voidedAt: new Date(), voidedById: req.staff.id, voidReason: reason, whatsappSent: false },
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'DAILY_IRON_LOG_VOIDED', resource: 'iron_log', resourceId: voided.id,
+        description: `${voided.serviceName} x${voided.pieces} voided for ${new Date(voided.date).toISOString().slice(0, 10)}`,
+        metadata: { customerId: voided.customerId, serviceId: voided.serviceId, amount: voided.amount, reason },
+        ...getRequestMeta(req),
+      });
+      return voided;
+    }, { isolationLevel: 'Serializable' });
+    return success(res, { log: logEntry }, 'Iron log voided; original retained');
   } catch (err) {
     console.error('deleteLog error:', err);
+    if (err.code === 'LOG_NOT_FOUND') return notFound(res, err.message);
+    if (['LOG_ALREADY_VOID', 'LOG_BILLED'].includes(err.code)) return badRequest(res, err.message);
     return error(res, 'Failed to delete iron log');
   }
 };
@@ -742,7 +712,8 @@ const generateBill = async (req, res) => {
     return badRequest(res, 'customerId and billingPeriodStart are required');
   }
 
-  const periodEnd = endOfMonth(periodStart);
+  const normalizedPeriodStart = startOfMonth(periodStart);
+  const periodEnd = endOfMonth(normalizedPeriodStart);
 
   try {
     const subscription = await prisma.ironSubscription.findUnique({
@@ -765,7 +736,7 @@ const generateBill = async (req, res) => {
     const existingBill = await prisma.ironBill.findFirst({
       where: {
         customerId,
-        billingPeriodStart: startOfDay(periodStart),
+        billingPeriodStart: normalizedPeriodStart,
       },
     });
 
@@ -777,9 +748,10 @@ const generateBill = async (req, res) => {
       where: {
         customerId,
         date: {
-          gte: startOfDay(periodStart),
+          gte: normalizedPeriodStart,
           lte: periodEnd,
         },
+        status: 'ACTIVE',
         OR: [
           { billId: null },
           ...(existingBill ? [{ billId: existingBill.id }] : []),
@@ -822,7 +794,7 @@ const generateBill = async (req, res) => {
               billNumber: await generateBillNumber(tx, periodEnd),
               customerId,
               subscriptionId: subscription.id,
-              billingPeriodStart: startOfDay(periodStart),
+              billingPeriodStart: normalizedPeriodStart,
               billingPeriodEnd: periodEnd,
               totalPieces: totals.totalPieces,
               totalAmount: Number(totals.totalAmount.toFixed(2)),
@@ -834,6 +806,30 @@ const generateBill = async (req, res) => {
       await tx.ironLog.updateMany({
         where: { id: { in: logs.map((log) => log.id) } },
         data: { billId: persistedBill.id },
+      });
+
+      const invoice = await refreshIronBillInvoice(
+        tx,
+        persistedBill.id,
+        req.staff?.id,
+        existingBill ? 'DAILY_IRON_BILL_REGENERATED' : 'DAILY_IRON_BILL_GENERATED'
+      );
+      await writeAuditEvent(tx, {
+        actorType: 'staff',
+        actorId: req.staff?.id,
+        actorName: req.staff?.name,
+        action: existingBill ? 'DAILY_IRON_BILL_REGENERATED' : 'DAILY_IRON_BILL_GENERATED',
+        resource: 'invoice',
+        resourceId: invoice.id,
+        description: `${persistedBill.billNumber} generated as ${invoice.invoiceNumber}`,
+        metadata: {
+          billId: persistedBill.id,
+          billNumber: persistedBill.billNumber,
+          invoiceNumber: invoice.invoiceNumber,
+          totalPieces: totals.totalPieces,
+          totalAmount: Number(totals.totalAmount.toFixed(2)),
+        },
+        ...getRequestMeta(req),
       });
 
       return tx.ironBill.findUnique({
@@ -851,9 +847,10 @@ const generateBill = async (req, res) => {
           logs: {
             orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
           },
+          invoice: true,
         },
       });
-    });
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, { bill }, existingBill ? 'Draft bill regenerated' : 'Bill generated');
   } catch (err) {
@@ -913,61 +910,56 @@ const getBillById = async (req, res) => {
 
 const sendBill = async (req, res) => {
   try {
-    const bill = await prisma.ironBill.findUnique({
-      where: { id: req.params.billId },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-            preferredLanguage: true,
-            notifWhatsApp: true,
-          },
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "iron_bills" WHERE "id" = ${req.params.billId} FOR UPDATE`;
+      const bill = await tx.ironBill.findUnique({
+        where: { id: req.params.billId },
+        include: {
+          customer: { select: { id: true, name: true, phone: true, preferredLanguage: true, notifWhatsApp: true } },
         },
-      },
-    });
-    if (!bill) return notFound(res, 'Iron bill not found');
-    if (!bill.totalAmount || bill.totalAmount <= 0) return badRequest(res, 'Cannot send a zero-value bill');
+      });
+      if (!bill) throw new BillingRuleError('IRON_BILL_NOT_FOUND', 'Iron bill not found', 404);
+      if (!(Number(bill.totalAmount) > 0)) throw new BillingRuleError('ZERO_VALUE_BILL', 'Cannot send a zero-value bill');
+      if (bill.status === 'PAID') throw new BillingRuleError('BILL_ALREADY_PAID', 'A paid bill does not need to be sent again');
 
-    const whatsappSent = bill.customer?.notifWhatsApp !== false
-      ? await sendDailyIronBillMessage({
-          customer: {
-            ...bill.customer,
-            preferredLanguage: normalizeLanguage(bill.customer.preferredLanguage),
-          },
-          subscription: { id: bill.subscriptionId },
-          bill: {
-            ...bill,
-            monthLabel: monthLabel(bill.billingPeriodEnd),
-          },
-        })
-      : false;
+      const invoice = await ensureIronBillInvoice(tx, bill.id, req.staff?.id);
+      const updated = await tx.ironBill.update({
+        where: { id: bill.id },
+        data: { status: Number(invoice.paidAmount || 0) > 0 ? 'PARTIAL' : 'SENT' },
+        include: { customer: { select: { id: true, name: true, phone: true, preferredLanguage: true, notifWhatsApp: true } }, invoice: true },
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'DAILY_IRON_BILL_SENT', resource: 'invoice', resourceId: invoice.id,
+        description: `${invoice.invoiceNumber} queued for customer delivery`,
+        metadata: { billId: bill.id, billNumber: bill.billNumber, customerId: bill.customerId },
+        ...getRequestMeta(req),
+      });
+      if (bill.customer?.notifWhatsApp !== false) {
+        await enqueueOutboxEvent(tx, {
+          eventType: OUTBOX_EVENT.DAILY_IRON_BILL,
+          aggregateType: 'iron_bill',
+          aggregateId: bill.id,
+          payload: { invoiceId: invoice.id },
+          dedupeKey: `daily-iron-bill:${bill.id}:invoice-v${invoice.version}`,
+        });
+      }
+      return { bill: updated, notificationQueued: bill.customer?.notifWhatsApp !== false };
+    }, { isolationLevel: 'Serializable' });
 
-    const updated = await prisma.ironBill.update({
-      where: { id: bill.id },
-      data: { status: 'SENT' },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-            preferredLanguage: true,
-          },
-        },
-      },
-    });
-
-    return success(res, { bill: updated, whatsappSent }, 'Iron bill sent');
+    return success(res, result, 'Iron bill queued for delivery');
   } catch (err) {
     console.error('sendBill error:', err);
+    if (err instanceof BillingRuleError) {
+      if (err.statusCode === 404) return notFound(res, err.message);
+      return badRequest(res, err.message);
+    }
     return error(res, 'Failed to send iron bill');
   }
 };
 
 const recordBillPayment = async (req, res) => {
-  const { amount, paymentMethod } = req.body;
+  const { amount, paymentMethod, reference, notes } = req.body;
   const paymentAmount = Number(amount);
   if (!(paymentAmount > 0)) return badRequest(res, 'amount must be greater than 0');
   const normalizedMethod = normalizePaymentMethod(paymentMethod || 'CASH');
@@ -977,58 +969,60 @@ const recordBillPayment = async (req, res) => {
   }
 
   try {
-    const bill = await prisma.ironBill.findUnique({
-      where: { id: req.params.billId },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-          },
+    const result = await prisma.$transaction(async (tx) => {
+      const invoice = await ensureIronBillInvoice(tx, req.params.billId, req.staff?.id);
+      const settlement = await recordInvoiceSettlement(tx, {
+        invoiceId: invoice.id,
+        amount: paymentAmount,
+        method: normalizedMethod,
+        reference,
+        notes,
+        staff: req.staff,
+        idempotencyKey: req.idempotencyKey,
+      });
+      await tx.ironBill.update({
+        where: { id: req.params.billId },
+        data: { paymentMethod: normalizedMethod },
+      });
+      const bill = await tx.ironBill.findUnique({
+        where: { id: req.params.billId },
+        include: { customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } }, invoice: true },
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'DAILY_IRON_PAYMENT_RECORDED', resource: 'payment', resourceId: settlement.payment.id,
+        description: `Rs ${paymentAmount.toFixed(2)} collected against ${invoice.invoiceNumber}`,
+        metadata: {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          billId: bill.id,
+          billNumber: bill.billNumber,
+          method: normalizedMethod,
+          balanceDue: Number(settlement.invoice.balanceDue || 0),
         },
-      },
-    });
-    if (!bill) return notFound(res, 'Iron bill not found');
-    const balanceDue = Math.max(0, Number((bill.totalAmount - bill.paidAmount).toFixed(2)));
-    if (balanceDue <= 0) return badRequest(res, 'Bill is already fully paid');
-    const appliedAmount = Math.min(paymentAmount, balanceDue);
+        ...getRequestMeta(req),
+      });
+      if (bill.customer?.notifWhatsApp !== false) {
+        await enqueueOutboxEvent(tx, {
+          eventType: OUTBOX_EVENT.DAILY_IRON_PAYMENT,
+          aggregateType: 'iron_bill',
+          aggregateId: bill.id,
+          payload: { paymentId: settlement.payment.id, invoiceId: invoice.id },
+          dedupeKey: `daily-iron-payment:${settlement.payment.id}`,
+        });
+      }
+      return { bill, payment: settlement.payment, invoice: settlement.invoice };
+    }, { isolationLevel: 'Serializable' });
 
-    const nextPaidAmount = Number((bill.paidAmount + appliedAmount).toFixed(2));
-    const nextStatus = nextPaidAmount >= bill.totalAmount ? 'PAID' : 'PARTIAL';
-
-    const updated = await prisma.ironBill.update({
-      where: { id: bill.id },
-      data: {
-        paidAmount: nextPaidAmount,
-        paymentMethod: normalizedMethod,
-        paidAt: nextStatus === 'PAID' ? new Date() : bill.paidAt,
-        status: nextStatus,
-      },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-          },
-        },
-      },
-    });
-
-    sendDailyIronPaymentMessage({
-      customer: updated.customer,
-      subscription: { id: updated.subscriptionId },
-      bill: updated,
-      amount: appliedAmount,
-      method: normalizedMethod,
-    }).catch((err) => {
-      console.error('[Whatomate] Iron bill payment notification failed:', err?.message || err);
-    });
-
-    return success(res, { bill: updated }, 'Payment recorded');
+    return success(res, result, 'Payment recorded');
   } catch (err) {
     console.error('recordBillPayment error:', err);
+    if (err instanceof BillingRuleError || err instanceof PaymentRuleError) {
+      if (err.statusCode === 404) return notFound(res, err.message);
+      if (err.statusCode === 403) return forbidden(res, err.message);
+      return badRequest(res, err.message);
+    }
+    if (err?.code === 'P2034') return res.status(409).json({ success: false, message: 'Payment conflicted with another update; retry with the same idempotency key' });
     return error(res, 'Failed to record bill payment');
   }
 };
@@ -1092,7 +1086,7 @@ const getOwnSubscription = async (req, res) => {
 const getOwnLogs = async (req, res) => {
   try {
     const logs = await prisma.ironLog.findMany({
-      where: { customerId: req.customer.id },
+      where: { customerId: req.customer.id, status: 'ACTIVE' },
       include: {
         bill: { select: { id: true, billNumber: true, status: true } },
         service: { select: { id: true, name: true, category: true } },
@@ -1207,4 +1201,5 @@ module.exports = {
   getOwnBills,
   pauseOwnSubscription,
   resolveIronRate,
+  isBillableDailyIronService,
 };

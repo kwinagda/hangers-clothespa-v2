@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const prisma = require('../config/database');
-const { log, getRequestMeta } = require('../services/activity.service');
+const { log, writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error, notFound, forbidden } = require('../utils/response');
 const { generateOtp, hashOtp, sendDeliveryOtp } = require('../services/whatsapp-otp.service');
 const { processReferralQualification } = require('../services/referral.service');
@@ -20,6 +20,8 @@ const { getDeliveryFailReasons, getOrderStatuses, getOrderWorkflow } = require('
 const { deriveOrderPaymentState } = require('../utils/order-payment-state');
 const { AUTH_CHALLENGE_PURPOSE, createAuthChallenge, verifyAuthChallenge } = require('../services/authChallenge.service');
 const { enqueueNotification, NOTIFY_JOB } = require('../queues');
+const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
+const { PaymentRuleError, recordOrderSettlement } = require('../services/payment.service');
 
 const isDeliveryManager = (staff) => DELIVERY_MANAGER_ROLES.includes(staff?.role);
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
@@ -179,56 +181,56 @@ const markPickedUp = async (req, res) => {
   const { bagCount, notes } = req.body;
 
   try {
-    const order = await prisma.order.findFirst({
-      where: { id, ...ORDER_ONLY_WHERE },
-      include: { payments: { select: { amount: true, status: true } } },
-    });
-    if (!order) return notFound(res, 'Order not found');
     const [orderWorkflow, orderStatuses] = await Promise.all([getOrderWorkflow(), getOrderStatuses()]);
     const statusLabels = statusLabelsFrom(orderStatuses);
     const deliveryActions = orderWorkflow.deliveryActions || {};
-    if (!canAccessDeliveryOrder(order, req.staff, orderWorkflow)) {
-      return forbidden(res, 'You can only pick up orders assigned to you');
-    }
-    if (!(deliveryActions.pickupFrom || []).includes(order.status)) {
-      return badRequest(res, `Cannot mark picked up — current status: ${statusLabels[order.status] || order.status}`);
-    }
     if (!deliveryActions.pickupTarget) return badRequest(res, 'Delivery pickup target is not configured');
-
-    await prisma.$transaction([
-      prisma.order.update({
-        where: { id },
-        data:  { status: deliveryActions.pickupTarget, assignedToId: req.staff.id },
-      }),
-      prisma.orderStage.create({
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`;
+      const order = await tx.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+      if (!(deliveryActions.pickupFrom || []).includes(order.status)) throw new Error('ORDER_NOT_PICKUP_READY');
+      const assignment = await tx.deliveryAssignment.findFirst({
+        where: { orderId: id, kind: 'PICKUP', status: { in: ['ASSIGNED', 'IN_PROGRESS'] } }, orderBy: { createdAt: 'desc' },
+      });
+      if (!assignment) throw new Error('PICKUP_ASSIGNMENT_REQUIRED');
+      if (!isDeliveryManager(req.staff) && assignment.assigneeId !== req.staff.id) throw new Error('DELIVERY_ACCESS_DENIED');
+      const attempt = await tx.deliveryAttempt.create({
         data: {
-          orderId:     id,
-          stage:       deliveryActions.pickupTarget,
-          notes:       `Picked up by ${req.staff.name}${bagCount ? `. Bags: ${bagCount}` : ''}${notes ? `. ${notes}` : ''}`,
+          assignmentId: assignment.id, orderId: id, attemptedById: req.staff.id, outcome: 'PICKED_UP',
+          notes: notes ? String(notes).trim() : null,
+        },
+      });
+      await tx.deliveryAssignment.update({ where: { id: assignment.id }, data: { status: 'COMPLETED', completedAt: new Date(), version: { increment: 1 } } });
+      await tx.order.update({ where: { id }, data: { status: deliveryActions.pickupTarget, assignedToId: null, version: { increment: 1 } } });
+      await tx.orderStage.create({
+        data: {
+          orderId: id, stage: deliveryActions.pickupTarget, eventType: 'DELIVERY_ATTEMPT',
+          fromStatus: order.status, toStatus: deliveryActions.pickupTarget, reasonCode: 'PICKUP_COMPLETED',
+          notes: notes ? String(notes).trim() : null, metadata: { assignmentId: assignment.id, attemptId: attempt.id, bagCount: Number(bagCount || 0) },
           changedById: req.staff.id,
         },
-      }),
-    ]);
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
+        action: 'ORDER_PICKED_UP', resource: 'delivery_attempt', resourceId: attempt.id,
+        description: `${req.staff.name} picked up ${order.orderNumber}`,
+        metadata: { orderId: id, assignmentId: assignment.id, bagCount: Number(bagCount || 0) }, ...getRequestMeta(req),
+      });
+      await enqueueOutboxEvent(tx, {
+        eventType: OUTBOX_EVENT.ORDER_STATUS, aggregateType: 'order', aggregateId: id,
+        payload: { status: deliveryActions.pickupTarget }, dedupeKey: `pickup-attempt:${attempt.id}:status`,
+      });
+      return { order, attempt };
+    }, { isolationLevel: 'Serializable' });
 
-    await log({
-      actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
-      action: 'ORDER_PICKED_UP', resource: 'order', resourceId: id,
-      description: `${req.staff.name} picked up ${order.orderNumber}`,
-      metadata: { bagCount },
-      ...getRequestMeta(req),
-    });
-
-    // Queue WhatsApp notification (non-blocking, retried on failure)
-    const pickedOrder = await prisma.order.findUnique({
-      where: { id }, include: { customer: { select: { name: true, phone: true } } },
-    });
-    if (pickedOrder) {
-      enqueueNotification(NOTIFY_JOB.ORDER_STATUS, { order: pickedOrder, status: 'PICKED_UP' }).catch(() => {});
-    }
-
-    return success(res, { orderId: id, orderNumber: order.orderNumber, status: 'PICKED_UP' },
-      `${order.orderNumber} marked as Picked Up`);
+    return success(res, { orderId: id, orderNumber: result.order.orderNumber, status: deliveryActions.pickupTarget, attempt: result.attempt },
+      `${result.order.orderNumber} marked as ${statusLabels[deliveryActions.pickupTarget] || deliveryActions.pickupTarget}`);
   } catch (err) {
+    if (err.message === 'ORDER_NOT_FOUND') return notFound(res, 'Order not found');
+    if (err.message === 'ORDER_NOT_PICKUP_READY') return badRequest(res, 'Order is not ready for pickup');
+    if (err.message === 'PICKUP_ASSIGNMENT_REQUIRED') return badRequest(res, 'Assign this pickup before completing it');
+    if (err.message === 'DELIVERY_ACCESS_DENIED') return forbidden(res, 'You can only complete pickups assigned to you');
     return error(res, 'Failed to mark picked up');
   }
 };
@@ -236,63 +238,82 @@ const markPickedUp = async (req, res) => {
 // ── Mark Delivered ────────────────────────────────────────────────────────────
 const markDelivered = async (req, res) => {
   const { id } = req.params;
-  const { confirmCode, notes } = req.body;  // confirmCode = customer OTP or last 4 of phone
+  const { notes, confirmationReference } = req.body;
+  const confirmationMethod = String(req.body.confirmationMethod || '').trim().toUpperCase();
+  const allowedConfirmationMethods = new Set(['CUSTOMER_SIGNATURE', 'CUSTOMER_VERBAL', 'CONTACTLESS', 'MANAGER_CONFIRMED']);
+  if (!allowedConfirmationMethods.has(confirmationMethod)) {
+    return badRequest(res, `confirmationMethod must be one of: ${[...allowedConfirmationMethods].join(', ')}`);
+  }
+  if (confirmationMethod === 'MANAGER_CONFIRMED' && !isDeliveryManager(req.staff)) {
+    return forbidden(res, 'Only a delivery manager can use manager confirmation');
+  }
 
   try {
-    const order = await prisma.order.findFirst({
-      where: { id, ...ORDER_ONLY_WHERE },
-      include: { customer: { select: { phone: true, name: true } } },
-    });
-    if (!order) return notFound(res, 'Order not found');
     const [orderWorkflow, orderStatuses] = await Promise.all([getOrderWorkflow(), getOrderStatuses()]);
     const statusLabels = statusLabelsFrom(orderStatuses);
     const deliveryActions = orderWorkflow.deliveryActions || {};
-    if (!canAccessDeliveryOrder(order, req.staff, orderWorkflow)) {
-      return forbidden(res, 'You can only deliver orders assigned to you');
-    }
-    if (!(deliveryActions.deliverableFrom || []).includes(order.status)) {
-      return badRequest(res, `Cannot mark delivered — current status: ${statusLabels[order.status] || order.status}`);
-    }
     if (!deliveryActions.deliveredTarget) return badRequest(res, 'Delivery delivered target is not configured');
-    const expectedCode = order.customer?.phone?.slice(-4);
-    if (!confirmCode || String(confirmCode).trim().length < 4) {
-      return badRequest(res, 'Delivery confirmation code is required');
-    }
-    if (!expectedCode || String(confirmCode).trim() !== expectedCode) {
-      return badRequest(res, 'Invalid delivery confirmation code');
-    }
-
-    await prisma.$transaction([
-      prisma.order.update({
-        where: { id },
-        data:  { status: deliveryActions.deliveredTarget, deliveredAt: new Date() },
-      }),
-      prisma.orderStage.create({
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`;
+      const order = await tx.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE }, include: { customer: { select: { name: true } } } });
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+      if (!(deliveryActions.deliverableFrom || []).includes(order.status)) throw new Error('ORDER_NOT_DELIVERABLE');
+      const assignment = await tx.deliveryAssignment.findFirst({
+        where: { orderId: id, kind: 'DELIVERY', status: { in: ['ASSIGNED', 'IN_PROGRESS'] } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!assignment) throw new Error('DELIVERY_ASSIGNMENT_REQUIRED');
+      if (!isDeliveryManager(req.staff) && assignment.assigneeId !== req.staff.id) throw new Error('DELIVERY_ACCESS_DENIED');
+      const deliveredAt = new Date();
+      const attempt = await tx.deliveryAttempt.create({
         data: {
-          orderId:     id,
-          stage:       deliveryActions.deliveredTarget,
-          notes:       `Delivered by ${req.staff.name}${notes ? `. ${notes}` : ''}`,
+          assignmentId: assignment.id, orderId: id, attemptedById: req.staff.id, outcome: 'DELIVERED',
+          notes: notes ? String(notes).trim() : null, confirmationMethod,
+          confirmationReference: confirmationReference ? String(confirmationReference).trim() : null,
+        },
+      });
+      await tx.deliveryAssignment.update({ where: { id: assignment.id }, data: { status: 'COMPLETED', completedAt: deliveredAt, version: { increment: 1 } } });
+      await tx.order.update({ where: { id }, data: { status: deliveryActions.deliveredTarget, deliveredAt, version: { increment: 1 } } });
+      await tx.garmentUnit.updateMany({
+        where: { orderItem: { orderId: id }, status: { notIn: ['VOID', 'ISSUE_HOLD'] } },
+        data: { status: 'DELIVERED', currentPlantPartnerId: null, version: { increment: 1 } },
+      });
+      await tx.orderStage.create({
+        data: {
+          orderId: id, stage: deliveryActions.deliveredTarget, eventType: 'DELIVERY_ATTEMPT',
+          fromStatus: order.status, toStatus: deliveryActions.deliveredTarget, reasonCode: confirmationMethod,
+          notes: notes ? String(notes).trim() : null,
+          metadata: { assignmentId: assignment.id, attemptId: attempt.id, confirmationMethod, confirmationReference: confirmationReference || null },
           changedById: req.staff.id,
         },
-      }),
-    ]);
-
-    await log({
-      actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
-      action: 'ORDER_DELIVERED', resource: 'order', resourceId: id,
-      description: `${req.staff.name} delivered ${order.orderNumber} to ${order.customer?.name}`,
-      ...getRequestMeta(req),
-    });
-
-    // Queue notifications (non-blocking, retried on failure)
-    enqueueNotification(NOTIFY_JOB.ORDER_STATUS, { order: { ...order, customer: order.customer }, status: deliveryActions.deliveredTarget }).catch(() => {});
-    processReferralQualification(id).catch(() => {});
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
+        action: 'ORDER_DELIVERED', resource: 'delivery_attempt', resourceId: attempt.id,
+        description: `${req.staff.name} delivered ${order.orderNumber} to ${order.customer?.name || 'customer'}`,
+        metadata: { orderId: id, assignmentId: assignment.id, confirmationMethod }, ...getRequestMeta(req),
+      });
+      await enqueueOutboxEvent(tx, {
+        eventType: OUTBOX_EVENT.ORDER_STATUS, aggregateType: 'order', aggregateId: id,
+        payload: { status: deliveryActions.deliveredTarget }, dedupeKey: `delivery-attempt:${attempt.id}:status`,
+      });
+      await enqueueOutboxEvent(tx, {
+        eventType: OUTBOX_EVENT.REFERRAL_QUALIFY, aggregateType: 'order', aggregateId: id,
+        payload: {}, dedupeKey: `delivery-attempt:${attempt.id}:referral`,
+      });
+      return { order, attempt, deliveredAt };
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, {
-      orderId: id, orderNumber: order.orderNumber, status: deliveryActions.deliveredTarget,
-      deliveredAt: new Date(),
-    }, `${order.orderNumber} delivered successfully!`);
+      orderId: id, orderNumber: result.order.orderNumber, status: deliveryActions.deliveredTarget,
+      deliveredAt: result.deliveredAt, attempt: result.attempt,
+    }, `${result.order.orderNumber} delivered successfully`);
   } catch (err) {
+    if (err.message === 'ORDER_NOT_FOUND') return notFound(res, 'Order not found');
+    if (err.message === 'ORDER_NOT_DELIVERABLE') return badRequest(res, 'Order is not in a deliverable status');
+    if (err.message === 'DELIVERY_ASSIGNMENT_REQUIRED') return badRequest(res, 'Assign this order for delivery before completing it');
+    if (err.message === 'DELIVERY_ACCESS_DENIED') return forbidden(res, 'You can only deliver orders assigned to you');
+    if (err.code === 'P2034') return res.status(409).json({ success: false, message: 'Delivery changed concurrently; retry with the same idempotency key' });
     return error(res, 'Failed to mark delivered');
   }
 };
@@ -303,8 +324,6 @@ const markFailed = async (req, res) => {
   const { reason } = req.body;
 
   try {
-    const order = await prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
-    if (!order) return notFound(res, 'Order not found');
     const [orderWorkflow, orderStatuses, deliveryFailReasons] = await Promise.all([getOrderWorkflow(), getOrderStatuses(), getDeliveryFailReasons()]);
     const statusLabels = statusLabelsFrom(orderStatuses);
     const reasonMap = Object.fromEntries(deliveryFailReasons.map((item) => [item.value, item.label]));
@@ -313,37 +332,52 @@ const markFailed = async (req, res) => {
       return badRequest(res, `Reason required. Options: ${reasonValues.join(', ')}`);
     }
     const deliveryActions = orderWorkflow.deliveryActions || {};
-    if (!(deliveryActions.deliverableFrom || []).includes(order.status)) {
-      return badRequest(res, `Cannot mark delivery failed — order is currently: ${statusLabels[order.status] || order.status}`);
-    }
-    if (!canAccessDeliveryOrder(order, req.staff, orderWorkflow)) {
-      return forbidden(res, 'You can only update delivery attempts for orders assigned to you');
-    }
     if (!deliveryActions.failedTarget) return badRequest(res, 'Delivery failed target is not configured');
 
     const reasonLabel = reasonMap[reason];
-
-    await prisma.$transaction([
-      // Move back to READY_FOR_DELIVERY for re-attempt
-      prisma.order.update({
-        where: { id },
-        data:  { status: deliveryActions.failedTarget },
-      }),
-      prisma.orderStage.create({
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`;
+      const order = await tx.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+      if (!(deliveryActions.deliverableFrom || []).includes(order.status)) throw new Error('ORDER_NOT_DELIVERABLE');
+      const assignment = await tx.deliveryAssignment.findFirst({
+        where: { orderId: id, kind: 'DELIVERY', status: { in: ['ASSIGNED', 'IN_PROGRESS'] } }, orderBy: { createdAt: 'desc' },
+      });
+      if (!assignment) throw new Error('DELIVERY_ASSIGNMENT_REQUIRED');
+      if (!isDeliveryManager(req.staff) && assignment.assigneeId !== req.staff.id) throw new Error('DELIVERY_ACCESS_DENIED');
+      const attempt = await tx.deliveryAttempt.create({
         data: {
-          orderId:     id,
-          stage:       deliveryActions.failedTarget,
-          notes:       `Delivery failed: ${reasonLabel}. Reported by ${req.staff.name}`,
-          changedById: req.staff.id,
+          assignmentId: assignment.id, orderId: id, attemptedById: req.staff.id,
+          outcome: 'FAILED', reasonCode: reason, notes: req.body.notes ? String(req.body.notes).trim() : null,
         },
-      }),
-    ]);
+      });
+      await tx.deliveryAssignment.update({ where: { id: assignment.id }, data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason, version: { increment: 1 } } });
+      await tx.order.update({ where: { id }, data: { status: deliveryActions.failedTarget, assignedToId: null, version: { increment: 1 } } });
+      await tx.orderStage.create({
+        data: {
+          orderId: id, stage: deliveryActions.failedTarget, eventType: 'DELIVERY_ATTEMPT',
+          fromStatus: order.status, toStatus: deliveryActions.failedTarget, reasonCode: reason,
+          notes: `Delivery failed: ${reasonLabel}`, metadata: { assignmentId: assignment.id, attemptId: attempt.id }, changedById: req.staff.id,
+        },
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
+        action: 'DELIVERY_FAILED', resource: 'delivery_attempt', resourceId: attempt.id,
+        description: `${order.orderNumber} delivery failed: ${reasonLabel}`,
+        metadata: { orderId: id, assignmentId: assignment.id, reasonCode: reason }, ...getRequestMeta(req),
+      });
+      return { order, attempt };
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, {
-      orderId: id, orderNumber: order.orderNumber,
-      status: deliveryActions.failedTarget, failReason: reason,
+      orderId: id, orderNumber: result.order.orderNumber,
+      status: deliveryActions.failedTarget, failReason: reason, attempt: result.attempt,
     }, 'Failed delivery recorded. Order set back to Ready.');
   } catch (err) {
+    if (err.message === 'ORDER_NOT_FOUND') return notFound(res, 'Order not found');
+    if (err.message === 'ORDER_NOT_DELIVERABLE') return badRequest(res, 'Order is not in a deliverable status');
+    if (err.message === 'DELIVERY_ASSIGNMENT_REQUIRED') return badRequest(res, 'Assign this order for delivery before recording an attempt');
+    if (err.message === 'DELIVERY_ACCESS_DENIED') return forbidden(res, 'You can only update delivery attempts assigned to you');
     return error(res, 'Failed to record delivery failure');
   }
 };
@@ -358,47 +392,42 @@ const collectCash = async (req, res) => {
   }
 
   try {
-    const order = await prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
-    if (!order) return notFound(res, 'Order not found');
-    const [orderWorkflow, orderStatuses] = await Promise.all([getOrderWorkflow(), getOrderStatuses()]);
-    const statusLabels = statusLabelsFrom(orderStatuses);
-    if (!canAccessDeliveryOrder(order, req.staff, orderWorkflow)) {
-      return forbidden(res, 'You can only collect cash for orders assigned to you');
-    }
-
     const amt = parseFloat(amount);
-    const currentPaymentState = deriveOrderPaymentState(order);
-    const balanceDue = currentPaymentState.balanceDue;
-    if (balanceDue <= 0) {
-      return badRequest(res, 'This order has no balance due');
-    }
-    if (amt > balanceDue) {
-      return badRequest(res, `Amount exceeds balance due of ₹${balanceDue.toLocaleString('en-IN')}`);
-    }
-
-    const { newPaid, newStatus } = await prisma.$transaction(async (tx) => {
-      await tx.payment.create({
-        data: {
-          orderId:     id,
-          amount:      amt,
-          method:      'CASH',
-          notes:       notes || `Cash collected by ${req.staff.name} on delivery`,
-          collectedBy: req.staff.id,
-        },
+    const result = await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
+      if (!order) throw new PaymentRuleError('ORDER_NOT_FOUND', 'Order not found', 404);
+      const assignment = await tx.deliveryAssignment.findFirst({
+        where: { orderId: id, kind: 'DELIVERY', status: { in: ['ASSIGNED', 'IN_PROGRESS'] } }, orderBy: { createdAt: 'desc' },
       });
-      const newPaid = Number((currentPaymentState.paidAmount + amt).toFixed(2));
-      const effectivePaid = newPaid + Number(order.writeOffAmount || 0);
-      const status = effectivePaid >= Number(order.totalAmount || 0) ? 'PAID' : 'PARTIAL';
-      await tx.order.update({ where: { id }, data: { paidAmount: newPaid, paymentStatus: status } });
-      return { newPaid, newStatus: status };
-    });
+      if (!assignment) throw new PaymentRuleError('DELIVERY_ASSIGNMENT_REQUIRED', 'An active delivery assignment is required');
+      if (!isDeliveryManager(req.staff) && assignment.assigneeId !== req.staff.id) {
+        throw new PaymentRuleError('DELIVERY_ACCESS_DENIED', 'You can only collect cash for orders assigned to you', 403);
+      }
+      const settlement = await recordOrderSettlement(tx, {
+        orderId: id, amount: amt, method: 'CASH', notes: notes || `Cash collected by ${req.staff.name} on delivery`,
+        staff: req.staff, idempotencyKey: req.idempotencyKey,
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
+        action: 'DELIVERY_CASH_COLLECTED', resource: 'order', resourceId: id,
+        description: `${req.staff.name} collected cash for ${order.orderNumber}`,
+        metadata: { assignmentId: assignment.id, amount: amt, paymentIds: settlement.payments.map((payment) => payment.id) },
+        ...getRequestMeta(req),
+      });
+      return { order, settlement };
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, {
-      orderId: id, orderNumber: order.orderNumber,
-      collected: amt, totalPaid: newPaid,
-      paymentStatus: newStatus,
+      orderId: id, orderNumber: result.order.orderNumber,
+      collected: amt, totalPaid: result.settlement.paidAmount,
+      paymentStatus: result.settlement.paymentStatus,
     }, `₹${amt.toLocaleString('en-IN')} cash recorded`);
   } catch (err) {
+    if (err instanceof PaymentRuleError) {
+      if (err.statusCode === 404) return notFound(res, err.message);
+      if (err.statusCode === 403) return forbidden(res, err.message);
+      return badRequest(res, err.message);
+    }
     return error(res, 'Failed to record cash');
   }
 };
@@ -621,26 +650,49 @@ const assignOrder = async (req, res) => {
   if (!riderId) return badRequest(res, 'Rider ID required');
 
   try {
-    const [order, rider] = await Promise.all([
-      prisma.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } }),
-      prisma.staff.findUnique({ where: { id: riderId } }),
-    ]);
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`;
+      const [order, rider, workflow] = await Promise.all([
+        tx.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } }),
+        tx.staff.findUnique({ where: { id: riderId } }),
+        getOrderWorkflow(),
+      ]);
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+      if (!rider) throw new Error('RIDER_NOT_FOUND');
+      if (!rider.isActive) throw new Error('RIDER_INACTIVE');
+      if (!DELIVERY_PIN_ROLES.includes(rider.role)) throw new Error('RIDER_ROLE_INVALID');
+      const kind = (workflow.deliveryActions?.pickupFrom || []).includes(order.status) ? 'PICKUP' : 'DELIVERY';
+      await tx.deliveryAssignment.updateMany({
+        where: { orderId: id, kind, status: { in: ['ASSIGNED', 'IN_PROGRESS'] } },
+        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'REASSIGNED', version: { increment: 1 } },
+      });
+      const assignment = await tx.deliveryAssignment.create({
+        data: { orderId: id, kind, assigneeId: rider.id, assignedById: req.staff.id, scheduledAt: req.body.scheduledAt ? new Date(req.body.scheduledAt) : null },
+      });
+      await tx.order.update({ where: { id }, data: { assignedToId: riderId, version: { increment: 1 } } });
+      await tx.orderStage.create({
+        data: {
+          orderId: id, stage: order.status, eventType: 'DELIVERY_ASSIGNMENT', reasonCode: 'RIDER_ASSIGNED',
+          notes: `${kind} assigned to ${rider.name}`, metadata: { assignmentId: assignment.id, riderId }, changedById: req.staff.id,
+        },
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
+        action: 'DELIVERY_ASSIGNED', resource: 'delivery_assignment', resourceId: assignment.id,
+        description: `${order.orderNumber} ${kind.toLowerCase()} assigned to ${rider.name}`,
+        metadata: { orderId: id, riderId, kind }, ...getRequestMeta(req),
+      });
+      return { rider, assignment };
+    }, { isolationLevel: 'Serializable' });
 
-    if (!order) return notFound(res, 'Order not found');
-    if (!rider)  return notFound(res, 'Rider not found');
-    if (!rider.isActive) return badRequest(res, 'Selected rider is inactive');
-    if (!DELIVERY_PIN_ROLES.includes(rider.role)) {
-      return badRequest(res, 'Selected staff member is not a delivery assignee');
-    }
-
-    await prisma.order.update({
-      where: { id },
-      data:  { assignedToId: riderId },
-    });
-
-    return success(res, { orderId: id, riderId, riderName: rider.name },
-      `Order assigned to ${rider.name}`);
+    return success(res, { orderId: id, riderId, riderName: result.rider.name, assignment: result.assignment },
+      `Order assigned to ${result.rider.name}`);
   } catch (err) {
+    if (err.message === 'ORDER_NOT_FOUND') return notFound(res, 'Order not found');
+    if (err.message === 'RIDER_NOT_FOUND') return notFound(res, 'Rider not found');
+    if (err.message === 'RIDER_INACTIVE') return badRequest(res, 'Selected rider is inactive');
+    if (err.message === 'RIDER_ROLE_INVALID') return badRequest(res, 'Selected staff member is not a delivery assignee');
+    if (err.code === 'P2034') return res.status(409).json({ success: false, message: 'Assignment changed concurrently; retry with the same idempotency key' });
     return error(res, 'Failed to assign order');
   }
 };

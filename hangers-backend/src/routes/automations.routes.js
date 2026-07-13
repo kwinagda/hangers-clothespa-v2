@@ -4,6 +4,7 @@ const { staffAuth }                                                             
 const { requireRole, requireServiceAccess }                                            = require('../middleware/rbac');
 const { privateNoStore }                                                               = require('../middleware/privateCache');
 const { requireTrustedWrite }                                                          = require('../middleware/origin');
+const { requireLaunchCapability }                                                      = require('../middleware/launchCapabilities');
 const { getAutomations, createAutomation, toggleAutomation, updateAutomation }        = require('../controllers/automations.controller');
 
 const adminRoles     = requireRole('SUPER_ADMIN', 'MANAGER');
@@ -13,8 +14,8 @@ router.use(privateNoStore);
 router.use(requireTrustedWrite);
 
 router.get('/',              staffAuth, marketingAccess, adminRoles, getAutomations);
-router.post('/',             staffAuth, marketingAccess, adminRoles, createAutomation);
-router.patch('/:id/toggle',  staffAuth, marketingAccess, adminRoles, toggleAutomation);
-router.put('/:id',           staffAuth, marketingAccess, adminRoles, updateAutomation);
+router.post('/',             staffAuth, marketingAccess, adminRoles, requireLaunchCapability('automations', 'create'), createAutomation);
+router.patch('/:id/toggle',  staffAuth, marketingAccess, adminRoles, requireLaunchCapability('automations', 'toggle'), toggleAutomation);
+router.put('/:id',           staffAuth, marketingAccess, adminRoles, requireLaunchCapability('automations', 'update'), updateAutomation);
 
 module.exports = router;

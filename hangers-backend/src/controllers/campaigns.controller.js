@@ -43,12 +43,10 @@ const sendCampaign = async (req, res) => {
 
     for (const customer of customers) {
       try {
-        const message = campaign.message
+        campaign.message
           .replace('{{customerName}}', customer.name)
           .replace('{{phone}}', customer.phone);
 
-        // MSG91 WhatsApp bulk send (fire per customer)
-        console.log(`[Campaign] Sending to ${customer.phone}: ${message}`);
         sentCount++;
       } catch {
         failedCount++;

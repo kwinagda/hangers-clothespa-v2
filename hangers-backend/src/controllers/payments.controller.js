@@ -2,29 +2,14 @@
 // PAYMENTS CONTROLLER — Record, update, and track payments for orders
 // ─────────────────────────────────────────────────────────────────────────────
 const prisma = require('../config/database');
-const { processReferralQualification } = require('../services/referral.service');
-const { success, created, badRequest, error, notFound } = require('../utils/response');
+const { success, created, badRequest, error, notFound, forbidden } = require('../utils/response');
 const { recordPaymentSchema } = require('../validation/finance.schemas');
 const { normalizePaymentMethod } = require('../utils/payment-method');
-const { deriveOrderPaymentState, withDerivedPaymentState } = require('../utils/order-payment-state');
-const { getCorePaymentMethods } = require('../services/masterData.service');
-const { sendPaymentReceivedMessage } = require('../services/whatomate.service');
+const { getCapturedPaymentStatusValues, getCorePaymentMethods } = require('../services/masterData.service');
+const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
+const { PaymentRuleError, recordOrderSettlement } = require('../services/payment.service');
+const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
-
-const calculatePaymentState = (order, incomingAmount) => {
-  const requestedAmount = Number.parseFloat(incomingAmount);
-  const currentPaid = Number(order?.paidAmount || 0);
-  const currentWriteOff = Number(order?.writeOffAmount || 0);
-  const totalAmount = Number(order?.totalAmount || 0);
-  const balanceDue = Math.max(0, Number((totalAmount - currentPaid - currentWriteOff).toFixed(2)));
-  const appliedAmount = Math.min(requestedAmount, balanceDue);
-  const overpayment = Math.max(0, Number((requestedAmount - appliedAmount).toFixed(2)));
-  const nextPaidAmount = Number((currentPaid + appliedAmount).toFixed(2));
-  const effectivePaid = Number((nextPaidAmount + currentWriteOff).toFixed(2));
-  const paymentStatus = effectivePaid >= totalAmount ? 'PAID' : effectivePaid > 0 ? 'PARTIAL' : 'UNPAID';
-
-  return { requestedAmount, balanceDue, appliedAmount, overpayment, nextPaidAmount, paymentStatus };
-};
 
 // ── POST /api/v1/payments — Record a payment for an order ─────────────────────
 const recordPayment = async (req, res) => {
@@ -37,93 +22,85 @@ const recordPayment = async (req, res) => {
     if (!corePaymentMethods.includes(normalizedMethod)) {
       return badRequest(res, `Payment method must be one of: ${corePaymentMethods.join(', ')}`);
     }
-    const amountNum = amount;
-
-    const { payment, updatedOrder, overpayment } = await prisma.$transaction(async (tx) => {
-      const order = await tx.order.findFirst({ where: { id: orderId, ...ORDER_ONLY_WHERE } });
-      if (!order) {
-        const err = new Error('ORDER_NOT_FOUND');
-        throw err;
-      }
-
-      const { balanceDue, appliedAmount, overpayment, nextPaidAmount, paymentStatus } =
-        calculatePaymentState(order, amountNum);
-
-      if (balanceDue <= 0 || appliedAmount <= 0) {
-        const err = new Error('ORDER_ALREADY_PAID');
-        throw err;
-      }
-
-      const payment = await tx.payment.create({
-        data: {
-          orderId,
-          amount: appliedAmount,
+    const result = await prisma.$transaction(async (tx) => {
+      const before = await tx.order.findFirst({ where: { id: orderId, ...ORDER_ONLY_WHERE } });
+      if (!before) throw new PaymentRuleError('ORDER_NOT_FOUND', 'Order not found', 404);
+      const settlement = await recordOrderSettlement(tx, {
+        orderId,
+        amount,
+        method: normalizedMethod,
+        reference,
+        notes,
+        staff: req.staff,
+        idempotencyKey: req.idempotencyKey,
+      });
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: {
+          customer: { select: { id: true, name: true, phone: true } },
+          payments: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff',
+        actorId: req.staff?.id,
+        actorName: req.staff?.name,
+        action: 'PAYMENT_RECORDED',
+        resource: 'order',
+        resourceId: orderId,
+        description: `Payment recorded for ${before.orderNumber}`,
+        metadata: {
+          orderNumber: before.orderNumber,
+          paymentIds: settlement.payments.map((payment) => payment.id),
           method: normalizedMethod,
           reference: reference || null,
-          notes: notes || null,
-          collectedBy: req.staff?.id || null,
-        },
-      });
-
-      const updatedOrder = await tx.order.update({
-        where: { id: orderId },
-        data: { paidAmount: nextPaidAmount, paymentStatus },
-      });
-
-      if (overpayment > 0 && order.customerId) {
-        await tx.customer.update({
-          where: { id: order.customerId },
-          data: { walletBalance: { increment: overpayment } },
-        });
-        await tx.walletTransaction.create({
-          data: {
-            customerId: order.customerId,
-            amount: overpayment,
-            type: 'CREDIT',
-            reason: 'Overpayment refunded to wallet',
-            orderId,
+          before: { paidAmount: before.paidAmount, paymentStatus: before.paymentStatus },
+          after: {
+            paidAmount: settlement.paidAmount,
+            paymentStatus: settlement.paymentStatus,
+            balanceDue: settlement.balanceDue,
           },
+        },
+        ...getRequestMeta(req),
+      });
+      for (const payment of settlement.payments) {
+        await enqueueOutboxEvent(tx, {
+          eventType: OUTBOX_EVENT.PAYMENT_RECEIVED,
+          aggregateType: 'order',
+          aggregateId: orderId,
+          payload: { paymentId: payment.id },
+          dedupeKey: `payment-received:${payment.id}`,
         });
       }
+      if (settlement.paymentStatus === 'PAID') {
+        await enqueueOutboxEvent(tx, {
+          eventType: OUTBOX_EVENT.REFERRAL_QUALIFY,
+          aggregateType: 'order',
+          aggregateId: orderId,
+          payload: {},
+          dedupeKey: `referral-qualify:${orderId}:paid-v${order.version}`,
+        });
+      }
+      return { order, settlement };
+    }, { isolationLevel: 'Serializable' });
 
-      await tx.orderStage.create({
-        data: {
-          orderId,
-          stage: 'PAYMENT_RECORDED',
-          notes: `₹${appliedAmount} received via ${normalizedMethod}${reference ? ` (Ref: ${reference})` : ''}${overpayment > 0 ? `. ₹${overpayment} credited to wallet` : ''}`,
-          changedById: req.staff?.id || null,
-        },
-      });
-
-      return { payment, updatedOrder, overpayment };
-    });
+    const payment = result.settlement.payments[0];
 
     created(res, {
       payment,
-      paidAmount:    updatedOrder.paidAmount,
-      paymentStatus: updatedOrder.paymentStatus,
-      balance:       Math.max(0, Number(updatedOrder.totalAmount) - Number(updatedOrder.paidAmount) - Number(updatedOrder.writeOffAmount || 0)),
-      overpayment,
+      paidAmount: result.settlement.paidAmount,
+      paymentStatus: result.settlement.paymentStatus,
+      balance: result.settlement.balanceDue,
     }, 'Payment recorded successfully');
 
-    prisma.order.findFirst({
-      where:   { id: orderId },
-      include: { customer: { select: { name: true, phone: true } } },
-    }).then(async (order) => {
-      if (!order) return;
-      const sent = await sendPaymentReceivedMessage(order, payment.amount, payment.method);
-      if (!sent) console.warn(`[Whatomate] Payment notification not sent for order ${order.orderNumber}`);
-    }).catch((err) => {
-      console.error('[Whatomate] Payment notification failed:', err?.message || err);
-    });
-
-    if (updatedOrder.paymentStatus === 'PAID') {
-      processReferralQualification(orderId).catch(() => {});
-    }
   } catch (err) {
     console.error('recordPayment:', err);
-    if (err.message === 'ORDER_NOT_FOUND') return notFound(res, 'Order not found');
-    if (err.message === 'ORDER_ALREADY_PAID') return badRequest(res, 'This order is already fully paid');
+    if (err instanceof PaymentRuleError) {
+      if (err.statusCode === 404) return notFound(res, err.message);
+      if (err.statusCode === 403) return forbidden(res, err.message);
+      return badRequest(res, err.message);
+    }
+    if (err?.code === 'P2034') return badRequest(res, 'Payment conflicted with another update; retry with the same idempotency key');
     return error(res, 'Failed to record payment');
   }
 };
@@ -152,10 +129,13 @@ const getDailySummary = async (req, res) => {
     const start = new Date(day.setHours(0, 0, 0, 0));
     const end   = new Date(day.setHours(23, 59, 59, 999));
 
+    const capturedStatuses = await getCapturedPaymentStatusValues();
     const payments = await prisma.payment.findMany({
-      where:   { createdAt: { gte: start, lte: end }, status: { not: 'FAILED' } },
+      where:   { createdAt: { gte: start, lte: end }, status: { in: capturedStatuses } },
       include: {
         order:            { select: { orderNumber: true, customer: { select: { name: true, phone: true } } } },
+        customer:         { select: { name: true, phone: true } },
+        allocations:      { include: { invoice: { select: { invoiceNumber: true, sourceType: true, ironBillId: true } } } },
         collectedByStaff: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -165,13 +145,14 @@ const getDailySummary = async (req, res) => {
     const normalizedPayments = payments.map((payment) => ({
       ...payment,
       method: paymentMethod(payment),
+      signedAmount: payment.kind === 'REFUND' ? -Number(payment.amount || 0) : Number(payment.amount || 0),
     }));
     const byMethod = normalizedPayments.reduce((acc, payment) => {
-      acc[payment.method] = Number(((acc[payment.method] || 0) + Number(payment.amount || 0)).toFixed(2));
+      acc[payment.method] = Number(((acc[payment.method] || 0) + payment.signedAmount).toFixed(2));
       return acc;
     }, {});
     const summary = {
-      total:  normalizedPayments.reduce((s, p) => s + p.amount, 0),
+      total:  normalizedPayments.reduce((s, p) => s + p.signedAmount, 0),
       byMethod,
       count:  normalizedPayments.length,
     };
@@ -185,24 +166,42 @@ const getDailySummary = async (req, res) => {
 // ── GET /api/v1/payments/receivables — Outstanding balances ──────────────────
 const getReceivables = async (req, res) => {
   try {
-    const orders = await prisma.order.findMany({
-      where:   { ...ORDER_ONLY_WHERE, status: { not: 'CANCELLED' } },
+    const invoices = await prisma.invoice.findMany({
+      where: { status: { not: 'VOID' }, balanceDue: { gt: 0 } },
       include: {
         customer: { select: { name: true, phone: true } },
-        payments: { select: { amount: true, status: true } },
+        order: { select: { id: true, orderNumber: true, status: true } },
+        ironBill: { select: { id: true, billNumber: true, status: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }],
     });
-    const receivableOrders = orders.filter((order) => deriveOrderPaymentState(order).balanceDue > 0);
+    const now = new Date();
+    const receivables = invoices.map((invoice) => ({
+      id: invoice.orderId || invoice.ironBillId || invoice.id,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      sourceType: invoice.sourceType,
+      orderId: invoice.orderId,
+      ironBillId: invoice.ironBillId,
+      orderNumber: invoice.order?.orderNumber || invoice.ironBill?.billNumber || invoice.invoiceNumber,
+      customer: invoice.customer,
+      totalAmount: Number(invoice.totalAmount || 0),
+      paidAmount: Number(invoice.paidAmount || 0),
+      balance: Number(invoice.balanceDue || 0),
+      paymentStatus: Number(invoice.paidAmount || 0) > 0 ? 'PARTIAL' : 'UNPAID',
+      status: invoice.order?.status || invoice.ironBill?.status || invoice.status,
+      issueDate: invoice.issueDate,
+      dueDate: invoice.dueDate,
+      daysOverdue: Math.max(0, Math.floor((now - new Date(invoice.dueDate)) / 86400000)),
+      isOverdue: new Date(invoice.dueDate) < now,
+    }));
 
-    const total = receivableOrders.reduce((s, o) => s + deriveOrderPaymentState(o).balanceDue, 0);
+    const total = receivables.reduce((sum, invoice) => sum + invoice.balance, 0);
 
     return success(res, {
       total,
-      orders: receivableOrders.map((o) => ({
-        ...withDerivedPaymentState(o),
-        balance: deriveOrderPaymentState(o).balanceDue,
-      })),
+      orders: receivables,
+      receivables,
     });
   } catch (err) {
     return error(res, 'Failed to fetch receivables');

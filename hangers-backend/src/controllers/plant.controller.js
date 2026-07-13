@@ -9,9 +9,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const prisma = require('../config/database');
-const { log, getRequestMeta } = require('../services/activity.service');
+const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error, notFound } = require('../utils/response');
 const { getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
+const { nextDocumentNumber } = require('../services/document-number.service');
+const { syncOrderGarmentUnits } = require('../services/garment-unit.service');
 
 const PLANT_ISSUE_TYPES = new Set(['MISSING_ITEM', 'DAMAGE', 'STAIN_NOT_REMOVED', 'WRONG_ITEM', 'OTHER']);
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
@@ -108,33 +110,47 @@ const getPlantOrders = async (req, res) => {
   }
 };
 
-// Scan QR tag — format: "HNG-XXXXX-1" or "HNG-XXXXX-BAG-1"
+// Scan an exact garment-unit tag or an order bag tag.
 const scanQRCode = async (req, res) => {
-  const { qrCode } = req.params;
+  const qrCode = String(req.params.qrCode || '').trim().toUpperCase();
   if (!qrCode) return badRequest(res, 'QR code is required');
 
   try {
-    // Extract order number from QR — strip "-1", "-2", "-BAG-1" suffixes
-    const orderNumber = qrCode
-      .replace(/-BAG-\d+$/i, '')
-      .replace(/-\d+$/, '')
-      .toUpperCase();
+    const isBagTag = /-BAG-\d+$/i.test(qrCode);
+    let order;
+    let scannedUnit = null;
+    if (isBagTag) {
+      const orderNumber = qrCode.replace(/-BAG-\d+$/i, '');
+      order = await prisma.order.findFirst({
+        where: { orderNumber, ...ORDER_ONLY_WHERE },
+        include: {
+          customer: { select: { name: true, phone: true } },
+          items: { include: { garmentUnits: { where: { status: { not: 'VOID' } }, orderBy: { sequence: 'asc' } } } },
+          stages: { orderBy: { createdAt: 'desc' }, take: 5 },
+        },
+      });
+    } else {
+      scannedUnit = await prisma.garmentUnit.findUnique({
+        where: { tagNumber: qrCode },
+        include: {
+          currentPlantPartner: { select: { id: true, code: true, name: true } },
+          orderItem: {
+            include: {
+              order: {
+                include: {
+                  customer: { select: { name: true, phone: true } },
+                  items: { include: { garmentUnits: { where: { status: { not: 'VOID' } }, orderBy: { sequence: 'asc' } } } },
+                  stages: { orderBy: { createdAt: 'desc' }, take: 5 },
+                },
+              },
+            },
+          },
+        },
+      });
+      order = scannedUnit?.orderItem?.order || null;
+    }
 
-    const order = await prisma.order.findFirst({
-      where: { orderNumber, ...ORDER_ONLY_WHERE },
-      include: {
-        customer: { select: { name: true, phone: true } },
-        items:    true,
-        stages:   { orderBy: { createdAt: 'desc' }, take: 5 },
-      },
-    });
-
-    if (!order) return notFound(res, `No order found for QR: ${qrCode}`);
-
-    const isBagTag = /BAG/i.test(qrCode);
-    const itemIndex = !isBagTag
-      ? (parseInt(qrCode.match(/-(\d+)$/)?.[1] || '1')) - 1
-      : null;
+    if (!order) return notFound(res, `No garment or bag found for QR: ${qrCode}`);
 
     const orderStatuses = await getOrderStatuses();
     const statusLabels = statusLabelsFrom(orderStatuses);
@@ -147,7 +163,14 @@ const scanQRCode = async (req, res) => {
         stages:      order.stages,
         totalItems:  order.items.reduce((s, i) => s + i.quantity, 0),
         notes:       order.notes,
-        scannedItem: itemIndex !== null ? order.items[itemIndex] || null : null,
+        scannedItem: scannedUnit?.orderItem || null,
+        scannedUnit: scannedUnit ? {
+          id: scannedUnit.id,
+          tagNumber: scannedUnit.tagNumber,
+          sequence: scannedUnit.sequence,
+          status: scannedUnit.status,
+          currentPlantPartner: scannedUnit.currentPlantPartner,
+        } : null,
         scanType:    isBagTag ? 'bag' : 'garment',
         qrCode,
       },
@@ -163,7 +186,7 @@ const getPlantOrder = async (req, res) => {
       where: { id: req.params.id, ...ORDER_ONLY_WHERE },
       include: {
         customer: { select: { name: true, phone: true } },
-        items:    true,
+        items:    { include: { garmentUnits: { where: { status: { not: 'VOID' } }, orderBy: { sequence: 'asc' } } } },
         stages:   { orderBy: { createdAt: 'desc' } },
       },
     });
@@ -199,115 +222,159 @@ const updatePlantStage = async (req, res) => {
   }
 
   try {
-    const order = await prisma.order.findFirst({
-      where: { id, ...ORDER_ONLY_WHERE },
-      include: {
-        customer: { select: { name: true, phone: true } },
-        items:    { select: { id: true, tagNumber: true } },
-      },
-    });
-    if (!order) return notFound(res, 'Order not found');
-    const plantStageSequence = [plantLockedStatus, ...ALLOWED].filter(Boolean);
-    const currentIndex = plantStageSequence.indexOf(order.status);
-    const nextIndex = plantStageSequence.indexOf(status);
-    if (currentIndex === -1) return badRequest(res, 'Order is not currently in a plant-manageable stage');
-    if (nextIndex === -1) return badRequest(res, 'Target stage is not a valid plant stage');
-    if (nextIndex < currentIndex) return badRequest(res, 'Plant stage cannot move backward');
-    if (nextIndex - currentIndex > 1) return badRequest(res, 'Plant stage must advance one step at a time');
-    if (order.status === status) return badRequest(res, 'Order is already in this stage');
-
-    // Auto-generate tag numbers when first entering PROCESSING
-    if (status === 'PROCESSING' && order.status !== 'PROCESSING') {
-      const itemsWithoutTags = order.items.filter(item => !item.tagNumber);
-      for (let i = 0; i < itemsWithoutTags.length; i++) {
-        const tagNumber = `HNG-${order.id.slice(-6).toUpperCase()}-${i + 1}`;
-        await prisma.orderItem.update({
-          where: { id: itemsWithoutTags[i].id },
-          data:  { tagNumber },
-        });
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`;
+      const order = await tx.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+      const plantStageSequence = [plantLockedStatus, ...ALLOWED].filter(Boolean);
+      const currentIndex = plantStageSequence.indexOf(order.status);
+      const nextIndex = plantStageSequence.indexOf(status);
+      if (currentIndex === -1 || nextIndex === -1 || nextIndex <= currentIndex || nextIndex - currentIndex > 1) {
+        throw new Error('INVALID_PLANT_TRANSITION');
       }
-    }
-
-    const [updated] = await prisma.$transaction([
-      prisma.order.update({
-        where: { id },
-        data:  { status, updatedAt: new Date() },
-      }),
-      prisma.orderStage.create({
+      await syncOrderGarmentUnits(tx, id);
+      const updated = await tx.order.update({ where: { id }, data: { status, version: { increment: 1 } } });
+      await tx.orderStage.create({
         data: {
-          orderId:     id,
-          stage:       status,
-          notes:       notes || `Stage updated by ${req.staff.name}`,
-          changedById: req.staff.id,
+          orderId: id, stage: status, eventType: 'WORKFLOW_TRANSITION', fromStatus: order.status, toStatus: status,
+          reasonCode: 'PLANT_STAGE_UPDATE', notes: notes || `Stage updated by ${req.staff.name}`, changedById: req.staff.id,
         },
-      }),
-    ]);
-
-    await log({
-      actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
-      action: 'PLANT_STAGE_UPDATED', resource: 'order', resourceId: id,
-      description: `${req.staff.name} moved ${order.orderNumber} to ${statusLabels[status] || status}`,
-      metadata: { fromStatus: order.status, toStatus: status },
-      ...getRequestMeta(req),
-    });
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
+        action: 'PLANT_STAGE_UPDATED', resource: 'order', resourceId: id,
+        description: `${req.staff.name} moved ${order.orderNumber} to ${statusLabels[status] || status}`,
+        metadata: { fromStatus: order.status, toStatus: status, beforeVersion: order.version, afterVersion: order.version + 1 },
+        ...getRequestMeta(req),
+      });
+      return { order, updated };
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, {
-      orderId: id, orderNumber: order.orderNumber,
+      orderId: id, orderNumber: result.order.orderNumber,
       status, statusLabel: statusLabels[status] || status,
     }, `Order moved to: ${statusLabels[status] || status}`);
   } catch (err) {
+    if (err.message === 'ORDER_NOT_FOUND') return notFound(res, 'Order not found');
+    if (err.message === 'INVALID_PLANT_TRANSITION') return badRequest(res, 'Plant stage must advance exactly one configured step');
+    if (err.code === 'P2034') return res.status(409).json({ success: false, message: 'Plant stage changed concurrently; retry with the same idempotency key' });
     return error(res, 'Failed to update stage');
   }
 };
 
 const flagIssue = async (req, res) => {
   const { id } = req.params;
-  const { issueType, description, itemIndex } = req.body;
+  const { issueType, description, garmentUnitId, tagNumber } = req.body;
+  const severity = String(req.body.severity || 'MEDIUM').trim().toUpperCase();
 
   if (!issueType) return badRequest(res, 'Issue type is required');
   if (!PLANT_ISSUE_TYPES.has(issueType)) {
     return badRequest(res, `Invalid issue type. Use: ${Array.from(PLANT_ISSUE_TYPES).join(', ')}`);
   }
+  if (!['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(severity)) return badRequest(res, 'Invalid issue severity');
 
   try {
-    const order = await prisma.order.findFirst({
-      where: { id, ...ORDER_ONLY_WHERE },
-      include: { items: true },
-    });
-    if (!order) return notFound(res, 'Order not found');
-    if (itemIndex !== undefined) {
-      const parsedItemIndex = Number(itemIndex);
-      if (!Number.isInteger(parsedItemIndex) || parsedItemIndex < 0 || parsedItemIndex >= order.items.length) {
-        return badRequest(res, 'itemIndex is out of range for this order');
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`;
+      const order = await tx.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+      await syncOrderGarmentUnits(tx, id);
+      const unit = garmentUnitId || tagNumber
+        ? await tx.garmentUnit.findFirst({
+            where: {
+              ...(garmentUnitId ? { id: garmentUnitId } : { tagNumber: String(tagNumber).trim().toUpperCase() }),
+              orderItem: { orderId: id }, status: { not: 'VOID' },
+            },
+          })
+        : null;
+      if ((garmentUnitId || tagNumber) && !unit) throw new Error('GARMENT_UNIT_NOT_FOUND');
+      const movement = unit ? await tx.challanGarmentUnit.findFirst({
+        where: { garmentUnitId: unit.id, status: 'DISPATCHED' },
+        include: { challanItem: { select: { challanId: true } } },
+        orderBy: { dispatchedAt: 'desc' },
+      }) : null;
+      const issue = await tx.plantQualityIssue.create({
+        data: {
+          issueNo: await nextDocumentNumber({ tx, documentType: 'PLANT_ISSUE', prefix: 'PQI-', padding: 6 }),
+          orderId: id,
+          garmentUnitId: unit?.id || null,
+          challanId: movement?.challanItem?.challanId || null,
+          plantPartnerId: unit?.currentPlantPartnerId || null,
+          issueType,
+          severity,
+          previousUnitStatus: unit?.status || null,
+          description: description ? String(description).trim() : null,
+          reportedById: req.staff.id,
+        },
+      });
+      if (unit) {
+        await tx.garmentUnit.update({
+          where: { id: unit.id },
+          data: { status: 'ISSUE_HOLD', version: { increment: 1 } },
+        });
       }
-    }
-
-    const flagNote = `ISSUE FLAGGED: ${issueType.replace(/_/g, ' ')}${
-      description ? ` — ${String(description).trim()}` : ''
-    }${itemIndex !== undefined ? ` (Item ${parseInt(itemIndex, 10) + 1})` : ''}. Reported by ${req.staff.name}`;
-
-    await prisma.orderStage.create({
-      data: {
-        orderId:     id,
-        stage:       order.status,
-        notes:       flagNote,
-        changedById: req.staff.id,
-      },
-    });
-
-    await log({
-      actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
-      action: 'PLANT_ISSUE_FLAGGED', resource: 'order', resourceId: id,
-      description: `${req.staff.name} flagged issue on ${order.orderNumber}: ${issueType}`,
-      metadata: { issueType, description, itemIndex },
-      ...getRequestMeta(req),
-    });
+      await tx.orderStage.create({
+        data: {
+          orderId: id, stage: order.status, eventType: 'QUALITY_ISSUE', reasonCode: issueType,
+          notes: description ? String(description).trim() : null,
+          metadata: { issueId: issue.id, issueNo: issue.issueNo, garmentUnitId: unit?.id || null, severity },
+          changedById: req.staff.id,
+        },
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
+        action: 'PLANT_ISSUE_FLAGGED', resource: 'plant_quality_issue', resourceId: issue.id,
+        description: `${req.staff.name} flagged ${issue.issueNo} on ${order.orderNumber}`,
+        metadata: { orderId: id, issueType, severity, garmentUnitId: unit?.id || null },
+        ...getRequestMeta(req),
+      });
+      return { order, issue, unit };
+    }, { isolationLevel: 'Serializable' });
 
     return success(res, {
-      orderId: id, orderNumber: order.orderNumber, issueType, flagNote,
+      orderId: id, orderNumber: result.order.orderNumber, issue: result.issue, garmentUnit: result.unit,
     }, 'Issue flagged and logged');
   } catch (err) {
+    if (err.message === 'ORDER_NOT_FOUND') return notFound(res, 'Order not found');
+    if (err.message === 'GARMENT_UNIT_NOT_FOUND') return notFound(res, 'Garment unit does not belong to this order');
+    if (err.code === 'P2002') return res.status(409).json({ success: false, message: 'An open issue already exists for this garment' });
     return error(res, 'Failed to flag issue');
+  }
+};
+
+const resolveIssue = async (req, res) => {
+  const resolution = String(req.body.resolution || '').trim();
+  const responsibility = String(req.body.responsibility || '').trim().toUpperCase();
+  if (resolution.length < 3) return badRequest(res, 'A resolution note is required');
+  if (!['COMPANY', 'PLANT', 'CUSTOMER', 'NO_FAULT'].includes(responsibility)) return badRequest(res, 'A valid responsibility is required');
+  try {
+    const issue = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM plant_quality_issues WHERE "id" = ${req.params.issueId} FOR UPDATE`;
+      const existing = await tx.plantQualityIssue.findUnique({ where: { id: req.params.issueId } });
+      if (!existing) throw new Error('ISSUE_NOT_FOUND');
+      if (existing.status !== 'OPEN') throw new Error('ISSUE_ALREADY_RESOLVED');
+      const updated = await tx.plantQualityIssue.update({
+        where: { id: existing.id },
+        data: { status: 'RESOLVED', responsibility, resolution, resolvedAt: new Date(), resolvedById: req.staff.id },
+      });
+      if (existing.garmentUnitId) {
+        await tx.garmentUnit.update({
+          where: { id: existing.garmentUnitId },
+          data: { status: existing.previousUnitStatus || 'RECEIVED', version: { increment: 1 } },
+        });
+      }
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
+        action: 'PLANT_ISSUE_RESOLVED', resource: 'plant_quality_issue', resourceId: existing.id,
+        description: `${existing.issueNo} resolved`, metadata: { responsibility, resolution }, ...getRequestMeta(req),
+      });
+      return updated;
+    }, { isolationLevel: 'Serializable' });
+    return success(res, { issue }, 'Plant quality issue resolved');
+  } catch (err) {
+    if (err.message === 'ISSUE_NOT_FOUND') return notFound(res, 'Plant quality issue not found');
+    if (err.message === 'ISSUE_ALREADY_RESOLVED') return badRequest(res, 'Plant quality issue is already resolved');
+    return error(res, 'Failed to resolve plant quality issue');
   }
 };
 
@@ -315,31 +382,39 @@ const flagIssue = async (req, res) => {
 const generateTags = async (req, res) => {
   const { id } = req.params;
   try {
-    const order = await prisma.order.findFirst({
-      where: { id, ...ORDER_ONLY_WHERE },
-      include: { items: { select: { id: true, tagNumber: true, serviceName: true } } },
-    });
-    if (!order) return notFound(res, 'Order not found');
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`;
+      const order = await tx.order.findFirst({ where: { id, ...ORDER_ONLY_WHERE } });
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+      const units = await syncOrderGarmentUnits(tx, id);
+      const tags = await tx.garmentUnit.findMany({
+        where: { id: { in: units.map((unit) => unit.id) } },
+        include: { orderItem: { select: { id: true, serviceName: true, garmentType: true } } },
+        orderBy: [{ createdAt: 'asc' }, { sequence: 'asc' }],
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
+        action: 'GARMENT_TAGS_GENERATED', resource: 'order', resourceId: id,
+        description: `${tags.length} garment-unit tags ready for ${order.orderNumber}`,
+        metadata: { garmentUnitIds: tags.map((unit) => unit.id) }, ...getRequestMeta(req),
+      });
+      return { order, tags };
+    }, { isolationLevel: 'Serializable' });
 
-    const generated = [];
-    for (let i = 0; i < order.items.length; i++) {
-      const item = order.items[i];
-      if (!item.tagNumber) {
-        const tagNumber = `HNG-${order.id.slice(-6).toUpperCase()}-${i + 1}`;
-        await prisma.orderItem.update({ where: { id: item.id }, data: { tagNumber } });
-        generated.push({ itemId: item.id, serviceName: item.serviceName, tagNumber });
-      } else {
-        generated.push({ itemId: item.id, serviceName: item.serviceName, tagNumber: item.tagNumber });
-      }
-    }
-
-    return success(res, { orderId: id, tags: generated }, `${generated.length} tags ready`);
+    return success(res, {
+      orderId: id,
+      tags: result.tags.map((unit) => ({
+        garmentUnitId: unit.id, itemId: unit.orderItem.id, serviceName: unit.orderItem.serviceName,
+        garmentType: unit.orderItem.garmentType, sequence: unit.sequence, tagNumber: unit.tagNumber,
+      })),
+    }, `${result.tags.length} garment-unit tags ready`);
   } catch (err) {
+    if (err.message === 'ORDER_NOT_FOUND') return notFound(res, 'Order not found');
     return error(res, 'Failed to generate tags');
   }
 };
 
 module.exports = {
   getPlantDashboard, getPlantOrders, scanQRCode, getPlantOrder,
-  updatePlantStage, flagIssue, generateTags,
+  updatePlantStage, flagIssue, resolveIssue, generateTags,
 };

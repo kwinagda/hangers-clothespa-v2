@@ -1,27 +1,21 @@
 const prisma = require('../config/database');
 const { success, notFound, error } = require('../utils/response');
-const { withDerivedPaymentState } = require('../utils/order-payment-state');
+const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
+const { resolvePublicShareToken } = require('../services/publicShare.service');
 
-const publicOrderSelect = {
+const publicQuotationSelect = {
   id: true,
   orderNumber: true,
-  status: true,
+  quotationStatus: true,
   subtotal: true,
   discount: true,
-  couponDiscount: true,
-  upcharge: true,
   totalAmount: true,
-  paidAmount: true,
-  writeOffAmount: true,
-  paymentStatus: true,
-  pickupDate: true,
-  deliveryDate: true,
-  deliveredAt: true,
+  validUntil: true,
+  notes: true,
   createdAt: true,
   customer: {
     select: {
       name: true,
-      phone: true,
     },
   },
   items: {
@@ -33,87 +27,107 @@ const publicOrderSelect = {
       unitPrice: true,
       lineDiscountAmount: true,
       subtotal: true,
-    },
-    orderBy: { createdAt: 'asc' },
-  },
-  payments: {
-    select: {
-      amount: true,
-      method: true,
-      status: true,
-      createdAt: true,
+      notes: true,
     },
     orderBy: { createdAt: 'asc' },
   },
 };
 
-const publicIronBillSelect = {
+const normalizePublicQuotation = (quotation) => {
+  const items = Array.isArray(quotation?.items)
+    ? quotation.items.map((item) => normalizeOrderItem(item, { defaultServiceName: item.serviceName || 'Service' }))
+    : [];
+  const subtotal = roundMoney(items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0));
+  const discount = Math.max(0, Number.parseFloat(String(quotation?.discount ?? 0)) || 0);
+  const totalAmount = roundMoney(Math.max(0, subtotal - discount));
+  return {
+    ...quotation,
+    items,
+    subtotal,
+    discount,
+    totalAmount,
+  };
+};
+
+const canonicalInvoiceSelect = {
   id: true,
-  billNumber: true,
-  billingPeriodStart: true,
-  billingPeriodEnd: true,
-  totalPieces: true,
+  invoiceNumber: true,
+  sourceType: true,
+  status: true,
+  issueDate: true,
+  dueDate: true,
+  subtotal: true,
+  discountAmount: true,
+  taxAmount: true,
   totalAmount: true,
   paidAmount: true,
-  status: true,
-  paymentMethod: true,
-  paidAt: true,
-  createdAt: true,
-  customer: {
+  balanceDue: true,
+  customer: { select: { name: true } },
+  order: {
     select: {
-      name: true,
-      phone: true,
+      orderNumber: true,
+      status: true,
+      pickupDate: true,
+      deliveryDate: true,
+      deliveredAt: true,
     },
   },
-  logs: {
+  ironBill: {
     select: {
-      serviceName: true,
-      date: true,
-      pieces: true,
-      ratePerPiece: true,
-      amount: true,
+      billNumber: true,
+      status: true,
+      billingPeriodStart: true,
+      billingPeriodEnd: true,
+      paidAt: true,
     },
-    orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+  },
+  lines: {
+    select: {
+      lineType: true,
+      description: true,
+      quantity: true,
+      unitPrice: true,
+      discountAmount: true,
+      lineTotal: true,
+      metadata: true,
+    },
+    orderBy: { createdAt: 'asc' },
   },
 };
 
-const normalizeIronBillInvoice = (bill) => {
-  const balanceDue = Math.max(0, Number(bill.totalAmount || 0) - Number(bill.paidAmount || 0));
+const normalizeCanonicalInvoice = (invoice) => {
+  const source = invoice.order || invoice.ironBill || {};
   return {
-    id: bill.id,
-    invoiceType: 'IRON_BILL',
-    orderNumber: bill.billNumber,
-    status: bill.status,
-    subtotal: bill.totalAmount,
-    discount: 0,
+    id: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    invoiceType: invoice.sourceType,
+    orderNumber: invoice.order?.orderNumber || invoice.ironBill?.billNumber || invoice.invoiceNumber,
+    status: source.status || invoice.status,
+    subtotal: invoice.subtotal,
+    discount: invoice.discountAmount,
     couponDiscount: 0,
     upcharge: 0,
-    totalAmount: bill.totalAmount,
-    paidAmount: bill.paidAmount,
-    writeOffAmount: 0,
-    paymentStatus: balanceDue <= 0 ? 'PAID' : Number(bill.paidAmount || 0) > 0 ? 'PARTIAL' : 'UNPAID',
-    pickupDate: bill.billingPeriodStart,
-    deliveryDate: bill.billingPeriodEnd,
-    deliveredAt: bill.paidAt,
-    createdAt: bill.createdAt,
-    customer: bill.customer,
-    items: (bill.logs || []).map((log) => ({
-      serviceName: 'Daily Iron',
-      garmentType: log.serviceName,
-      variant: log.date,
-      quantity: log.pieces,
-      unitPrice: log.ratePerPiece,
-      lineDiscountAmount: 0,
-      subtotal: log.amount,
+    taxAmount: invoice.taxAmount,
+    totalAmount: invoice.totalAmount,
+    paidAmount: invoice.paidAmount,
+    writeOffAmount: Math.max(0, Number(invoice.totalAmount || 0) - Number(invoice.paidAmount || 0) - Number(invoice.balanceDue || 0)),
+    paymentStatus: invoice.status === 'PAID' ? 'PAID' : Number(invoice.paidAmount || 0) > 0 ? 'PARTIAL' : 'UNPAID',
+    pickupDate: invoice.order?.pickupDate || invoice.ironBill?.billingPeriodStart || invoice.issueDate,
+    deliveryDate: invoice.order?.deliveryDate || invoice.ironBill?.billingPeriodEnd || invoice.dueDate,
+    deliveredAt: invoice.order?.deliveredAt || invoice.ironBill?.paidAt || null,
+    createdAt: invoice.issueDate,
+    dueDate: invoice.dueDate,
+    customer: invoice.customer,
+    items: invoice.lines.map((line) => ({
+      serviceName: line.description,
+      garmentType: line.lineType,
+      variant: null,
+      quantity: Number(line.quantity || 0),
+      unitPrice: line.unitPrice,
+      lineDiscountAmount: line.discountAmount,
+      subtotal: line.lineTotal,
     })),
-    payments: Number(bill.paidAmount || 0) > 0
-      ? [{
-          amount: bill.paidAmount,
-          method: bill.paymentMethod || 'CASH',
-          createdAt: bill.paidAt || bill.createdAt,
-        }]
-      : [],
-    balanceDue,
+    balanceDue: invoice.balanceDue,
   };
 };
 
@@ -129,6 +143,8 @@ const getPublicDailyIronLogs = async (req, res) => {
   try {
     const slug = String(req.params.slug || '').trim();
     if (!slug) return notFound(res, 'Daily Iron account not found');
+    const share = await resolvePublicShareToken({ token: slug, purpose: 'DAILY_IRON_LOGS' });
+    if (!share || share.resourceType !== 'IRON_SUBSCRIPTION') return notFound(res, 'Daily Iron account not found');
 
     const month = Number(req.query.month);
     const year = Number(req.query.year);
@@ -138,17 +154,11 @@ const getPublicDailyIronLogs = async (req, res) => {
     const periodEnd = endOfMonth(periodStart);
 
     const subscription = await prisma.ironSubscription.findFirst({
-      where: {
-        OR: [
-          { id: slug },
-          { customerId: slug },
-        ],
-      },
+      where: { id: share.resourceId },
       include: {
         customer: {
           select: {
             name: true,
-            phone: true,
           },
         },
       },
@@ -159,6 +169,7 @@ const getPublicDailyIronLogs = async (req, res) => {
       prisma.ironLog.findMany({
         where: {
           customerId: subscription.customerId,
+          status: 'ACTIVE',
           date: {
             gte: periodStart,
             lte: periodEnd,
@@ -232,40 +243,52 @@ const getPublicInvoice = async (req, res) => {
   try {
     const slug = String(req.params.slug || '').trim();
     if (!slug) return notFound(res, 'Invoice not found');
+    const share = await resolvePublicShareToken({ token: slug, purpose: 'INVOICE_VIEW' });
+    if (!share) return notFound(res, 'Invoice not found');
 
-    const order = await prisma.order.findFirst({
-      where: {
-        documentType: 'ORDER',
-        OR: [
-          { orderNumber: slug },
-          { id: slug },
-        ],
-      },
-      select: publicOrderSelect,
-    });
+    const where = share.resourceType === 'INVOICE'
+      ? { id: share.resourceId }
+      : share.resourceType === 'IRON_BILL'
+        ? { ironBillId: share.resourceId }
+        : share.resourceType === 'ORDER'
+          ? { orderId: share.resourceId }
+          : null;
+    if (!where) return notFound(res, 'Invoice not found');
 
-    if (!order) {
-      const bill = await prisma.ironBill.findFirst({
-        where: {
-          OR: [
-            { billNumber: slug },
-            { id: slug },
-          ],
-        },
-        select: publicIronBillSelect,
-      });
-      if (!bill) return notFound(res, 'Invoice not found');
-      return success(res, { invoice: normalizeIronBillInvoice(bill) });
-    }
-
-    return success(res, { invoice: withDerivedPaymentState(order) });
+    const invoice = await prisma.invoice.findFirst({ where, select: canonicalInvoiceSelect });
+    if (!invoice || invoice.status === 'VOID') return notFound(res, 'Invoice not found');
+    return success(res, { invoice: normalizeCanonicalInvoice(invoice) });
   } catch (err) {
     console.error('getPublicInvoice error:', err);
     return error(res, 'Failed to load invoice');
   }
 };
 
+const getPublicQuotation = async (req, res) => {
+  try {
+    const slug = String(req.params.slug || '').trim();
+    if (!slug) return notFound(res, 'Quotation not found');
+    const share = await resolvePublicShareToken({ token: slug, purpose: 'QUOTATION_VIEW' });
+    if (!share || share.resourceType !== 'QUOTATION') return notFound(res, 'Quotation not found');
+
+    const quotation = await prisma.order.findFirst({
+      where: {
+        id: share.resourceId,
+        documentType: 'QUOTATION',
+      },
+      select: publicQuotationSelect,
+    });
+    if (!quotation) return notFound(res, 'Quotation not found');
+
+    return success(res, { quotation: normalizePublicQuotation(quotation) });
+  } catch (err) {
+    console.error('getPublicQuotation error:', err);
+    return error(res, 'Failed to load quotation');
+  }
+};
+
 module.exports = {
   getPublicInvoice,
   getPublicDailyIronLogs,
+  getPublicQuotation,
 };

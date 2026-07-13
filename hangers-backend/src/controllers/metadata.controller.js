@@ -5,25 +5,17 @@ const {
   getMasterMetadata,
 } = require('../services/masterData.service');
 
-const titleCase = (value) => String(value || '')
-  .toLowerCase()
-  .replace(/(^|[\s_-])([a-z])/g, (_match, prefix, char) => `${prefix}${char.toUpperCase()}`)
-  .trim();
-
 const getDbPlantPartners = async () => {
-  const [pricePlants, challanPlants, billPlants] = await Promise.all([
-    prisma.vendorPriceList.findMany({ select: { plant: true }, distinct: ['plant'] }),
-    prisma.deliveryChallan.findMany({ select: { plant: true }, distinct: ['plant'] }),
-    prisma.vendorBill.findMany({ select: { plant: true }, distinct: ['plant'] }),
-  ]);
-
-  const values = [...pricePlants, ...challanPlants, ...billPlants]
-    .map((row) => String(row.plant || '').trim())
-    .filter(Boolean);
-
-  return [...new Set(values)].sort().map((value) => ({
-    value,
-    label: titleCase(value.replace(/_/g, ' ')),
+  const partners = await prisma.plantPartner.findMany({
+    where: { isActive: true },
+    select: { id: true, code: true, name: true, paymentTermsDays: true },
+    orderBy: [{ name: 'asc' }, { code: 'asc' }],
+  });
+  return partners.map((partner) => ({
+    id: partner.id,
+    value: partner.code,
+    label: partner.name,
+    paymentTermsDays: partner.paymentTermsDays,
   }));
 };
 
@@ -61,6 +53,7 @@ const getMetadata = async (_req, res) => {
     return success(res, {
       metadata: {
         orderStatuses: masterMetadata.orderStatuses,
+        orderSources: masterMetadata.orderSources,
         orderWorkflow: masterMetadata.orderWorkflow,
         staffRoles: masterMetadata.staffRoles,
         marketingTriggers: masterMetadata.marketingTriggers,
@@ -73,11 +66,13 @@ const getMetadata = async (_req, res) => {
         corePaymentMethods: masterMetadata.corePaymentMethods,
         collectablePaymentMethods,
         paymentStatuses: masterMetadata.paymentStatuses,
+        paymentTransactionStatuses: masterMetadata.paymentTransactionStatuses,
         plantIssueTypes: masterMetadata.plantIssueTypes,
         plantPartners: dbPlantPartners,
         quotationStatuses: masterMetadata.quotationStatuses,
         customerTags: masterMetadata.customerTags,
         languages: masterMetadata.languages,
+        launchCapabilities: masterMetadata.launchCapabilities,
         recurringFrequencies: masterMetadata.recurringFrequencies,
         weekdays: masterMetadata.weekdays,
         expenseCategories: masterMetadata.expenseCategories,

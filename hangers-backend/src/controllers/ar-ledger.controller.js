@@ -1,37 +1,46 @@
 const prisma = require('../config/database');
 const { error } = require('../utils/response');
-const { deriveOrderPaymentState, withDerivedPaymentState } = require('../utils/order-payment-state');
-
-const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 const getARLedger = async (req, res) => {
   try {
-    const allOrders = await prisma.order.findMany({
-      where: ORDER_ONLY_WHERE,
+    const invoices = await prisma.invoice.findMany({
+      where: { status: { not: 'VOID' }, balanceDue: { gt: 0 } },
       include: {
         customer: { select: { id: true, name: true, phone: true } },
-        payments: { select: { amount: true, status: true } },
+        order: { select: { id: true, orderNumber: true, status: true } },
+        ironBill: { select: { id: true, billNumber: true, status: true } },
       },
-      orderBy: { createdAt: 'asc' }
+      orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }],
     });
-    const orders = allOrders.filter((order) => deriveOrderPaymentState(order).balanceDue > 0);
 
     const now = new Date();
-    const ledger = orders.map(o => {
-      const paymentState = deriveOrderPaymentState(o);
-      return ({
-      ...withDerivedPaymentState(o),
-      balance:    paymentState.balanceDue,
-      daysOverdue: Math.floor((now - new Date(o.createdAt)) / (1000 * 60 * 60 * 24)),
-      isOverdue:   Math.floor((now - new Date(o.createdAt)) / (1000 * 60 * 60 * 24)) > 7
-    });
+    const ledger = invoices.map((invoice) => {
+      const daysOverdue = Math.max(0, Math.floor((now.getTime() - new Date(invoice.dueDate).getTime()) / 86400000));
+      return {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        sourceType: invoice.sourceType,
+        orderId: invoice.orderId,
+        orderNumber: invoice.order?.orderNumber || null,
+        ironBillId: invoice.ironBillId,
+        billNumber: invoice.ironBill?.billNumber || null,
+        customer: invoice.customer,
+        issueDate: invoice.issueDate,
+        dueDate: invoice.dueDate,
+        totalAmount: Number(invoice.totalAmount || 0),
+        paidAmount: Number(invoice.paidAmount || 0),
+        balance: Number(invoice.balanceDue || 0),
+        status: invoice.status,
+        daysOverdue,
+        isOverdue: new Date(invoice.dueDate) < now,
+      };
     });
 
-    const totalOutstanding = ledger.reduce((s, o) => s + (o.balance || 0), 0);
-    const overdueCount = ledger.filter(o => o.isOverdue).length;
-
-    res.json({ success: true, data: { ledger, totalOutstanding, overdueCount } });
+    const totalOutstanding = ledger.reduce((sum, invoice) => sum + invoice.balance, 0);
+    const overdueCount = ledger.filter((invoice) => invoice.isOverdue).length;
+    return res.json({ success: true, data: { ledger, totalOutstanding, overdueCount, asOf: now } });
   } catch (err) {
+    console.error('getARLedger error:', err);
     return error(res, 'Failed to fetch AR ledger');
   }
 };

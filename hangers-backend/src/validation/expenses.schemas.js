@@ -12,4 +12,8 @@ const expenseSchema = z.object({
   paidBy:      optionalTrimmed(120),
 }).strict();
 
-module.exports = { expenseSchema };
+const expenseDecisionSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+}).strict();
+
+module.exports = { expenseSchema, expenseDecisionSchema };

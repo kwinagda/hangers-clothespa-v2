@@ -82,6 +82,11 @@ async function buildPrintHTML(
 ): Promise<string> {
   const f = (key: string) => fields[key] !== false
   const items = order.items || []
+  const garments = items.flatMap((item: any) => {
+    const units = (item.garmentUnits || []).filter((unit: any) => unit.status !== 'VOID')
+    if (units.length) return units.map((unit: any) => ({ ...item, quantity: 1, garmentUnit: unit }))
+    return Array.from({ length: Number(item.quantity || 1) }, (_, index) => ({ ...item, quantity: 1, fallbackUnitIndex: index + 1 }))
+  })
   const customer = order.customer || {}
   const customerName = customer.name || ''
   const customerPhone = customer.phone ? `+91 ${customer.phone}` : ''
@@ -199,7 +204,7 @@ async function buildPrintHTML(
   let body = ''
 
   if (type === 'garment') {
-    const pages = await Promise.all(items.map(async (item: any, index: number) => {
+    const pages = await Promise.all(garments.map(async (item: any, index: number) => {
       const defectText = [
         f('noDefect') ? 'No defect' : '',
         f('color') ? 'Colour' : '',
@@ -207,7 +212,8 @@ async function buildPrintHTML(
         f('stains') ? 'Stains' : '',
         f('upcharge') && Number(item.upcharge || 0) > 0 ? `Upcharge ${rupee(item.upcharge)}` : '',
       ].filter(Boolean)
-      const qrData = f('barcode') ? await qr(`${order.orderNumber}-${index + 1}`) : ''
+      const tagNumber = item.garmentUnit?.tagNumber || `${order.orderNumber}-LEGACY-${index + 1}`
+      const qrData = f('barcode') ? await qr(tagNumber) : ''
       return `
         <section class="page tag-page">
           <div class="tag-inner">
@@ -223,7 +229,7 @@ async function buildPrintHTML(
             ${f('customerPhone') ? `<div class="tag-small">${escapeHtml(customerPhone)}</div>` : ''}
             ${defectText.length ? `<div class="defects">${defectText.map((entry) => `<span>${escapeHtml(entry)}</span>`).join('')}</div>` : ''}
             ${f('notes') && (item.notes || order.notes) ? `<div class="tag-note">${escapeHtml(item.notes || order.notes)}</div>` : ''}
-            ${f('tagIndex') ? `<div class="tag-small">${index + 1}/${items.length}</div>` : ''}
+            ${f('tagIndex') ? `<div class="tag-small">${index + 1}/${garments.length} · ${escapeHtml(tagNumber)}</div>` : ''}
             ${qrData ? `<img class="qr" src="${qrData}" alt="QR" />` : ''}
           </div>
         </section>`
@@ -241,7 +247,7 @@ async function buildPrintHTML(
             ${f('customerName') ? `<div class="tag-main">${escapeHtml(customerName || 'Customer')}</div>` : ''}
             ${f('customerPhone') ? `<div class="tag-small">${escapeHtml(customerPhone)}</div>` : ''}
             ${f('bagIndex') ? `<div class="tag-main">BAG ${index + 1}/${bagTotal}</div>` : ''}
-            ${f('serviceSummary') ? `<div class="tag-small">${items.length} garment${items.length === 1 ? '' : 's'}</div>` : ''}
+            ${f('serviceSummary') ? `<div class="tag-small">${garments.length} garment${garments.length === 1 ? '' : 's'}</div>` : ''}
             ${f('deliveryDate') && order.deliveryDate ? `<div class="tag-small">Due ${fmtDate(order.deliveryDate)}</div>` : ''}
             ${f('notes') && order.notes ? `<div class="tag-note">${escapeHtml(order.notes)}</div>` : ''}
             ${qrData ? `<img class="qr" src="${qrData}" alt="QR" />` : ''}
@@ -376,6 +382,10 @@ function PrintCenterPageContent() {
   const [fieldsOpen, setFieldsOpen] = useState(true)
 
   const currentConfig = printConfig?.[type]
+  const garmentCount = (order?.items || []).reduce((total: number, item: any) => {
+    const units = (item.garmentUnits || []).filter((unit: any) => unit.status !== 'VOID')
+    return total + (units.length || Number(item.quantity || 1))
+  }, 0)
   const presets = type === 'garment' || type === 'bag' ? (currentConfig?.presets || []) : []
   const labelSize = useMemo<LabelSize>(() => {
     if (type !== 'garment' && type !== 'bag') return printConfig?.garment?.size || { w: 0, h: 0 }
@@ -537,7 +547,7 @@ function PrintCenterPageContent() {
               <span style={{ color: '#9dafc8' }}>·</span>
               <span style={{ fontWeight: 600 }}>{order.customer?.name || `+91 ${order.customer?.phone}`}</span>
               <span style={{ color: '#9dafc8' }}>·</span>
-              <span style={{ color: '#6b7fa3' }}>{order.items?.length || 0} items · {money(order.totalAmount)}</span>
+              <span style={{ color: '#6b7fa3' }}>{garmentCount} garments · {money(order.totalAmount)}</span>
             </div>
             <span style={{ color: '#15803d', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Check size={14} />Loaded</span>
           </div>
@@ -624,7 +634,7 @@ function PrintCenterPageContent() {
           </div>
 
           <div style={{ background: '#f7f9fc', borderRadius: 10, padding: '12px 14px', border: '1px solid #e8f0f7', marginBottom: 18, fontSize: 13, color: '#6b7fa3', lineHeight: 1.7 }}>
-            {type === 'garment' && <span>Will print <strong style={{ color: '#023c62' }}>{order.items?.length || 0} garment tags</strong> at {labelSize.w}×{labelSize.h}mm.</span>}
+            {type === 'garment' && <span>Will print <strong style={{ color: '#023c62' }}>{garmentCount} garment tags</strong> at {labelSize.w}×{labelSize.h}mm.</span>}
             {type === 'bag' && <span>Will print <strong style={{ color: '#023c62' }}>{bagTotal} bag labels</strong> at {labelSize.w}×{labelSize.h}mm.</span>}
             {type === 'receipt' && <span>Will print <strong style={{ color: '#023c62' }}>A5 receipt</strong> with selected fields.</span>}
             {type === 'thermal' && <span>Will print <strong style={{ color: '#023c62' }}>80mm thermal receipt</strong> with selected fields.</span>}

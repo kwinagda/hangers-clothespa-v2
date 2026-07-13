@@ -4,6 +4,7 @@
 
 const axios  = require('axios');
 const bcrypt = require('bcryptjs');
+const { maskPhone, providerErrorSummary } = require('../utils/redact');
 
 const isDevMode = () => {
   const k = process.env.MSG91_AUTH_KEY || '';
@@ -31,7 +32,7 @@ const verifyOtpHash = async (otp, hash) => bcrypt.compare(otp, hash);
 // ── Send OTP via MSG91 ────────────────────────────────────────────────────────
 const sendOtp = async (phone, otp) => {
   if (isDevMode()) {
-    console.log(`\nDEV MODE OTP for ${phone}: ${otp}\n`);
+    console.log(`[MSG91 DEV] OTP generated for ${maskPhone(phone)} (redacted)`);
     return { success: true, devMode: true };
   }
 
@@ -62,7 +63,7 @@ const sendOtp = async (phone, otp) => {
       }
     );
 
-    console.log('[MSG91] OTP sent:', response.data);
+    console.log('[MSG91] OTP sent');
 
     if (response.data?.type === 'error') {
       throw new Error(`MSG91 error: ${JSON.stringify(response.data)}`);
@@ -71,7 +72,7 @@ const sendOtp = async (phone, otp) => {
     return { success: true, data: response.data };
   } catch (error) {
     if (error.response) {
-      console.error('[MSG91] Error response:', error.response.data);
+      console.error('[MSG91] Error response:', providerErrorSummary(error));
       throw new Error(`MSG91 error: ${JSON.stringify(error.response.data)}`);
     }
     console.error('[MSG91] Network error:', error.message);

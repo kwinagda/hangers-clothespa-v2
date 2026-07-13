@@ -14,6 +14,7 @@ const { LANGUAGE_VALUES }                          = require('../config/master-d
 const { REFERRAL_STATUS }                          = require('../services/referral.service');
 const { sendOtpSchema, verifyOtpSchema }           = require('../validation/auth.schemas');
 const { AUTH_CHALLENGE_PURPOSE, createAuthChallenge, verifyAuthChallenge } = require('../services/authChallenge.service');
+const { maskPhone }                                = require('../utils/redact');
 const OTP_SEND_MAX_FAILURES = 5;
 const OTP_SEND_WINDOW_MS = 10 * 60 * 1000;
 const OTP_VERIFY_MAX_FAILURES = 10;
@@ -146,14 +147,14 @@ const sendOtpController = async (req, res) => {
       metadata: { customerId: existingCustomer?.id || null },
     });
 
-    if (!isDevMode()) { await sendOtp(normalizedPhone, otp); } else { console.log(`\nDEV MODE OTP for ${normalizedPhone}: ${otp}\n`); }
+    if (!isDevMode()) { await sendOtp(normalizedPhone, otp); } else { console.log(`[AUTH DEV] OTP generated for ${maskPhone(normalizedPhone)} (redacted)`); }
 
     await log({
       actorType:   'customer',
       actorId:     existingCustomer?.id,
       action:      'OTP_SENT',
       resource:    'otp',
-      description: `OTP sent to ${normalizedPhone}`,
+      description: `OTP sent to ${maskPhone(normalizedPhone)}`,
       ...getRequestMeta(req),
     });
 

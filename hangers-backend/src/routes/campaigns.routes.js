@@ -4,6 +4,7 @@ const { staffAuth }                                       = require('../middlewa
 const { requireRole, requireServiceAccess }               = require('../middleware/rbac');
 const { privateNoStore }                                  = require('../middleware/privateCache');
 const { requireTrustedWrite }                             = require('../middleware/origin');
+const { requireLaunchCapability }                         = require('../middleware/launchCapabilities');
 const { getCampaigns, createCampaign, sendCampaign }      = require('../controllers/campaigns.controller');
 
 const adminRoles     = requireRole('SUPER_ADMIN', 'MANAGER');
@@ -13,7 +14,7 @@ router.use(privateNoStore);
 router.use(requireTrustedWrite);
 
 router.get('/',            staffAuth, marketingAccess, adminRoles, getCampaigns);
-router.post('/',           staffAuth, marketingAccess, adminRoles, createCampaign);
-router.post('/:id/send',   staffAuth, marketingAccess, adminRoles, sendCampaign);
+router.post('/',           staffAuth, marketingAccess, adminRoles, requireLaunchCapability('campaigns', 'create'), createCampaign);
+router.post('/:id/send',   staffAuth, marketingAccess, adminRoles, requireLaunchCapability('campaigns', 'send'), sendCampaign);
 
 module.exports = router;

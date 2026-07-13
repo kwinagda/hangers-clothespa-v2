@@ -130,7 +130,7 @@ const verifyRazorpayPayment = async (req, res) => {
           orderNumber: order.orderNumber,
           amount: balanceDue,
           method: 'RAZORPAY',
-          status: 'SUCCESS',
+          status: 'CAPTURED',
         }, 'Payment already recorded');
       }
       return badRequest(res, 'This Razorpay payment ID is already linked to a different order');
@@ -158,7 +158,7 @@ const verifyRazorpayPayment = async (req, res) => {
           orderId,
           amount: appliedAmount,
           method: 'RAZORPAY',
-          status: 'SUCCESS',
+          status: 'CAPTURED',
           razorpayOrderId: razorpayOrderId || null,
           razorpayPaymentId,
           razorpaySignature: razorpaySignature || null,
@@ -197,7 +197,7 @@ const verifyRazorpayPayment = async (req, res) => {
       orderNumber: order.orderNumber,
       amount:      payment.amount,
       method:      'RAZORPAY',
-      status:      'SUCCESS',
+      status:      payment.status,
     }, 'Payment successful!');
 
   } catch (err) {

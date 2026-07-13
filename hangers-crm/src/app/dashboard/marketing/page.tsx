@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { campaignsAPI, automationsAPI, metadataAPI } from '@/lib/api'
 import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import toast from 'react-hot-toast'
 type Tab = 'campaigns'|'automations'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -31,6 +32,7 @@ export default function MarketingPage() {
   const [campaignPage,setCampaignPage] = useState(1)
   const [automationPage,setAutomationPage] = useState(1)
   const [pageSize,setPageSize] = useState(12)
+  const [launchCapabilities,setLaunchCapabilities] = useState<any>({})
   const [cf,setCf] = useState({name:'',message:'',audience:'ALL'})
   const [af,setAf] = useState({name:'',trigger:'ORDER_PLACED',message:'',delayHours:'0'})
   const audienceLabel = (value: string) => audiences.find((item:any) => item.value === value)?.label || value
@@ -40,6 +42,7 @@ export default function MarketingPage() {
       const metadata = r?.metadata || r?.data?.metadata || {}
       const nextAudiences = metadata.marketingAudiences || []
       const nextTriggers = metadata.marketingTriggers || []
+      setLaunchCapabilities(metadata.launchCapabilities || {})
       setAudiences(nextAudiences)
       setTriggers(nextTriggers)
       if (nextAudiences[0]?.value) setCf(prev => ({ ...prev, audience: nextAudiences[0].value }))
@@ -51,6 +54,9 @@ export default function MarketingPage() {
   const s = {fontFamily:"var(--crm-font-ui)"}
   const pagedCampaigns = campaigns.slice((campaignPage - 1) * pageSize, campaignPage * pageSize)
   const pagedAutomations = automations.slice((automationPage - 1) * pageSize, automationPage * pageSize)
+  const canUse = (feature: string, action: string) => Boolean(launchCapabilities?.[feature]?.enabled && launchCapabilities?.[feature]?.capabilities?.[action])
+  const disabledReason = (feature: string) => launchCapabilities?.[feature]?.reason || 'This feature is disabled until the backend workflow is production-ready.'
+  const disabledButtonStyle = { opacity: 0.45, cursor: 'not-allowed' as const }
   const tabBtn = (t:Tab,l:string) => <button onClick={()=>setTab(t)} style={{padding:'8px 18px',borderRadius:8,fontSize:13,fontWeight:600,border:'none',cursor:'pointer',background:tab===t?'#fff':'transparent',color:tab===t?'#023c62':'#6b7fa3',boxShadow:tab===t?'0 1px 4px rgba(0,0,0,0.08)':'none'}}>{l}</button>
   const SS: Record<string,any> = {DRAFT:{bg:'#f3f4f6',color:'#374151'},SENT:{bg:'#dcfce7',color:'#166534'},FAILED:{bg:'#fee2e2',color:'#991b1b'}}
   return (
@@ -61,7 +67,12 @@ export default function MarketingPage() {
       </div>
       {tab==='campaigns'&&<div>
         <div style={{display:'flex',justifyContent:'flex-end',marginBottom:16}}>
-          <button onClick={()=>setShowCamp(true)} style={{padding:'10px 20px',background:'#023c62',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer'}}>+ New Campaign</button>
+          <button
+            onClick={() => canUse('campaigns', 'create') ? setShowCamp(true) : toast.error(disabledReason('campaigns'))}
+            disabled={!canUse('campaigns', 'create')}
+            title={!canUse('campaigns', 'create') ? disabledReason('campaigns') : undefined}
+            style={{padding:'10px 20px',background:'#023c62',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',...(!canUse('campaigns', 'create') ? disabledButtonStyle : {})}}
+          >+ New Campaign</button>
         </div>
         <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden'}}>
           {campaigns.length===0
@@ -91,7 +102,7 @@ export default function MarketingPage() {
                         <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:SS[c.status]?.bg||'#f3f4f6',color:SS[c.status]?.color||'#374151'}}>{c.status}</span>
                       </td>
                       <td style={{padding:'13px 18px'}}>
-                        {c.status==='DRAFT'&&<button onClick={async()=>{try{setSending(c.id);const r:any=await campaignsAPI.send(c.id);const sentCount = r?.data?.sentCount ?? r?.sentCount ?? c.sentCount;setCampaigns(campaigns.map(x=>x.id===c.id?{...x,status:'SENT',sentCount}:x))}finally{setSending(null)}}} disabled={sending===c.id} style={{padding:'5px 12px',background:'#166534',color:'#fff',borderRadius:7,fontSize:12,fontWeight:700,border:'none',cursor:'pointer',opacity:sending===c.id?0.5:1}}>{sending===c.id?'Sending...':'Send Now'}</button>}
+                        {c.status==='DRAFT'&&<button onClick={async()=>{if(!canUse('campaigns','send')){toast.error(disabledReason('campaigns'));return} try{setSending(c.id);const r:any=await campaignsAPI.send(c.id);const sentCount = r?.data?.sentCount ?? r?.sentCount ?? c.sentCount;setCampaigns(campaigns.map(x=>x.id===c.id?{...x,status:'SENT',sentCount}:x))}finally{setSending(null)}}} disabled={sending===c.id || !canUse('campaigns','send')} title={!canUse('campaigns','send') ? disabledReason('campaigns') : undefined} style={{padding:'5px 12px',background:'#166534',color:'#fff',borderRadius:7,fontSize:12,fontWeight:700,border:'none',cursor:'pointer',opacity:(sending===c.id||!canUse('campaigns','send'))?0.5:1}}>{sending===c.id?'Sending...':'Send Now'}</button>}
                       </td>
                     </tr>
                   ))}
@@ -113,7 +124,12 @@ export default function MarketingPage() {
       {tab==='automations'&&<div>
         <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:16,gap:16}}>
           <p style={{fontSize:13,color:'#6b7fa3',margin:0}}>Use variables: <code style={{background:'#f1f5f9',padding:'1px 6px',borderRadius:4,fontSize:12}}>{'{{customerName}}'}</code> <code style={{background:'#f1f5f9',padding:'1px 6px',borderRadius:4,fontSize:12}}>{'{{orderNumber}}'}</code> <code style={{background:'#f1f5f9',padding:'1px 6px',borderRadius:4,fontSize:12}}>{'{{amount}}'}</code></p>
-          <button onClick={()=>setShowAuto(true)} style={{padding:'10px 20px',background:'#023c62',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',flexShrink:0}}>+ New Automation</button>
+          <button
+            onClick={() => canUse('automations', 'create') ? setShowAuto(true) : toast.error(disabledReason('automations'))}
+            disabled={!canUse('automations', 'create')}
+            title={!canUse('automations', 'create') ? disabledReason('automations') : undefined}
+            style={{padding:'10px 20px',background:'#023c62',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',flexShrink:0,...(!canUse('automations', 'create') ? disabledButtonStyle : {})}}
+          >+ New Automation</button>
         </div>
         <div style={{display:'flex',flexDirection:'column' as const,gap:12}}>
           {automations.length===0?<div style={{padding:40,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:14,border:'1px solid #e3edf6'}}>No automations configured</div>:
@@ -129,7 +145,7 @@ export default function MarketingPage() {
               </div>
               <div style={{display:'flex',flexDirection:'column' as const,alignItems:'flex-end',gap:8}}>
                 <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:a.isActive?'#dcfce7':'#f3f4f6',color:a.isActive?'#166534':'#6b7280'}}>{a.isActive?'Active':'Paused'}</span>
-                <button onClick={()=>automationsAPI.toggle(a.id).then(()=>setAutomations(automations.map(x=>x.id===a.id?{...x,isActive:!x.isActive}:x))).catch(()=>{})} style={{fontSize:12,color:'#023c62',background:'none',border:'none',cursor:'pointer'}}>{a.isActive?'Pause':'Enable'}</button>
+                <button onClick={()=>{if(!canUse('automations','toggle')){toast.error(disabledReason('automations'));return} automationsAPI.toggle(a.id).then(()=>setAutomations(automations.map(x=>x.id===a.id?{...x,isActive:!x.isActive}:x))).catch(()=>{})}} disabled={!canUse('automations','toggle')} title={!canUse('automations','toggle') ? disabledReason('automations') : undefined} style={{fontSize:12,color:'#023c62',background:'none',border:'none',cursor:canUse('automations','toggle')?'pointer':'not-allowed',opacity:canUse('automations','toggle')?1:0.45}}>{a.isActive?'Pause':'Enable'}</button>
               </div>
             </div>
           </div>)}

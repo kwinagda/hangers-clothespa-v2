@@ -7,6 +7,7 @@ const { recurringPickupSchema }     = require('../src/validation/recurring.schem
 const { reportQuerySchema }         = require('../src/validation/reports.schemas');
 const { advancedSearchQuerySchema } = require('../src/validation/search.schemas');
 const { automationSchema }          = require('../src/validation/automations.schemas');
+const { createOrderSchema }         = require('../src/validation/orders.schemas');
 
 test('cashEntrySchema rejects negative amount', () => {
   const parsed = cashEntrySchema.safeParse({ type: 'IN', amount: -10, description: 'Bad' });
@@ -36,4 +37,33 @@ test('advancedSearchQuerySchema enforces positive page and limit max 100', () =>
 test('automationSchema rejects negative delay hours', () => {
   const parsed = automationSchema.safeParse({ name: 'A', trigger: 'T', message: 'M', delayHours: -1, channel: 'WHATSAPP' });
   assert.equal(parsed.success, false);
+});
+
+test('createOrderSchema requires a customer identifier and at least one item', () => {
+  const parsed = createOrderSchema.safeParse({
+    source: 'counter',
+    items: [],
+  });
+
+  assert.equal(parsed.success, false);
+});
+
+test('createOrderSchema accepts current CRM counter order payload', () => {
+  const parsed = createOrderSchema.safeParse({
+    customerId: 'customer-1',
+    source: 'CRM',
+    discount: 0,
+    paidAmount: 100,
+    paymentMethod: 'CASH',
+    writeOffAmount: 0,
+    items: [{
+      serviceId: 'service-1',
+      serviceName: 'Dry Clean',
+      garmentType: 'Shirt',
+      quantity: 1,
+      unitPrice: 100,
+    }],
+  });
+
+  assert.equal(parsed.success, true);
 });

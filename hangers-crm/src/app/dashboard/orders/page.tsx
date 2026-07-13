@@ -290,7 +290,8 @@ function OrdersPageContent() {
       return
     }
     try {
-      await ordersAPI.updateStatus(id, newStatus)
+      const expectedVersion = Number(orders.find((order: any) => order.id === id)?.version || 1)
+      await ordersAPI.updateStatus(id, newStatus, undefined, expectedVersion)
       toast.success('Status updated')
       load()
     } catch(e:any) { toast.error(e.message) }
@@ -308,7 +309,8 @@ function OrdersPageContent() {
       return
     }
     try {
-      await ordersAPI.updateStatus(statusModal.orderId, statusModal.target, statusModal.reason.trim())
+      const expectedVersion = Number(orders.find((order: any) => order.id === statusModal.orderId)?.version || 1)
+      await ordersAPI.updateStatus(statusModal.orderId, statusModal.target, statusModal.reason.trim(), expectedVersion)
       toast.success('Status updated')
       setStatusModal({ open: false, orderId: '', currentStatus: '', target: '', kind: 'forward', reason: '' })
       load()

@@ -381,10 +381,15 @@ export default function CustomerProfilePage() {
   }
 
   const deleteIronLog = async (logId: string) => {
+    const reason = window.prompt('Reason for voiding this unbilled Daily Iron log')?.trim()
+    if (!reason || reason.length < 3) {
+      toast.error('A void reason is required')
+      return
+    }
     setIronBusy(`log-delete-${logId}`)
     try {
-      await ironAPI.deleteLog(logId)
-      toast.success('Log deleted')
+      await ironAPI.deleteLog(logId, reason)
+      toast.success('Log voided and retained in audit history')
       await loadIron()
     } catch (e: any) {
       toast.error(e.message || 'Failed to delete log')

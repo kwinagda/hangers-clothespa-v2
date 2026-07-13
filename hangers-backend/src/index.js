@@ -6,6 +6,9 @@ const morgan    = require('morgan');
 
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const { randomUUID } = require('crypto');
+const prisma = require('./config/database');
+const { closeConnection } = require('./queues/connection');
+const { getAllowedOrigins, validateEnvironment } = require('./config/env');
 const authRoutes          = require('./routes/auth.routes');
 const staffRoutes         = require('./routes/staff.routes');
 const ordersRoutes        = require('./routes/orders.routes');
@@ -20,6 +23,8 @@ const servicesRoutes      = require('./routes/services.routes');
 const cashbookRoutes      = require('./routes/cashbook.routes');
 const expensesRoutes      = require('./routes/expenses.routes');
 const arLedgerRoutes      = require('./routes/ar-ledger.routes');
+const reconciliationRoutes = require('./routes/reconciliation.routes');
+const opsRoutes             = require('./routes/ops.routes');
 const transfersRoutes     = require('./routes/transfers.routes');
 const attendanceRoutes    = require('./routes/attendance.routes');
 const couponsRoutes       = require('./routes/coupons.routes');
@@ -41,29 +46,21 @@ const quotationsRoutes    = require('./routes/quotations.routes');
 const publicRoutes        = require('./routes/public.routes');
 const { syncPermissionCatalog } = require('./services/accessControl.service');
 const { syncMasterDataSettings } = require('./services/masterData.service');
+const { globalApiLimiter } = require('./middleware/rateLimit');
 const app  = express();
 const PORT = process.env.PORT || 5001;
-const parseOriginList = (value) =>
-  String(value || '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-
-const allowedOrigins = new Set([
-  ...parseOriginList(process.env.ALLOWED_ORIGINS),
-  process.env.CRM_URL || 'http://localhost:5002',
-  process.env.CUSTOMER_APP_URL || 'http://localhost:8081',
-  process.env.STAFF_APP_URL || 'http://localhost:8082',
-  'http://localhost:19006',
-  'http://localhost:19000',
-  'http://127.0.0.1:5002',
-  'http://127.0.0.1:8081',
-  'http://127.0.0.1:8082',
-  'http://127.0.0.1:19000',
-  'http://127.0.0.1:19006',
-  'http://192.168.29.246:5002',
-  'http://192.168.29.246:8081',
-].filter(Boolean));
+const environment = validateEnvironment();
+const readiness = {
+  startedAt: new Date().toISOString(),
+  ready: false,
+  checks: {
+    masterData: 'pending',
+    permissions: 'pending',
+  },
+  error: null,
+};
+app.locals.readiness = readiness;
+const allowedOrigins = new Set(getAllowedOrigins());
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -72,7 +69,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
   frameguard: { action: 'deny' },
   referrerPolicy: { policy: 'no-referrer' },
-  hsts: process.env.NODE_ENV === 'production'
+  hsts: environment.isProduction
     ? { maxAge: 31536000, includeSubDomains: true, preload: true }
     : false,
 }));
@@ -91,12 +88,30 @@ app.use(express.urlencoded({ extended: true, limit: '1mb', parameterLimit: 100 }
 app.use((req, res, next) => {
   const id = req.headers['x-request-id'] || randomUUID();
   req.headers['x-request-id'] = id;
+  req.id = id;
   res.setHeader('x-request-id', id);
   next();
 });
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
-app.get('/health', (req, res) => res.json({ success: true, message: 'Hangers API is running', version: '4.0.0' }));
+app.get('/health', (_req, res) => res.json({ success: true, message: 'Hangers API process is alive', version: '4.0.0' }));
+app.get('/ready', async (_req, res) => {
+  const status = app.locals.readiness;
+  let database = 'ok';
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch {
+    database = 'failed';
+  }
+  const ready = status.ready && database === 'ok';
+  return res.status(ready ? 200 : 503).json({
+    success: ready,
+    message: ready ? 'Hangers API is ready' : 'Hangers API is not ready',
+    data: { ...status, ready, checks: { ...status.checks, database } },
+  });
+});
+
+app.use('/api/v1', globalApiLimiter);
 
 app.use('/api/v1/auth',            authRoutes);
 app.use('/api/v1/public',          publicRoutes);
@@ -127,6 +142,8 @@ app.use('/api/v1/metadata',                    metadataRoutes);
 app.use('/api/v1/cashbook',                    cashbookRoutes);
 app.use('/api/v1/expenses',                    expensesRoutes);
 app.use('/api/v1/ar-ledger',                   arLedgerRoutes);
+app.use('/api/v1/reconciliation',              reconciliationRoutes);
+app.use('/api/v1/ops',                         opsRoutes);
 // Plant operations
 app.use('/api/v1/transfers',                   transfersRoutes);
 // Staff
@@ -154,19 +171,59 @@ app.use('/api/v1/realtime',                    realtimeRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  syncMasterDataSettings().catch((err) => {
-    console.error('Master data settings sync failed:', err.message);
-  });
-  syncPermissionCatalog().catch((err) => {
-    console.error('Permission catalog sync failed:', err.message);
-  });
+const runStartupChecks = async () => {
+  try {
+    await syncMasterDataSettings();
+    readiness.checks.masterData = 'ok';
+    await syncPermissionCatalog();
+    readiness.checks.permissions = 'ok';
+    readiness.ready = true;
+    readiness.readyAt = new Date().toISOString();
+  } catch (err) {
+    readiness.ready = false;
+    readiness.error = err?.message || 'Startup initialization failed';
+    if (readiness.checks.masterData === 'pending') readiness.checks.masterData = 'failed';
+    else if (readiness.checks.permissions === 'pending') readiness.checks.permissions = 'failed';
+    throw err;
+  }
+};
+
+let server;
+const startServer = async () => {
+  await runStartupChecks();
+  server = app.listen(PORT, () => {
   console.log('\n─────────────────────────────────────────');
   console.log(`Hangers Clothes Spa - Phase 4`);
   console.log(`Server running on port ${PORT}`);
   console.log(`/api/v1/plant - Plant App`);
   console.log(`/api/v1/delivery - Delivery App`);
   console.log('─────────────────────────────────────────\n');
-});
+  });
+  return server;
+};
 
-module.exports = app;
+if (require.main === module) {
+  const shutdown = async (signal) => {
+    console.info(`[api] ${signal} received, draining HTTP connections`);
+    const forceTimer = setTimeout(() => process.exit(1), 25_000);
+    forceTimer.unref();
+    try {
+      if (server) await new Promise((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
+      await closeConnection();
+      await prisma.$disconnect();
+      clearTimeout(forceTimer);
+      process.exit(0);
+    } catch (err) {
+      console.error('[api] graceful shutdown failed:', err?.message || err);
+      process.exit(1);
+    }
+  };
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
+  startServer().catch((err) => {
+    console.error('Startup initialization failed:', err?.message || err);
+    process.exit(1);
+  });
+}
+
+module.exports = { app, startServer, runStartupChecks, readiness };

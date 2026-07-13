@@ -9,12 +9,15 @@ const {
   EXPENSE_CATEGORIES,
   IRON_SUBSCRIPTION_STATUS_META,
   LANGUAGES,
+  LAUNCH_CAPABILITIES,
   MARKETING_AUDIENCES,
   MARKETING_TRIGGERS,
   ORDER_STATUSES,
+  ORDER_SOURCES,
   ORDER_WORKFLOW,
   PAYMENT_METHODS,
   PAYMENT_STATUSES,
+  PAYMENT_TRANSACTION_STATUSES,
   PLANT_ISSUE_TYPES,
   PROMO_BANNERS,
   QUOTATION_STATUSES,
@@ -38,12 +41,15 @@ const MASTER_SETTING_KEYS = {
   expenseCategories: 'master.expenseCategories',
   ironSubscriptionStatuses: 'master.ironSubscriptionStatuses',
   languages: 'master.languages',
+  launchCapabilities: 'master.launchCapabilities',
   marketingAudiences: 'master.marketingAudiences',
   marketingTriggers: 'master.marketingTriggers',
   orderStatuses: 'master.orderStatuses',
+  orderSources: 'master.orderSources',
   orderWorkflow: 'master.orderWorkflow',
   paymentMethods: 'master.paymentMethods',
   paymentStatuses: 'master.paymentStatuses',
+  paymentTransactionStatuses: 'master.paymentTransactionStatuses',
   plantIssueTypes: 'master.plantIssueTypes',
   promoBanners: 'master.promoBanners',
   quotationStatuses: 'master.quotationStatuses',
@@ -68,12 +74,15 @@ const BOOTSTRAP_MASTER_SETTINGS = {
   [MASTER_SETTING_KEYS.expenseCategories]: EXPENSE_CATEGORIES,
   [MASTER_SETTING_KEYS.ironSubscriptionStatuses]: IRON_SUBSCRIPTION_STATUS_META,
   [MASTER_SETTING_KEYS.languages]: LANGUAGES,
+  [MASTER_SETTING_KEYS.launchCapabilities]: LAUNCH_CAPABILITIES,
   [MASTER_SETTING_KEYS.marketingAudiences]: MARKETING_AUDIENCES,
   [MASTER_SETTING_KEYS.marketingTriggers]: MARKETING_TRIGGERS,
   [MASTER_SETTING_KEYS.orderStatuses]: ORDER_STATUSES,
+  [MASTER_SETTING_KEYS.orderSources]: ORDER_SOURCES,
   [MASTER_SETTING_KEYS.orderWorkflow]: ORDER_WORKFLOW,
   [MASTER_SETTING_KEYS.paymentMethods]: PAYMENT_METHODS,
   [MASTER_SETTING_KEYS.paymentStatuses]: PAYMENT_STATUSES,
+  [MASTER_SETTING_KEYS.paymentTransactionStatuses]: PAYMENT_TRANSACTION_STATUSES,
   [MASTER_SETTING_KEYS.plantIssueTypes]: PLANT_ISSUE_TYPES,
   [MASTER_SETTING_KEYS.promoBanners]: PROMO_BANNERS,
   [MASTER_SETTING_KEYS.quotationStatuses]: QUOTATION_STATUSES,
@@ -104,9 +113,12 @@ const getMasterSetting = async (key, tx = prisma) => {
 };
 
 const getOrderStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.orderStatuses);
+const getOrderSources = () => getMasterSetting(MASTER_SETTING_KEYS.orderSources);
 const getOrderWorkflow = () => getMasterSetting(MASTER_SETTING_KEYS.orderWorkflow);
 const getPaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.paymentMethods);
 const getCorePaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.corePaymentMethods);
+const getPaymentTransactionStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.paymentTransactionStatuses);
+const getLaunchCapabilities = () => getMasterSetting(MASTER_SETTING_KEYS.launchCapabilities);
 const getDeliveryFailReasons = () => getMasterSetting(MASTER_SETTING_KEYS.deliveryFailReasons);
 const getReportTypes = () => getMasterSetting(MASTER_SETTING_KEYS.reportTypes);
 const getServiceCodes = () => getMasterSetting(MASTER_SETTING_KEYS.serviceCodes);
@@ -126,6 +138,26 @@ const getCollectablePaymentMethods = async () => {
     getCorePaymentMethods(),
   ]);
   return paymentMethods.filter((method) => corePaymentMethods.includes(method.value));
+};
+
+const getCapturedPaymentStatusValues = async () => {
+  const statuses = await getPaymentTransactionStatuses();
+  const capturedStatuses = statuses.filter((status) => status.countsAsCollection).map((status) => status.value);
+  if (!capturedStatuses.length) throw new Error('Payment transaction master data has no captured collection statuses');
+  return capturedStatuses;
+};
+
+const getLaunchCapability = async (feature, action) => {
+  const launchCapabilities = await getLaunchCapabilities();
+  const featureConfig = launchCapabilities?.[feature];
+  const enabled = Boolean(featureConfig?.enabled && featureConfig?.capabilities?.[action]);
+  return {
+    enabled,
+    feature,
+    action,
+    label: featureConfig?.label || feature,
+    reason: featureConfig?.reason || 'Feature is disabled for this environment.',
+  };
 };
 
 const mergeMissingKeys = (base, current) => {
@@ -172,13 +204,18 @@ const syncMasterDataSettings = async () => {
 module.exports = {
   MASTER_SETTING_KEYS,
   getCollectablePaymentMethods,
+  getCapturedPaymentStatusValues,
   getCorePaymentMethods,
   getDeliveryFailReasons,
+  getLaunchCapabilities,
+  getLaunchCapability,
   getMasterSetting,
   getMasterMetadata,
   getOrderStatuses,
+  getOrderSources,
   getOrderWorkflow,
   getPaymentMethods,
+  getPaymentTransactionStatuses,
   getReportTypes,
   getRoleServiceAccess,
   getServiceCodes,

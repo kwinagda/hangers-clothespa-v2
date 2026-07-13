@@ -115,7 +115,7 @@ const earnLoyaltyPoints = async (orderId, customerId) => {
         data: { customerId, type: 'EARN', points, orderId, note: `Earned on delivery of order` }
       })
     ]);
-    console.log(`${points} loyalty points earned for customer ${customerId}`);
+    console.log('Loyalty points earned', { points, orderId });
   } catch (e) {
     console.error('earnLoyaltyPoints error:', e);
   }

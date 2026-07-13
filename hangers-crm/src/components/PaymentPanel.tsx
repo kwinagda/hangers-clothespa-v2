@@ -1,9 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { metadataAPI } from '@/lib/api'
-import api from '@/lib/api'
+import api, { idempotencyConfig, metadataAPI, paymentsAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
-import { CheckCircle2, CreditCard, IndianRupee, Wallet } from 'lucide-react'
+import { CheckCircle2, CreditCard, IndianRupee, RotateCcw, Wallet } from 'lucide-react'
 
 interface Props {
   orderId:          string
@@ -13,16 +12,25 @@ interface Props {
   paymentStatus:    string
   onPaymentRecorded: () => void
   writeOffAlreadyDone?: number
+  payments?: any[]
+  canRefund?: boolean
 }
 
-export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmount, paymentStatus, onPaymentRecorded, writeOffAlreadyDone = 0 }: Props) {
+export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmount, paymentStatus, onPaymentRecorded, writeOffAlreadyDone = 0, payments = [], canRefund = false }: Props) {
   const [amount, setAmount]           = useState('')
   const [method, setMethod]           = useState('CASH')
   const [loading, setLoading]         = useState(false)
   const [writeOff, setWriteOff]       = useState(false)
+  const [writeOffReason, setWriteOffReason] = useState('')
   const [writeOffMax, setWriteOffMax] = useState(50)
   const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, { label: string; color: string; bg: string }>>({})
   const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([{ value: 'CASH', label: 'Cash' }])
+  const [showRefund, setShowRefund] = useState(false)
+  const [refundSourceId, setRefundSourceId] = useState('')
+  const [refundAmount, setRefundAmount] = useState('')
+  const [refundMethod, setRefundMethod] = useState('CASH')
+  const [refundReasonCode, setRefundReasonCode] = useState('CUSTOMER_REFUND')
+  const [refundReason, setRefundReason] = useState('')
 
   const balance = Math.max(0, totalAmount - paidAmount - (writeOffAlreadyDone || 0))
 
@@ -30,6 +38,11 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   const paid        = parseFloat(amount) || 0
   const remaining   = balance - paid
   const canWriteOff = amount !== '' && paid > 0 && remaining > 0 && remaining <= writeOffMax
+  const capturedReceipts = payments.filter((payment) => payment.kind !== 'REFUND' && ['CAPTURED', 'SUCCESS', 'PAID'].includes(payment.status))
+  const refundedFor = (paymentId: string) => payments
+    .filter((payment) => payment.kind === 'REFUND' && payment.reversalOfId === paymentId && ['CAPTURED', 'SUCCESS', 'PAID'].includes(payment.status))
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+  const refundableReceipts = capturedReceipts.filter((payment) => Number(payment.amount || 0) - refundedFor(payment.id) > 0.005)
 
   useEffect(() => {
     // Load write-off max from settings
@@ -64,6 +77,8 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
 
   const handleSubmit = async () => {
     if (!amount || paid <= 0) { toast.error('Enter a valid amount'); return }
+    if (paid > balance) { toast.error(`Amount cannot exceed the ₹${balance.toFixed(2)} balance`); return }
+    if (writeOff && writeOffReason.trim().length < 3) { toast.error('Enter a write-off reason'); return }
     setLoading(true)
     try {
       const writeOffAmount = writeOff ? remaining : 0
@@ -71,21 +86,48 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
         amount: paid,
         method,
         writeOffAmount,
+        writeOffReason: writeOff ? writeOffReason.trim() : undefined,
         customerId,
-      })
-      const overpaid = paid - balance
-      if (overpaid > 0) {
-        toast.success(`₹${overpaid} overpayment credited to wallet`)
-      } else if (writeOff && writeOffAmount > 0) {
+      }, idempotencyConfig('crm-order-payment'))
+      if (writeOff && writeOffAmount > 0) {
         toast.success(`Payment recorded. ₹${writeOffAmount} written off.`)
       } else {
         toast.success('Payment recorded')
       }
       setAmount('')
       setWriteOff(false)
+      setWriteOffReason('')
       onPaymentRecorded()
     } catch (e: any) {
       toast.error(e.message || 'Failed to record payment')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRefund = async () => {
+    const source = refundableReceipts.find((payment) => payment.id === refundSourceId)
+    const value = Number(refundAmount)
+    const available = source ? Number(source.amount || 0) - refundedFor(source.id) : 0
+    if (!source) { toast.error('Choose the captured payment to refund'); return }
+    if (!(value > 0) || value > available) { toast.error(`Refund must be between ₹0.01 and ₹${available.toFixed(2)}`); return }
+    if (refundReason.trim().length < 3) { toast.error('Enter a refund reason'); return }
+    setLoading(true)
+    try {
+      await paymentsAPI.refund(orderId, {
+        sourcePaymentId: source.id,
+        amount: value,
+        method: refundMethod,
+        reasonCode: refundReasonCode,
+        reason: refundReason.trim(),
+      })
+      toast.success('Refund and credit note posted')
+      setRefundAmount('')
+      setRefundReason('')
+      setShowRefund(false)
+      onPaymentRecorded()
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to post refund')
     } finally {
       setLoading(false)
     }
@@ -154,8 +196,8 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
           {amount && (
             <div style={{ marginBottom: 8 }}>
               {paid > balance ? (
-                <div style={{ fontSize: 12, color: '#166534', padding: '6px 10px', background: '#f0fdf4', borderRadius: 6 }}>
-                  ₹{(paid - balance).toLocaleString('en-IN')} excess → credited to wallet
+                <div style={{ fontSize: 12, color: '#991b1b', padding: '6px 10px', background: '#fef2f2', borderRadius: 6 }}>
+                  Amount exceeds the balance by ₹{(paid - balance).toLocaleString('en-IN')}. Record only the amount due.
                 </div>
               ) : paid < balance ? (
                 <div style={{ fontSize: 12, color: '#991b1b', padding: '6px 10px', background: '#fef2f2', borderRadius: 6 }}>
@@ -167,15 +209,19 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
 
           {/* Write-off toggle */}
           {canWriteOff && (
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10, padding:'10px 12px', background: writeOff ? '#f0fdf4' : '#fefce8', borderRadius:8, border:`1px solid ${writeOff ? '#86efac' : '#fde047'}`, cursor:'pointer' }}
-              onClick={() => setWriteOff(!writeOff)}>
-              <div>
-                <div style={{ fontSize:12, fontWeight:600, color: writeOff ? '#166534' : '#713f12' }}>Write off ₹{remaining.toFixed(0)}</div>
-                <div style={{ fontSize:11, color: writeOff ? '#166534' : '#92400e' }}>{writeOff ? 'Will be written off — order marked as paid' : 'Tap to write off this small balance'}</div>
+            <div style={{ marginBottom:10 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 12px', background: writeOff ? '#f0fdf4' : '#fefce8', borderRadius:8, border:`1px solid ${writeOff ? '#86efac' : '#fde047'}`, cursor:'pointer' }}
+                onClick={() => setWriteOff(!writeOff)}>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:600, color: writeOff ? '#166534' : '#713f12' }}>Write off ₹{remaining.toFixed(0)}</div>
+                  <div style={{ fontSize:11, color: writeOff ? '#166534' : '#92400e' }}>{writeOff ? 'Approved write-off will settle the balance' : 'Tap to request an approved write-off'}</div>
+                </div>
+                <div style={{ width:44, height:24, borderRadius:12, background: writeOff ? '#16a34a' : '#d1d5db', position:'relative', flexShrink:0 }}>
+                  <div style={{ position:'absolute', top:2, left: writeOff ? 22 : 2, width:20, height:20, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px rgba(0,0,0,0.2)', transition:'left 0.2s' }} />
+                </div>
               </div>
-              <div style={{ width:44, height:24, borderRadius:12, background: writeOff ? '#16a34a' : '#d1d5db', position:'relative', flexShrink:0 }}>
-                <div style={{ position:'absolute', top:2, left: writeOff ? 22 : 2, width:20, height:20, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px rgba(0,0,0,0.2)', transition:'left 0.2s' }} />
-              </div>
+              {writeOff && <input value={writeOffReason} onChange={e => setWriteOffReason(e.target.value)} placeholder="Required write-off reason" maxLength={500}
+                style={{ width:'100%', boxSizing:'border-box', marginTop:8, padding:'8px 10px', border:'1.5px solid #dce8f0', borderRadius:8, fontSize:12, outline:'none' }} />}
             </div>
           )}
 
@@ -193,6 +239,30 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
         <div style={{ background:'#e6f7f0', borderRadius:10, padding:12, textAlign:'center', color:'#0d7a4e', fontSize:13, fontWeight:600, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
           <CheckCircle2 size={16} />
           <span>Fully Paid</span>
+        </div>
+      )}
+
+      {canRefund && refundableReceipts.length > 0 && (
+        <div style={{ borderTop:'1px solid #e8f0f7', marginTop:16, paddingTop:16 }}>
+          <button onClick={() => { setShowRefund((value) => !value); if (!refundSourceId) setRefundSourceId(refundableReceipts[0]?.id || '') }} style={{ width:'100%', padding:'9px 12px', border:'1px solid #fecaca', background:'#fff7f7', color:'#991b1b', borderRadius:8, fontWeight:700, fontSize:12, cursor:'pointer', display:'flex', justifyContent:'center', alignItems:'center', gap:7 }}>
+            <RotateCcw size={14} /> {showRefund ? 'Close Refund Form' : 'Refund / Credit Note'}
+          </button>
+          {showRefund && <div style={{ marginTop:10, display:'grid', gap:8 }}>
+            <select value={refundSourceId} onChange={(event) => setRefundSourceId(event.target.value)} style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, background:'#fff', fontSize:12 }}>
+              {refundableReceipts.map((payment) => <option key={payment.id} value={payment.id}>₹{(Number(payment.amount || 0) - refundedFor(payment.id)).toFixed(2)} available · {payment.method} · {new Date(payment.createdAt).toLocaleDateString('en-IN')}</option>)}
+            </select>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+              <input type="number" min="0.01" step="0.01" value={refundAmount} onChange={(event) => setRefundAmount(event.target.value)} placeholder="Refund amount" style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, fontSize:12 }} />
+              <select value={refundMethod} onChange={(event) => setRefundMethod(event.target.value)} style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, background:'#fff', fontSize:12 }}>
+                {paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </div>
+            <select value={refundReasonCode} onChange={(event) => setRefundReasonCode(event.target.value)} style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, background:'#fff', fontSize:12 }}>
+              <option value="CUSTOMER_REFUND">Customer refund</option><option value="ORDER_CANCELLATION">Order cancellation</option><option value="SERVICE_FAILURE">Service failure</option><option value="DUPLICATE_CHARGE">Duplicate charge</option><option value="PRICE_CORRECTION">Price correction</option><option value="OTHER">Other</option>
+            </select>
+            <input value={refundReason} onChange={(event) => setRefundReason(event.target.value)} maxLength={500} placeholder="Required refund reason" style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, fontSize:12 }} />
+            <button onClick={handleRefund} disabled={loading} style={{ padding:'9px 12px', border:'none', background:'#991b1b', color:'#fff', borderRadius:8, fontWeight:700, fontSize:12, cursor:'pointer', opacity:loading ? 0.65 : 1 }}>{loading ? 'Posting...' : 'Post Refund and Credit Note'}</button>
+          </div>}
         </div>
       )}
     </div>

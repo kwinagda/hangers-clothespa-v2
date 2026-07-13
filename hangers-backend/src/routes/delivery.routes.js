@@ -1,9 +1,10 @@
 const express = require('express');
 const router  = express.Router();
 const { staffAuth }   = require('../middleware/auth');
-const { requireRole, requireServiceAccess } = require('../middleware/rbac');
+const { requireRole, requirePermission, requireServiceAccess } = require('../middleware/rbac');
 const { privateNoStore } = require('../middleware/privateCache');
 const { requireTrustedWrite } = require('../middleware/origin');
+const { idempotent } = require('../middleware/idempotency');
 const {
   deliveryOtpSendLimiter,
   deliveryOtpVerifyLimiter,
@@ -26,13 +27,13 @@ const deliveryAccess = requireServiceAccess('DELIVERY');
 router.get('/dashboard',                  staffAuth, deliveryAccess, delivRoles, getDeliveryDashboard);
 router.get('/orders',                     staffAuth, deliveryAccess, delivRoles, getMyOrders);
 router.get('/orders/:id',                 staffAuth, deliveryAccess, delivRoles, getDeliveryOrder);
-router.post('/orders/:id/pickup',         staffAuth, deliveryAccess, delivRoles, markPickedUp);
-router.post('/orders/:id/deliver',        staffAuth, deliveryAccess, delivRoles, markDelivered);
+router.post('/orders/:id/pickup',         staffAuth, deliveryAccess, requirePermission('delivery.execute'), idempotent({ scope: 'delivery.pickup' }), markPickedUp);
+router.post('/orders/:id/deliver',        staffAuth, deliveryAccess, requirePermission('delivery.execute'), idempotent({ scope: 'delivery.deliver' }), markDelivered);
 router.post('/orders/:id/send-otp',       staffAuth, deliveryAccess, delivRoles, deliveryOtpSendLimiter, sendDeliveryOtpController);
 router.post('/orders/:id/verify-otp',     staffAuth, deliveryAccess, delivRoles, deliveryOtpVerifyLimiter, verifyDeliveryOtpController);
-router.post('/orders/:id/failed',         staffAuth, deliveryAccess, delivRoles, markFailed);
-router.post('/orders/:id/cash',           staffAuth, deliveryAccess, delivRoles, collectCash);
-router.post('/orders/:id/assign',         staffAuth, deliveryAccess, mgrRoles,   assignOrder);
+router.post('/orders/:id/failed',         staffAuth, deliveryAccess, requirePermission('delivery.execute'), idempotent({ scope: 'delivery.failed' }), markFailed);
+router.post('/orders/:id/cash',           staffAuth, deliveryAccess, requirePermission('finance.collect_payment'), idempotent({ scope: 'delivery.cash' }), collectCash);
+router.post('/orders/:id/assign',         staffAuth, deliveryAccess, requirePermission('delivery.assign'), idempotent({ scope: 'delivery.assign' }), assignOrder);
 router.get('/summary',                    staffAuth, deliveryAccess, delivRoles, getDailySummary);
 
 module.exports = router;

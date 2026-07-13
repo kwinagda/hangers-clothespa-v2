@@ -6,16 +6,26 @@ const { verifyToken }  = require('../services/jwt.service');
 const { unauthorized } = require('../utils/response');
 const prisma           = require('../config/database');
 const { buildStaffAccessContext } = require('../services/accessControl.service');
+const { staffSessionWhereForToken } = require('../services/sessionToken.service');
 
-const hasActiveSession = async (type, token) => {
-  const where = { token, expiresAt: { gt: new Date() } };
+const hasActiveSession = async (type, token, decoded = {}) => {
   if (type === 'customer') {
+    const where = { token, expiresAt: { gt: new Date() } };
     const session = await prisma.customerSession.findFirst({ where, select: { id: true } });
     return Boolean(session);
   }
-  const session = await prisma.staffSession.findFirst({ where, select: { id: true } });
+  const session = await prisma.staffSession.findFirst({
+    where: staffSessionWhereForToken(token, decoded),
+    select: { id: true },
+  });
   return Boolean(session);
 };
+
+const PASSWORD_CHANGE_ALLOWED_PATHS = new Set([
+  '/api/v1/staff/auth/me',
+  '/api/v1/staff/auth/logout',
+  '/api/v1/staff/auth/change-password',
+]);
 
 /**
  * Protect customer routes
@@ -28,7 +38,7 @@ const customerAuth = async (req, res, next) => {
 
     const decoded = verifyToken(token);
     if (decoded.type !== 'customer') return unauthorized(res, 'Invalid token type');
-    if (!(await hasActiveSession('customer', token))) {
+    if (!(await hasActiveSession('customer', token, decoded))) {
       return unauthorized(res, 'Session expired — please login again');
     }
 
@@ -66,7 +76,7 @@ const staffAuth = async (req, res, next) => {
 
     const decoded = verifyToken(token);
     if (decoded.type !== 'staff') return unauthorized(res, 'Invalid token type');
-    if (!(await hasActiveSession('staff', token))) {
+    if (!(await hasActiveSession('staff', token, decoded))) {
       return unauthorized(res, 'Session expired — please login again');
     }
 
@@ -101,6 +111,13 @@ const staffAuth = async (req, res, next) => {
     };
     req.authToken = token;
     req.tokenData = decoded;
+    if (staff.mustChangePassword && !PASSWORD_CHANGE_ALLOWED_PATHS.has(req.originalUrl?.split('?')[0])) {
+      return res.status(428).json({
+        success: false,
+        code: 'PASSWORD_CHANGE_REQUIRED',
+        message: 'Password change required before continuing',
+      });
+    }
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') return unauthorized(res, 'Session expired — please login again');
