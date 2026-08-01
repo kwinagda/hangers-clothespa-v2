@@ -107,10 +107,10 @@ const collectFinancialFacts = async () => {
         WHERE status = 'POSTED'
         GROUP BY "invoiceId"
       ), written_off AS (
-        SELECT adjustment."orderId", COALESCE(SUM(adjustment.amount), 0) AS amount
+        SELECT adjustment."invoiceId", adjustment."orderId", COALESCE(SUM(adjustment.amount), 0) AS amount
         FROM "financial_adjustments" AS adjustment
         WHERE adjustment.kind = 'WRITE_OFF' AND adjustment.status = 'POSTED'
-        GROUP BY adjustment."orderId"
+        GROUP BY adjustment."invoiceId", adjustment."orderId"
       )
       SELECT invoice."id", invoice."invoiceNumber", invoice."sourceType",
              invoice."totalAmount", invoice."paidAmount" AS "cachedPaid",
@@ -122,7 +122,7 @@ const collectFinancialFacts = async () => {
       LEFT JOIN allocated ON allocated."invoiceId" = invoice."id"
       LEFT JOIN refunded ON refunded."invoiceId" = invoice."id"
       LEFT JOIN credited ON credited."invoiceId" = invoice."id"
-      LEFT JOIN written_off ON written_off."orderId" = invoice."orderId"
+      LEFT JOIN written_off ON written_off."invoiceId" = invoice."id" OR (written_off."orderId" IS NOT NULL AND written_off."orderId" = invoice."orderId")
       WHERE invoice.status <> 'VOID'
         AND (
           abs(invoice."paidAmount" - GREATEST(COALESCE(allocated.amount, 0) - COALESCE(refunded.amount, 0), 0)) >= 0.01
@@ -150,6 +150,11 @@ const collectFinancialFacts = async () => {
         SELECT 'DAILY_IRON', bill."id", bill."billNumber"
         FROM iron_bills AS bill
         WHERE NOT EXISTS (SELECT 1 FROM invoices WHERE invoices."ironBillId" = bill."id")
+        UNION ALL
+        SELECT 'FIELD_SERVICE', appointment."id", appointment."appointmentNumber"
+        FROM service_appointments AS appointment
+        WHERE appointment.status IN ('SERVICE_DONE', 'INVOICED', 'PAID')
+          AND NOT EXISTS (SELECT 1 FROM invoices WHERE invoices."serviceAppointmentId" = appointment."id")
       ) AS missing_sources
       ORDER BY source_type, source_number
       LIMIT 250

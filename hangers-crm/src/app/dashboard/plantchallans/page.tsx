@@ -292,6 +292,50 @@ export default function ChallansPage() {
     setReceiving(false)
   }
 
+  const challanItemsForOrder = (order: any) => receivingChallan?.challanItems?.filter((ci: any) =>
+    order?.items?.some((oi: any) => oi.id === ci.orderItemId)
+  ) || []
+
+  const isOrderFullySelectedForReceipt = (order: any) => challanItemsForOrder(order).every((item: any) => {
+    const units = item.garmentUnits || []
+    if (units.length) {
+      const selected = new Set(receivedUnitIds[item.id] || [])
+      return units.every((movement: any) => selected.has(movement.garmentUnitId))
+    }
+    return Number(receivedQtys[item.id] || 0) >= Number(item.quantity || 0)
+  })
+
+  const toggleOrderReceiptSelection = (order: any) => {
+    const items = challanItemsForOrder(order)
+    const shouldSelectAll = !isOrderFullySelectedForReceipt(order)
+
+    setReceivedUnitIds((current) => {
+      const next = { ...current }
+      items.forEach((item: any) => {
+        const units = item.garmentUnits || []
+        if (!units.length) return
+        const existingReceivedIds = units
+          .filter((movement: any) => movement.status === 'RECEIVED')
+          .map((movement: any) => movement.garmentUnitId)
+        next[item.id] = shouldSelectAll
+          ? units.map((movement: any) => movement.garmentUnitId)
+          : existingReceivedIds
+      })
+      return next
+    })
+
+    setReceivedQtys((current) => {
+      const next = { ...current }
+      items.forEach((item: any) => {
+        const units = item.garmentUnits || []
+        if (units.length) return
+        const receivedQty = Number(item.receivedQty || 0)
+        next[item.id] = shouldSelectAll ? Number(item.quantity || 0) : receivedQty
+      })
+      return next
+    })
+  }
+
   const createBill = async () => {
     if (!selectedChallans.size) { toast.error('Select challans'); return }
     try {
@@ -777,14 +821,35 @@ export default function ChallansPage() {
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 560, boxShadow: '0 20px 60px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' as const }}>
             <h2 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, marginBottom: 4 }}>Mark Garments Received</h2>
             <p style={{ fontSize: 13, color: '#6b7fa3', marginBottom: 20 }}>Challan: <strong>{receivingChallan.challanNo}</strong> — Tick each garment that came back from the plant</p>
-            {receivingChallan.challanOrders?.map((co: any) => (
+            {receivingChallan.challanOrders?.map((co: any) => {
+              const orderItems = challanItemsForOrder(co.order)
+              const allSelected = isOrderFullySelectedForReceipt(co.order)
+              return (
               <div key={co.id} style={{ marginBottom: 16 }}>
-                <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#023c62', fontWeight: 700, marginBottom: 8, padding: '6px 10px', background: '#f0f7ff', borderRadius: 6 }}>
-                  {co.order?.orderNumber} — {co.order?.customer?.name}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8, padding: '6px 10px', background: '#f0f7ff', borderRadius: 6 }}>
+                  <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#023c62', fontWeight: 700 }}>
+                    {co.order?.orderNumber} — {co.order?.customer?.name}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleOrderReceiptSelection(co.order)}
+                    disabled={!orderItems.length}
+                    style={{
+                      border: '1px solid #cfe0ec',
+                      background: allSelected ? '#e6f7ee' : '#fff',
+                      color: allSelected ? '#166534' : '#023c62',
+                      borderRadius: 6,
+                      padding: '4px 8px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: orderItems.length ? 'pointer' : 'not-allowed',
+                      whiteSpace: 'nowrap' as const,
+                    }}
+                  >
+                    {allSelected ? 'All selected' : 'Select all'}
+                  </button>
                 </div>
-                {receivingChallan.challanItems?.filter((ci: any) =>
-                  co.order?.items?.some((oi: any) => oi.id === ci.orderItemId)
-                ).map((item: any) => (
+                {orderItems.map((item: any) => (
                   <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderBottom: '1px solid #f1f5f9' }}>
                     <div style={{ flex: 1, fontSize: 13 }}>{item.serviceName}</div>
                     {(item.garmentUnits || []).length ? <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -809,7 +874,7 @@ export default function ChallansPage() {
                   </div>
                 ))}
               </div>
-            ))}
+            )})}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, padding: '10px 0', borderTop: '1px solid #e8f0f7' }}>
               <span style={{ fontSize: 13, color: '#6b7fa3' }}>{Object.values(receivedQtys).filter(q => q > 0).length} items updated</span>
               <div style={{ display: 'flex', gap: 8 }}>

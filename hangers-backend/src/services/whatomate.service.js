@@ -4,6 +4,12 @@ const { createPublicShareToken } = require('./publicShare.service');
 const { maskPhone, providerErrorSummary } = require('../utils/redact');
 
 const DEFAULT_TEMPLATE_ENDPOINT = 'https://whatomate-production-949e.up.railway.app/api/messages/template';
+const DEFAULT_TEMPLATE_TIMEOUT_MS = 30000;
+
+const templateTimeoutMs = () => {
+  const parsed = Number(process.env.WHATOMATE_TEMPLATE_TIMEOUT_MS || DEFAULT_TEMPLATE_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed >= 5000 ? parsed : DEFAULT_TEMPLATE_TIMEOUT_MS;
+};
 
 class WhatomateDeliveryError extends Error {
   constructor(message, { retryable = false, statusCode = null, code = null } = {}) {
@@ -15,17 +21,29 @@ class WhatomateDeliveryError extends Error {
   }
 }
 
-const isEnabled = () => {
-  const key = process.env.WHATOMATE_API_KEY || '';
-  const devSendAllowed = process.env.WHATOMATE_SEND_IN_DEV === 'true';
-  return Boolean(key && key.length > 10 && (process.env.DEV_MODE !== 'true' || devSendAllowed));
-};
-
 const normalizePhone = (phone) => {
   const c = String(phone || '').replace(/[\s\-()+]/g, '');
   if (c.startsWith('91') && c.length === 12) return c;
   if (c.length === 10) return `91${c}`;
   return c;
+};
+
+const parsePhoneAllowlist = (value) => new Set(
+  String(value || '')
+    .split(',')
+    .map((entry) => normalizePhone(entry.trim()))
+    .filter(Boolean)
+);
+
+const isDevPhoneAllowed = (phone) => {
+  if (process.env.DEV_MODE !== 'true') return true;
+  if (process.env.WHATOMATE_SEND_IN_DEV === 'true') return true;
+  return parsePhoneAllowlist(process.env.WHATOMATE_DEV_ALLOWED_PHONES).has(normalizePhone(phone));
+};
+
+const isEnabled = (phone) => {
+  const key = process.env.WHATOMATE_API_KEY || '';
+  return Boolean(key && key.length > 10 && isDevPhoneAllowed(phone));
 };
 
 const formatAmount = (amount) => {
@@ -60,6 +78,12 @@ const invoiceSlugFor = async (order) => createPublicShareToken({
   purpose: 'INVOICE_VIEW',
 });
 
+const quotationSlugFor = async (quotation) => createPublicShareToken({
+  resourceType: 'QUOTATION',
+  resourceId: quotation?.id,
+  purpose: 'QUOTATION_VIEW',
+});
+
 const ironBalance = (bill) => {
   const total = Number(bill?.totalAmount || 0);
   const paid = Number(bill?.paidAmount || 0);
@@ -81,6 +105,7 @@ const resolveParam = ({ name, order, payment, iron }) => {
     updatedTotalAmount: formatAmount(order?.totalAmount),
     paymentAmount: formatAmount(payment?.amount),
     paymentMethod: payment?.method || '',
+    validUntil: formatDate(order?.validUntil),
     ironCustomerName: ironCustomer.name || 'Customer',
     logDate: formatDate(log?.date),
     logPieces: String(log?.pieces || 0),
@@ -105,9 +130,17 @@ const maybeThrow = (condition, error) => {
   return false;
 };
 
-const isRetryableHttpStatus = (status) => status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+const isRetryableHttpStatus = (status) => (
+  status === 401
+  || status === 403
+  || status === 408
+  || status === 409
+  || status === 425
+  || status === 429
+  || status >= 500
+);
 
-const postTemplate = async ({ phone, templateName, templateParams, buttonParams, accountName, throwOnFailure = false }) => {
+const postTemplate = async ({ phone, templateName, templateParams, buttonParams, accountName, idempotencyKey, throwOnFailure = false }) => {
   if (!phone) {
     return maybeThrow(throwOnFailure, new WhatomateDeliveryError('Missing customer phone for WhatsApp template', {
       retryable: false,
@@ -129,7 +162,7 @@ const postTemplate = async ({ phone, templateName, templateParams, buttonParams,
     account_name: process.env.WHATOMATE_ACCOUNT_NAME || accountName || 'Hangers',
   };
 
-  if (!isEnabled()) {
+  if (!isEnabled(phone)) {
     console.log('[Whatomate DEV] Template send simulated:', {
       phone: maskPhone(phone),
       templateName,
@@ -147,8 +180,9 @@ const postTemplate = async ({ phone, templateName, templateParams, buttonParams,
         headers: {
           'X-API-Key': process.env.WHATOMATE_API_KEY,
           'Content-Type': 'application/json',
+          ...(idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {}),
         },
-        timeout: 10000,
+        timeout: templateTimeoutMs(),
       }
     );
     return true;
@@ -199,6 +233,7 @@ const sendOrderStatusMessage = async (order, status, options = {}) => {
     templateParams: buildTemplateParams(template.params, { order }),
     buttonParams: { [config.invoiceButtonIndex || '0']: invoiceSlug },
     accountName: config.accountName,
+    idempotencyKey: `order-status:${order.id}:${status}`,
     throwOnFailure: options.throwOnFailure,
   });
 
@@ -240,6 +275,7 @@ const sendPaymentReceivedMessage = async (order, amount, method, options = {}) =
     }),
     buttonParams: { [config.invoiceButtonIndex || '0']: invoiceSlug },
     accountName: config.accountName,
+    idempotencyKey: options.idempotencyKey || `payment-received:${order.id}:${amount}:${method}`,
     throwOnFailure: options.throwOnFailure,
   });
 
@@ -278,10 +314,50 @@ const sendOrderUpdatedMessage = async (order, options = {}) => {
     templateParams: buildTemplateParams(template.params, { order }),
     buttonParams: { [config.invoiceButtonIndex || '0']: invoiceSlug },
     accountName: config.accountName,
+    idempotencyKey: `order-updated:${order.id}:v${order.version || 'latest'}`,
     throwOnFailure: options.throwOnFailure,
   });
 
   if (sent) console.log(`[Whatomate] Order updated template sent to ${maskPhone(phone)}`);
+  return sent;
+};
+
+const sendQuotationSentMessage = async (quotation, options = {}) => {
+  const phone = quotation?.customer?.phone;
+  if (!phone) {
+    return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('Missing customer phone for quotation message', {
+      retryable: false,
+      code: 'MISSING_PHONE',
+    }));
+  }
+
+  const config = await getWhatsAppTemplates();
+  const template = config?.quotationSent;
+  if (!template?.templateName) {
+    return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('No WhatsApp quotation template configured', {
+      retryable: false,
+      code: 'MISSING_TEMPLATE',
+    }));
+  }
+  const quotationSlug = await quotationSlugFor(quotation);
+  if (!quotationSlug) {
+    return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('Could not create public quotation token', {
+      retryable: true,
+      code: 'PUBLIC_TOKEN_CREATE_FAILED',
+    }));
+  }
+
+  const sent = await postTemplate({
+    phone,
+    templateName: template.templateName,
+    templateParams: buildTemplateParams(template.params, { order: quotation }),
+    buttonParams: { [template.buttonIndex || config.quotationButtonIndex || '0']: quotationSlug },
+    accountName: config.accountName,
+    idempotencyKey: options.idempotencyKey || `quotation-sent:${quotation.id}:v${quotation.version || 'latest'}`,
+    throwOnFailure: options.throwOnFailure,
+  });
+
+  if (sent) console.log(`[Whatomate] Quotation sent template sent to ${maskPhone(phone)}`);
   return sent;
 };
 
@@ -327,6 +403,7 @@ const sendDailyIronTemplate = async ({ customer, subscription, template, templat
     }),
     buttonParams: { [buttonIndex]: dailyIronSlug },
     accountName: templateConfig.accountName,
+    idempotencyKey: context?.idempotencyKey || payment?.idempotencyKey || null,
     throwOnFailure,
   });
 
@@ -341,7 +418,7 @@ const sendDailyIronLogMessage = async ({ customer, subscription, log, monthToDat
     subscription,
     template: config?.dailyIron?.logUpdated,
     templateConfig: config,
-    context: { log, monthToDate },
+    context: { log, monthToDate, idempotencyKey: `daily-iron-log:${log?.id}` },
     throwOnFailure,
   });
 };
@@ -353,7 +430,7 @@ const sendDailyIronBillMessage = async ({ customer, subscription, bill, throwOnF
     subscription,
     template: config?.dailyIron?.monthlyBill,
     templateConfig: config,
-    context: { bill },
+    context: { bill, idempotencyKey: `daily-iron-bill:${bill?.id}` },
     throwOnFailure,
   });
 };
@@ -368,7 +445,7 @@ const sendDailyIronPaymentMessage = async ({ customer, subscription, bill, amoun
     context: {
       bill,
     },
-    payment: { amount, method },
+    payment: { amount, method, idempotencyKey: `daily-iron-payment:${bill?.id}:${amount}:${method}` },
     throwOnFailure,
   });
 };
@@ -377,9 +454,13 @@ module.exports = {
   sendOrderStatusMessage,
   sendPaymentReceivedMessage,
   sendOrderUpdatedMessage,
+  sendQuotationSentMessage,
   sendDailyIronLogMessage,
   sendDailyIronBillMessage,
   sendDailyIronPaymentMessage,
   postTemplate,
+  normalizePhone,
+  isDevPhoneAllowed,
+  isEnabled,
   WhatomateDeliveryError,
 };

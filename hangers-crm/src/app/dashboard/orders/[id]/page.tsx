@@ -6,23 +6,28 @@
 //   ✅ TBD shown for items with price = 0
 // ─────────────────────────────────────────────────────────────────────────────
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { authAPI, deliveryAPI, metadataAPI, ordersAPI, staffAPI, servicesAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import PaymentPanel from '@/components/PaymentPanel'
-import { AlertTriangle, Bike, CalendarRange, ClipboardList, Clock3, IndianRupee, Lock, MapPin, MessageSquareText, PackageCheck, Printer, Receipt, ScrollText, Shirt, Smartphone, Tag, User } from 'lucide-react'
+import { AlertTriangle, Bike, CalendarRange, ClipboardList, Clock3, IndianRupee, Lock, MapPin, MessageSquareText, PackageCheck, Printer, Receipt, RotateCcw, ScrollText, Shirt, Smartphone, Tag, User, XCircle } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const getStatusLabel = (status: string, source?: string, labels: Record<string, string> = {}) => {
   if (status === 'ORDER_EDITED') return 'Order Updated'
+  if (status === 'PAYMENT_ENTRY_VOIDED') return 'Payment Entry Voided'
+  if (status === 'WHATSAPP_SENT') return 'WhatsApp Sent'
+  if (status === 'WHATSAPP_FAILED') return 'WhatsApp Failed'
+  if (status === 'WHATSAPP_SKIPPED') return 'WhatsApp Skipped'
   if (status === 'FABKLEAN_ORDER_CREATED') return 'Order Created'
   if (status === 'PICKED_UP' && (source === 'counter' || source === 'COUNTER' || source === 'walk-in')) return 'Received'
   return labels[status] || status
 }
 const EMPTY_WORKFLOW = {
   next: {} as Record<string, string>,
+  allowedForward: {} as Record<string, string[]>,
   allowedBackward: {} as Record<string, string[]>,
   crmEditableStatuses: [] as string[],
   plantLockedStatuses: [] as string[],
@@ -33,6 +38,27 @@ const EMPTY_WORKFLOW = {
 }
 const formatCurrency = (value: number) => `₹${(value || 0).toLocaleString('en-IN')}`
 const getOutstandingAmount = (order: any) => Math.max(0, (order?.totalAmount || 0) - (order?.paidAmount || 0) - (order?.writeOffAmount || 0))
+const openPrintWindow = (href: string) => {
+  const url = new URL(href, window.location.origin)
+  url.searchParams.set('autoprint', '1')
+  url.searchParams.delete('frame')
+  const win = window.open(url.toString(), `hangers-print-${Date.now()}`, 'width=980,height=760,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes')
+  if (!win) {
+    toast.error('Pop-up blocked. Allow pop-ups for CRM printing.')
+    return
+  }
+  const onMessage = (event: MessageEvent) => {
+    if (event.origin !== window.location.origin) return
+    if (event.data?.type === 'HANGERS_PRINT_DONE') {
+      window.removeEventListener('message', onMessage)
+    }
+    if (event.data?.type === 'HANGERS_PRINT_ERROR') {
+      window.removeEventListener('message', onMessage)
+      toast.error(event.data?.message || 'Failed to prepare print')
+    }
+  }
+  window.addEventListener('message', onMessage)
+}
 const getTimelineNote = (notes?: string | null) => {
   if (!notes) return ''
 
@@ -66,6 +92,44 @@ const getTimelineNote = (notes?: string | null) => {
   }
 
   return trimmed
+}
+const getWhatsAppTimelineKey = (stage: any) => {
+  const metadata = stage?.metadata || {}
+  if (stage?.eventType !== 'NOTIFICATION' || !String(stage?.stage || '').startsWith('WHATSAPP_')) return ''
+  if (metadata.outboxEventType === 'PAYMENT_RECEIVED' && metadata.payload?.paymentId) return `PAYMENT_RECEIVED:${metadata.payload.paymentId}`
+  if (metadata.outboxEventType === 'ORDER_UPDATED') return `ORDER_UPDATED:${JSON.stringify(metadata.payload || {})}`
+  if (metadata.status) return `ORDER_STATUS:${metadata.status}`
+  const note = String(stage?.notes || '')
+  if (note.includes('Payment received') && metadata.payload?.paymentId) return `PAYMENT_RECEIVED:${metadata.payload.paymentId}`
+  return ''
+}
+const getResolvedWhatsAppFailureIds = (stages: any[] = []) => {
+  const resolved = new Set<string>()
+  const sentByKey = new Map<string, Date[]>()
+
+  stages.forEach((stage) => {
+    if (stage.stage !== 'WHATSAPP_SENT') return
+    if (stage.metadata?.retryOfStageId) resolved.add(stage.metadata.retryOfStageId)
+    const key = getWhatsAppTimelineKey(stage)
+    if (!key) return
+    const list = sentByKey.get(key) || []
+    list.push(new Date(stage.createdAt))
+    sentByKey.set(key, list)
+  })
+
+  stages.forEach((stage) => {
+    if (stage.stage !== 'WHATSAPP_FAILED') return
+    if (stage.metadata?.retryResolved || stage.metadata?.retryResolvedAt) {
+      resolved.add(stage.id)
+      return
+    }
+    const key = getWhatsAppTimelineKey(stage)
+    if (!key) return
+    const failedAt = new Date(stage.createdAt)
+    if ((sentByKey.get(key) || []).some((sentAt) => sentAt > failedAt)) resolved.add(stage.id)
+  })
+
+  return resolved
 }
 const ORDER_TONE = {
   blue: { color: '#023c62', soft: '#e8f0f7', border: '#d6e5f0' },
@@ -213,6 +277,10 @@ const renderStageNote = (note?: string | null) => {
 
 const getTimelineTitle = (stage: string, note: string, statusLabel: (status: string) => string) => {
   if (stage === 'ORDER_EDITED' || String(note || '').trim().startsWith('[ORDER_EDIT]')) return 'Order Updated'
+  if (stage === 'PAYMENT_ENTRY_VOIDED') return 'Payment Entry Voided'
+  if (stage === 'WHATSAPP_SENT') return 'WhatsApp Sent'
+  if (stage === 'WHATSAPP_FAILED') return 'WhatsApp Failed'
+  if (stage === 'WHATSAPP_SKIPPED') return 'WhatsApp Skipped'
   return statusLabel(stage)
 }
 
@@ -232,10 +300,11 @@ const getStatusChoices = (
   staff: any
 ) => {
   const next = new Set<string>([currentStatus])
+  ;(workflow.allowedForward[currentStatus] || []).forEach((status) => {
+    if (workflow.crmEditableStatuses.includes(status)) next.add(status)
+  })
   const forwardStatus = workflow.next[currentStatus]
-  if (forwardStatus && workflow.crmEditableStatuses.includes(forwardStatus)) {
-    next.add(forwardStatus)
-  }
+  if (forwardStatus && workflow.crmEditableStatuses.includes(forwardStatus)) next.add(forwardStatus)
   if (hasCorrectionAuthority(staff)) {
     ;(workflow.allowedBackward[currentStatus] || []).forEach((status) => next.add(status))
     if (workflow.crmEditableStatuses.includes('CANCELLED') && workflow.cancellableStatuses.includes(currentStatus)) {
@@ -484,8 +553,10 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
 // ─────────────────────────────────────────────────────────────────────────────
 export default function OrderDetailPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const params = useParams<{ id: string }>()
   const orderId = typeof params?.id === 'string' ? params.id : ''
+  const returnTo = searchParams.get('returnTo') || '/dashboard/orders'
   const [order,            setOrder]            = useState<any>(null)
   const [statusLabels, setStatusLabels] = useState<Record<string, string>>({})
   const [plantStatuses, setPlantStatuses] = useState<string[]>([])
@@ -494,6 +565,8 @@ export default function OrderDetailPage() {
   const [currentStaff, setCurrentStaff] = useState<any>(null)
   const [loading,          setLoading]          = useState(true)
   const [updating,         setUpdating]         = useState(false)
+  const [retryingStageId, setRetryingStageId] = useState('')
+  const [statusEffectiveDate, setStatusEffectiveDate] = useState(new Date().toISOString().slice(0, 10))
   const [timelineExpanded, setTimelineExpanded] = useState(false)
   const [showPaymentPanel, setShowPaymentPanel] = useState(false)
   const [showEditPanel, setShowEditPanel] = useState(false)
@@ -596,7 +669,7 @@ export default function OrderDetailPage() {
     }
     setUpdating(true)
     try {
-      await ordersAPI.updateStatus(orderId, status, undefined, Number(order.version || 1))
+      await ordersAPI.updateStatus(orderId, status, undefined, Number(order.version || 1), `${statusEffectiveDate}T12:00:00.000Z`)
       await loadOrder()
       toast.success(`Status updated → ${statusLabel(status)}`)
     } catch (e: any) {
@@ -608,6 +681,56 @@ export default function OrderDetailPage() {
     } finally { setUpdating(false) }
   }
 
+  const retryWhatsAppStage = async (stageId: string) => {
+    setRetryingStageId(stageId)
+    const addLocalFailedRetryAttempt = (message: string) => {
+      const attemptedAt = new Date().toISOString()
+      setOrder((current: any) => {
+        if (!current?.stages) return current
+        return {
+          ...current,
+          stages: current.stages.map((stage: any) => {
+            if (stage.id !== stageId) return stage
+            const metadata = stage.metadata || {}
+            const retryAttempts = Array.isArray(metadata.retryAttempts) ? metadata.retryAttempts : []
+            return {
+              ...stage,
+              metadata: {
+                ...metadata,
+                retryAttempts: [
+                  ...retryAttempts,
+                  {
+                    attemptedAt,
+                    outcome: 'FAILED',
+                    error: message,
+                    optimistic: true,
+                  },
+                ],
+                lastRetryAt: attemptedAt,
+                lastRetryOutcome: 'FAILED',
+                lastRetryError: message,
+              },
+            }
+          }),
+        }
+      })
+    }
+    try {
+      await ordersAPI.retryWhatsApp(orderId, stageId)
+      await loadOrder()
+      toast.success('WhatsApp message resent')
+    } catch (e: any) {
+      const message = e?.message || 'Failed to retry WhatsApp message'
+      addLocalFailedRetryAttempt(message)
+      toast.error(message)
+      window.setTimeout(() => {
+        loadOrder().catch(() => undefined)
+      }, 900)
+    } finally {
+      setRetryingStageId('')
+    }
+  }
+
   const submitStatusModal = async () => {
     if (!statusModal.reason.trim()) {
       toast.error('Reason is required for this status correction')
@@ -615,7 +738,7 @@ export default function OrderDetailPage() {
     }
     setUpdating(true)
     try {
-      await ordersAPI.updateStatus(orderId, statusModal.target, statusModal.reason.trim(), Number(order.version || 1))
+      await ordersAPI.updateStatus(orderId, statusModal.target, statusModal.reason.trim(), Number(order.version || 1), `${statusEffectiveDate}T12:00:00.000Z`)
       await loadOrder()
       setStatusModal({ open: false, target: '', kind: 'forward', reason: '' })
       toast.success(`Status updated → ${statusLabel(statusModal.target)}`)
@@ -646,6 +769,11 @@ export default function OrderDetailPage() {
   const isLocked       = order.status === 'RETURNED' || isReturnedOriginal
   const nextSt         = orderWorkflow.next[order.status]
   const nextBlocked    = Boolean(nextSt && !canProgress(nextSt))
+  const resolvedWhatsAppFailureIds = getResolvedWhatsAppFailureIds(order.stages || [])
+  const forwardActionStatuses = statusChoices.filter((status) => {
+    if (status === order.status) return false
+    return status === nextSt || (orderWorkflow.allowedForward[order.status] || []).includes(status)
+  })
   const showItemsPanel = !order.isReturn && !isLocked && !plantStatuses.includes(order.status) && noItems && statusChoices.some((status) => orderWorkflow.requiresItems.includes(status))
   const canEditOrder = !order.isReturn && !isLocked && !plantStatuses.includes(order.status) && !['DELIVERED', 'CANCELLED', 'RETURNED'].includes(order.status) && hasCorrectionAuthority(currentStaff)
   const currentPermissions = currentStaff?.effectivePermissions || currentStaff?.permissions || []
@@ -669,7 +797,7 @@ export default function OrderDetailPage() {
       )}
 
       <div style={{marginBottom:22}}>
-        <Link href="/dashboard/orders" style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#6b7fa3',fontWeight:600,textDecoration:'none',marginBottom:18}}>
+        <Link href={returnTo} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#6b7fa3',fontWeight:600,textDecoration:'none',marginBottom:18}}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
           Back to Orders
         </Link>
@@ -819,17 +947,27 @@ export default function OrderDetailPage() {
           <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14}}>
             <div style={{padding:'16px 20px',borderBottom:'1px solid #edf3f8',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:15,color:'#023c62'}}>Actions</div>
             <div style={{padding:16,display:'flex',flexDirection:'column' as const,gap:8}}>
-              {nextSt && !isLocked && !order.isReturn && (
-                <button onClick={()=>updateStatus(nextSt)} disabled={updating||nextBlocked}
-                  style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,width:'100%',padding:11,borderRadius:9,fontSize:13.5,fontWeight:700,border:'none',cursor:nextBlocked?'not-allowed':'pointer',background:nextBlocked?'#f1f5f9':'#023c62',color:nextBlocked?'#9dafc8':'#fff',opacity:updating?0.6:1,whiteSpace:'normal' as const,lineHeight:1.35}}>
-                  {nextBlocked && <AlertTriangle size={14} color="#f59e0b"/>}
-                  {updating ? 'Updating…' : 'Mark as '+statusLabel(nextSt)}
-                </button>
-              )}
-              {outstandingAmount>0 && (
+              <label style={{display:'grid',gap:5,fontSize:11.5,color:'#6b7fa3',fontWeight:700,textTransform:'uppercase' as const,letterSpacing:'0.05em'}}>
+                Action Date
+                <input type="date" value={statusEffectiveDate} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setStatusEffectiveDate(event.target.value)}
+                  style={{padding:'9px 10px',border:'1.5px solid #dce8f0',borderRadius:9,fontSize:12.5,color:'#142033',fontWeight:600,textTransform:'none' as const,letterSpacing:0}} />
+              </label>
+              {forwardActionStatuses.length > 0 && !isLocked && !order.isReturn && forwardActionStatuses.map((targetStatus, index) => {
+                const blocked = !canProgress(targetStatus)
+                const isPrimary = targetStatus === nextSt || index === 0
+                const isDirectDelivered = order.status === 'READY_FOR_DELIVERY' && targetStatus === 'DELIVERED'
+                return (
+                  <button key={targetStatus} onClick={()=>updateStatus(targetStatus)} disabled={updating||blocked}
+                    style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,width:'100%',padding:11,borderRadius:9,fontSize:13.5,fontWeight:700,border:isPrimary?'none':'1.5px solid #dce8f0',cursor:blocked?'not-allowed':'pointer',background:blocked?'#f1f5f9':isPrimary?'#023c62':'#fff',color:blocked?'#9dafc8':isPrimary?'#fff':'#023c62',opacity:updating?0.6:1,whiteSpace:'normal' as const,lineHeight:1.35}}>
+                    {blocked && <AlertTriangle size={14} color="#f59e0b"/>}
+                    {updating ? 'Updating…' : isDirectDelivered ? 'Mark as Delivered / Store Pickup' : 'Mark as '+statusLabel(targetStatus)}
+                  </button>
+                )
+              })}
+              {(outstandingAmount>0 || (order.payments || []).length > 0) && (
                 <button onClick={()=>setShowPaymentPanel(v=>!v)}
                   style={{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',padding:11,borderRadius:9,fontSize:13.5,fontWeight:700,background:'#fff',color:'#023c62',border:'1.5px solid #dce8f0',cursor:'pointer'}}>
-                  {showPaymentPanel ? 'Hide Payment Panel' : 'Record Payment'}
+                  {showPaymentPanel ? 'Hide Payment Panel' : outstandingAmount > 0 ? 'Record / Manage Payment' : 'Manage Payments'}
                 </button>
               )}
               {canEditOrder && (
@@ -847,11 +985,11 @@ export default function OrderDetailPage() {
                     Message
                   </a>
                 )}
-                <Link href={'/dashboard/print?orderId='+order.id+'&type=receipt'}
-                  style={{flex:'1 1 0',minWidth:0,display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:9,borderRadius:8,background:'#fff',border:'1px solid #dce8f0',color:'#3d5470',fontSize:12,fontWeight:600,textDecoration:'none'}}>
+                <button onClick={() => openPrintWindow('/dashboard/print?orderId='+order.id+'&type=receipt&autoprint=1')}
+                  style={{flex:'1 1 0',minWidth:0,display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:9,borderRadius:8,background:'#fff',border:'1px solid #dce8f0',color:'#3d5470',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V4h12v5"/><path d="M6 18h12v3H6z"/><path d="M4 9h16v7H4z"/></svg>
                   Print
-                </Link>
+                </button>
               </div>
               {orderWorkflow.cancellableStatuses.includes(order.status)&&!order.isReturn&&(
                 <button onClick={()=>updateStatus('CANCELLED')}
@@ -870,17 +1008,55 @@ export default function OrderDetailPage() {
                 <div style={{padding:'20px',color:'#9dafc8',fontSize:13}}>No timeline entries yet</div>
               ) : (order.stages||[]).map((st:any,i:number,arr:any[])=>{
                 const timelineNote = getTimelineNote(st.notes)
+                const isWhatsAppFailed = st.stage === 'WHATSAPP_FAILED'
+                const isWhatsAppSent = st.stage === 'WHATSAPP_SENT'
+                const retryResolved = resolvedWhatsAppFailureIds.has(st.id)
+                const failedRetryAttempts = Array.isArray(st.metadata?.retryAttempts)
+                  ? st.metadata.retryAttempts.filter((attempt: any) => attempt?.outcome === 'FAILED')
+                  : []
                 return (
-	                <div key={st.id} style={{display:'flex',gap:12,padding:'0 20px 18px',position:'relative' as const,minWidth:0}}>
+		                <div key={st.id} style={{display:'flex',gap:12,padding:'0 20px 18px',position:'relative' as const,minWidth:0}}>
                     <div style={{display:'flex',flexDirection:'column' as const,alignItems:'center'}}>
-                      <div style={{width:10,height:10,borderRadius:999,background:'#023c62',marginTop:4,flexShrink:0}}/>
-                      {i<arr.length-1&&<div style={{width:2,flex:1,background:'#e3edf6',margin:'3px 0'}}/>}
+	                      <div style={{width:isWhatsAppFailed?18:10,height:isWhatsAppFailed?18:10,borderRadius:999,background:isWhatsAppFailed?'#fee2e2':isWhatsAppSent?'#dcfce7':'#023c62',color:isWhatsAppFailed?'#dc2626':isWhatsAppSent?'#16a34a':'#fff',marginTop:isWhatsAppFailed?1:4,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                          {isWhatsAppFailed ? <XCircle size={16} strokeWidth={2.4}/> : null}
+                        </div>
+	                      {i<arr.length-1&&<div style={{width:2,flex:1,background:'#e3edf6',margin:'3px 0'}}/>}
+	                    </div>
+		                  <div style={{minWidth:0,flex:1,border:isWhatsAppFailed?'1px solid #fecaca':'none',background:isWhatsAppFailed?'#fff7f7':'transparent',borderRadius:isWhatsAppFailed?12:0,padding:isWhatsAppFailed?'10px 12px':0,marginTop:isWhatsAppFailed?-5:0}}>
+                        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+		                      <div style={{fontSize:13,fontWeight:800,color:isWhatsAppFailed?'#b91c1c':'#142033'}}>{getTimelineTitle(st.stage, st.notes, statusLabel)}</div>
+                          {isWhatsAppFailed && retryResolved && (
+                            <span style={{display:'inline-flex',alignItems:'center',gap:5,border:'1px solid #bbf7d0',background:'#f0fdf4',color:'#15803d',borderRadius:999,padding:'5px 10px',fontSize:11.5,fontWeight:800,whiteSpace:'nowrap' as const}}>
+                              Retried successfully
+                            </span>
+                          )}
+                          {isWhatsAppFailed && !retryResolved && (
+                            <button
+                              onClick={() => retryWhatsAppStage(st.id)}
+                              disabled={retryingStageId === st.id}
+                              style={{display:'inline-flex',alignItems:'center',gap:5,border:'1px solid #fecaca',background:'#fff',color:'#b91c1c',borderRadius:999,padding:'5px 10px',fontSize:11.5,fontWeight:800,cursor:retryingStageId === st.id ? 'wait' : 'pointer',whiteSpace:'nowrap' as const,opacity:retryingStageId === st.id ? 0.7 : 1}}
+                            >
+                              <RotateCcw size={12}/>
+                              {retryingStageId === st.id ? 'Retrying' : 'Retry'}
+                            </button>
+                          )}
+                        </div>
+			                    <div style={{fontSize:11.5,color:isWhatsAppFailed?'#b45353':'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{format(new Date(st.createdAt),'d MMM, h:mm a')}{timelineNote ? ` · ${timelineNote}` : ''}</div>
+                          {isWhatsAppFailed && failedRetryAttempts.length > 0 && (
+                            <div style={{marginTop:9,display:'grid',gap:6}}>
+                              {failedRetryAttempts.map((attempt: any, attemptIndex: number) => {
+                                const attemptedAt = attempt?.attemptedAt ? new Date(attempt.attemptedAt) : null
+                                const attemptedAtLabel = attemptedAt && !Number.isNaN(attemptedAt.getTime()) ? format(attemptedAt, 'd MMM, h:mm a') : 'Unknown time'
+                                return (
+                                  <div key={`${st.id}-retry-${attemptIndex}`} style={{border:'1px solid #fecaca',background:'#fff',borderRadius:10,padding:'7px 9px',fontSize:11.5,color:'#991b1b',lineHeight:1.4,overflowWrap:'anywhere' as const}}>
+                                    <strong>Retry failed</strong> at {attemptedAtLabel}{attempt?.error ? ` · ${attempt.error}` : ''}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
                     </div>
-	                  <div style={{minWidth:0,flex:1}}>
-	                    <div style={{fontSize:13,fontWeight:700,color:'#142033'}}>{getTimelineTitle(st.stage, st.notes, statusLabel)}</div>
-	                    <div style={{fontSize:11.5,color:'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{format(new Date(st.createdAt),'d MMM, h:mm a')}{timelineNote ? ` · ${timelineNote}` : ''}</div>
-                    </div>
-                  </div>
+	                  </div>
                 )
               })}
             </div>
@@ -929,13 +1105,14 @@ export default function OrderDetailPage() {
             <div style={{fontSize:11,fontWeight:600,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.06em',marginBottom:10}}>More Print Options</div>
             <div style={{display:'grid',gap:8}}>
               {([
-                ['/dashboard/print?orderId='+order.id+'&type=thermal','80mm Thermal'],
-                ['/dashboard/print?orderId='+order.id+'&type=garment','Garment Tags'],
-                ['/dashboard/print?orderId='+order.id+'&type=bag','Bag Tags'],
+                ['/dashboard/print?orderId='+order.id+'&type=thermal&autoprint=1','80mm Thermal'],
+                ['/dashboard/print?orderId='+order.id+'&type=garment&autoprint=1','Garment Tags'],
+                ['/dashboard/print?orderId='+order.id+'&type=label&autoprint=1','Label Tags'],
+                ['/dashboard/print?orderId='+order.id+'&type=bag&autoprint=1','Bag Tags'],
               ] as Array<[string, string]>).map(([href,label])=>(
-                <Link key={href} href={href} style={{display:'flex',alignItems:'center',padding:'9px 12px',borderRadius:10,border:'1px solid #dce8f0',textDecoration:'none',color:'#023c62',fontSize:13,fontWeight:600}}>
+                <button key={href} onClick={() => openPrintWindow(href)} style={{display:'flex',alignItems:'center',padding:'9px 12px',borderRadius:10,border:'1px solid #dce8f0',background:'#fff',color:'#023c62',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>
                   {label}
-                </Link>
+                </button>
               ))}
             </div>
           </div>

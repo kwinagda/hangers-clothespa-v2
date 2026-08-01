@@ -16,6 +16,19 @@ const asArray = (value: any, keys: string[] = []) => {
   }
   return []
 }
+const paymentSourceNumber = (payment: any) => {
+  const invoice = payment.allocations?.[0]?.invoice
+  return payment.order?.orderNumber
+    || invoice?.ironBill?.billNumber
+    || invoice?.serviceAppointment?.appointmentNumber
+    || invoice?.invoiceNumber
+    || '—'
+}
+const paymentCustomerName = (payment: any) =>
+  payment.order?.customer?.name
+  || payment.customer?.name
+  || (payment.order?.customer?.phone ? `+91 ${payment.order.customer.phone}` : '')
+  || (payment.customer?.phone ? `+91 ${payment.customer.phone}` : '—')
 
 export default function FinancePage() {
   const [tab, setTab] = useState<'daily'|'receivables'>('daily')
@@ -149,8 +162,8 @@ export default function FinancePage() {
                 :pagedPayments.map((p:any)=>(
                   <tr key={p.id} style={{borderBottom:'1px solid #eef4f8'}}>
                     <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{format(new Date(p.createdAt),'h:mm a')}</td>
-                    <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>{p.order?.orderNumber||'—'}</td>
-                    <td style={{padding:'13px 18px',fontSize:13.5}}>{p.order?.customer?.name||'+91 '+p.order?.customer?.phone}</td>
+                    <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>{paymentSourceNumber(p)}</td>
+                    <td style={{padding:'13px 18px',fontSize:13.5}}>{paymentCustomerName(p)}</td>
                     <td style={{padding:'11px 16px'}}>
                       <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:'#f0f4f8',color:METHOD_COLOR[p.method]||'#6b7fa3'}}>
                         {(() => {
@@ -211,7 +224,11 @@ export default function FinancePage() {
                   <tr key={o.invoiceId || o.id} style={{borderBottom:'1px solid #f0f4f8',cursor:o.orderId?'pointer':'default'}} onClick={()=>{ if(o.orderId) window.location.href=`/dashboard/orders/${o.orderId}` }}>
                     <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>
                       <div>{o.invoiceNumber || o.orderNumber}</div>
-                      <div style={{fontFamily:"var(--crm-font-ui)",fontSize:10,color:'#7b8ca8',marginTop:2}}>{o.orderNumber}{o.sourceType === 'DAILY_IRON' ? ' · Daily Iron' : ''}</div>
+                      <div style={{fontFamily:"var(--crm-font-ui)",fontSize:10,color:'#7b8ca8',marginTop:2}}>
+                        {o.orderNumber}
+                        {o.sourceType === 'DAILY_IRON' ? ' · Daily Iron' : ''}
+                        {o.sourceType === 'FIELD_SERVICE' ? ' · Sofa Cleaning' : ''}
+                      </div>
                     </td>
                     <td style={{padding:'13px 18px',fontSize:13.5,fontWeight:600}}>{o.customer?.name||'—'}</td>
                     <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>+91 {o.customer?.phone}</td>

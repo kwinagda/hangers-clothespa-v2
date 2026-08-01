@@ -1,4 +1,4 @@
-const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
+const { normalizeOrderItem, roundMoney, roundCashAmount } = require('../utils/line-pricing');
 
 class CommercialRuleError extends Error {
   constructor(code, message, statusCode = 400, details = null) {
@@ -66,7 +66,7 @@ const validateCoupon = async (tx, code, eligibleAmount) => {
 
   return {
     coupon,
-    discount: roundMoney(Math.min(eligibleAmount, Math.max(0, cappedDiscount))),
+    discount: roundCashAmount(Math.min(eligibleAmount, Math.max(0, cappedDiscount))),
   };
 };
 
@@ -87,7 +87,7 @@ const validateLoyalty = async (tx, customerId, requestedPoints, eligibleAmount) 
 
   return {
     points: requestedPoints,
-    discount: roundMoney(Math.min(eligibleAmount, requestedPoints * Number(rule.redeemPerPoint || 0))),
+    discount: roundCashAmount(Math.min(eligibleAmount, requestedPoints * Number(rule.redeemPerPoint || 0))),
   };
 };
 
@@ -192,8 +192,8 @@ const resolveOrderPricing = async (tx, {
     return normalized;
   });
 
-  const subtotal = roundMoney(pricedItems.reduce((sum, item) => sum + item.subtotal, 0));
-  const manualDiscount = roundMoney(Math.max(0, Number(discount || 0)));
+  const subtotal = roundCashAmount(pricedItems.reduce((sum, item) => sum + item.subtotal, 0));
+  const manualDiscount = roundCashAmount(Math.max(0, Number(discount || 0)));
   if (manualDiscount > subtotal) {
     throw new CommercialRuleError('DISCOUNT_EXCEEDS_SUBTOTAL', 'Order discount cannot exceed the priced subtotal');
   }
@@ -210,11 +210,11 @@ const resolveOrderPricing = async (tx, {
     throw new CommercialRuleError('INCENTIVE_STACKING_FORBIDDEN', 'Loyalty redemption cannot be stacked with manual discounts');
   }
 
-  const afterManual = roundMoney(subtotal - manualDiscount);
+  const afterManual = roundCashAmount(subtotal - manualDiscount);
   const coupon = await validateCoupon(tx, couponCode, afterManual);
-  const afterCoupon = roundMoney(afterManual - (coupon?.discount || 0));
+  const afterCoupon = roundCashAmount(afterManual - (coupon?.discount || 0));
   const loyalty = await validateLoyalty(tx, customerId, loyaltyPointsRedeemed, afterCoupon);
-  const totalAmount = roundMoney(afterCoupon - (loyalty?.discount || 0));
+  const totalAmount = roundCashAmount(afterCoupon - (loyalty?.discount || 0));
 
   if (totalAmount <= 0 && subtotal > 0) {
     requireAdjustmentAuthority(staff, 'pricing.zero_value', 'A zero-value order requires pricing.zero_value authority');

@@ -78,6 +78,11 @@ const getInvoices = (dateFilter, extra = {}) => prisma.invoice.findMany({
       },
     },
     ironBill: { select: { id: true, billNumber: true, status: true } },
+    serviceAppointment: { select: { id: true, appointmentNumber: true, status: true } },
+    financialAdjustments: {
+      where: { kind: 'WRITE_OFF', status: 'POSTED' },
+      select: { amount: true, createdAt: true },
+    },
     allocations: {
       where: { status: 'POSTED', payment: { status: { in: ['CAPTURED', 'SUCCESS', 'PAID'] }, kind: 'RECEIPT' } },
       select: { amount: true, createdAt: true, payment: { select: { createdAt: true } } },
@@ -86,12 +91,15 @@ const getInvoices = (dateFilter, extra = {}) => prisma.invoice.findMany({
   orderBy: { issueDate: 'desc' },
 });
 
-const invoiceWriteOff = (invoice, cutoff = null) => (invoice.order?.financialAdjustments || [])
+const invoiceWriteOff = (invoice, cutoff = null) => [
+  ...(invoice.order?.financialAdjustments || []),
+  ...(invoice.financialAdjustments || []),
+]
   .filter((adjustment) => !cutoff || new Date(adjustment.createdAt) <= cutoff)
   .reduce((total, adjustment) => total + Number(adjustment.amount || 0), 0);
 
 const invoiceSourceNumber = (invoice) =>
-  invoice.order?.orderNumber || invoice.ironBill?.billNumber || invoice.invoiceNumber;
+  invoice.order?.orderNumber || invoice.ironBill?.billNumber || invoice.serviceAppointment?.appointmentNumber || invoice.invoiceNumber;
 
 const getReport = async (req, res) => {
   try {
@@ -257,7 +265,7 @@ const getReport = async (req, res) => {
           where: paymentDateWhere(dateFilter, capturedPaymentStatuses),
           include: {
             order: { select: { orderNumber: true } },
-            allocations: { take: 1, include: { invoice: { select: { invoiceNumber: true, ironBill: { select: { billNumber: true } } } } } },
+            allocations: { take: 1, include: { invoice: { select: { invoiceNumber: true, ironBill: { select: { billNumber: true } }, serviceAppointment: { select: { appointmentNumber: true } } } } } },
             collectedByStaff: { select: { name: true } },
           },
           orderBy: { createdAt: 'desc' },
@@ -276,6 +284,7 @@ const getReport = async (req, res) => {
             const method = normalizePaymentMethod(payment.method || payment.mode);
             const sourceNumber = payment.order?.orderNumber
               || payment.allocations[0]?.invoice?.ironBill?.billNumber
+              || payment.allocations[0]?.invoice?.serviceAppointment?.appointmentNumber
               || payment.allocations[0]?.invoice?.invoiceNumber
               || payment.id;
             return {
@@ -306,6 +315,11 @@ const getReport = async (req, res) => {
               },
             },
             ironBill: { select: { billNumber: true } },
+            serviceAppointment: { select: { appointmentNumber: true } },
+            financialAdjustments: {
+              where: { kind: 'WRITE_OFF', status: 'POSTED', createdAt: { lte: end } },
+              select: { amount: true },
+            },
             allocations: {
               where: {
                 status: 'POSTED',
@@ -319,7 +333,10 @@ const getReport = async (req, res) => {
         const rows = invoices
           .map((invoice) => {
             const paidAsOf = invoice.allocations.reduce((total, allocation) => total + Number(allocation.amount || 0), 0);
-            const writeOffAsOf = (invoice.order?.financialAdjustments || []).reduce((total, adjustment) => total + Number(adjustment.amount || 0), 0);
+            const writeOffAsOf = [
+              ...(invoice.order?.financialAdjustments || []),
+              ...(invoice.financialAdjustments || []),
+            ].reduce((total, adjustment) => total + Number(adjustment.amount || 0), 0);
             const balance = Math.max(0, Number(invoice.totalAmount || 0) - paidAsOf - writeOffAsOf);
             return {
               label: invoiceSourceNumber(invoice),

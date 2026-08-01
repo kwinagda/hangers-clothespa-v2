@@ -49,6 +49,7 @@ model Customer {
   creditNotes         CreditNote[]
   receipts            Receipt[]
   returnCases         ReturnCase[]
+  serviceAppointments ServiceAppointment[]
 
   @@map("customers")
 }
@@ -67,6 +68,7 @@ model Address {
   isDefault    Boolean  @default(false)
   createdAt    DateTime @default(now())
   customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  serviceAppointments ServiceAppointment[]
 
   @@map("addresses")
 }
@@ -123,6 +125,10 @@ model Staff {
   ironSubscriptionsConfirmed   IronSubscription[]      @relation("IronSubscriptionConfirmedBy")
   ironLogsEntered              IronLog[]               @relation("IronLogEnteredBy")
   ironLogsVoided               IronLog[]               @relation("IronLogVoidedBy")
+  serviceAppointmentsAssigned  ServiceAppointment[]    @relation("ServiceAppointmentAssignee")
+  serviceAppointmentsCreated   ServiceAppointment[]    @relation("ServiceAppointmentCreatedBy")
+  serviceAppointmentsCompleted ServiceAppointment[]    @relation("ServiceAppointmentCompletedBy")
+  serviceAppointmentEvents     ServiceAppointmentEvent[]
 
   @@map("staff")
 }
@@ -499,6 +505,8 @@ model Service {
   createdAt DateTime    @default(now())
   items     OrderItem[]
   ironLogs  IronLog[]
+  serviceAppointments ServiceAppointment[]
+  serviceAppointmentLines ServiceAppointmentLine[]
 
   @@index([category])
 }
@@ -552,11 +560,11 @@ model IronLog {
   voidedBy     Staff?           @relation("IronLogVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
   bill         IronBill?        @relation(fields: [billId], references: [id])
 
-  @@unique([customerId, serviceId, date])
   @@index([customerId])
   @@index([date])
   @@index([billId])
   @@index([customerId, date])
+  @@index([customerId, serviceId, date])
   @@map("iron_logs")
 }
 
@@ -583,8 +591,8 @@ model IronBill {
   logs         IronLog[]
   invoice      Invoice?
 
-  @@unique([customerId, billingPeriodStart])
   @@index([customerId])
+  @@index([customerId, billingPeriodStart])
   @@map("iron_bills")
 }
 
@@ -653,6 +661,7 @@ model Invoice {
   customerId         String
   orderId            String?             @unique
   ironBillId         String?             @unique
+  serviceAppointmentId String?           @unique
   sourceType         String
   status             String              @default("OPEN")
   currency           String              @default("INR")
@@ -677,6 +686,7 @@ model Invoice {
   customer           Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
   order              Order?              @relation(fields: [orderId], references: [id], onDelete: Restrict)
   ironBill           IronBill?           @relation(fields: [ironBillId], references: [id], onDelete: Restrict)
+  serviceAppointment ServiceAppointment? @relation(fields: [serviceAppointmentId], references: [id], onDelete: Restrict)
   createdBy          Staff?              @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   postedBy           Staff?              @relation("InvoicePostedBy", fields: [postedById], references: [id], onDelete: Restrict)
   lines              InvoiceLine[]
@@ -686,11 +696,94 @@ model Invoice {
   refundAllocations  RefundAllocation[]
   receipts           Receipt[]
   receiptAllocations ReceiptAllocation[]
+  financialAdjustments FinancialAdjustment[]
 
   @@index([customerId, status, dueDate])
   @@index([status, dueDate])
   @@index([issueDate])
   @@map("invoices")
+}
+
+model ServiceAppointment {
+  id                String    @id @default(cuid())
+  appointmentNumber String    @unique
+  customerId        String
+  serviceId         String?
+  serviceName       String
+  status            String    @default("SCHEDULED")
+  scheduledAt       DateTime
+  startedAt         DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  assignedToId      String?
+  addressId         String?
+  address           String?
+  addressSnapshot   Json?
+  notes             String?
+  internalNotes     String?
+  subtotal          Decimal   @default(0) @db.Decimal(18, 2)
+  discountAmount    Decimal   @default(0) @db.Decimal(18, 2)
+  totalAmount       Decimal   @default(0) @db.Decimal(18, 2)
+  pricingSnapshot   Json?
+  createdById       String?
+  completedById     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  customer          Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  serviceAddress    Address?  @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  service           Service?  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  assignedTo        Staff?    @relation("ServiceAppointmentAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  createdBy         Staff?    @relation("ServiceAppointmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  completedBy       Staff?    @relation("ServiceAppointmentCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  invoice           Invoice?
+  lines             ServiceAppointmentLine[]
+  events            ServiceAppointmentEvent[]
+
+  @@index([customerId, scheduledAt])
+  @@index([addressId])
+  @@index([status, scheduledAt])
+  @@index([assignedToId, status, scheduledAt])
+  @@map("service_appointments")
+}
+
+model ServiceAppointmentLine {
+  id            String             @id @default(cuid())
+  appointmentId String
+  serviceId     String?
+  description   String
+  quantity      Decimal            @default(1) @db.Decimal(18, 3)
+  unitPrice     Decimal            @db.Decimal(18, 2)
+  lineDiscountType String?
+  lineDiscountValue Decimal          @default(0) @db.Decimal(18, 2)
+  discountAmount Decimal           @default(0) @db.Decimal(18, 2)
+  lineTotal     Decimal            @db.Decimal(18, 2)
+  notes         String?
+  metadata      Json?
+  createdAt     DateTime           @default(now())
+  appointment   ServiceAppointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  service       Service?           @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([appointmentId])
+  @@index([serviceId])
+  @@map("service_appointment_lines")
+}
+
+model ServiceAppointmentEvent {
+  id             String             @id @default(cuid())
+  appointmentId  String
+  eventType      String
+  fromStatus     String?
+  toStatus       String?
+  notes          String?
+  metadata       Json?
+  changedById    String?
+  createdAt      DateTime           @default(now())
+  appointment    ServiceAppointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  changedBy      Staff?             @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([appointmentId, createdAt])
+  @@map("service_appointment_events")
 }
 
 model InvoiceLine {
@@ -963,7 +1056,8 @@ model WalletTransaction {
 
 model FinancialAdjustment {
   id           String                @id @default(cuid())
-  orderId      String
+  orderId      String?
+  invoiceId    String?
   kind         String
   status       String                @default("POSTED")
   amount       Decimal               @db.Decimal(18, 2)
@@ -974,13 +1068,15 @@ model FinancialAdjustment {
   reversalOfId String?
   reversedAt   DateTime?
   createdAt    DateTime              @default(now())
-  order        Order                 @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  order        Order?                @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  invoice      Invoice?              @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
   createdBy    Staff                 @relation("FinancialAdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   approvedBy   Staff?                @relation("FinancialAdjustmentApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
   reversalOf   FinancialAdjustment?  @relation("FinancialAdjustmentReversals", fields: [reversalOfId], references: [id], onDelete: Restrict)
   reversals    FinancialAdjustment[] @relation("FinancialAdjustmentReversals")
 
   @@index([orderId, status, kind])
+  @@index([invoiceId, status, kind])
   @@index([createdAt])
   @@map("financial_adjustments")
 }

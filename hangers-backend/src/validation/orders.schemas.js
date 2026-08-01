@@ -12,6 +12,7 @@ const orderStatusUpdateSchema = z.object({
   notes:  z.string().trim().max(500).optional(),
   reasonCode: z.string().trim().min(2).max(64).optional(),
   expectedVersion: z.coerce.number().int().positive().optional(),
+  effectiveAt: z.coerce.date().optional(),
 }).strict();
 
 const orderItemSchema = z.object({
@@ -113,11 +114,12 @@ const collectCashSchema = z.object({
 
 const orderPaymentSchema = z.object({
   amount: money,
-  method: z.string().trim().min(1).max(64),
+  method: z.string().trim().min(1).max(64).optional().nullable(),
   reference: z.string().trim().max(120).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
   writeOffAmount: money.optional(),
   writeOffReason: adjustmentReason.optional(),
+  effectiveAt: z.coerce.date().optional(),
 }).strict().refine((data) => data.amount > 0 || Number(data.writeOffAmount || 0) > 0, {
   message: 'A payment or write-off amount is required',
   path: ['amount'],
@@ -129,6 +131,10 @@ const orderRefundSchema = z.object({
   method: z.string().trim().min(1).max(64).optional(),
   reference: z.string().trim().max(120).optional().nullable(),
   reasonCode: z.enum(['ORDER_CANCELLATION', 'SERVICE_FAILURE', 'DUPLICATE_CHARGE', 'PRICE_CORRECTION', 'CUSTOMER_REFUND', 'OTHER']),
+  reason: adjustmentReason,
+}).strict();
+
+const orderPaymentReversalSchema = z.object({
   reason: adjustmentReason,
 }).strict();
 
@@ -149,4 +155,5 @@ module.exports = {
   deliveryOtpVerifySchema,
   orderPaymentSchema,
   orderRefundSchema,
+  orderPaymentReversalSchema,
 };

@@ -7,6 +7,8 @@ const {
   DELIVERY_FAIL_REASONS,
   DOCUMENT_TYPES,
   EXPENSE_CATEGORIES,
+  FIELD_SERVICE_STATUSES,
+  FIELD_SERVICE_WORKFLOW,
   IRON_SUBSCRIPTION_STATUS_META,
   LANGUAGES,
   LAUNCH_CAPABILITIES,
@@ -39,6 +41,8 @@ const MASTER_SETTING_KEYS = {
   discountValueTypes: 'master.discountValueTypes',
   documentTypes: 'master.documentTypes',
   expenseCategories: 'master.expenseCategories',
+  fieldServiceStatuses: 'master.fieldServiceStatuses',
+  fieldServiceWorkflow: 'master.fieldServiceWorkflow',
   ironSubscriptionStatuses: 'master.ironSubscriptionStatuses',
   languages: 'master.languages',
   launchCapabilities: 'master.launchCapabilities',
@@ -72,6 +76,8 @@ const BOOTSTRAP_MASTER_SETTINGS = {
   [MASTER_SETTING_KEYS.discountValueTypes]: DISCOUNT_VALUE_TYPES,
   [MASTER_SETTING_KEYS.documentTypes]: DOCUMENT_TYPES,
   [MASTER_SETTING_KEYS.expenseCategories]: EXPENSE_CATEGORIES,
+  [MASTER_SETTING_KEYS.fieldServiceStatuses]: FIELD_SERVICE_STATUSES,
+  [MASTER_SETTING_KEYS.fieldServiceWorkflow]: FIELD_SERVICE_WORKFLOW,
   [MASTER_SETTING_KEYS.ironSubscriptionStatuses]: IRON_SUBSCRIPTION_STATUS_META,
   [MASTER_SETTING_KEYS.languages]: LANGUAGES,
   [MASTER_SETTING_KEYS.launchCapabilities]: LAUNCH_CAPABILITIES,
@@ -107,14 +113,42 @@ const parseJsonSetting = (setting, key) => {
   }
 };
 
+const mergeMasterDefaults = (stored, defaults) => {
+  if (Array.isArray(defaults)) {
+    if (!Array.isArray(stored)) return defaults;
+    const merged = [...stored];
+    defaults.forEach((item) => {
+      const key = item && typeof item === 'object' ? item.key || item.value || item.id : item;
+      const exists = merged.some((existing) => {
+        const existingKey = existing && typeof existing === 'object' ? existing.key || existing.value || existing.id : existing;
+        return existingKey === key;
+      });
+      if (!exists) merged.push(item);
+    });
+    return merged;
+  }
+  if (defaults && typeof defaults === 'object') {
+    const source = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+    return Object.entries(defaults).reduce((result, [childKey, defaultValue]) => {
+      result[childKey] = mergeMasterDefaults(source[childKey], defaultValue);
+      return result;
+    }, { ...source });
+  }
+  return stored === undefined || stored === null ? defaults : stored;
+};
+
 const getMasterSetting = async (key, tx = prisma) => {
   const setting = await tx.setting.findUnique({ where: { key } });
-  return parseJsonSetting(setting, key);
+  const parsed = parseJsonSetting(setting, key);
+  const defaults = BOOTSTRAP_MASTER_SETTINGS[key];
+  return defaults === undefined ? parsed : mergeMasterDefaults(parsed, defaults);
 };
 
 const getOrderStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.orderStatuses);
 const getOrderSources = () => getMasterSetting(MASTER_SETTING_KEYS.orderSources);
 const getOrderWorkflow = () => getMasterSetting(MASTER_SETTING_KEYS.orderWorkflow);
+const getFieldServiceStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.fieldServiceStatuses);
+const getFieldServiceWorkflow = () => getMasterSetting(MASTER_SETTING_KEYS.fieldServiceWorkflow);
 const getPaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.paymentMethods);
 const getCorePaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.corePaymentMethods);
 const getPaymentTransactionStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.paymentTransactionStatuses);
@@ -207,6 +241,8 @@ module.exports = {
   getCapturedPaymentStatusValues,
   getCorePaymentMethods,
   getDeliveryFailReasons,
+  getFieldServiceStatuses,
+  getFieldServiceWorkflow,
   getLaunchCapabilities,
   getLaunchCapability,
   getMasterSetting,

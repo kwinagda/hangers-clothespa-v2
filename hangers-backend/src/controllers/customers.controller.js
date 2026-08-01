@@ -8,6 +8,12 @@ const { ADDRESS_LABELS, CUSTOMER_TAGS, DEFAULT_LANGUAGE, LANGUAGE_VALUES } = req
 const { getReferralProgramSettings, REFERRAL_STATUS } = require('../services/referral.service');
 const { deriveOrderPaymentState, withDerivedPaymentState } = require('../utils/order-payment-state');
 const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
+const {
+  normalizeCustomerPhone,
+  normalizeCustomerName,
+  normalizeCustomerTag,
+  normalizeNullableText,
+} = require('../utils/customer-normalization');
 
 const VALID_ADDRESS_LABELS = new Set(ADDRESS_LABELS.map((label) => label.value));
 const VALID_CUSTOMER_TAGS = new Set(CUSTOMER_TAGS.map((tag) => tag.value));
@@ -153,6 +159,10 @@ const getCustomer = async (req, res) => {
             },
           },
         },
+        financialAdjustments: {
+          where: { kind: 'WRITE_OFF', status: 'POSTED' },
+          select: { amount: true },
+        },
       },
     });
     const referralAggregates = await prisma.referral.groupBy({
@@ -186,6 +196,19 @@ const getCustomer = async (req, res) => {
             id: true,
             name: true,
             role: true,
+          },
+        },
+        allocations: {
+          take: 1,
+          include: {
+            invoice: {
+              select: {
+                invoiceNumber: true,
+                sourceType: true,
+                ironBill: { select: { billNumber: true } },
+                serviceAppointment: { select: { appointmentNumber: true } },
+              },
+            },
           },
         },
       },
@@ -233,7 +256,10 @@ const getCustomer = async (req, res) => {
         orders: customer.orders.map(withDerivedPaymentState),
       },
       lifetimeValue: customerInvoices.reduce((sum, invoice) => {
-        const writeOff = (invoice.order?.financialAdjustments || []).reduce((value, adjustment) => value + Number(adjustment.amount || 0), 0);
+        const writeOff = [
+          ...(invoice.order?.financialAdjustments || []),
+          ...(invoice.financialAdjustments || []),
+        ].reduce((value, adjustment) => value + Number(adjustment.amount || 0), 0);
         return sum + Number(invoice.totalAmount || 0) - writeOff;
       }, 0),
       financialSummary: {
@@ -347,9 +373,13 @@ const createCustomer = async (req, res) => {
   }
 
   try {
-    const normalized = phone.replace(/\D/g, '').slice(-10);
+    const normalized = normalizeCustomerPhone(phone);
     if (!isValidPhone(normalized)) return badRequest(res, 'Please enter a valid 10-digit Indian mobile number');
-    if (name !== undefined && name !== null && String(name).trim().length && String(name).trim().length < 2) {
+    const normalizedName = normalizeCustomerName(name);
+    if (name !== undefined && name !== null && String(name).trim().length && !normalizedName) {
+      return badRequest(res, 'Name must include letters');
+    }
+    if (normalizedName && normalizedName.length < 2) {
       return badRequest(res, 'Name must be at least 2 characters');
     }
     const existing   = await prisma.customer.findUnique({ where: { phone: normalized } });
@@ -358,7 +388,7 @@ const createCustomer = async (req, res) => {
     const customer = await prisma.customer.create({
       data: {
         phone: normalized,
-        name: name?.trim() || null,
+        name: normalizedName,
         preferredLanguage: language,
       },
     });
@@ -372,16 +402,23 @@ const createCustomer = async (req, res) => {
 const updateCustomer = async (req, res) => {
   const { name, dob, mapLocation, tag, notes, notifWhatsApp, preferredLanguage } = req.body;
   const language = preferredLanguage !== undefined ? normalizeLanguage(preferredLanguage) : undefined;
+  const dobProvided = dob !== undefined;
+  const dobValue = dobProvided && dob !== null ? String(dob).trim() : dob;
+  const normalizedName = name !== undefined ? normalizeCustomerName(name) : undefined;
+  const normalizedTag = tag !== undefined ? normalizeCustomerTag(tag) : undefined;
   if (preferredLanguage !== undefined && !language) {
     return badRequest(res, 'preferredLanguage must be ENGLISH, HINDI, or MARATHI');
   }
-  if (name !== undefined && name !== null && String(name).trim().length && String(name).trim().length < 2) {
+  if (name !== undefined && name !== null && String(name).trim().length && !normalizedName) {
+    return badRequest(res, 'Name must include letters');
+  }
+  if (normalizedName && normalizedName.length < 2) {
     return badRequest(res, 'Name must be at least 2 characters');
   }
-  if (tag !== undefined && tag !== null && tag !== '' && !VALID_CUSTOMER_TAGS.has(String(tag).trim().toUpperCase())) {
+  if (tag !== undefined && tag !== null && tag !== '' && !VALID_CUSTOMER_TAGS.has(normalizedTag)) {
     return badRequest(res, 'Invalid customer tag');
   }
-  if (dob !== undefined && dob !== null && Number.isNaN(new Date(dob).getTime())) {
+  if (dobProvided && dobValue !== null && dobValue !== '' && Number.isNaN(new Date(dobValue).getTime())) {
     return badRequest(res, 'Invalid date of birth');
   }
   if (notifWhatsApp !== undefined && typeof notifWhatsApp !== 'boolean') {
@@ -398,17 +435,18 @@ const updateCustomer = async (req, res) => {
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
       data:  {
-        ...(name !== undefined && { name: name?.trim() || null }),
-        dob: dob ? new Date(dob) : undefined,
-        mapLocation,
-        ...(tag !== undefined && { tag: tag ? String(tag).trim().toUpperCase() : null }),
-        notes,
-        notifWhatsApp,
+        ...(name !== undefined && { name: normalizedName }),
+        ...(dobProvided && { dob: dobValue ? new Date(dobValue) : null }),
+        ...(mapLocation !== undefined && { mapLocation: normalizeNullableText(mapLocation) }),
+        ...(tag !== undefined && { tag: tag ? normalizedTag : null }),
+        ...(notes !== undefined && { notes: normalizeNullableText(notes) }),
+        ...(notifWhatsApp !== undefined && { notifWhatsApp }),
         ...(language !== undefined && { preferredLanguage: language }),
       },
     });
     return success(res, { customer });
   } catch (err) {
+    console.error('updateCustomer error:', err);
     return error(res, 'Failed to update customer');
   }
 };
@@ -461,6 +499,62 @@ const addCustomerAddress = async (req, res) => {
     return success(res, { address }, 'Address saved', 201);
   } catch (err) {
     return error(res, 'Failed to save address');
+  }
+};
+
+// ── PATCH /api/v1/customers/:id/addresses/:addressId ─────────────────────────
+const updateCustomerAddress = async (req, res) => {
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    });
+    if (!customer) return notFound(res, 'Customer not found');
+
+    const existing = await prisma.address.findFirst({
+      where: { id: req.params.addressId, customerId: customer.id },
+      select: { id: true, isDefault: true },
+    });
+    if (!existing) return notFound(res, 'Address not found');
+
+    const payload = normalizeCustomerAddressInput(req.body);
+    if (!payload.addressLine1) return badRequest(res, 'Address is required');
+    if (!VALID_ADDRESS_LABELS.has(payload.label)) return badRequest(res, 'Invalid address label');
+    if (!isValidPincode(payload.pincode)) return badRequest(res, 'Pincode must be a 6-digit value');
+    if (!isValidLatitude(payload.latitude) || !isValidLongitude(payload.longitude)) {
+      return badRequest(res, 'Invalid address coordinates');
+    }
+
+    const address = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM addresses WHERE "id" = ${existing.id} FOR UPDATE`;
+      const makeDefault = req.body.setAsDefault === true || existing.isDefault;
+      if (makeDefault) {
+        await tx.address.updateMany({
+          where: { customerId: customer.id, isDefault: true, id: { not: existing.id } },
+          data: { isDefault: false },
+        });
+      }
+      const updatedAddress = await tx.address.update({
+        where: { id: existing.id },
+        data: {
+          ...payload,
+          isDefault: makeDefault,
+        },
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'CUSTOMER_ADDRESS_UPDATED', resource: 'customer', resourceId: customer.id,
+        description: `${payload.label} address updated${makeDefault ? ' and made default' : ''}`,
+        metadata: { addressId: updatedAddress.id, label: payload.label, isDefault: makeDefault },
+        ...getRequestMeta(req),
+      });
+      return updatedAddress;
+    }, { isolationLevel: 'Serializable' });
+
+    return success(res, { address }, 'Address updated');
+  } catch (err) {
+    console.error('updateCustomerAddress error:', err);
+    return error(res, 'Failed to update address');
   }
 };
 
@@ -542,4 +636,4 @@ const updateCustomerTag = async (req, res) => {
   }
 };
 
-module.exports = { listCustomers, getCustomer, getReferralReport, createCustomer, updateCustomer, addCustomerAddress, getCustomerStats, updateCustomerTag };
+module.exports = { listCustomers, getCustomer, getReferralReport, createCustomer, updateCustomer, addCustomerAddress, updateCustomerAddress, getCustomerStats, updateCustomerTag };

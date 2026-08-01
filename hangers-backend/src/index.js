@@ -35,17 +35,20 @@ const campaignsRoutes     = require('./routes/campaigns.routes');
 const reportsRoutes       = require('./routes/reports.routes');
 const searchRoutes        = require('./routes/search.routes');
 const automationsRoutes   = require('./routes/automations.routes');
+const logsRoutes          = require('./routes/logs.routes');
 const challanRoutes       = require('./routes/challan.routes');
 const staffWalletRoutes   = require('./routes/staff.wallet.routes');
 const settingsRoutes      = require('./routes/settings.routes');
 const securityRoutes      = require('./routes/security.routes');
 const checkoutRoutes      = require('./routes/checkout.routes');
 const ironRoutes          = require('./routes/iron.routes');
+const serviceAppointmentsRoutes = require('./routes/service-appointments.routes');
 const metadataRoutes      = require('./routes/metadata.routes');
 const quotationsRoutes    = require('./routes/quotations.routes');
 const publicRoutes        = require('./routes/public.routes');
 const { syncPermissionCatalog } = require('./services/accessControl.service');
 const { syncMasterDataSettings } = require('./services/masterData.service');
+const { processOutboxBatch } = require('./services/outbox.service');
 const { globalApiLimiter } = require('./middleware/rateLimit');
 const app  = express();
 const PORT = process.env.PORT || 5001;
@@ -137,6 +140,7 @@ app.use('/api/v1/delivery',                    deliveryRoutes);
 // Pricing catalog (public read, staff write)
 app.use('/api/v1/services',                    servicesRoutes);
 app.use('/api/v1/iron',                        ironRoutes);
+app.use('/api/v1/service-appointments',        serviceAppointmentsRoutes);
 app.use('/api/v1/metadata',                    metadataRoutes);
 // Finance
 app.use('/api/v1/cashbook',                    cashbookRoutes);
@@ -160,6 +164,7 @@ app.use('/api/v1/campaigns',                   campaignsRoutes);
 app.use('/api/v1/reports',                     reportsRoutes);
 app.use('/api/v1/search',                      searchRoutes);
 app.use('/api/v1/automations',                 automationsRoutes);
+app.use('/api/v1/logs',                        logsRoutes);
 // Refer & Earn
 const referralRoutes  = require('./routes/referral.routes');
 const walletRoutes    = require('./routes/wallet.routes');
@@ -189,6 +194,30 @@ const runStartupChecks = async () => {
 };
 
 let server;
+let devOutboxTimer = null;
+let devOutboxRunning = false;
+
+const startDevOutboxPoller = () => {
+  if (environment.isProduction || process.env.DEV_OUTBOX_WORKER === 'false' || devOutboxTimer) return;
+  const drainOutbox = async () => {
+    if (devOutboxRunning) return;
+    devOutboxRunning = true;
+    try {
+      let processed;
+      do {
+        processed = await processOutboxBatch({ limit: 25 });
+      } while (processed === 25);
+    } catch (err) {
+      console.error('[api-dev-outbox] drain failed:', err?.message || err);
+    } finally {
+      devOutboxRunning = false;
+    }
+  };
+  devOutboxTimer = setInterval(drainOutbox, 2_000);
+  drainOutbox();
+  console.info('[api-dev-outbox] local outbox processor active');
+};
+
 const startServer = async () => {
   await runStartupChecks();
   server = app.listen(PORT, () => {
@@ -199,6 +228,7 @@ const startServer = async () => {
   console.log(`/api/v1/delivery - Delivery App`);
   console.log('─────────────────────────────────────────\n');
   });
+  startDevOutboxPoller();
   return server;
 };
 
@@ -208,6 +238,7 @@ if (require.main === module) {
     const forceTimer = setTimeout(() => process.exit(1), 25_000);
     forceTimer.unref();
     try {
+      if (devOutboxTimer) clearInterval(devOutboxTimer);
       if (server) await new Promise((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
       await closeConnection();
       await prisma.$disconnect();

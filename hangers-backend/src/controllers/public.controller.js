@@ -81,6 +81,16 @@ const canonicalInvoiceSelect = {
       paidAt: true,
     },
   },
+  serviceAppointment: {
+    select: {
+      appointmentNumber: true,
+      status: true,
+      scheduledAt: true,
+      completedAt: true,
+      addressSnapshot: true,
+      address: true,
+    },
+  },
   lines: {
     select: {
       lineType: true,
@@ -96,12 +106,12 @@ const canonicalInvoiceSelect = {
 };
 
 const normalizeCanonicalInvoice = (invoice) => {
-  const source = invoice.order || invoice.ironBill || {};
+  const source = invoice.order || invoice.ironBill || invoice.serviceAppointment || {};
   return {
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
     invoiceType: invoice.sourceType,
-    orderNumber: invoice.order?.orderNumber || invoice.ironBill?.billNumber || invoice.invoiceNumber,
+    orderNumber: invoice.order?.orderNumber || invoice.ironBill?.billNumber || invoice.serviceAppointment?.appointmentNumber || invoice.invoiceNumber,
     status: source.status || invoice.status,
     subtotal: invoice.subtotal,
     discount: invoice.discountAmount,
@@ -112,9 +122,9 @@ const normalizeCanonicalInvoice = (invoice) => {
     paidAmount: invoice.paidAmount,
     writeOffAmount: Math.max(0, Number(invoice.totalAmount || 0) - Number(invoice.paidAmount || 0) - Number(invoice.balanceDue || 0)),
     paymentStatus: invoice.status === 'PAID' ? 'PAID' : Number(invoice.paidAmount || 0) > 0 ? 'PARTIAL' : 'UNPAID',
-    pickupDate: invoice.order?.pickupDate || invoice.ironBill?.billingPeriodStart || invoice.issueDate,
-    deliveryDate: invoice.order?.deliveryDate || invoice.ironBill?.billingPeriodEnd || invoice.dueDate,
-    deliveredAt: invoice.order?.deliveredAt || invoice.ironBill?.paidAt || null,
+    pickupDate: invoice.order?.pickupDate || invoice.ironBill?.billingPeriodStart || invoice.serviceAppointment?.scheduledAt || invoice.issueDate,
+    deliveryDate: invoice.order?.deliveryDate || invoice.ironBill?.billingPeriodEnd || invoice.serviceAppointment?.completedAt || invoice.dueDate,
+    deliveredAt: invoice.order?.deliveredAt || invoice.ironBill?.paidAt || invoice.serviceAppointment?.completedAt || null,
     createdAt: invoice.issueDate,
     dueDate: invoice.dueDate,
     customer: invoice.customer,

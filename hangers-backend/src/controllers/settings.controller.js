@@ -42,6 +42,36 @@ const parseSettingValue = (setting) => {
   return setting.value;
 };
 
+const mergePrintDefaults = (stored, defaults) => {
+  if (Array.isArray(defaults)) return Array.isArray(stored) && stored.length ? stored : defaults;
+  if (defaults && typeof defaults === 'object') {
+    const source = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+    return Object.entries(defaults).reduce((result, [key, defaultValue]) => {
+      result[key] = mergePrintDefaults(source[key], defaultValue);
+      return result;
+    }, { ...source });
+  }
+  return stored === undefined || stored === null ? defaults : stored;
+};
+
+const normalisePrintLayoutSettings = (value) => {
+  const merged = mergePrintDefaults(value, DEFAULT_PRINT_LAYOUT_SETTINGS);
+  if (merged.bag?.title === 'Label Tags') {
+    merged.bag = {
+      ...merged.bag,
+      title: DEFAULT_PRINT_LAYOUT_SETTINGS.bag.title,
+      description: DEFAULT_PRINT_LAYOUT_SETTINGS.bag.description,
+    };
+  }
+  merged.label = {
+    ...merged.label,
+    description: DEFAULT_PRINT_LAYOUT_SETTINGS.label.description,
+    size: DEFAULT_PRINT_LAYOUT_SETTINGS.label.size,
+    presets: DEFAULT_PRINT_LAYOUT_SETTINGS.label.presets,
+  };
+  return merged;
+};
+
 const serialiseSettingValue = (key, value) => {
   if (key === PRINT_LAYOUT_SETTING_KEY || key === PAYMENT_QR_SETTING_KEY) return JSON.stringify(value);
   if (typeof value === 'boolean') return String(value);
@@ -66,7 +96,17 @@ const getSettings = async (req, res) => {
     await ensureJsonSetting(PAYMENT_QR_SETTING_KEY, DEFAULT_PAYMENT_QR_SETTINGS);
     const settings = await prisma.setting.findMany({ orderBy: { key: 'asc' } });
     const map = {};
-    settings.forEach(s => { map[s.key] = parseSettingValue(s); });
+    settings.forEach(s => {
+      const parsed = parseSettingValue(s);
+      map[s.key] = s.key === PRINT_LAYOUT_SETTING_KEY ? normalisePrintLayoutSettings(parsed) : parsed;
+    });
+    const printSetting = settings.find((setting) => setting.key === PRINT_LAYOUT_SETTING_KEY);
+    if (printSetting && JSON.stringify(map[PRINT_LAYOUT_SETTING_KEY]) !== printSetting.value) {
+      await prisma.setting.update({
+        where: { key: PRINT_LAYOUT_SETTING_KEY },
+        data: { value: JSON.stringify(map[PRINT_LAYOUT_SETTING_KEY]) },
+      });
+    }
     return success(res, { settings, map });
   } catch (e) {
     return error(res, 'Failed to fetch settings');

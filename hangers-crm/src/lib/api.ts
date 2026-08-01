@@ -57,10 +57,15 @@ export const ordersAPI = {
   get:          (id: string)   => api.get(`/orders/${id}`) as any,
   create:       (data: any)    => api.post('/orders', data, idempotencyConfig('crm-order')) as any,
   update:       (id: string, data: any) => api.patch(`/orders/${id}`, data, idempotencyConfig('crm-order-edit')) as any,
-  updateStatus: (id: string, status: string, notes?: string, expectedVersion?: number) => api.patch(
+  updateStatus: (id: string, status: string, notes?: string, expectedVersion?: number, effectiveAt?: string) => api.patch(
     `/orders/${id}/status`,
-    { status, notes, expectedVersion },
+    { status, notes, expectedVersion, effectiveAt },
     idempotencyConfig('crm-order-status')
+  ) as any,
+  retryWhatsApp: (id: string, stageId: string) => api.post(
+    `/orders/${id}/notifications/${stageId}/retry`,
+    {},
+    idempotencyConfig('crm-order-notification-retry')
   ) as any,
   addItems:     (id: string, data: any) => api.patch(`/orders/${id}/items`, data, idempotencyConfig('crm-order-itemize')) as any,
   delete:       (id: string)   => api.delete(`/orders/${id}`, idempotencyConfig('crm-order-archive')),
@@ -82,6 +87,7 @@ export const customersAPI = {
   create: (data: any)             => api.post('/customers', data) as any,
   update: (id: string, data: any) => api.patch(`/customers/${id}`, data) as any,
   addAddress: (id: string, data: any) => api.post(`/customers/${id}/addresses`, data) as any,
+  updateAddress: (id: string, addressId: string, data: any) => api.patch(`/customers/${id}/addresses/${addressId}`, data) as any,
   findByPhone: (phone: string) => api.get(`/customers?search=${phone}`) as any,
 }
 export const staffAPI = {
@@ -97,6 +103,7 @@ export const paymentsAPI = {
   record:      (data: any)                    => api.post('/payments', data, idempotencyConfig('crm-payment')) as any,
   dailySummary:(params?: any)                 => api.get('/payments/daily', { params }) as any,
   refund:      (orderId: string, data: any)   => api.post(`/orders/${orderId}/refunds`, data, idempotencyConfig('crm-refund')) as any,
+  reverse:     (orderId: string, paymentId: string, data: { reason: string }) => api.post(`/orders/${orderId}/payments/${paymentId}/reversal`, data, idempotencyConfig('crm-payment-reversal')) as any,
 }
 export const servicesAPI = {
   getPriceList: ()           => api.get('/services') as any,
@@ -110,6 +117,10 @@ export const servicesAPI = {
 
 export const metadataAPI = {
   getAll: () => api.get('/metadata') as any,
+}
+
+export const logsAPI = {
+  orderTimeline: (params?: any) => api.get('/logs/order-timeline', { params }) as any,
 }
 
 export const settingsAPI = {
@@ -136,8 +147,10 @@ export const ironAPI = {
   getBills: (customerId: string) => api.get(`/iron/bills/customer/${customerId}`) as any,
   getBill: (billId: string) => api.get(`/iron/bills/${billId}`) as any,
   sendBill: (billId: string) => api.put(`/iron/bills/${billId}/send`, {}, idempotencyConfig('crm-iron-bill-send')) as any,
-  recordPayment: (billId: string, data: { amount: number; paymentMethod?: string; reference?: string; notes?: string }) =>
+  recordPayment: (billId: string, data: { amount?: number; paymentMethod?: string; reference?: string; notes?: string; writeOffAmount?: number; writeOffReason?: string; effectiveAt?: string }) =>
     api.put(`/iron/bills/${billId}/pay`, data, idempotencyConfig('crm-iron-payment')) as any,
+  reversePayment: (billId: string, paymentId: string, data: { reason: string }) =>
+    api.post(`/iron/bills/${billId}/payments/${paymentId}/reversal`, data, idempotencyConfig('crm-iron-payment-reversal')) as any,
 }
 export default api;
 // ─────────────────────────────────────────────────────────────────────────────
@@ -181,6 +194,16 @@ export const challanAPI = {
 
 export const deliveryAPI = {
   assignOrder: (id: string, riderId: string) => api.post(`/delivery/orders/${id}/assign`, { riderId }) as any,
+}
+
+export const serviceAppointmentsAPI = {
+  list: (params?: any) => api.get('/service-appointments', { params }) as any,
+  create: (data: any) => api.post('/service-appointments', data, idempotencyConfig('crm-field-service-create')) as any,
+  setStatus: (id: string, data: any) => api.patch(`/service-appointments/${id}/status`, data, idempotencyConfig('crm-field-service-status')) as any,
+  invoice: (id: string) => api.post(`/service-appointments/${id}/invoice`, {}, idempotencyConfig('crm-field-service-invoice')) as any,
+  pay: (id: string, data: any) => api.post(`/service-appointments/${id}/payments`, data, idempotencyConfig('crm-field-service-payment')) as any,
+  reversePayment: (id: string, paymentId: string, data: { reason: string }) =>
+    api.post(`/service-appointments/${id}/payments/${paymentId}/reversal`, data, idempotencyConfig('crm-field-service-payment-reversal')) as any,
 }
 
 export const vendorBillAPI = {

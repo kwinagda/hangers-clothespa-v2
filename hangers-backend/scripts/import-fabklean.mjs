@@ -7,6 +7,10 @@ import path from 'node:path';
 const prisma = new PrismaClient();
 const require = createRequire(import.meta.url);
 const { normalizePaymentMethod } = require('../src/utils/payment-method.js');
+const {
+  normalizeCustomerName,
+  normalizeCustomerPhone,
+} = require('../src/utils/customer-normalization.js');
 const RAW_DIR = process.env.FABKLEAN_RAW_DIR || path.resolve(process.cwd(), '../fabklean/raw');
 const DRY_RUN = process.env.DRY_RUN !== '0';
 const LIMIT = Number(process.env.LIMIT || 0);
@@ -168,8 +172,9 @@ for (const raw of rawOrders) {
 
   const rawCustomer = customerMap.get(String(raw.consumerInfo?.id)) || {};
   const userInfo = rawCustomer.userInfo || raw.consumerInfo || {};
-  const customerPhone = phone(rawCustomer.phoneNumber || userInfo.phoneNumber || raw.consumerInfo?.phoneNumber, raw.consumerInfo?.id || raw.id);
-  const customerName = text(rawCustomer.name || userInfo.name || raw.consumerInfo?.name) || customerPhone;
+  const customerPhone = normalizeCustomerPhone(rawCustomer.phoneNumber || userInfo.phoneNumber || raw.consumerInfo?.phoneNumber)
+    || phone(rawCustomer.phoneNumber || userInfo.phoneNumber || raw.consumerInfo?.phoneNumber, raw.consumerInfo?.id || raw.id);
+  const customerName = normalizeCustomerName(rawCustomer.name || userInfo.name || raw.consumerInfo?.name);
   const createdAt = parseDate(userInfo.createdTime || raw.createdTime || raw.orderDate) || new Date();
 
   const customerExisting = await prisma.customer.findUnique({ where: { phone: customerPhone }, select: { id: true } });

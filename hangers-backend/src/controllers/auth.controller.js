@@ -15,6 +15,7 @@ const { REFERRAL_STATUS }                          = require('../services/referr
 const { sendOtpSchema, verifyOtpSchema }           = require('../validation/auth.schemas');
 const { AUTH_CHALLENGE_PURPOSE, createAuthChallenge, verifyAuthChallenge } = require('../services/authChallenge.service');
 const { maskPhone }                                = require('../utils/redact');
+const { normalizeCustomerName }                    = require('../utils/customer-normalization');
 const OTP_SEND_MAX_FAILURES = 5;
 const OTP_SEND_WINDOW_MS = 10 * 60 * 1000;
 const OTP_VERIFY_MAX_FAILURES = 10;
@@ -295,7 +296,7 @@ const verifyOtpController = async (req, res) => {
       customer = await prisma.customer.create({
         data: {
           phone:        normalizedPhone,
-          name:         name || null,
+          name:         normalizeCustomerName(name),
           referralCode: referralCode || null,
           referredById: referrerId,
         },
@@ -324,7 +325,7 @@ const verifyOtpController = async (req, res) => {
     } else if (name && !customer.name) {
       customer = await prisma.customer.update({
         where: { id: customer.id },
-        data:  { name },
+        data:  { name: normalizeCustomerName(name) },
       });
     }
 
@@ -443,9 +444,10 @@ const updateProfileController = async (req, res) => {
   const { name, preferredLanguage } = req.body;
   const customerId = req.customer.id;
   const language = preferredLanguage !== undefined ? normalizeLanguage(preferredLanguage) : undefined;
+  const normalizedName = name ? normalizeCustomerName(name) : null;
 
   if (!name && preferredLanguage === undefined) return badRequest(res, 'Provide name or preferredLanguage to update');
-  if (name && name.trim().length < 2) return badRequest(res, 'Name must be at least 2 characters');
+  if (name && (!normalizedName || normalizedName.length < 2)) return badRequest(res, 'Name must be at least 2 characters');
   if (preferredLanguage !== undefined && !language) {
     return badRequest(res, 'preferredLanguage must be ENGLISH, HINDI, or MARATHI');
   }
@@ -454,7 +456,7 @@ const updateProfileController = async (req, res) => {
     const updated = await prisma.customer.update({
       where: { id: customerId },
       data: {
-        ...(name  && { name:  name.trim() }),
+        ...(name && { name: normalizedName }),
         ...(language !== undefined && { preferredLanguage: language }),
       },
       select: { id: true, phone: true, name: true, preferredLanguage: true, updatedAt: true },

@@ -13,7 +13,7 @@ const express = require('express');
 const router  = express.Router();
 const {
   listOrders, getOrderStats, getOrder,
-  createOrder, updateOrder, updateOrderStatus, addItemsToOrder, deleteOrder, recordPayment, refundPayment, createReturnOrder,
+  createOrder, updateOrder, updateOrderStatus, retryWhatsAppNotification, addItemsToOrder, deleteOrder, recordPayment, refundPayment, reversePaymentCorrection, createReturnOrder,
 } = require('../controllers/orders.controller');
 const { staffAuth } = require('../middleware/auth');
 const { requirePermission, requireRole, requireServiceAccess } = require('../middleware/rbac');
@@ -33,8 +33,10 @@ router.get('/:id',           staffAuth, crmAccess, requirePermission('orders.vie
 router.post('/',             staffAuth, crmAccess, requirePermission('orders.create'), idempotent({ scope: 'orders.create' }), createOrder);
 router.patch('/:id',         staffAuth, crmAccess, requirePermission('orders.edit'), idempotent({ scope: 'orders.edit' }), updateOrder);
 router.patch('/:id/status',  staffAuth, crmAccess, requirePermission('orders.update_status'), idempotent({ scope: 'orders.status' }), updateOrderStatus);
+router.post('/:id/notifications/:stageId/retry', staffAuth, crmAccess, requirePermission('orders.update_status'), idempotent({ scope: 'orders.notification-retry' }), retryWhatsAppNotification);
 router.post('/:id/payments', staffAuth, crmAccess, requirePermission('finance.collect_payment'), idempotent({ scope: 'orders.payment' }), recordPayment);
 router.post('/:id/refunds',  staffAuth, crmAccess, requirePermission('finance.refund'), idempotent({ scope: 'orders.refund' }), refundPayment);
+router.post('/:id/payments/:paymentId/reversal', staffAuth, crmAccess, requirePermission('finance.refund'), idempotent({ scope: 'orders.payment-reversal' }), reversePaymentCorrection);
 router.patch('/:id/items',   staffAuth, crmAccess, requirePermission('orders.edit'), idempotent({ scope: 'orders.itemize' }), addItemsToOrder);
 router.delete('/:id',        staffAuth, crmAccess, requirePermission('orders.delete'), idempotent({ scope: 'orders.archive' }), deleteOrder);
 router.post('/return',       staffAuth, crmAccess, requirePermission('orders.create'), idempotent({ scope: 'orders.return-case' }), createReturnOrder);

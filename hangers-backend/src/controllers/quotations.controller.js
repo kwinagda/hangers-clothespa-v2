@@ -10,6 +10,7 @@ const { ensureOrderInvoice } = require('../services/billing.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
 const { syncOrderGarmentUnits } = require('../services/garment-unit.service');
 const { CommercialRuleError, resolveOrderPricing } = require('../services/pricing.service');
+const { sendQuotationSentMessage } = require('../services/whatomate.service');
 
 const VALID_QUOTATION_STATUSES = new Set(['DRAFT', 'SENT', 'APPROVED', 'REJECTED', 'EXPIRED', 'CONVERTED']);
 const QUOTATION_TRANSITIONS = Object.freeze({
@@ -62,7 +63,7 @@ const buildQuotationPayload = async (tx, body, customerId, staff) => {
 };
 
 const includeQuotation = {
-  customer: { select: { id: true, name: true, phone: true } },
+  customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } },
   items: true,
   assignedTo: { select: { id: true, name: true, role: true } },
 };
@@ -95,6 +96,36 @@ const buildPublicQuotationUrl = (req, slug) => {
   const requestBase = req.get?.('origin');
   const base = String(configuredBase || requestBase || '').replace(/\/+$/, '');
   return base ? `${base}/quotation/${slug}` : `/quotation/${slug}`;
+};
+
+const logQuotationWhatsAppStage = async ({ quotation, outcome, error: sendError, staff }) => {
+  if (!quotation?.id) return;
+  const failed = outcome === 'FAILED';
+  const skipped = outcome === 'SKIPPED';
+  await prisma.orderStage.create({
+    data: {
+      orderId: quotation.id,
+      stage: failed ? 'WHATSAPP_FAILED' : skipped ? 'WHATSAPP_SKIPPED' : 'WHATSAPP_SENT',
+      eventType: 'NOTIFICATION',
+      reasonCode: `WHATSAPP_${outcome}`,
+      notes: failed
+        ? `WhatsApp failed: Quotation sent - ${String(sendError || 'Provider did not accept message').slice(0, 180)}`
+        : skipped
+          ? `WhatsApp skipped: Quotation sent${sendError ? ` - ${String(sendError).slice(0, 180)}` : ''}`
+          : 'WhatsApp sent: Quotation sent',
+      metadata: {
+        channel: 'WHATSAPP',
+        provider: 'WHATOMATE',
+        documentType: 'QUOTATION',
+        status: 'SENT',
+        outcome,
+        orderNumber: quotation.orderNumber || null,
+        customerId: quotation.customer?.id || quotation.customerId || null,
+        error: sendError ? String(sendError).slice(0, 500) : null,
+      },
+      changedById: staff?.id || null,
+    },
+  });
 };
 
 const listQuotations = async (req, res) => {
@@ -333,6 +364,7 @@ const updateQuotationStatus = async (req, res) => {
   if (nextStatus === 'REJECTED' && (!reason || reason.length < 3)) return badRequest(res, 'A rejection reason is required');
 
   try {
+    let shouldNotifyQuotationSent = false;
     const updated = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${req.params.id} FOR UPDATE`;
       const quotation = await tx.order.findFirst({
@@ -376,8 +408,36 @@ const updateQuotationStatus = async (req, res) => {
         metadata: { fromStatus: currentStatus, toStatus: nextStatus, reason, version: quotation.version + 1 },
         ...getRequestMeta(req),
       });
+      shouldNotifyQuotationSent = currentStatus !== 'SENT' && nextStatus === 'SENT';
       return nextQuotation;
     }, { isolationLevel: 'Serializable' });
+
+    if (shouldNotifyQuotationSent) {
+      if (updated.customer?.notifWhatsApp === false) {
+        await logQuotationWhatsAppStage({
+          quotation: updated,
+          outcome: 'SKIPPED',
+          error: 'customer WhatsApp notifications disabled',
+          staff: req.staff,
+        }).catch((stageErr) => console.error('quotation WhatsApp skipped log error:', stageErr));
+      } else {
+        try {
+          await sendQuotationSentMessage(updated, {
+            throwOnFailure: true,
+            idempotencyKey: `quotation-sent:${updated.id}:v${updated.version || 'latest'}`,
+          });
+          await logQuotationWhatsAppStage({ quotation: updated, outcome: 'SENT', staff: req.staff });
+        } catch (sendErr) {
+          console.error('quotation WhatsApp send error:', sendErr);
+          await logQuotationWhatsAppStage({
+            quotation: updated,
+            outcome: 'FAILED',
+            error: sendErr?.message || 'Failed to send quotation WhatsApp message',
+            staff: req.staff,
+          }).catch((stageErr) => console.error('quotation WhatsApp failure log error:', stageErr));
+        }
+      }
+    }
 
     return success(res, { quotation: updated }, `Quotation marked as ${nextStatus}`);
   } catch (err) {

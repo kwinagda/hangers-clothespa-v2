@@ -31,6 +31,8 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://hangers:hangers@localhost:5432/hangers_test
+      SHADOW_DATABASE_URL: postgresql://hangers:hangers@localhost:5432/hangers_shadow
+      ADMIN_DATABASE_URL: postgresql://hangers:hangers@localhost:5432/postgres
       NODE_ENV: test
       JWT_SECRET: ci-test-secret-not-for-production
 
@@ -46,14 +48,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create migration shadow database
+        run: |
+          psql "$ADMIN_DATABASE_URL" -tc "SELECT 1 FROM pg_database WHERE datname = 'hangers_shadow'" | grep -q 1 || \
+            psql "$ADMIN_DATABASE_URL" -c "CREATE DATABASE hangers_shadow"
+
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Push schema to test DB
-        run: npx prisma db push --force-reset
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
+      - name: Check migrations match Prisma schema
+        run: npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url "$SHADOW_DATABASE_URL" --exit-code
+
+      - name: Rehearse migrations from an empty database
+        run: npm run db:verify:fresh
+
+      - name: Deploy migrations to test DB
+        run: npx prisma migrate deploy
 
       - name: Run tests
         run: npm test
+        env:
+          RUN_DB_INTEGRATION: "1"
 
   crm:
     name: CRM — type-check, build

@@ -1,4 +1,4 @@
-import { LOGO_BLUE_URL } from '@/lib/branding'
+import { LOGO_BLUE_URL, LOGO_WHITE_URL } from '@/lib/branding'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,18 +59,45 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           max-width: 860px;
           margin: 0 auto;
           background: #fff;
-          border: 1px solid #dbe8f2;
+          border: 1px solid #d7e4ee;
           border-radius: 16px;
           overflow: hidden;
           box-shadow: 0 18px 45px rgba(2,60,98,0.08);
         }
         .public-invoice-header {
           padding: 24px 26px;
-          border-bottom: 1px solid #edf3f8;
+          background: linear-gradient(135deg, #022d4d 0%, #023c62 58%, #2a6b97 100%);
+          color: #fff;
           display: flex;
           justify-content: space-between;
           gap: 18px;
           flex-wrap: wrap;
+        }
+        .public-invoice-logo {
+          height: 42px;
+          object-fit: contain;
+          margin-bottom: 12px;
+        }
+        .public-invoice-kicker {
+          color: #dcecf9;
+          font-size: 13px;
+        }
+        .public-invoice-summary-card {
+          min-width: 220px;
+          padding: 14px 16px;
+          border: 1px solid rgba(255,255,255,0.16);
+          border-radius: 14px;
+          background: rgba(255,255,255,0.12);
+        }
+        .public-invoice-status-pill {
+          margin-top: 8px;
+          display: inline-block;
+          padding: 5px 10px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.14);
+          color: #fff;
+          font-size: 12px;
+          font-weight: 800;
         }
         .public-invoice-meta {
           padding: 26px;
@@ -79,12 +106,68 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           gap: 18px;
           border-bottom: 1px solid #edf3f8;
         }
-        .public-invoice-table-wrap { overflow-x: auto; }
+        .public-invoice-meta-card {
+          border: 1px solid #dce8f0;
+          border-radius: 14px;
+          padding: 14px 16px;
+          background: #fff;
+        }
+        .public-invoice-meta-label {
+          color: #7d91a7;
+          font-size: 11px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .public-invoice-meta-value {
+          margin-top: 6px;
+          color: #182538;
+          font-weight: 800;
+          overflow-wrap: anywhere;
+        }
+        .public-invoice-table-wrap {
+          overflow-x: auto;
+          padding: 0 26px 24px;
+        }
+        .public-invoice-section-title {
+          padding: 24px 26px 12px;
+          color: #023c62;
+          font-size: 13px;
+          font-weight: 900;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
         .public-invoice-mobile-items { display: none; }
         .public-invoice-footer {
           padding: 26px;
           display: flex;
           justify-content: flex-end;
+          border-top: 1px solid #edf3f8;
+          background: #fbfdff;
+        }
+        .public-invoice-total-card {
+          width: 100%;
+          max-width: 360px;
+          border: 1px solid #dce8f0;
+          border-radius: 14px;
+          overflow: hidden;
+          background: #fff;
+        }
+        .public-invoice-total-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 11px 14px;
+          border-bottom: 1px solid #edf3f8;
+          font-weight: 700;
+          color: #53657d;
+        }
+        .public-invoice-total-row:last-child {
+          border-bottom: 0;
+        }
+        .public-invoice-total-row.strong {
+          background: #023c62;
+          color: #fff;
+          font-weight: 900;
         }
         @media (max-width: 640px) {
           main.public-invoice-page {
@@ -167,40 +250,41 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
       <section className="public-invoice-shell">
         <header className="public-invoice-header">
           <div>
-            <img src={LOGO_BLUE_URL} alt="Hangers Clothes Spa" style={{ height: 42, objectFit: 'contain', marginBottom: 12 }} />
-            <div style={{ color: '#6b7fa3', fontSize: 13 }}>Premium garment care</div>
+            <img className="public-invoice-logo" src={LOGO_WHITE_URL} alt="Hangers Clothes Spa" />
+            <div className="public-invoice-kicker">Premium garment care</div>
           </div>
-          <div className="public-invoice-header-summary" style={{ textAlign: 'right' }}>
-            <h1 style={{ margin: '0 0 6px', color: '#023c62', fontSize: 28 }}>Invoice</h1>
-            <div style={{ fontFamily: 'var(--crm-font-mono)', color: '#023c62', fontWeight: 700 }}>{invoice.orderNumber}</div>
-            <div style={{ marginTop: 8, display: 'inline-block', padding: '5px 10px', borderRadius: 999, background: '#eef6fb', color: '#023c62', fontSize: 12, fontWeight: 700 }}>{invoice.paymentStatus}</div>
+          <div className="public-invoice-header-summary public-invoice-summary-card" style={{ textAlign: 'right' }}>
+            <h1 style={{ margin: '0 0 6px', color: '#fff', fontSize: 28 }}>Invoice</h1>
+            <div style={{ fontFamily: 'var(--crm-font-mono)', color: '#e8f5ff', fontWeight: 800 }}>{invoice.orderNumber}</div>
+            <div className="public-invoice-status-pill">{invoice.paymentStatus}</div>
           </div>
         </header>
 
         <div className="public-invoice-meta">
-          <div>
-            <div style={{ color: '#6b7fa3', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Customer</div>
-            <div style={{ marginTop: 6, fontWeight: 700 }}>{invoice.customer?.name || 'Customer'}</div>
-            <div style={{ color: '#6b7fa3', fontSize: 13 }}>{invoice.customer?.phone ? `+91 ${String(invoice.customer.phone).replace(/^91/, '')}` : '—'}</div>
+          <div className="public-invoice-meta-card">
+            <div className="public-invoice-meta-label">Customer</div>
+            <div className="public-invoice-meta-value">{invoice.customer?.name || 'Customer'}</div>
+            <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{invoice.customer?.phone ? `+91 ${String(invoice.customer.phone).replace(/^91/, '')}` : '—'}</div>
           </div>
-          <div>
-            <div style={{ color: '#6b7fa3', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Order Date</div>
-            <div style={{ marginTop: 6, fontWeight: 700 }}>{dateLabel(invoice.createdAt)}</div>
+          <div className="public-invoice-meta-card">
+            <div className="public-invoice-meta-label">Order Date</div>
+            <div className="public-invoice-meta-value">{dateLabel(invoice.createdAt)}</div>
           </div>
-          <div>
-            <div style={{ color: '#6b7fa3', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Expected Delivery</div>
-            <div style={{ marginTop: 6, fontWeight: 700 }}>{dateLabel(invoice.deliveryDate)}</div>
+          <div className="public-invoice-meta-card">
+            <div className="public-invoice-meta-label">Expected Delivery</div>
+            <div className="public-invoice-meta-value">{dateLabel(invoice.deliveryDate)}</div>
           </div>
-          <div>
-            <div style={{ color: '#6b7fa3', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Status</div>
-            <div style={{ marginTop: 6, fontWeight: 700 }}>{invoice.status}</div>
+          <div className="public-invoice-meta-card">
+            <div className="public-invoice-meta-label">Status</div>
+            <div className="public-invoice-meta-value">{invoice.status}</div>
           </div>
         </div>
 
+        <div className="public-invoice-section-title">Garments / Service</div>
         <div className="public-invoice-table-wrap">
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
+          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 620, border: '1px solid #dce8f0', borderRadius: 14, overflow: 'hidden' }}>
             <thead>
-              <tr style={{ background: '#f7fafc', color: '#6b7fa3', textAlign: 'left', fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase' }}>
+              <tr style={{ background: '#f4f8fb', color: '#476581', textAlign: 'left', fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase' }}>
                 <th style={{ padding: '13px 18px' }}>Item</th>
                 <th style={{ padding: '13px 18px' }}>Service</th>
                 <th style={{ padding: '13px 18px', textAlign: 'right' }}>Qty</th>
@@ -246,16 +330,16 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
         </div>
 
         <footer className="public-invoice-footer">
-          <div style={{ width: '100%', maxWidth: 360 }}>
+          <div className="public-invoice-total-card">
             {rows.map(([label, value]) => (
-              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid #edf3f8', fontWeight: label === 'Total' || label === 'Balance Due' ? 800 : 600, color: label === 'Balance Due' ? '#023c62' : '#1a2332' }}>
+              <div key={label} className={`public-invoice-total-row ${label === 'Total' || label === 'Balance Due' ? 'strong' : ''}`}>
                 <span>{label}</span>
                 <span>{value}</span>
               </div>
             ))}
-            <p style={{ margin: '18px 0 0', color: '#6b7fa3', fontSize: 12, lineHeight: 1.6 }}>Thank you for choosing Hangers Clothes Spa.</p>
           </div>
         </footer>
+        <p style={{ margin: 0, padding: '0 26px 24px', color: '#6b7fa3', fontSize: 12, lineHeight: 1.6 }}>Thank you for choosing Hangers Clothes Spa.</p>
       </section>
     </main>
   )

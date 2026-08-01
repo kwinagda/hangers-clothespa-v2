@@ -1,4 +1,5 @@
 const { nextDocumentNumber } = require('./document-number.service');
+const { getFieldServiceWorkflow } = require('./masterData.service');
 const { roundMoney } = require('../utils/line-pricing');
 
 const CAPTURED_PAYMENT_STATUSES = ['CAPTURED', 'SUCCESS', 'PAID'];
@@ -67,6 +68,26 @@ const ironLineData = (log) => ({
   },
 });
 
+const fieldServiceLineData = (appointmentLine, appointment) => ({
+  lineType: 'FIELD_SERVICE',
+  description: appointmentLine.description,
+  quantity: Number(appointmentLine.quantity || 0),
+  unitPrice: Number(appointmentLine.unitPrice || 0),
+  discountAmount: Number(appointmentLine.discountAmount || 0),
+  taxAmount: 0,
+  lineTotal: Number(appointmentLine.lineTotal || 0),
+  metadata: {
+    serviceAppointmentId: appointment.id,
+    serviceAppointmentLineId: appointmentLine.id,
+    serviceId: appointmentLine.serviceId || null,
+    lineDiscountType: appointmentLine.lineDiscountType || null,
+    lineDiscountValue: Number(appointmentLine.lineDiscountValue || 0),
+    scheduledAt: appointment.scheduledAt ? new Date(appointment.scheduledAt).toISOString() : null,
+    completedAt: appointment.completedAt ? new Date(appointment.completedAt).toISOString() : null,
+    lineMetadata: appointmentLine.metadata || null,
+  },
+});
+
 const revisionSnapshot = (invoice) => ({
   invoiceNumber: invoice.invoiceNumber,
   sourceType: invoice.sourceType,
@@ -129,12 +150,17 @@ const getInvoiceSettlement = async (tx, invoice) => {
       where: { invoiceId: invoice.id, status: 'POSTED' },
       _sum: { amount: true },
     }),
-    invoice.orderId
-      ? tx.financialAdjustment.aggregate({
-          where: { orderId: invoice.orderId, kind: 'WRITE_OFF', status: 'POSTED' },
-          _sum: { amount: true },
-        })
-      : Promise.resolve({ _sum: { amount: 0 } }),
+    tx.financialAdjustment.aggregate({
+      where: {
+        kind: 'WRITE_OFF',
+        status: 'POSTED',
+        OR: [
+          { invoiceId: invoice.id },
+          ...(invoice.orderId ? [{ orderId: invoice.orderId }] : []),
+        ],
+      },
+      _sum: { amount: true },
+    }),
   ]);
   return {
     paidAmount: roundMoney(Math.max(0, Number(allocated._sum.amount || 0) - Number(refunded._sum.amount || 0))),
@@ -177,6 +203,16 @@ const syncInvoiceBalance = async (tx, invoiceId) => {
         paidAmount: settlement.paidAmount,
         paidAt: status === 'PAID' ? new Date() : null,
         status: status === 'OPEN' ? 'SENT' : status,
+      },
+    });
+  }
+
+  if (invoice.serviceAppointmentId) {
+    const workflow = await getFieldServiceWorkflow();
+    await tx.serviceAppointment.update({
+      where: { id: invoice.serviceAppointmentId },
+      data: {
+        status: status === 'PAID' ? 'PAID' : (workflow.payableStatuses || ['INVOICED'])[0],
       },
     });
   }
@@ -335,11 +371,61 @@ const refreshIronBillInvoice = async (tx, billId, actorId, reason = 'DAILY_IRON_
   return syncInvoiceBalance(tx, bill.invoice.id);
 };
 
+const createServiceAppointmentInvoice = async (tx, appointment, actorId) => {
+  const workflow = await getFieldServiceWorkflow();
+  if (!(workflow.invoiceableStatuses || []).includes(appointment.status)) {
+    throw new BillingRuleError('SERVICE_NOT_COMPLETE', 'Complete the service before creating an invoice');
+  }
+  if (!Array.isArray(appointment.lines) || !appointment.lines.length) {
+    throw new BillingRuleError('FIELD_SERVICE_LINES_REQUIRED', 'Field service invoice requires saved appointment line items');
+  }
+  const issueDate = appointment.completedAt || new Date();
+  const paymentTermsDays = DEFAULT_PAYMENT_TERMS_DAYS;
+  const invoice = await tx.invoice.create({
+    data: {
+      invoiceNumber: await invoiceNumber(tx),
+      customerId: appointment.customerId,
+      serviceAppointmentId: appointment.id,
+      sourceType: 'FIELD_SERVICE',
+      status: 'OPEN',
+      issueDate,
+      dueDate: addDays(issueDate, paymentTermsDays),
+      subtotal: Number(appointment.subtotal || appointment.totalAmount || 0),
+      discountAmount: Number(appointment.discountAmount || 0),
+      taxAmount: 0,
+      totalAmount: Number(appointment.totalAmount || 0),
+      paidAmount: 0,
+      balanceDue: Number(appointment.totalAmount || 0),
+      paymentTermsDays,
+      postedAt: new Date(),
+      createdById: actorId || null,
+      postedById: actorId || null,
+      lines: { create: appointment.lines.map((line) => fieldServiceLineData(line, appointment)) },
+    },
+  });
+  await tx.serviceAppointment.update({
+    where: { id: appointment.id },
+    data: { status: (workflow.payableStatuses || ['INVOICED'])[0] },
+  });
+  return syncInvoiceBalance(tx, invoice.id);
+};
+
+const ensureServiceAppointmentInvoice = async (tx, appointmentId, actorId = null) => {
+  const appointment = await tx.serviceAppointment.findUnique({
+    where: { id: appointmentId },
+    include: { lines: true, invoice: { include: { lines: true } } },
+  });
+  if (!appointment) throw new BillingRuleError('SERVICE_APPOINTMENT_NOT_FOUND', 'Service appointment not found', 404);
+  if (appointment.invoice) return appointment.invoice;
+  return createServiceAppointmentInvoice(tx, appointment, actorId);
+};
+
 module.exports = {
   BillingRuleError,
   CAPTURED_PAYMENT_STATUSES,
   ensureIronBillInvoice,
   ensureOrderInvoice,
+  ensureServiceAppointmentInvoice,
   refreshIronBillInvoice,
   refreshOrderInvoice,
   syncInvoiceBalance,

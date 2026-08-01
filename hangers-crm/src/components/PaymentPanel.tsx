@@ -22,6 +22,8 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   const [loading, setLoading]         = useState(false)
   const [writeOff, setWriteOff]       = useState(false)
   const [writeOffReason, setWriteOffReason] = useState('')
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10))
+  const [writeOffOnlyReason, setWriteOffOnlyReason] = useState('')
   const [writeOffMax, setWriteOffMax] = useState(50)
   const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, { label: string; color: string; bg: string }>>({})
   const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([{ value: 'CASH', label: 'Cash' }])
@@ -31,6 +33,9 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   const [refundMethod, setRefundMethod] = useState('CASH')
   const [refundReasonCode, setRefundReasonCode] = useState('CUSTOMER_REFUND')
   const [refundReason, setRefundReason] = useState('')
+  const [showCorrection, setShowCorrection] = useState(false)
+  const [correctionPaymentId, setCorrectionPaymentId] = useState('')
+  const [correctionReason, setCorrectionReason] = useState('')
 
   const balance = Math.max(0, totalAmount - paidAmount - (writeOffAlreadyDone || 0))
 
@@ -43,6 +48,8 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
     .filter((payment) => payment.kind === 'REFUND' && payment.reversalOfId === paymentId && ['CAPTURED', 'SUCCESS', 'PAID'].includes(payment.status))
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
   const refundableReceipts = capturedReceipts.filter((payment) => Number(payment.amount || 0) - refundedFor(payment.id) > 0.005)
+  const reversibleReceipts = capturedReceipts.filter((payment) => refundedFor(payment.id) <= 0.005)
+  const selectedCorrectionPayment = reversibleReceipts.find((payment) => payment.id === correctionPaymentId)
 
   useEffect(() => {
     // Load write-off max from settings
@@ -85,9 +92,9 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
       await (api as any).post(`/orders/${orderId}/payments`, {
         amount: paid,
         method,
-        writeOffAmount,
-        writeOffReason: writeOff ? writeOffReason.trim() : undefined,
-        customerId,
+        effectiveAt: `${paymentDate}T12:00:00.000Z`,
+        ...(writeOffAmount > 0 ? { writeOffAmount } : {}),
+        ...(writeOff && writeOffReason.trim() ? { writeOffReason: writeOffReason.trim() } : {}),
       }, idempotencyConfig('crm-order-payment'))
       if (writeOff && writeOffAmount > 0) {
         toast.success(`Payment recorded. ₹${writeOffAmount} written off.`)
@@ -100,6 +107,27 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
       onPaymentRecorded()
     } catch (e: any) {
       toast.error(e.message || 'Failed to record payment')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleWriteOffOnly = async () => {
+    if (!(balance > 0)) { toast.error('No balance to write off'); return }
+    if (writeOffOnlyReason.trim().length < 3) { toast.error('Enter a write-off reason'); return }
+    setLoading(true)
+    try {
+      await (api as any).post(`/orders/${orderId}/payments`, {
+        amount: 0,
+        writeOffAmount: balance,
+        writeOffReason: writeOffOnlyReason.trim(),
+        effectiveAt: `${paymentDate}T12:00:00.000Z`,
+      }, idempotencyConfig('crm-order-writeoff'))
+      toast.success(`₹${balance.toFixed(2)} written off`)
+      setWriteOffOnlyReason('')
+      onPaymentRecorded()
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to write off balance')
     } finally {
       setLoading(false)
     }
@@ -128,6 +156,24 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
       onPaymentRecorded()
     } catch (e: any) {
       toast.error(e.message || 'Failed to post refund')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCorrection = async () => {
+    const source = reversibleReceipts.find((payment) => payment.id === correctionPaymentId)
+    if (!source) { toast.error('Choose the mistaken payment entry'); return }
+    if (correctionReason.trim().length < 3) { toast.error('Enter a correction reason'); return }
+    setLoading(true)
+    try {
+      await paymentsAPI.reverse(orderId, source.id, { reason: correctionReason.trim() })
+      toast.success('Mistaken payment entry voided. Order balance restored.')
+      setCorrectionReason('')
+      setShowCorrection(false)
+      onPaymentRecorded()
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to reverse payment entry')
     } finally {
       setLoading(false)
     }
@@ -171,6 +217,43 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
         </span>
       </div>
 
+      {payments.length > 0 && (
+        <div style={{ borderTop:'1px solid #e8f0f7', paddingTop:16, marginBottom:16 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#023c62', marginBottom:10 }}>Payment History</div>
+          <div style={{ display:'grid', gap:8 }}>
+            {payments.map((payment) => {
+              const isReceipt = payment.kind !== 'REFUND'
+              const isCaptured = isReceipt && ['CAPTURED', 'SUCCESS', 'PAID'].includes(payment.status)
+              const isVoided = ['VOIDED', 'REVERSED'].includes(payment.status)
+              const refunded = refundedFor(payment.id)
+              const canVoidEntry = canRefund && isCaptured && refunded <= 0.005
+              return (
+                <div key={payment.id} style={{ border:'1px solid #e8f0f7', borderRadius:10, padding:'10px 12px', background:isVoided ? '#f8fafc' : '#fff' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', gap:10, alignItems:'flex-start' }}>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:800, color:isVoided ? '#64748b' : '#142033' }}>
+                        ₹{Number(payment.amount || 0).toFixed(2)} · {payment.method}
+                      </div>
+                      <div style={{ fontSize:11, color:'#6b7fa3', marginTop:3 }}>
+                        {payment.kind || 'RECEIPT'} · {payment.status} · {new Date(payment.createdAt).toLocaleString('en-IN')}
+                      </div>
+                      {payment.reversalReason && <div style={{ fontSize:11, color:'#9a3412', marginTop:3 }}>Correction: {payment.reversalReason}</div>}
+                      {refunded > 0 && <div style={{ fontSize:11, color:'#991b1b', marginTop:3 }}>₹{refunded.toFixed(2)} already refunded/credited</div>}
+                    </div>
+                    {canVoidEntry && (
+                      <button onClick={() => { setCorrectionPaymentId(payment.id); setShowCorrection(true); setShowRefund(false) }}
+                        style={{ flexShrink:0, padding:'6px 9px', border:'1px solid #fed7aa', background:'#fff7ed', color:'#9a3412', borderRadius:8, fontSize:11, fontWeight:800, cursor:'pointer' }}>
+                        Void mistaken entry
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Record payment form */}
       {balance > 0 && (
         <div style={{ borderTop:'1px solid #e8f0f7', paddingTop:16 }}>
@@ -191,6 +274,8 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
               {paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </div>
+          <input type="date" value={paymentDate} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setPaymentDate(event.target.value)}
+            style={{ width:'100%', boxSizing:'border-box', marginBottom:8, padding:'8px 10px', border:'1.5px solid #dce8f0', borderRadius:8, fontSize:12, outline:'none' }} />
 
           {/* Balance display */}
           {amount && (
@@ -232,6 +317,15 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
           >
             {loading ? 'Recording...' : writeOff ? <><Wallet size={15} /> {`Pay ₹${paid} + Write Off ₹${remaining.toFixed(0)}`}</> : <><CreditCard size={15} /> Record Payment</>}
           </button>
+          <div style={{ marginTop:12, paddingTop:12, borderTop:'1px dashed #dce8f0' }}>
+            <div style={{ fontSize:12, fontWeight:700, color:'#9a3412', marginBottom:6 }}>Write off remaining balance only</div>
+            <input value={writeOffOnlyReason} onChange={(event) => setWriteOffOnlyReason(event.target.value)} maxLength={500} placeholder={`Reason to write off ₹${balance.toFixed(2)}`}
+              style={{ width:'100%', boxSizing:'border-box', marginBottom:8, padding:'8px 10px', border:'1.5px solid #fed7aa', borderRadius:8, fontSize:12, outline:'none' }} />
+            <button onClick={handleWriteOffOnly} disabled={loading}
+              style={{ width:'100%', padding:'9px 10px', background:'#fff7ed', color:'#9a3412', border:'1px solid #fed7aa', borderRadius:8, fontWeight:800, fontSize:12, cursor:'pointer', opacity:loading ? 0.65 : 1 }}>
+              Write Off ₹{balance.toFixed(2)}
+            </button>
+          </div>
         </div>
       )}
 
@@ -262,6 +356,29 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
             </select>
             <input value={refundReason} onChange={(event) => setRefundReason(event.target.value)} maxLength={500} placeholder="Required refund reason" style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, fontSize:12 }} />
             <button onClick={handleRefund} disabled={loading} style={{ padding:'9px 12px', border:'none', background:'#991b1b', color:'#fff', borderRadius:8, fontWeight:700, fontSize:12, cursor:'pointer', opacity:loading ? 0.65 : 1 }}>{loading ? 'Posting...' : 'Post Refund and Credit Note'}</button>
+          </div>}
+        </div>
+      )}
+
+      {canRefund && reversibleReceipts.length > 0 && (
+        <div style={{ borderTop:'1px solid #e8f0f7', marginTop:16, paddingTop:16 }}>
+          <button onClick={() => { setShowCorrection((value) => !value); if (!correctionPaymentId) setCorrectionPaymentId(reversibleReceipts[0]?.id || '') }} style={{ width:'100%', padding:'9px 12px', border:'1px solid #fed7aa', background:'#fff7ed', color:'#9a3412', borderRadius:8, fontWeight:700, fontSize:12, cursor:'pointer', display:'flex', justifyContent:'center', alignItems:'center', gap:7 }}>
+            <RotateCcw size={14} /> {showCorrection ? 'Close Correction Form' : 'Void Mistaken Payment Entry'}
+          </button>
+          {showCorrection && <div style={{ marginTop:10, display:'grid', gap:8 }}>
+            <div style={{ fontSize:11, color:'#9a3412', lineHeight:1.45, background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:8, padding:'8px 10px' }}>
+              Use this only when payment was marked by mistake. No money is returned to the customer; the receipt is voided and the order balance is restored.
+            </div>
+            <select value={correctionPaymentId} onChange={(event) => setCorrectionPaymentId(event.target.value)} style={{ padding:'8px 10px', border:'1.5px solid #fed7aa', borderRadius:8, background:'#fff', fontSize:12 }}>
+              {reversibleReceipts.map((payment) => <option key={payment.id} value={payment.id}>₹{Number(payment.amount || 0).toFixed(2)} · {payment.method} · {new Date(payment.createdAt).toLocaleDateString('en-IN')}</option>)}
+            </select>
+            {selectedCorrectionPayment && (
+              <div style={{ fontSize:11, color:'#6b7fa3', background:'#f8fafc', border:'1px solid #e8f0f7', borderRadius:8, padding:'8px 10px' }}>
+                Selected entry: ₹{Number(selectedCorrectionPayment.amount || 0).toFixed(2)} {selectedCorrectionPayment.method} recorded on {new Date(selectedCorrectionPayment.createdAt).toLocaleString('en-IN')}.
+              </div>
+            )}
+            <input value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} maxLength={500} placeholder="Required correction reason, e.g. Cash selected by mistake" style={{ padding:'8px 10px', border:'1.5px solid #fed7aa', borderRadius:8, fontSize:12 }} />
+            <button onClick={handleCorrection} disabled={loading} style={{ padding:'9px 12px', border:'none', background:'#9a3412', color:'#fff', borderRadius:8, fontWeight:700, fontSize:12, cursor:'pointer', opacity:loading ? 0.65 : 1 }}>{loading ? 'Voiding...' : 'Void Payment Entry'}</button>
           </div>}
         </div>
       )}

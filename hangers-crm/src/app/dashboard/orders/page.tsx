@@ -23,6 +23,7 @@ const getStatusLabel = (status: string, source: string, labels: Record<string, s
 }
 const EMPTY_WORKFLOW = {
   next: {} as Record<string, string>,
+  allowedForward: {} as Record<string, string[]>,
   allowedBackward: {} as Record<string, string[]>,
   crmEditableStatuses: [] as string[],
   plantLockedStatuses: [] as string[],
@@ -31,6 +32,27 @@ const EMPTY_WORKFLOW = {
   directReadyTarget: '',
   cancellableStatuses: [] as string[],
   deliveredCorrectionTargets: [] as string[],
+}
+const openPrintWindow = (href: string) => {
+  const url = new URL(href, window.location.origin)
+  url.searchParams.set('autoprint', '1')
+  url.searchParams.delete('frame')
+  const win = window.open(url.toString(), `hangers-print-${Date.now()}`, 'width=980,height=760,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes')
+  if (!win) {
+    toast.error('Pop-up blocked. Allow pop-ups for CRM printing.')
+    return
+  }
+  const onMessage = (event: MessageEvent) => {
+    if (event.origin !== window.location.origin) return
+    if (event.data?.type === 'HANGERS_PRINT_DONE') {
+      window.removeEventListener('message', onMessage)
+    }
+    if (event.data?.type === 'HANGERS_PRINT_ERROR') {
+      window.removeEventListener('message', onMessage)
+      toast.error(event.data?.message || 'Failed to prepare print')
+    }
+  }
+  window.addEventListener('message', onMessage)
 }
 const formatCurrency = (value: number) => `₹${(value || 0).toLocaleString('en-IN')}`
 type OrderViewMeta = { key: string; label: string; title: string; description: string; metric?: string; statuses?: string[] }
@@ -98,10 +120,11 @@ const hasHighRiskCorrectionAuthority = (staff: any) => {
 
 const getStatusChoices = (currentStatus: string, workflow: typeof EMPTY_WORKFLOW, staff: any) => {
   const next = new Set<string>([currentStatus])
+  ;(workflow.allowedForward[currentStatus] || []).forEach((status) => {
+    if (workflow.crmEditableStatuses.includes(status)) next.add(status)
+  })
   const forwardStatus = workflow.next[currentStatus]
-  if (forwardStatus && workflow.crmEditableStatuses.includes(forwardStatus)) {
-    next.add(forwardStatus)
-  }
+  if (forwardStatus && workflow.crmEditableStatuses.includes(forwardStatus)) next.add(forwardStatus)
   if (hasCorrectionAuthority(staff)) {
     ;(workflow.allowedBackward[currentStatus] || []).forEach((status) => next.add(status))
     if (workflow.crmEditableStatuses.includes('CANCELLED') && workflow.cancellableStatuses.includes(currentStatus)) {
@@ -186,6 +209,7 @@ function OrdersPageContent() {
   const sp                      = useSearchParams()
   const router                  = useRouter()
   const pathname                = usePathname()
+  const returnTo                = `${pathname}${sp.toString() ? `?${sp.toString()}` : ''}`
   const [orders, setOrders]     = useState<any[]>([])
   const [total,  setTotal]      = useState(0)
   const [loading,setLoading]    = useState(true)
@@ -214,6 +238,7 @@ function OrdersPageContent() {
   const [showChallanModal, setShowChallanModal] = useState(false)
   const [challanForm, setChallanForm] = useState({ plant: '', driverName: '', vehicleNo: '' })
   const [creatingChallan, setCreatingChallan] = useState(false)
+  const [bulkUpdating, setBulkUpdating] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -358,6 +383,39 @@ function OrdersPageContent() {
     setCreatingChallan(false)
   }
 
+  const bulkTargetOptions = [
+    { status: 'READY_FOR_DELIVERY', label: 'Bulk Mark Ready' },
+    { status: 'OUT_FOR_DELIVERY', label: 'Bulk Out for Delivery' },
+    { status: 'DELIVERED', label: 'Bulk Delivered' },
+  ]
+  const canBulkMove = (order: any, targetStatus: string) => {
+    if (!order || order.status === targetStatus || isReturnOrder(order) || plantStatuses.includes(order.status)) return false
+    if (orderWorkflow.requiresItems.includes(targetStatus) && !order.items?.length) return false
+    return getTransitionKind(order.status, targetStatus, orderWorkflow) === 'forward'
+  }
+  const bulkEligibleOrders = (targetStatus: string) => selectedOrders.filter((order: any) => canBulkMove(order, targetStatus))
+  const bulkUpdateStatus = async (targetStatus: string) => {
+    const eligible = bulkEligibleOrders(targetStatus)
+    if (!eligible.length) {
+      toast.error(`No selected orders can move to ${getStatusLabel(targetStatus, '', statusLabels)}`)
+      return
+    }
+    setBulkUpdating(targetStatus)
+    try {
+      for (const order of eligible) {
+        await ordersAPI.updateStatus(order.id, targetStatus, undefined, Number(order.version || 1))
+      }
+      toast.success(`${eligible.length} order${eligible.length > 1 ? 's' : ''} marked ${getStatusLabel(targetStatus, '', statusLabels)}`)
+      setSelected(new Set())
+      load()
+    } catch (e: any) {
+      toast.error(e?.message || 'Bulk status update failed')
+      load()
+    } finally {
+      setBulkUpdating('')
+    }
+  }
+
   const selectedOrders = orders.filter((o:any) => selected.has(o.id))
   const visibleValue = orders.reduce((sum: number, order: any) => sum + (order.totalAmount || 0), 0)
   const plantLockedCount = orders.filter((order: any) => plantStatuses.includes(order.status)).length
@@ -399,19 +457,32 @@ function OrdersPageContent() {
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div style={{background:'#023c62',borderRadius:16,padding:'12px 16px',marginBottom:14,display:'flex',alignItems:'center',justifyContent:'space-between',fontSize:13,color:'#fff'}}>
-          <span><strong>{selected.size}</strong> order{selected.size > 1 ? 's' : ''} selected</span>
-          <div style={{display:'flex',gap:8}}>
-            <button onClick={() => setShowChallanModal(true)}
-              style={{padding:'6px 14px',background:'#fff',color:'#023c62',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:'pointer'}}>
-              Create Challan & Send to Plant
-            </button>
-            <button onClick={() => setSelected(new Set())}
-              style={{padding:'6px 14px',background:'rgba(255,255,255,0.15)',color:'#fff',borderRadius:8,fontSize:12,border:'none',cursor:'pointer'}}>
-              Clear
-            </button>
+        <>
+          <div style={{height:64, marginBottom:14}} />
+          <div style={{position:'fixed' as const,top:72,left:'50%',transform:'translateX(-50%)',width:'min(calc(100vw - 32px), 1320px)',zIndex:1000,background:'#023c62',borderRadius:16,padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap' as const,fontSize:13,color:'#fff',boxShadow:'0 18px 42px rgba(2,60,98,0.26)'}}>
+            <span><strong>{selected.size}</strong> order{selected.size > 1 ? 's' : ''} selected</span>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
+              {bulkTargetOptions.map((option) => {
+                const count = bulkEligibleOrders(option.status).length
+                if (!count) return null
+                return (
+                  <button key={option.status} onClick={() => bulkUpdateStatus(option.status)} disabled={Boolean(bulkUpdating)}
+                    style={{padding:'6px 14px',background:'#fff',color:'#023c62',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:bulkUpdating?'wait':'pointer'}}>
+                    {bulkUpdating === option.status ? 'Updating...' : `${option.label} (${count})`}
+                  </button>
+                )
+              })}
+              <button onClick={() => setShowChallanModal(true)}
+                style={{padding:'6px 14px',background:'#fff',color:'#023c62',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:'pointer'}}>
+                Create Challan & Send to Plant
+              </button>
+              <button onClick={() => setSelected(new Set())}
+                style={{padding:'6px 14px',background:'rgba(255,255,255,0.15)',color:'#fff',borderRadius:8,fontSize:12,border:'none',cursor:'pointer'}}>
+                Clear
+              </button>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Table */}
@@ -455,7 +526,7 @@ function OrdersPageContent() {
                         </td>
                         {/* Order */}
                         <td style={{padding:'13px 18px',minWidth:110}}>
-                          <Link href={`/dashboard/orders/${o.id}`}
+                          <Link href={`/dashboard/orders/${o.id}?returnTo=${encodeURIComponent(returnTo)}`}
                             style={{fontFamily:'var(--crm-font-mono)',fontWeight:700,color:'#023c62',textDecoration:'none',fontSize:13.5}}>
                             {o.orderNumber}
                           </Link>
@@ -526,10 +597,12 @@ function OrdersPageContent() {
                               Actions <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
                             </summary>
                             <div style={{position:'absolute',right:0,top:36,minWidth:190,background:'#fff',border:'1px solid #dce8f0',borderRadius:12,boxShadow:'0 16px 34px rgba(2,60,98,0.18)',padding:8,zIndex:9999}}>
-                              <Link href={`/dashboard/orders/${o.id}`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>View Order</Link>
-                              <Link href={`/dashboard/print?orderId=${o.id}&type=receipt`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>Print A4 Receipt</Link>
-                              <Link href={`/dashboard/print?orderId=${o.id}&type=thermal`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>Print 80mm Thermal</Link>
-                              <Link href={`/dashboard/print?orderId=${o.id}&type=garment`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>Print Garment Tags</Link>
+	                              <Link href={`/dashboard/orders/${o.id}?returnTo=${encodeURIComponent(returnTo)}`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>View Order</Link>
+	                              <button onClick={() => openPrintWindow(`/dashboard/print?orderId=${o.id}&type=receipt&autoprint=1`)} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Print A4 Receipt</button>
+	                              <button onClick={() => openPrintWindow(`/dashboard/print?orderId=${o.id}&type=thermal&autoprint=1`)} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Print 80mm Thermal</button>
+	                              <button onClick={() => openPrintWindow(`/dashboard/print?orderId=${o.id}&type=garment&autoprint=1`)} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Print Garment Tags</button>
+	                              <button onClick={() => openPrintWindow(`/dashboard/print?orderId=${o.id}&type=label&autoprint=1`)} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Print Label Tags</button>
+	                              <button onClick={() => openPrintWindow(`/dashboard/print?orderId=${o.id}&type=bag&autoprint=1`)} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Print Bag Tags</button>
                             </div>
                           </details>
                           <div style={{display:'flex',gap:6}}>

@@ -116,6 +116,7 @@ const createCapturedPayment = async (tx, {
   notes,
   staffId,
   idempotencyKey,
+  effectiveAt,
 }) => {
   const normalizedAmount = roundMoney(Number(amount || 0));
   if (!(normalizedAmount > 0)) return null;
@@ -134,6 +135,7 @@ const createCapturedPayment = async (tx, {
         reference: reference || null,
         referenceFingerprint,
         notes: notes || null,
+        createdAt: effectiveAt || undefined,
         collectedBy: staffId || null,
         idempotencyKey: idempotencyKey || null,
       },
@@ -145,7 +147,8 @@ const createCapturedPayment = async (tx, {
         invoiceId,
         amount: normalizedAmount,
         status: 'POSTED',
-        reason: 'Captured payment applied to order balance',
+        reason: 'Captured payment applied to invoice balance',
+        createdAt: effectiveAt || undefined,
       },
     });
     await issueReceipt(tx, { payment, invoiceId, staffId });
@@ -172,6 +175,7 @@ const recordOrderSettlement = async (tx, {
   writeOffReason,
   staff,
   idempotencyKey,
+  effectiveAt,
 }) => {
   await lockOrder(tx, orderId);
   const before = await getLedgerState(tx, orderId);
@@ -227,8 +231,9 @@ const recordOrderSettlement = async (tx, {
       method: 'WALLET',
       notes: notes || 'Wallet payment',
       staffId: staff?.id,
-      idempotencyKey: idempotencyKey ? `${idempotencyKey}:wallet-payment` : null,
-    }));
+        idempotencyKey: idempotencyKey ? `${idempotencyKey}:wallet-payment` : null,
+        effectiveAt,
+      }));
   }
 
   if (externalAmount > 0) {
@@ -241,6 +246,7 @@ const recordOrderSettlement = async (tx, {
       notes,
       staffId: staff?.id,
       idempotencyKey: idempotencyKey ? `${idempotencyKey}:payment` : null,
+      effectiveAt,
     }));
   }
 
@@ -249,11 +255,13 @@ const recordOrderSettlement = async (tx, {
     adjustment = await tx.financialAdjustment.create({
       data: {
         orderId,
+        invoiceId: invoice.id,
         kind: 'WRITE_OFF',
         status: 'POSTED',
         amount: writeOff,
         reasonCode: 'APPROVED_WRITE_OFF',
         reason: String(writeOffReason).trim(),
+        createdAt: effectiveAt || undefined,
         createdById: staff.id,
         approvedById: staff.id,
       },
@@ -288,12 +296,16 @@ const recordOrderSettlement = async (tx, {
 
 const recordInvoiceSettlement = async (tx, {
   invoiceId,
-  amount,
+  amount = 0,
+  walletAmount = 0,
   method,
   reference,
   notes,
+  writeOffAmount = 0,
+  writeOffReason,
   staff,
   idempotencyKey,
+  effectiveAt,
 }) => {
   const locked = await tx.$queryRaw`
     SELECT "id"
@@ -307,28 +319,104 @@ const recordInvoiceSettlement = async (tx, {
   if (!invoice || invoice.voidedAt || invoice.status === 'VOID') {
     throw new PaymentRuleError('INVOICE_NOT_COLLECTIBLE', 'This invoice cannot accept payments');
   }
-  const normalizedAmount = roundMoney(Number(amount || 0));
-  if (!(normalizedAmount > 0)) throw new PaymentRuleError('EMPTY_SETTLEMENT', 'Payment amount must be greater than zero');
-  if (normalizedAmount > Number(invoice.balanceDue || 0)) {
+  const externalAmount = roundMoney(Number(amount || 0));
+  const storedValueAmount = roundMoney(Number(walletAmount || 0));
+  const writeOff = roundMoney(Number(writeOffAmount || 0));
+  const requestedSettlement = roundMoney(externalAmount + storedValueAmount + writeOff);
+  if (!(requestedSettlement > 0)) {
+    throw new PaymentRuleError('EMPTY_SETTLEMENT', 'A payment, wallet amount, or write-off is required');
+  }
+  if (requestedSettlement > Number(invoice.balanceDue || 0)) {
     throw new PaymentRuleError(
       'OVERPAYMENT_NOT_ALLOWED',
-      `Payment exceeds the outstanding balance of Rs ${Number(invoice.balanceDue || 0).toFixed(2)}. Record only the amount due.`
+      `Settlement exceeds the outstanding balance of Rs ${Number(invoice.balanceDue || 0).toFixed(2)}. Record only the amount due.`
     );
   }
-  if (!method) throw new PaymentRuleError('PAYMENT_METHOD_REQUIRED', 'Payment method is required');
+  if (externalAmount > 0 && !method) throw new PaymentRuleError('PAYMENT_METHOD_REQUIRED', 'Payment method is required');
+  if (writeOff > 0) {
+    const permissions = staff?.effectivePermissions || [];
+    if (!permissions.includes('*') && !permissions.includes('finance.writeoff')) {
+      throw new PaymentRuleError('WRITE_OFF_APPROVAL_REQUIRED', 'Write-offs require finance.writeoff authority', 403);
+    }
+    if (!writeOffReason || String(writeOffReason).trim().length < 3) {
+      throw new PaymentRuleError('WRITE_OFF_REASON_REQUIRED', 'A write-off reason is required');
+    }
+  }
 
-  const payment = await createCapturedPayment(tx, {
-    customerId: invoice.customerId,
-    invoiceId: invoice.id,
-    amount: normalizedAmount,
-    method,
-    reference,
-    notes,
-    staffId: staff?.id,
-    idempotencyKey: idempotencyKey ? `${idempotencyKey}:payment` : null,
-  });
-  const syncedInvoice = await syncInvoiceBalance(tx, invoice.id);
-  return { payment, invoice: syncedInvoice };
+  const payments = [];
+  if (storedValueAmount > 0) {
+    await debitWallet(
+      invoice.customerId,
+      storedValueAmount,
+      `Applied to invoice ${invoice.invoiceNumber}`,
+      {
+        tx,
+        orderId: invoice.orderId || null,
+        actorId: staff?.id,
+        reasonCode: 'INVOICE_PAYMENT',
+        idempotencyKey: idempotencyKey ? `${idempotencyKey}:wallet-debit` : null,
+      }
+    );
+    payments.push(await createCapturedPayment(tx, {
+      customerId: invoice.customerId,
+      invoiceId: invoice.id,
+      amount: storedValueAmount,
+      method: 'WALLET',
+      notes: notes || 'Wallet payment',
+      staffId: staff?.id,
+      idempotencyKey: idempotencyKey ? `${idempotencyKey}:wallet-payment` : null,
+      effectiveAt,
+    }));
+  }
+
+  if (externalAmount > 0) {
+    payments.push(await createCapturedPayment(tx, {
+      customerId: invoice.customerId,
+      invoiceId: invoice.id,
+      amount: externalAmount,
+      method,
+      reference,
+      notes,
+      staffId: staff?.id,
+      idempotencyKey: idempotencyKey ? `${idempotencyKey}:payment` : null,
+      effectiveAt,
+    }));
+  }
+
+  let adjustment = null;
+  if (writeOff > 0) {
+    adjustment = await tx.financialAdjustment.create({
+      data: {
+        orderId: invoice.orderId || null,
+        invoiceId: invoice.id,
+        kind: 'WRITE_OFF',
+        status: 'POSTED',
+        amount: writeOff,
+        reasonCode: 'APPROVED_WRITE_OFF',
+        reason: String(writeOffReason).trim(),
+        createdAt: effectiveAt || undefined,
+        createdById: staff.id,
+        approvedById: staff.id,
+      },
+    });
+  }
+
+  const synced = invoice.orderId
+    ? await syncOrderPaymentState(tx, invoice.orderId)
+    : { invoice: await syncInvoiceBalance(tx, invoice.id) };
+  const syncedInvoice = synced.invoice || await syncInvoiceBalance(tx, invoice.id);
+  return {
+    payment: payments.filter(Boolean)[0] || null,
+    payments: payments.filter(Boolean),
+    adjustment,
+    invoice: syncedInvoice,
+    paidAmount: Number(syncedInvoice.paidAmount || 0),
+    writeOffAmount: Number(syncedInvoice.writeOffAmount || writeOff || 0),
+    creditAmount: Number(syncedInvoice.creditAmount || 0),
+    balanceDue: Number(syncedInvoice.balanceDue || 0),
+    paymentStatus: syncedInvoice.status === 'OPEN' ? 'UNPAID' : syncedInvoice.status,
+    ...(synced.order ? { order: synced.order } : {}),
+  };
 };
 
 const recordOrderRefund = async (tx, {
@@ -489,6 +577,185 @@ const recordOrderRefund = async (tx, {
   return { refundPayment, creditNote, ...synced };
 };
 
+const reverseOrderPaymentCorrection = async (tx, {
+  orderId,
+  paymentId,
+  reason,
+  staff,
+}) => {
+  const permissions = staff?.effectivePermissions || [];
+  if (!permissions.includes('*') && !permissions.includes('finance.refund')) {
+    throw new PaymentRuleError('PAYMENT_REVERSAL_APPROVAL_REQUIRED', 'Payment corrections require finance.refund authority', 403);
+  }
+  if (!reason || String(reason).trim().length < 3) {
+    throw new PaymentRuleError('PAYMENT_REVERSAL_REASON_REQUIRED', 'A correction reason is required');
+  }
+  await lockOrder(tx, orderId);
+  await tx.$queryRaw`SELECT "id" FROM "Payment" WHERE "id" = ${paymentId} FOR UPDATE`;
+  const payment = await tx.payment.findFirst({
+    where: {
+      id: paymentId,
+      orderId,
+      kind: 'RECEIPT',
+      status: { in: CAPTURED_PAYMENT_STATUSES },
+    },
+    include: {
+      allocations: { where: { status: 'POSTED' } },
+      receipt: true,
+    },
+  });
+  if (!payment) {
+    throw new PaymentRuleError('PAYMENT_NOT_REVERSIBLE', 'Captured receipt payment not found for this order', 404);
+  }
+  const refundCount = await tx.refundAllocation.count({
+    where: {
+      sourceAllocationId: { in: payment.allocations.map((allocation) => allocation.id) },
+      status: 'POSTED',
+    },
+  });
+  if (refundCount > 0) {
+    throw new PaymentRuleError('PAYMENT_ALREADY_REFUNDED', 'This payment already has refund activity. Use the refund/credit-note workflow.');
+  }
+
+  const trimmedReason = String(reason).trim();
+  const now = new Date();
+  await tx.paymentAllocation.updateMany({
+    where: { paymentId, status: 'POSTED' },
+    data: {
+      status: 'REVERSED',
+      reversedAt: now,
+      reason: trimmedReason,
+    },
+  });
+  const reversedPayment = await tx.payment.update({
+    where: { id: paymentId },
+    data: {
+      status: 'VOIDED',
+      reversedAt: now,
+      reversalReason: trimmedReason,
+    },
+  });
+  if (payment.receipt) {
+    await tx.receipt.update({
+      where: { id: payment.receipt.id },
+      data: {
+        status: 'VOID',
+        voidedAt: now,
+        voidReason: trimmedReason,
+      },
+    });
+  }
+
+  const synced = await syncOrderPaymentState(tx, orderId);
+  await tx.orderStage.create({
+    data: {
+      orderId,
+      stage: 'PAYMENT_ENTRY_VOIDED',
+      eventType: 'FINANCIAL_CORRECTION',
+      reasonCode: 'MISTAKEN_PAYMENT_ENTRY_VOIDED',
+      notes: `Mistaken payment entry voided: Rs ${Number(payment.amount).toFixed(2)} ${payment.method}. No customer refund issued; order balance restored. ${trimmedReason}`,
+      changedById: staff?.id || null,
+      metadata: {
+        paymentId,
+        method: payment.method,
+        amount: Number(payment.amount || 0),
+        correctionType: 'INTERNAL_ENTRY_VOID',
+        customerMoneyMovement: 'NONE',
+        beforeStatus: payment.status,
+        afterStatus: reversedPayment.status,
+      },
+    },
+  });
+
+  return { payment: reversedPayment, ...synced };
+};
+
+const reverseInvoicePaymentCorrection = async (tx, {
+  invoiceId,
+  paymentId,
+  reason,
+  staff,
+}) => {
+  const permissions = staff?.effectivePermissions || [];
+  if (!permissions.includes('*') && !permissions.includes('finance.refund')) {
+    throw new PaymentRuleError('PAYMENT_REVERSAL_APPROVAL_REQUIRED', 'Payment corrections require finance.refund authority', 403);
+  }
+  if (!reason || String(reason).trim().length < 3) {
+    throw new PaymentRuleError('PAYMENT_REVERSAL_REASON_REQUIRED', 'A correction reason is required');
+  }
+  const invoiceRows = await tx.$queryRaw`
+    SELECT "id"
+    FROM "invoices"
+    WHERE "id" = ${invoiceId}
+    FOR UPDATE
+  `;
+  if (!invoiceRows.length) throw new PaymentRuleError('INVOICE_NOT_FOUND', 'Invoice not found', 404);
+  await tx.$queryRaw`SELECT "id" FROM "Payment" WHERE "id" = ${paymentId} FOR UPDATE`;
+  const payment = await tx.payment.findFirst({
+    where: {
+      id: paymentId,
+      kind: 'RECEIPT',
+      status: { in: CAPTURED_PAYMENT_STATUSES },
+      allocations: { some: { invoiceId, status: 'POSTED' } },
+    },
+    include: {
+      allocations: { where: { invoiceId, status: 'POSTED' } },
+      receipt: true,
+    },
+  });
+  if (!payment) {
+    throw new PaymentRuleError('PAYMENT_NOT_REVERSIBLE', 'Captured receipt payment not found for this invoice', 404);
+  }
+  const refundCount = await tx.refundAllocation.count({
+    where: {
+      sourceAllocationId: { in: payment.allocations.map((allocation) => allocation.id) },
+      status: 'POSTED',
+    },
+  });
+  if (refundCount > 0) {
+    throw new PaymentRuleError('PAYMENT_ALREADY_REFUNDED', 'This payment already has refund activity. Use the refund/credit-note workflow.');
+  }
+
+  const trimmedReason = String(reason).trim();
+  const now = new Date();
+  await tx.paymentAllocation.updateMany({
+    where: { paymentId, invoiceId, status: 'POSTED' },
+    data: {
+      status: 'REVERSED',
+      reversedAt: now,
+      reason: trimmedReason,
+    },
+  });
+  const reversedPayment = await tx.payment.update({
+    where: { id: paymentId },
+    data: {
+      status: 'VOIDED',
+      reversedAt: now,
+      reversalReason: trimmedReason,
+    },
+  });
+  if (payment.receipt) {
+    await tx.receipt.update({
+      where: { id: payment.receipt.id },
+      data: {
+        status: 'VOID',
+        voidedAt: now,
+        voidReason: trimmedReason,
+      },
+    });
+  }
+
+  const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
+  const synced = invoice?.orderId
+    ? await syncOrderPaymentState(tx, invoice.orderId)
+    : { invoice: await syncInvoiceBalance(tx, invoiceId) };
+  return {
+    payment: reversedPayment,
+    invoice: synced.invoice,
+    ...(synced.order ? { order: synced.order } : {}),
+  };
+};
+
 const creditOverpayment = async (tx, order, amount, staff, idempotencyKey) => creditWallet(
   order.customerId,
   amount,
@@ -511,6 +778,8 @@ module.exports = {
   paymentReferenceFingerprint,
   recordInvoiceSettlement,
   recordOrderRefund,
+  reverseInvoicePaymentCorrection,
+  reverseOrderPaymentCorrection,
   recordOrderSettlement,
   syncOrderPaymentState,
 };

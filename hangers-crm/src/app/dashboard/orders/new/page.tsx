@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import api, { ordersAPI, quotationsAPI, customersAPI, servicesAPI, statsAPI, ironAPI, metadataAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { AlertTriangle, Check, GripVertical, Shirt, Trash2, User } from 'lucide-react'
+import { sanitizeDecimalInput, sanitizeIntegerInput, isStrictMoneyText, isStrictPositiveIntText } from '@/lib/numeric-input'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -15,6 +16,14 @@ const asArray = (value: any, keys: string[] = []) => {
 type LineDiscountType = 'flat' | 'percent'
 
 const roundCurrency = (value: number) => Number((Number.isFinite(value) ? value : 0).toFixed(2))
+const roundCashAmount = (value: number) => {
+  const amount = Number.isFinite(value) ? value : 0
+  const sign = amount < 0 ? -1 : 1
+  const cents = Math.round(Math.abs(amount) * 100)
+  const rupees = Math.floor(cents / 100)
+  const paise = cents % 100
+  return sign * (paise > 50 ? rupees + 1 : rupees)
+}
 const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
 const toMoney = (value: any, fallback = 0) => {
@@ -137,7 +146,6 @@ const CATEGORY_ORDER = [
   'DRY CLEAN — ACCESSORIES',
   'STEAM IRONING',
   'ROLL PRESS',
-  'SOFA CLEANING',
   'SHOE CLEANING',
 ]
 
@@ -223,7 +231,7 @@ function NewOrderPageContent() {
 
   // Payment
   const [showPayment, setShowPayment] = useState(false)
-  const [paymentMethod, setPaymentMethod] = useState('CASH')
+  const [paymentMethod, setPaymentMethod] = useState('Pay Later')
   const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([])
   const [paidAmount, setPaidAmount] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -299,11 +307,12 @@ function NewOrderPageContent() {
       setPaymentMethods(mappedMethods)
       setPaymentMethod((current) => {
         const normalized = LEGACY_PAYMENT_METHOD_MAP[current] || current
-        return mappedMethods.some((item: any) => item.value === normalized) ? normalized : (mappedMethods[0]?.value || 'CASH')
+        return mappedMethods.some((item: any) => item.value === normalized) ? normalized : 'Pay Later'
       })
     }).catch(() => {
       setLanguageOptions([])
-      setPaymentMethods([{ value: 'CASH', label: 'Cash' }])
+      setPaymentMethods([{ value: 'Pay Later', label: 'Pay Later' }, { value: 'CASH', label: 'Cash' }])
+      setPaymentMethod('Pay Later')
       toast.error('Failed to load order metadata')
     })
   }, [])
@@ -423,6 +432,7 @@ function NewOrderPageContent() {
       const map: Record<string, Item[]> = {}
       items.forEach((item: Item) => {
         if (isQuotationMode && item.category === 'DAILY_IRON') return
+        if (item.category === 'SOFA CLEANING') return
         if (!map[item.category]) map[item.category] = []
         if (item.basePrice > 0 || item.category === 'DAILY_IRON') map[item.category].push(item)
       })
@@ -566,14 +576,10 @@ function NewOrderPageContent() {
   }, [])
 
   const openLineEditor = useCallback((item: CartItem) => {
-    if (item.category === 'DAILY_IRON') {
-      toast.error('Daily Iron items use the monthly billing flow and do not support line discounts here')
-      return
-    }
     setEditingLineId(item.lineId)
     setLineEditorPrice(String(item.unitPrice))
     setLineEditorDiscountType(item.lineDiscountType || 'flat')
-    setLineEditorDiscountValue(item.lineDiscountType ? String(item.lineDiscountValue || '') : '')
+    setLineEditorDiscountValue(item.category === 'DAILY_IRON' ? '' : item.lineDiscountType ? String(item.lineDiscountValue || '') : '')
     setLineEditorNotes(item.notes || '')
   }, [])
 
@@ -585,10 +591,24 @@ function NewOrderPageContent() {
       return
     }
 
+    if (!isStrictMoneyText(lineEditorPrice)) {
+      toast.error('Enter a valid service price')
+      return
+    }
     const nextPrice = toMoney(lineEditorPrice, currentItem.unitPrice)
-    const nextDiscountType = lineEditorDiscountValue.trim() ? lineEditorDiscountType : null
+    const isDailyIronLine = currentItem.category === 'DAILY_IRON'
+    const nextDiscountType = !isDailyIronLine && lineEditorDiscountValue.trim() ? lineEditorDiscountType : null
+    if (nextDiscountType && !isStrictMoneyText(lineEditorDiscountValue)) {
+      toast.error('Enter a valid line discount')
+      return
+    }
     const nextDiscountValue = nextDiscountType ? toMoney(lineEditorDiscountValue) : 0
     const nextNotes = lineEditorNotes.trim()
+
+    if (isDailyIronLine && Math.abs(nextPrice - currentItem.baseUnitPrice) > 0.009 && nextNotes.length < 3) {
+      toast.error('Add a short reason for the Daily Iron rate change')
+      return
+    }
 
     setSavingLineId(currentItem.lineId)
     try {
@@ -606,7 +626,7 @@ function NewOrderPageContent() {
       )))
       resetAppliedIncentives()
       closeLineEditor()
-      toast.success('Line price and discount updated for this order or quotation only')
+      toast.success(isDailyIronLine ? 'Daily Iron rate updated for this log only' : 'Line price and discount updated for this order or quotation only')
     } catch (e: any) {
       toast.error(e.message || 'Failed to update line pricing')
     }
@@ -785,8 +805,10 @@ function NewOrderPageContent() {
 
   const addCustomItemToCart = () => {
     const name = customItemName.trim()
+    if (!isStrictMoneyText(customItemRate)) { toast.error('Enter valid custom item rate'); return }
+    if (!isStrictPositiveIntText(customItemQty)) { toast.error('Enter valid custom item quantity'); return }
     const unitPrice = toMoney(customItemRate)
-    const quantity = Math.max(1, Number.parseInt(customItemQty, 10) || 1)
+    const quantity = Number.parseInt(customItemQty, 10)
     const catalogName = activeCategory || customItemCatalog || categories[0] || 'CUSTOM'
     const categoryLabel = customItemCategory.trim()
 
@@ -825,6 +847,17 @@ function NewOrderPageContent() {
     }
   }
 
+  const setLineQuantity = (lineId: string, value: string) => {
+    const quantity = Number.parseInt(value, 10)
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      if (value === '') return
+      toast.error('Quantity must be at least 1')
+      return
+    }
+    setCart(prev => prev.map(i => i.lineId === lineId ? normalizeCartItem({ ...i, quantity }) : i))
+    resetAppliedIncentives()
+  }
+
   const removeLine = useCallback((lineId: string) => {
     setCart((prev) => prev.filter((item) => item.lineId !== lineId))
     resetAppliedIncentives()
@@ -846,20 +879,20 @@ function NewOrderPageContent() {
 
   const regularCart    = cart.filter(i => i.category !== 'DAILY_IRON')
   const dailyIronCart  = cart.filter(i => i.category === 'DAILY_IRON')
-  const regularBaseSubtotal = regularCart.reduce((s, i) => s + getCartLineGross(i), 0)
-  const regularServiceDiscount = regularCart.reduce((s, i) => s + (i.lineDiscountAmount || 0), 0)
-  const regularSubtotal = regularCart.reduce((s, i) => s + getCartLineNet(i), 0)
-  const dailyIronEstimatedValue = dailyIronCart.reduce((s, i) => s + getCartLineGross(i), 0)
+  const regularBaseSubtotal = roundCashAmount(regularCart.reduce((s, i) => s + getCartLineGross(i), 0))
+  const regularServiceDiscount = roundCashAmount(regularCart.reduce((s, i) => s + (i.lineDiscountAmount || 0), 0))
+  const regularSubtotal = roundCashAmount(regularCart.reduce((s, i) => s + getCartLineNet(i), 0))
+  const dailyIronEstimatedValue = roundCashAmount(dailyIronCart.reduce((s, i) => s + getCartLineGross(i), 0))
   const totalQty       = cart.reduce((s, i) => s + i.quantity, 0)
   const hasDailyIronItems = cart.some(i => i.category === 'DAILY_IRON')
   const hasRegularItems   = cart.some(i => i.category !== 'DAILY_IRON')
   const isPureDailyIron   = hasDailyIronItems && !hasRegularItems
   const isMixedCart       = hasDailyIronItems && hasRegularItems
   const manualDiscount = discountType === 'flat'
-    ? (parseFloat(discountValue) || 0)
-    : Math.round(regularSubtotal * (parseFloat(discountValue) || 0) / 100)
-  const totalDiscount  = manualDiscount + couponDiscount + loyaltyDiscount
-  const total          = isPureDailyIron ? dailyIronEstimatedValue : Math.max(0, regularSubtotal - totalDiscount)
+    ? roundCashAmount(parseFloat(discountValue) || 0)
+    : roundCashAmount(regularSubtotal * (parseFloat(discountValue) || 0) / 100)
+  const totalDiscount  = roundCashAmount(manualDiscount + couponDiscount + loyaltyDiscount)
+  const total          = isPureDailyIron ? dailyIronEstimatedValue : roundCashAmount(Math.max(0, regularSubtotal - totalDiscount))
 
   const askDailyIronEnable = (prompt: { title: string; message: string; confirmLabel: string }) =>
     new Promise<boolean>((resolve) => {
@@ -945,6 +978,7 @@ function NewOrderPageContent() {
         items: dailyIronCart.map(item => ({
           serviceId: item.serviceId,
           pieces: item.quantity,
+          ratePerPiece: item.unitPrice,
           notes: item.notes || undefined,
         })),
       })
@@ -991,17 +1025,13 @@ function NewOrderPageContent() {
   const handleConfirmOrder = async () => {
     if (!customer) { toast.error('Select a customer first'); return }
     if (!cart.length) { toast.error('Add at least one item'); return }
-    if (hasRegularItems && hasDailyIronItems) {
-      toast.error('Daily Iron must be logged separately from regular orders')
-      return
-    }
     if (!hasRegularItems) {
       await handleConfirmDailyIron()
       return
     }
 
     const walletPortion = parseFloat(walletSplit) || 0
-    const paid = parseFloat(paidAmount) || (paymentMethod === 'Pay Later' ? 0 : Math.max(0, total - walletPortion))
+    const paid = paymentMethod === 'Pay Later' ? 0 : (parseFloat(paidAmount) || Math.max(0, total - walletPortion))
     const writeOffAmt = writeOff ? writeOffAmount : 0
     const hasCommercialAdjustment = manualDiscount > 0 || regularServiceDiscount > 0 || writeOffAmt > 0 || regularCart.some(item => !item.serviceId || hasPriceOverride(item))
     if (hasCommercialAdjustment && commercialReason.trim().length < 3) {
@@ -1051,11 +1081,13 @@ function NewOrderPageContent() {
         try {
           await ironAPI.createLogsBatch({
             customerId: customer.id,
+            sourceOrderId: createdOrder?.id || undefined,
             date: dailyIronDate,
             notes: notes || undefined,
             items: dailyIronCart.map(item => ({
               serviceId: item.serviceId,
               pieces: item.quantity,
+              ratePerPiece: item.unitPrice,
               notes: item.notes || undefined,
             })),
           })
@@ -1345,7 +1377,7 @@ function NewOrderPageContent() {
               setNewCustomerPhone('')
               setNewCustomerLanguage('ENGLISH')
               setNewCustomerEnrollIron(false)
-              setPaymentMethod('CASH')
+              setPaymentMethod('Pay Later')
               setPaidAmount('')
               setDiscountType('flat')
               setDiscountValue('')
@@ -1430,6 +1462,7 @@ function NewOrderPageContent() {
                     const map: Record<string, Item[]> = {}
                     items.forEach((item: Item) => {
                       if (isQuotationMode && item.category === 'DAILY_IRON') return
+                      if (item.category === 'SOFA CLEANING') return
                       if (!map[item.category]) map[item.category] = []
                       if (item.basePrice > 0 || item.category === 'DAILY_IRON') map[item.category].push(item)
                     })
@@ -1503,9 +1536,9 @@ function NewOrderPageContent() {
                       style={{ border: '1px solid #dce8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, outline: 'none', minWidth: 0 }} />
                     <input value={customItemCategory} onChange={e => setCustomItemCategory(e.target.value)} placeholder="Sub category / garment"
                       style={{ border: '1px solid #dce8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, outline: 'none', minWidth: 0 }} />
-                    <input type="number" min="0" value={customItemRate} onChange={e => setCustomItemRate(e.target.value)} placeholder="Rate"
+                    <input inputMode="decimal" value={customItemRate} onChange={e => setCustomItemRate(sanitizeDecimalInput(e.target.value))} placeholder="Rate"
                       style={{ border: '1px solid #dce8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, outline: 'none', minWidth: 0 }} />
-                    <input type="number" min="1" value={customItemQty} onChange={e => setCustomItemQty(e.target.value)} placeholder="Qty"
+                    <input inputMode="numeric" value={customItemQty} onChange={e => setCustomItemQty(sanitizeIntegerInput(e.target.value))} placeholder="Qty"
                       style={{ border: '1px solid #dce8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, outline: 'none', minWidth: 0 }} />
                     <button onClick={addCustomItemToCart}
                       style={{ background: '#023c62', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -1713,20 +1746,24 @@ function NewOrderPageContent() {
                           <div style={{ fontSize: 12, color: '#9dafc8', textDecoration: 'line-through' }}>{fmt(lineGross)}</div>
                         )}
                         <div style={{ fontSize: 14, fontWeight: 900, color: '#023c62' }}>{fmt(lineNet)}</div>
-                        {item.category !== 'DAILY_IRON' && (
-                          <button
-                            onClick={() => isEditing ? closeLineEditor() : openLineEditor(item)}
-                            style={{ marginTop: '7px', padding: '4px 10px', borderRadius: 999, border: '1px solid #dce8f0', background: '#fff', color: '#023c62', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                          >
-                            {isEditing ? 'Close' : 'Adjust'}
-                          </button>
-                        )}
+                        <button
+                          onClick={() => isEditing ? closeLineEditor() : openLineEditor(item)}
+                          style={{ marginTop: '7px', padding: '4px 10px', borderRadius: 999, border: '1px solid #dce8f0', background: '#fff', color: '#023c62', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          {isEditing ? 'Close' : 'Adjust'}
+                        </button>
                       </div>
                       <div style={{ gridColumn: '2 / 4', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <button onClick={() => updateQty(item.lineId, -1)}
                             style={{ width: 26, height: 26, borderRadius: 7, background: '#f1f5f9', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 800, color: '#023c62' }}>−</button>
-                          <span style={{ fontSize: 14, fontWeight: 800, minWidth: 20, textAlign: 'center' }}>{item.quantity}</span>
+                          <input
+                            inputMode="numeric"
+                            value={item.quantity}
+                            onChange={(event) => setLineQuantity(item.lineId, sanitizeIntegerInput(event.target.value))}
+                            aria-label={`Quantity for ${item.name}`}
+                            style={{ width: 58, height: 26, border: '1px solid #dce8f0', borderRadius: 7, padding: '0 6px', textAlign: 'center', fontSize: 13, fontWeight: 800, color: '#023c62', outline: 'none', boxSizing: 'border-box' as const }}
+                          />
                           <button onClick={() => updateQty(item.lineId, 1)}
                             style={{ width: 26, height: 26, borderRadius: 7, background: '#023c62', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 800, color: '#fff' }}>+</button>
                         </div>
@@ -1744,47 +1781,47 @@ function NewOrderPageContent() {
                     {isEditing && (
                       <div style={{ margin: '0 14px 12px', padding: 12, borderRadius: 12, background: '#f8fbff', border: '1px solid #dce8f0' }}>
                         <div style={{ fontSize: 11, color: '#6b7fa3', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
-                          Line Price And Discount
+                          {item.category === 'DAILY_IRON' ? 'Daily Iron Rate' : 'Line Price And Discount'}
                         </div>
                         <div style={{ fontSize: 12, color: '#6b7fa3', marginBottom: 10 }}>
-                          Line price changes here are ad hoc for this order or quotation only. Service-level discounts also stay only on this line and do not modify the master rate card.
+                          {item.category === 'DAILY_IRON'
+                            ? 'This rate applies only to this Daily Iron log. It does not change the customer subscription rate or master price list.'
+                            : 'Line price changes here are ad hoc for this order or quotation only. Service-level discounts also stay only on this line and do not modify the master rate card.'}
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 10 }}>
                           <input
-                            type="number"
-                            min="0"
-                            step="0.01"
+                            inputMode="decimal"
                             value={lineEditorPrice}
-                            onChange={(e) => setLineEditorPrice(e.target.value)}
+                            onChange={(e) => setLineEditorPrice(sanitizeDecimalInput(e.target.value))}
                             placeholder="Unit price"
                             style={{ width: '100%', border: '1px solid #dce8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }}
                           />
                           <div style={{ alignSelf: 'center', fontSize: 11, color: '#6b7fa3', fontWeight: 600 }}>Per item</div>
                         </div>
-                        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                          <button
-                            onClick={() => setLineEditorDiscountType('flat')}
-                            style={{ padding: '5px 9px', borderRadius: 8, border: '1px solid #dce8f0', background: lineEditorDiscountType === 'flat' ? '#023c62' : '#fff', color: lineEditorDiscountType === 'flat' ? '#fff' : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                          >
-                            ₹ Per Qty
-                          </button>
-                          <button
-                            onClick={() => setLineEditorDiscountType('percent')}
-                            style={{ padding: '5px 9px', borderRadius: 8, border: '1px solid #dce8f0', background: lineEditorDiscountType === 'percent' ? '#023c62' : '#fff', color: lineEditorDiscountType === 'percent' ? '#fff' : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                          >
-                            % Percent
-                          </button>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={lineEditorDiscountValue}
-                            onChange={(e) => setLineEditorDiscountValue(e.target.value)}
-                            placeholder={lineEditorDiscountType === 'flat' ? 'Discount per qty' : 'Discount percent'}
-                            style={{ flex: 1, border: '1px solid #dce8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }}
-                          />
-                        </div>
-                        {lineEditorDiscountValue.trim() && (
+                        {item.category !== 'DAILY_IRON' && (
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                            <button
+                              onClick={() => setLineEditorDiscountType('flat')}
+                              style={{ padding: '5px 9px', borderRadius: 8, border: '1px solid #dce8f0', background: lineEditorDiscountType === 'flat' ? '#023c62' : '#fff', color: lineEditorDiscountType === 'flat' ? '#fff' : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              ₹ Per Qty
+                            </button>
+                            <button
+                              onClick={() => setLineEditorDiscountType('percent')}
+                              style={{ padding: '5px 9px', borderRadius: 8, border: '1px solid #dce8f0', background: lineEditorDiscountType === 'percent' ? '#023c62' : '#fff', color: lineEditorDiscountType === 'percent' ? '#fff' : '#374151', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              % Percent
+                            </button>
+                            <input
+                              inputMode="decimal"
+                              value={lineEditorDiscountValue}
+                              onChange={(e) => setLineEditorDiscountValue(sanitizeDecimalInput(e.target.value))}
+                              placeholder={lineEditorDiscountType === 'flat' ? 'Discount per qty' : 'Discount percent'}
+                              style={{ flex: 1, border: '1px solid #dce8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }}
+                            />
+                          </div>
+                        )}
+                        {item.category !== 'DAILY_IRON' && lineEditorDiscountValue.trim() && (
                           <div style={{ fontSize: 11, color: '#6b7fa3', marginBottom: 8 }}>
                             {lineEditorDiscountType === 'flat'
                               ? `Discount impact: ${fmt(toMoney(lineEditorDiscountValue))} × ${item.quantity} = ${fmt(getLineDiscountAmount({
@@ -1798,23 +1835,23 @@ function NewOrderPageContent() {
                         )}
                         <div style={{ marginBottom: 10 }}>
                           <div style={{ fontSize: 11, color: '#6b7fa3', fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 5 }}>
-                            Service Description
+                            {item.category === 'DAILY_IRON' ? 'Rate Change Reason / Notes' : 'Service Description'}
                           </div>
                           <textarea
                             value={lineEditorNotes}
                             onChange={(e) => setLineEditorNotes(e.target.value)}
-                            placeholder="Add service breakup, scope, condition notes, or any line-specific description"
+                            placeholder={item.category === 'DAILY_IRON' ? 'Required if rate is changed for this log' : 'Add service breakup, scope, condition notes, or any line-specific description'}
                             rows={3}
                             style={{ width: '100%', border: '1px solid #dce8f0', borderRadius: 8, padding: '9px 10px', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, resize: 'vertical', fontFamily: 'var(--crm-font-ui)' }}
                           />
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                           <div style={{ fontSize: 12, color: '#6b7fa3' }}>
-                            Line total after service discount: <strong style={{ color: '#023c62' }}>{fmt(getCartLineNet(normalizeCartItem({
+                            {item.category === 'DAILY_IRON' ? 'Monthly bill value for this log' : 'Line total after service discount'}: <strong style={{ color: '#023c62' }}>{fmt(getCartLineNet(normalizeCartItem({
                               ...item,
                               unitPrice: toMoney(lineEditorPrice, item.unitPrice),
-                              lineDiscountType: lineEditorDiscountValue.trim() ? lineEditorDiscountType : null,
-                              lineDiscountValue: lineEditorDiscountValue.trim() ? toMoney(lineEditorDiscountValue) : 0,
+                              lineDiscountType: item.category !== 'DAILY_IRON' && lineEditorDiscountValue.trim() ? lineEditorDiscountType : null,
+                              lineDiscountValue: item.category !== 'DAILY_IRON' && lineEditorDiscountValue.trim() ? toMoney(lineEditorDiscountValue) : 0,
                             })))}</strong>
                           </div>
                           <div style={{ display: 'flex', gap: 8 }}>
@@ -1849,7 +1886,7 @@ function NewOrderPageContent() {
                       style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: discountType === 'flat' ? '#023c62' : '#fff', color: discountType === 'flat' ? '#fff' : '#374151', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>₹</button>
                     <button onClick={() => setDiscountType('percent')}
                       style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: discountType === 'percent' ? '#023c62' : '#fff', color: discountType === 'percent' ? '#fff' : '#374151', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>%</button>
-                    <input type="number" value={discountValue} onChange={e => setDiscountValue(e.target.value)}
+                    <input inputMode="decimal" value={discountValue} onChange={e => setDiscountValue(sanitizeDecimalInput(e.target.value))}
                       placeholder="Bill discount"
                       style={{ flex: 1, border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' as const }} />
                     {manualDiscount > 0 && <span style={{ fontSize: 11, color: '#166534', alignSelf: 'center', fontWeight: 600 }}>-{fmt(manualDiscount)}</span>}
@@ -1876,8 +1913,8 @@ function NewOrderPageContent() {
                   </div>
                   {customer && (customer.loyaltyPoints || 0) > 0 && (
                     <div style={{ display: 'flex', gap: 5 }}>
-                      <input type="number" value={loyaltyPoints}
-                        onChange={e => { setLoyaltyPoints(e.target.value); setLoyaltyApplied(false); setLoyaltyDiscount(0) }}
+                      <input inputMode="numeric" value={loyaltyPoints}
+                        onChange={e => { setLoyaltyPoints(sanitizeIntegerInput(e.target.value)); setLoyaltyApplied(false); setLoyaltyDiscount(0) }}
                         placeholder={`Points (have ${customer.loyaltyPoints || 0})`}
                         style={{ flex: 1, border: '1px solid #e2e8f0', borderRadius: 5, padding: '4px 7px', fontSize: 12, outline: 'none', boxSizing: 'border-box' as const }} />
                       <button onClick={async () => {
@@ -2105,9 +2142,9 @@ function NewOrderPageContent() {
             {paymentMethod !== 'Pay Later' && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: '#6b7fa3', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Amount Paid</div>
-                <input type="number" value={paidAmount}
+                <input inputMode="decimal" value={paidAmount}
                   onChange={e => {
-                    const val = e.target.value
+                    const val = sanitizeDecimalInput(e.target.value)
                     setPaidAmount(val)
                     const due = total - parseFloat(val || '0')
                     if (due > 0 && due <= writeOffMax) {

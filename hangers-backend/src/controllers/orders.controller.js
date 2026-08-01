@@ -8,17 +8,19 @@ const { log, writeAuditEvent, getRequestMeta }     = require('../services/activi
 const { success, badRequest, error, notFound, forbidden }     = require('../utils/response');
 const { generateOrderNumber }                      = require('../utils/order-number');
 const { hasPermission }                            = require('../middleware/rbac');
-const { orderStatusUpdateSchema, createOrderSchema, editOrderSchema, orderPaymentSchema, orderRefundSchema, addItemsSchema } = require('../validation/orders.schemas');
-const { normalizeOrderItem, roundMoney }           = require('../utils/line-pricing');
+const { orderStatusUpdateSchema, createOrderSchema, editOrderSchema, orderPaymentSchema, orderRefundSchema, orderPaymentReversalSchema, addItemsSchema } = require('../validation/orders.schemas');
+const { normalizeOrderItem, roundMoney, roundCashAmount } = require('../utils/line-pricing');
 const { emitOrderUpdate }                          = require('../services/sse.service');
 const { buildOrderSearchOr }                       = require('../utils/order-search');
 const { normalizePaymentMethod }                   = require('../utils/payment-method');
 const { withDerivedPaymentState }                  = require('../utils/order-payment-state');
 const { normalizeOrderSource }                     = require('../utils/order-source');
+const { normalizeCustomerPhone, normalizeCustomerName } = require('../utils/customer-normalization');
 const { getCapturedPaymentStatusValues, getCorePaymentMethods, getOrderSources, getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
 const { CommercialRuleError, commitPricingBenefits, resolveOrderPricing } = require('../services/pricing.service');
-const { PaymentRuleError, recordOrderRefund, recordOrderSettlement }  = require('../services/payment.service');
+const { PaymentRuleError, recordOrderRefund, recordOrderSettlement, reverseOrderPaymentCorrection }  = require('../services/payment.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent }          = require('../services/outbox.service');
+const { sendOrderStatusMessage, sendOrderUpdatedMessage, sendPaymentReceivedMessage } = require('../services/whatomate.service');
 const { BillingRuleError, ensureOrderInvoice, refreshOrderInvoice } = require('../services/billing.service');
 const { nextDocumentNumber } = require('../services/document-number.service');
 const { GarmentUnitError, syncOrderGarmentUnits } = require('../services/garment-unit.service');
@@ -284,7 +286,10 @@ const getOrder = async (req, res) => {
       where:   { id: req.params.id, ...ORDER_ONLY_WHERE },
       include: {
         customer:   { select: { id: true, name: true, phone: true } },
-        items:      { include: { service: true, garmentUnits: { where: { status: { not: 'VOID' } }, orderBy: { sequence: 'asc' } } } },
+        items:      {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          include: { service: true, garmentUnits: { where: { status: { not: 'VOID' } }, orderBy: { sequence: 'asc' } } },
+        },
         stages:     { orderBy: { createdAt: 'asc' } },
         assignedTo: { select: { id: true, name: true, role: true } },
         payments:   true,
@@ -294,6 +299,158 @@ const getOrder = async (req, res) => {
     return success(res, { order: withDerivedPaymentState(order) });
   } catch (err) {
     return error(res, 'Failed to fetch order');
+  }
+};
+
+const logWhatsAppRetrySent = async ({ order, failedStage, label, metadata = {} }) => prisma.orderStage.create({
+  data: {
+    orderId: order.id,
+    stage: 'WHATSAPP_SENT',
+    eventType: 'NOTIFICATION',
+    reasonCode: 'WHATSAPP_SENT',
+    notes: `WhatsApp sent: ${label}`,
+    metadata: {
+      channel: 'WHATSAPP',
+      provider: 'WHATOMATE',
+      outcome: 'SENT',
+      orderNumber: order.orderNumber,
+      customerId: order.customer?.id || null,
+      retryOfStageId: failedStage.id,
+      manualRetry: true,
+      ...metadata,
+    },
+  },
+});
+
+const appendWhatsAppRetryAttempt = async (failedStage, { outcome, error: retryError, staff }) => {
+  const existing = failedStage.metadata && typeof failedStage.metadata === 'object' ? failedStage.metadata : {};
+  const retryAttempts = Array.isArray(existing.retryAttempts) ? existing.retryAttempts : [];
+  const attempt = {
+    attemptedAt: new Date().toISOString(),
+    outcome,
+    error: retryError ? String(retryError).slice(0, 500) : null,
+    staffId: staff?.id || null,
+    staffName: staff?.name || null,
+  };
+  return prisma.orderStage.update({
+    where: { id: failedStage.id },
+    data: {
+      metadata: {
+        ...existing,
+        retryAttempts: [...retryAttempts, attempt],
+        lastRetryAt: attempt.attemptedAt,
+        lastRetryOutcome: outcome,
+        lastRetryError: attempt.error,
+      },
+    },
+  });
+};
+
+const markWhatsAppFailureResolved = async (failedStage, staff) => {
+  const updated = await appendWhatsAppRetryAttempt(failedStage, { outcome: 'SENT', staff });
+  const existing = updated.metadata && typeof updated.metadata === 'object' ? updated.metadata : {};
+  return prisma.orderStage.update({
+    where: { id: failedStage.id },
+    data: {
+      metadata: {
+        ...existing,
+        retryResolvedAt: new Date().toISOString(),
+        retryResolved: true,
+      },
+    },
+  });
+};
+
+const retryWhatsAppNotification = async (req, res) => {
+  let failedStage = null;
+  try {
+    failedStage = await prisma.orderStage.findFirst({
+      where: {
+        id: req.params.stageId,
+        orderId: req.params.id,
+        stage: 'WHATSAPP_FAILED',
+        eventType: 'NOTIFICATION',
+      },
+    });
+    if (!failedStage) return notFound(res, 'WhatsApp failed timeline entry not found');
+
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id, ...ORDER_ONLY_WHERE },
+      include: { customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } } },
+    });
+    if (!order) return notFound(res, 'Order not found');
+    if (order.customer?.notifWhatsApp === false) return badRequest(res, 'Customer WhatsApp notifications are disabled');
+
+    const metadata = failedStage.metadata && typeof failedStage.metadata === 'object' ? failedStage.metadata : {};
+    const failedType = metadata.outboxEventType || null;
+
+    if (failedType === OUTBOX_EVENT.PAYMENT_RECEIVED) {
+      const paymentId = metadata.payload?.paymentId;
+      if (!paymentId) return badRequest(res, 'Failed payment notification has no payment reference');
+      const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
+      if (!payment) return notFound(res, 'Payment not found for failed notification');
+      const sent = await sendPaymentReceivedMessage(order, payment.amount, payment.method, {
+        idempotencyKey: `manual-retry:payment-received:${payment.id}:${failedStage.id}`,
+        throwOnFailure: true,
+      });
+      if (!sent) return error(res, 'WhatsApp provider did not accept the payment message');
+      await logWhatsAppRetrySent({
+        order,
+        failedStage,
+        label: 'Payment received',
+        metadata: { outboxEventType: failedType, payload: { paymentId } },
+      });
+      await markWhatsAppFailureResolved(failedStage, req.staff);
+      await prisma.outboxEvent.updateMany({
+        where: {
+          eventType: OUTBOX_EVENT.PAYMENT_RECEIVED,
+          aggregateId: order.id,
+          status: { in: ['FAILED', 'DEAD'] },
+          payload: { path: ['paymentId'], equals: paymentId },
+        },
+        data: { status: 'PROCESSED', processedAt: new Date(), lockedAt: null, lastError: null },
+      });
+      return success(res, { sent: true }, 'WhatsApp payment message resent');
+    }
+
+    if (failedType === OUTBOX_EVENT.ORDER_UPDATED) {
+      const sent = await sendOrderUpdatedMessage(order, { throwOnFailure: true });
+      if (!sent) return error(res, 'WhatsApp provider did not accept the order update message');
+      await logWhatsAppRetrySent({
+        order,
+        failedStage,
+        label: 'Order updated',
+        metadata: { outboxEventType: failedType, payload: metadata.payload || {} },
+      });
+      await markWhatsAppFailureResolved(failedStage, req.staff);
+      return success(res, { sent: true }, 'WhatsApp order update message resent');
+    }
+
+    const status = metadata.status || failedStage.toStatus || order.status;
+    const label = (await getOrderStatuses()).find((item) => item.key === status)?.label || 'Order status';
+    const sent = await sendOrderStatusMessage(order, status, {
+      idempotencyKey: `manual-retry:order-status:${order.id}:${status}:${failedStage.id}`,
+      throwOnFailure: true,
+    });
+    if (!sent) return error(res, 'WhatsApp provider did not accept the order status message');
+    await logWhatsAppRetrySent({
+      order,
+      failedStage,
+      label,
+      metadata: { status },
+    });
+    await markWhatsAppFailureResolved(failedStage, req.staff);
+    return success(res, { sent: true }, 'WhatsApp order status message resent');
+  } catch (err) {
+    console.error('retryWhatsAppNotification error:', err);
+    if (failedStage?.id) {
+      await appendWhatsAppRetryAttempt(failedStage, {
+        outcome: 'FAILED',
+        error: err?.message || err,
+        staff: req.staff,
+      }).catch((stageErr) => console.error('retryWhatsAppNotification attempt log error:', stageErr));
+    }
+    return error(res, err?.message || 'Failed to retry WhatsApp notification');
   }
 };
 
@@ -353,11 +510,25 @@ const createOrder = async (req, res) => {
         customer = await tx.customer.findUnique({ where: { id: customerId } });
         if (!customer) throw new CommercialRuleError('CUSTOMER_NOT_FOUND', 'Customer not found', 404);
       } else {
-        const phone = customerPhone.replace(/\D/g, '').slice(-10);
-        if (phone.length !== 10) throw new CommercialRuleError('INVALID_CUSTOMER_PHONE', 'A valid 10-digit customer phone is required');
+        const phone = normalizeCustomerPhone(customerPhone);
+        if (!phone) throw new CommercialRuleError('INVALID_CUSTOMER_PHONE', 'A valid 10-digit customer phone is required');
         const existing = await tx.customer.findUnique({ where: { phone } });
-        customer = existing || await tx.customer.create({ data: { phone, name: customerName || null } });
+        customer = existing || await tx.customer.create({ data: { phone, name: normalizeCustomerName(customerName) } });
         customerCreated = !existing;
+      }
+
+      const serviceIds = [...new Set(items.map((item) => item.serviceId).filter(Boolean))];
+      if (serviceIds.length) {
+        const selectedServices = await tx.service.findMany({
+          where: { id: { in: serviceIds } },
+          select: { id: true, category: true },
+        });
+        if (selectedServices.some((service) => service.category === 'SOFA CLEANING')) {
+          throw new CommercialRuleError(
+            'FIELD_SERVICE_REQUIRED',
+            'Sofa Cleaning must be scheduled from Sofa / Field Service, not created as a garment order'
+          );
+        }
       }
 
       const pricing = await resolveOrderPricing(tx, {
@@ -592,11 +763,11 @@ const updateOrder = async (req, res) => {
         commercialReason: commercialReason || reason,
         staff: req.staff,
       });
-      const retainedIncentives = roundMoney(Number(order.couponDiscount || 0) + Number(order.loyaltyDiscount || 0));
+      const retainedIncentives = roundCashAmount(Number(order.couponDiscount || 0) + Number(order.loyaltyDiscount || 0));
       if (retainedIncentives > pricing.totalAmount) {
         throw new CommercialRuleError('INCENTIVE_EXCEEDS_REPRICED_TOTAL', 'Existing coupon or loyalty value exceeds the repriced order. Reverse the incentive before editing.');
       }
-      const totalAmount = roundMoney(pricing.totalAmount - retainedIncentives);
+      const totalAmount = roundCashAmount(pricing.totalAmount - retainedIncentives);
       const settledAmount = roundMoney(Number(order.paidAmount || 0) + Number(order.writeOffAmount || 0));
       if (totalAmount < settledAmount) {
         throw new CommercialRuleError(
@@ -750,7 +921,7 @@ const updateOrder = async (req, res) => {
 const updateOrderStatus = async (req, res) => {
   const parsed = orderStatusUpdateSchema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid status update payload');
-  const { status, notes, reasonCode, expectedVersion } = parsed.data;
+  const { status, notes, reasonCode, expectedVersion, effectiveAt } = parsed.data;
 
   try {
     const [orderWorkflow, orderStatuses] = await Promise.all([
@@ -832,13 +1003,14 @@ const updateOrderStatus = async (req, res) => {
               ? 'ORDER_HIGH_RISK_CORRECTION'
               : 'ORDER_STATUS_UPDATED';
 
+      const effectiveDate = effectiveAt || new Date();
       const updated = await tx.order.update({
         where: { id: req.params.id },
         data:  {
           status,
           version: { increment: 1 },
           deliveredAt: status === 'DELIVERED'
-            ? new Date()
+            ? effectiveDate
             : transition.kind === 'delivered_correction'
               ? null
               : undefined,
@@ -855,12 +1027,13 @@ const updateOrderStatus = async (req, res) => {
           eventType:   transition.kind === 'forward' ? 'WORKFLOW_TRANSITION' : 'WORKFLOW_CORRECTION',
           fromStatus:  order.status,
           toStatus:    status,
-          reasonCode:  canonicalReasonCode,
-          notes:       trimmedNotes || null,
-          metadata:    { transitionType: transition.kind, beforeVersion: order.version, afterVersion: order.version + 1 },
-          changedById: req.staff?.id || null,
-        },
-      });
+	          reasonCode:  canonicalReasonCode,
+	          notes:       trimmedNotes || null,
+	          metadata:    { transitionType: transition.kind, beforeVersion: order.version, afterVersion: order.version + 1, effectiveAt: effectiveAt ? effectiveAt.toISOString() : null },
+	          createdAt:   effectiveAt || undefined,
+	          changedById: req.staff?.id || null,
+	        },
+	      });
       await writeAuditEvent(tx, {
         actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
         action, resource: 'order', resourceId: order.id,
@@ -1111,8 +1284,8 @@ const recordPayment = async (req, res) => {
 
   try {
     const { id } = req.params;
-    const { amount, method, reference, notes, writeOffAmount = 0, writeOffReason } = parsed.data;
-    const normalizedMethod = normalizePaymentMethod(method);
+	    const { amount, method, reference, notes, writeOffAmount = 0, writeOffReason, effectiveAt } = parsed.data;
+	    const normalizedMethod = amount > 0 ? normalizePaymentMethod(method) : null;
     const corePaymentMethods = await getCorePaymentMethods();
     if (amount > 0 && !corePaymentMethods.includes(normalizedMethod)) {
       return badRequest(res, `Payment method must be one of: ${corePaymentMethods.join(', ')}`);
@@ -1128,10 +1301,11 @@ const recordPayment = async (req, res) => {
         reference,
         notes,
         writeOffAmount,
-        writeOffReason,
-        staff: req.staff,
-        idempotencyKey: req.idempotencyKey,
-      });
+	        writeOffReason,
+	        staff: req.staff,
+	        idempotencyKey: req.idempotencyKey,
+	        effectiveAt,
+	      });
       const order = await tx.order.findUnique({
         where: { id },
         include: {
@@ -1257,6 +1431,92 @@ const refundPayment = async (req, res) => {
     }
     if (err?.code === 'P2034') return res.status(409).json({ success: false, message: 'Refund conflicted with another update; retry with the same idempotency key' });
     return error(res, 'Failed to post refund');
+  }
+};
+
+const reversePaymentCorrection = async (req, res) => {
+  const parsed = orderPaymentReversalSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid payment correction payload');
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const before = await tx.order.findFirst({
+        where: { id: req.params.id, ...ORDER_ONLY_WHERE },
+        select: {
+          id: true,
+          orderNumber: true,
+          paidAmount: true,
+          writeOffAmount: true,
+          paymentStatus: true,
+          version: true,
+        },
+      });
+      if (!before) throw new PaymentRuleError('ORDER_NOT_FOUND', 'Order not found', 404);
+      const reversal = await reverseOrderPaymentCorrection(tx, {
+        orderId: req.params.id,
+        paymentId: req.params.paymentId,
+        reason: parsed.data.reason,
+        staff: req.staff,
+      });
+      const order = await tx.order.findUnique({
+        where: { id: req.params.id },
+        include: {
+          customer: { select: { id: true, name: true, phone: true } },
+          payments: { orderBy: { createdAt: 'asc' } },
+          financialAdjustments: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff',
+        actorId: req.staff?.id,
+        actorName: req.staff?.name,
+        action: 'PAYMENT_ENTRY_VOIDED',
+        resource: 'payment',
+        resourceId: req.params.paymentId,
+        description: `Mistaken payment entry voided for ${before.orderNumber}`,
+        metadata: {
+          orderId: req.params.id,
+          orderNumber: before.orderNumber,
+          paymentId: req.params.paymentId,
+          reason: parsed.data.reason,
+          before: {
+            paidAmount: before.paidAmount,
+            writeOffAmount: before.writeOffAmount,
+            paymentStatus: before.paymentStatus,
+          },
+          after: {
+            paidAmount: reversal.paidAmount,
+            writeOffAmount: reversal.writeOffAmount,
+            paymentStatus: reversal.paymentStatus,
+            balanceDue: reversal.balanceDue,
+          },
+        },
+        ...getRequestMeta(req),
+      });
+      await enqueueOutboxEvent(tx, {
+        eventType: OUTBOX_EVENT.ORDER_UPDATED,
+        aggregateType: 'order',
+        aggregateId: req.params.id,
+        payload: { reason: 'PAYMENT_ENTRY_VOIDED', paymentId: req.params.paymentId },
+        dedupeKey: `order-updated:${req.params.id}:payment-reversal:${req.params.paymentId}:v${order.version}`,
+      });
+      return { reversal, order };
+    }, { isolationLevel: 'Serializable' });
+
+    return success(res, {
+      order: result.order,
+      payment: result.reversal.payment,
+      balanceDue: result.reversal.balanceDue,
+    }, 'Payment entry voided; order balance restored');
+  } catch (err) {
+    console.error('reversePaymentCorrection error:', err);
+    if (err instanceof PaymentRuleError) {
+      if (err.statusCode === 404) return notFound(res, err.message);
+      if (err.statusCode === 403) return forbidden(res, err.message);
+      if (err.statusCode === 409) return res.status(409).json({ success: false, message: err.message });
+      return badRequest(res, err.message);
+    }
+    if (err?.code === 'P2034') return res.status(409).json({ success: false, message: 'Payment correction conflicted with another update; retry with the same idempotency key' });
+    return error(res, 'Failed to void payment entry');
   }
 };
 
@@ -1436,9 +1696,11 @@ module.exports = {
   createOrder,
   updateOrder,
   updateOrderStatus,
+  retryWhatsAppNotification,
   addItemsToOrder,
   deleteOrder,
   recordPayment,
   refundPayment,
+  reversePaymentCorrection,
   createReturnOrder,
 };

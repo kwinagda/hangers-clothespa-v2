@@ -42,6 +42,14 @@ const asArray = (value: any, keys: string[] = []) => {
   }
   return []
 }
+const paymentSourceLabel = (payment: any) => {
+  if (payment.order?.orderNumber) return `Order ${payment.order.orderNumber}`
+  const invoice = payment.allocations?.[0]?.invoice
+  if (invoice?.ironBill?.billNumber) return `Daily Iron ${invoice.ironBill.billNumber}`
+  if (invoice?.serviceAppointment?.appointmentNumber) return `Sofa Cleaning ${invoice.serviceAppointment.appointmentNumber}`
+  if (invoice?.invoiceNumber) return `Invoice ${invoice.invoiceNumber}`
+  return 'Unlinked payment'
+}
 
 function CustomerMetric({
   label,
@@ -449,8 +457,71 @@ export default function CustomerProfilePage() {
     setIronBusy(null)
   }
 
+  const writeOffIronBillBalance = async (bill: any, balance: number) => {
+    if (!(balance > 0)) {
+      toast.error('No balance to write off')
+      return
+    }
+    const reason = window.prompt(`Reason to write off ${fmt(balance)} for ${bill.billNumber}`)?.trim()
+    if (!reason || reason.length < 3) {
+      toast.error('A write-off reason is required')
+      return
+    }
+    setIronBusy(`bill-writeoff-${bill.id}`)
+    try {
+      await ironAPI.recordPayment(bill.id, { writeOffAmount: balance, writeOffReason: reason })
+      toast.success('Balance written off')
+      await loadIron()
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to write off balance')
+    }
+    setIronBusy(null)
+  }
+
+  const voidIronBillPayment = async (billId: string, paymentId: string) => {
+    const reason = window.prompt('Reason for voiding this mistaken payment entry')?.trim()
+    if (!reason || reason.length < 3) {
+      toast.error('A correction reason is required')
+      return
+    }
+    setIronBusy(`bill-payment-void-${paymentId}`)
+    try {
+      await ironAPI.reversePayment(billId, paymentId, { reason })
+      toast.success('Payment entry voided')
+      await loadIron()
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to void payment entry')
+    }
+    setIronBusy(null)
+  }
+
   if (loading) return <div style={{ padding: 40, color: '#6b7fa3', ...s }}>Loading...</div>
   if (!customer) return <div style={{ padding: 40, color: '#e53e3e', ...s }}>Customer not found</div>
+
+  const selectedBillMonthKey = (() => {
+    const selected = billForm.billingPeriodStart ? new Date(billForm.billingPeriodStart) : new Date()
+    if (Number.isNaN(selected.getTime())) return ''
+    return `${selected.getFullYear()}-${String(selected.getMonth() + 1).padStart(2, '0')}`
+  })()
+  const monthKey = (value: any) => {
+    const date = value ? new Date(value) : null
+    if (!date || Number.isNaN(date.getTime())) return ''
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  }
+  const lockedIronBillStatuses = new Set(['SENT', 'PARTIAL', 'PAID'])
+  const periodBills = ironBills.filter((bill: any) => monthKey(bill.billingPeriodStart) === selectedBillMonthKey)
+  const hasDraftBillForPeriod = periodBills.some((bill: any) => !lockedIronBillStatuses.has(String(bill.status || '').toUpperCase()))
+  const hasLockedBillForPeriod = periodBills.some((bill: any) => lockedIronBillStatuses.has(String(bill.status || '').toUpperCase()))
+  const selectedPeriodOpenLogs = ironLogs.filter((log: any) => (
+    monthKey(log.date) === selectedBillMonthKey
+    && String(log.status || '').toUpperCase() !== 'VOID'
+    && !log.billId
+  ))
+  const billActionLabel = hasDraftBillForPeriod
+    ? 'Regenerate Draft Bill'
+    : hasLockedBillForPeriod
+      ? 'Generate Supplemental Bill'
+      : 'Generate Monthly Bill'
 
   const tabBtn = (t: Tab, l: string, count?: number) => (
     <button onClick={() => setActiveTab(t)} style={{ padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', background: tab === t ? '#fff' : 'transparent', color: tab === t ? '#023c62' : '#6b7fa3', boxShadow: tab === t ? '0 8px 18px rgba(2,60,98,0.08)' : 'none' }}>
@@ -703,7 +774,7 @@ export default function CustomerProfilePage() {
                           {fmt(payment.amount || 0)} via {payment.method || 'Unknown'}
                         </div>
                         <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>
-                          {payment.order?.orderNumber ? `Order ${payment.order.orderNumber}` : 'No linked order'}{payment.reference ? ` · Ref ${payment.reference}` : ''}{payment.collectedByStaff?.name ? ` · Collected by ${payment.collectedByStaff.name}` : ''}
+                          {paymentSourceLabel(payment)}{payment.reference ? ` · Ref ${payment.reference}` : ''}{payment.collectedByStaff?.name ? ` · Collected by ${payment.collectedByStaff.name}` : ''}
                         </div>
                         {payment.notes && <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>{payment.notes}</div>}
                       </div>
@@ -945,23 +1016,42 @@ export default function CustomerProfilePage() {
                       ))}
                     </tr></thead>
                     <tbody>
-                      {ironLogs.map((log: any) => (
-                        <tr key={log.id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                      {ironLogs.map((log: any) => {
+                        const isVoid = String(log.status || '').toUpperCase() === 'VOID'
+                        return (
+                        <tr key={log.id} style={{ borderBottom: '1px solid #f8fafc', opacity: isVoid ? 0.68 : 1 }}>
                           <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{format(new Date(log.date), 'dd MMM yyyy')}</td>
-                          <td style={{ padding: '10px 16px', fontWeight: 600, color: '#023c62' }}>{log.serviceName}</td>
-                          <td style={{ padding: '10px 16px' }}>{log.pieces}</td>
-                          <td style={{ padding: '10px 16px' }}>{fmt(log.ratePerPiece)}</td>
-                          <td style={{ padding: '10px 16px', fontWeight: 700 }}>{fmt(log.amount)}</td>
+                          <td style={{ padding: '10px 16px', fontWeight: 600, color: '#023c62' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                              <span style={{ textDecoration: isVoid ? 'line-through' : 'none' }}>{log.serviceName}</span>
+                              {isVoid && (
+                                <span style={{ padding: '3px 8px', borderRadius: 999, background: '#fee2e2', color: '#991b1b', fontSize: 10, fontWeight: 800, letterSpacing: '0.04em' }}>
+                                  VOID
+                                </span>
+                              )}
+                            </div>
+                            {isVoid && log.voidReason && (
+                              <div style={{ marginTop: 3, color: '#991b1b', fontSize: 11, fontWeight: 500 }}>Reason: {log.voidReason}</div>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 16px', textDecoration: isVoid ? 'line-through' : 'none' }}>{log.pieces}</td>
+                          <td style={{ padding: '10px 16px', textDecoration: isVoid ? 'line-through' : 'none' }}>{fmt(log.ratePerPiece)}</td>
+                          <td style={{ padding: '10px 16px', fontWeight: 700, textDecoration: isVoid ? 'line-through' : 'none' }}>{fmt(log.amount)}</td>
                           <td style={{ padding: '10px 16px', color: '#6b7fa3', fontSize: 12 }}>{log.bill?.billNumber || 'Open'}</td>
                           <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                            {!log.billId && (
+                            {!log.billId && !isVoid ? (
                               <button onClick={() => deleteIronLog(log.id)} disabled={ironBusy === `log-delete-${log.id}`} style={{ background: 'transparent', border: 'none', color: '#991b1b', cursor: 'pointer', fontSize: 12 }}>
-                                Delete
+                                Void
                               </button>
+                            ) : isVoid ? (
+                              <span style={{ color: '#9dafc8', fontSize: 12 }}>Voided</span>
+                            ) : (
+                              <span style={{ color: '#9dafc8', fontSize: 12 }}>Billed</span>
                             )}
                           </td>
                         </tr>
-                      ))}
+                        )
+                      })}
                     </tbody>
                   </table>
                 )}
@@ -1004,6 +1094,15 @@ export default function CustomerProfilePage() {
                     <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 4 }}>Billing Period Start</label>
                     <input type="date" value={billForm.billingPeriodStart} onChange={e => setBillForm({ ...billForm, billingPeriodStart: e.target.value })} style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
                   </div>
+                  <div style={{ background: hasLockedBillForPeriod && selectedPeriodOpenLogs.length ? '#eff6ff' : '#f8fafc', border: `1px solid ${hasLockedBillForPeriod && selectedPeriodOpenLogs.length ? '#bfdbfe' : '#e2e8f0'}`, borderRadius: 10, padding: '10px 12px', color: hasLockedBillForPeriod && selectedPeriodOpenLogs.length ? '#1d4ed8' : '#6b7fa3', fontSize: 12, lineHeight: 1.45 }}>
+                    {hasDraftBillForPeriod
+                      ? 'A draft bill exists for this month. Generating will refresh that draft with currently open logs.'
+                      : hasLockedBillForPeriod
+                        ? selectedPeriodOpenLogs.length
+                          ? `${selectedPeriodOpenLogs.length} late unbilled log${selectedPeriodOpenLogs.length === 1 ? '' : 's'} found for this month. A supplemental bill will be created without editing the sent/paid bill.`
+                          : 'This month already has a sent/paid bill. Add new unbilled logs before creating a supplemental bill.'
+                        : 'This will create the monthly Daily Iron bill for all open logs in the selected month.'}
+                  </div>
                   <div>
                     <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 4 }}>Carry Forward Notes</label>
                     <input value={billForm.carryForwardNotes} onChange={e => setBillForm({ ...billForm, carryForwardNotes: e.target.value })} placeholder="Optional note for late-month entries" style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
@@ -1013,7 +1112,7 @@ export default function CustomerProfilePage() {
                     <textarea value={billForm.notes} onChange={e => setBillForm({ ...billForm, notes: e.target.value })} style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, height: 72, resize: 'none' as const, boxSizing: 'border-box' as const }} />
                   </div>
                   <button onClick={generateIronBill} disabled={!ironSubscription || ironBusy === 'bill-generate'} style={{ padding: '12px 16px', background: !ironSubscription ? '#cbd5e1' : '#166534', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, cursor: !ironSubscription ? 'not-allowed' : 'pointer' }}>
-                    {ironBusy === 'bill-generate' ? 'Generating…' : 'Generate Monthly Bill'}
+                    {ironBusy === 'bill-generate' ? 'Generating…' : billActionLabel}
                   </button>
                 </div>
               </div>
@@ -1027,18 +1126,32 @@ export default function CustomerProfilePage() {
                   <div style={{ padding: 24, textAlign: 'center', color: '#9dafc8' }}>No bills generated yet</div>
                 ) : (
                   <div style={{ padding: 14, display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
-                    {ironBills.map((bill: any) => (
+                    {ironBills.map((bill: any) => {
+                      const billTotal = Number(bill.totalAmount || 0)
+                      const billPaid = Number(bill.paidAmount || 0)
+                      const invoiceBalance = bill.invoice ? Number(bill.invoice.balanceDue || 0) : null
+                      const billBalance = Math.max(0, invoiceBalance ?? (billTotal - billPaid))
+                      const billStatus = String(bill.status || '').toUpperCase()
+                      const isBillPaid = billStatus === 'PAID' || billBalance <= 0.005
+                      const paymentEntries = (bill.invoice?.allocations || [])
+                        .filter((allocation: any) => allocation.payment)
+                        .map((allocation: any) => ({
+                          ...allocation.payment,
+                          allocationStatus: allocation.status,
+                          allocatedAmount: Number(allocation.amount || 0),
+                        }))
+                      return (
                       <div key={bill.id} style={{ border: '1px solid #e3edf6', borderRadius: 10, padding: 14 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
                           <div>
                             <div style={{ fontWeight: 700, color: '#023c62', marginBottom: 2 }}>{bill.billNumber}</div>
                             <div style={{ fontSize: 12, color: '#6b7fa3' }}>{format(new Date(bill.billingPeriodStart), 'dd MMM')} to {format(new Date(bill.billingPeriodEnd), 'dd MMM yyyy')}</div>
                           </div>
-                          <span style={{ padding: '5px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: bill.status === 'PAID' ? '#dcfce7' : bill.status === 'SENT' ? '#dbeafe' : bill.status === 'PARTIAL' ? '#ede9fe' : '#fef3c7', color: bill.status === 'PAID' ? '#166534' : bill.status === 'SENT' ? '#1d4ed8' : bill.status === 'PARTIAL' ? '#6d28d9' : '#92400e' }}>
-                            {bill.status}
+                          <span style={{ minHeight: 24, padding: '0 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: isBillPaid ? '#dcfce7' : billStatus === 'SENT' ? '#dbeafe' : billStatus === 'PARTIAL' ? '#ede9fe' : '#fef3c7', color: isBillPaid ? '#166534' : billStatus === 'SENT' ? '#1d4ed8' : billStatus === 'PARTIAL' ? '#6d28d9' : '#92400e' }}>
+                            {isBillPaid ? 'PAID' : billStatus}
                           </span>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 10 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 10 }}>
                           <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px' }}>
                             <div style={{ fontSize: 10, color: '#9dafc8', textTransform: 'uppercase' as const }}>Pieces</div>
                             <div style={{ fontWeight: 700, color: '#023c62' }}>{bill.totalPieces}</div>
@@ -1051,25 +1164,63 @@ export default function CustomerProfilePage() {
                             <div style={{ fontSize: 10, color: '#9dafc8', textTransform: 'uppercase' as const }}>Paid</div>
                             <div style={{ fontWeight: 700, color: '#023c62' }}>{fmt(bill.paidAmount || 0)}</div>
                           </div>
+                          <div style={{ background: isBillPaid ? '#f0fdf4' : '#fff7ed', borderRadius: 8, padding: '10px 12px' }}>
+                            <div style={{ fontSize: 10, color: isBillPaid ? '#16a34a' : '#c2410c', textTransform: 'uppercase' as const }}>Balance</div>
+                            <div style={{ fontWeight: 700, color: isBillPaid ? '#166534' : '#9a3412' }}>{fmt(billBalance)}</div>
+                          </div>
                         </div>
                         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                          <button onClick={() => sendIronBill(bill.id)} disabled={ironBusy === `bill-send-${bill.id}` || bill.status === 'PAID'} style={{ padding: '8px 12px', background: '#023c62', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          <button onClick={() => sendIronBill(bill.id)} disabled={ironBusy === `bill-send-${bill.id}` || isBillPaid} style={{ padding: '8px 12px', background: isBillPaid ? '#cbd5e1' : '#023c62', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: isBillPaid ? 'not-allowed' : 'pointer' }}>
                             {ironBusy === `bill-send-${bill.id}` ? 'Sending…' : 'Send Bill'}
                           </button>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px auto', gap: 8 }}>
-                          <input type="number" value={paymentForm[bill.id]?.amount || ''} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: e.target.value, paymentMethod: paymentForm[bill.id]?.paymentMethod || 'CASH' } })} placeholder="Payment amount"
-                            style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
-                          <select value={paymentForm[bill.id]?.paymentMethod || 'CASH'} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: paymentForm[bill.id]?.amount || '', paymentMethod: e.target.value } })}
-                            style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
-                            {paymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
-                          </select>
-                          <button onClick={() => recordIronPayment(bill.id)} disabled={ironBusy === `bill-pay-${bill.id}`} style={{ padding: '8px 12px', background: '#166534', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                            {ironBusy === `bill-pay-${bill.id}` ? 'Saving…' : 'Record Pay'}
+                        {isBillPaid ? (
+                          <div style={{ border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', borderRadius: 10, padding: '10px 12px', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                            <span>Bill settled. No further payment can be recorded.</span>
+                            {bill.paidAt && <span style={{ fontWeight: 600, color: '#15803d' }}>{format(new Date(bill.paidAt), 'dd MMM yyyy')}</span>}
+                          </div>
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px auto', gap: 8 }}>
+                            <input type="number" max={billBalance} value={paymentForm[bill.id]?.amount || ''} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: e.target.value, paymentMethod: paymentForm[bill.id]?.paymentMethod || 'CASH' } })} placeholder={`Balance ${fmt(billBalance)}`}
+                              style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
+                            <select value={paymentForm[bill.id]?.paymentMethod || 'CASH'} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: paymentForm[bill.id]?.amount || '', paymentMethod: e.target.value } })}
+                              style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
+                              {paymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
+                            </select>
+                            <button onClick={() => recordIronPayment(bill.id)} disabled={ironBusy === `bill-pay-${bill.id}`} style={{ padding: '8px 12px', background: '#166534', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                              {ironBusy === `bill-pay-${bill.id}` ? 'Saving…' : 'Record Pay'}
+                            </button>
+                          </div>
+                        )}
+                        {!isBillPaid && billBalance > 0.005 && (
+                          <button onClick={() => writeOffIronBillBalance(bill, billBalance)} disabled={ironBusy === `bill-writeoff-${bill.id}`} style={{ marginTop: 8, width: '100%', padding: '8px 12px', background: '#fff7ed', color: '#9a3412', border: '1px solid #fed7aa', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                            {ironBusy === `bill-writeoff-${bill.id}` ? 'Writing off...' : `Write Off Balance ${fmt(billBalance)}`}
                           </button>
-                        </div>
+                        )}
+                        {paymentEntries.length > 0 && (
+                          <div style={{ marginTop: 10, borderTop: '1px solid #e8f0f7', paddingTop: 10, display: 'grid', gap: 8 }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7fa3', letterSpacing: '0.06em', textTransform: 'uppercase' as const }}>Payment History</div>
+                            {paymentEntries.map((payment: any) => {
+                              const isVoided = ['VOIDED', 'REVERSED'].includes(String(payment.status || '').toUpperCase()) || String(payment.allocationStatus || '').toUpperCase() === 'REVERSED'
+                              return (
+                                <div key={payment.id} style={{ border: '1px solid #e8f0f7', background: isVoided ? '#f8fafc' : '#fff', borderRadius: 8, padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 800, color: isVoided ? '#64748b' : '#142033' }}>{fmt(Number(payment.amount || payment.allocatedAmount || 0))} · {payment.method}</div>
+                                    <div style={{ fontSize: 11, color: '#6b7fa3', marginTop: 2 }}>{payment.status} · {format(new Date(payment.createdAt), 'dd MMM yyyy')}</div>
+                                    {payment.reversalReason && <div style={{ fontSize: 11, color: '#9a3412', marginTop: 2 }}>Correction: {payment.reversalReason}</div>}
+                                  </div>
+                                  {!isVoided && (
+                                    <button onClick={() => voidIronBillPayment(bill.id, payment.id)} disabled={ironBusy === `bill-payment-void-${payment.id}`} style={{ flexShrink: 0, padding: '6px 9px', border: '1px solid #fed7aa', background: '#fff7ed', color: '#9a3412', borderRadius: 8, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                                      {ironBusy === `bill-payment-void-${payment.id}` ? 'Voiding...' : 'Void Entry'}
+                                    </button>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>

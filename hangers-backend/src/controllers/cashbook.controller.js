@@ -36,7 +36,7 @@ const getCashBook = async (req, res) => {
           customer: { select: { name: true, phone: true } },
           allocations: {
             take: 1,
-            include: { invoice: { select: { invoiceNumber: true, sourceType: true, ironBill: { select: { billNumber: true } } } } },
+            include: { invoice: { select: { invoiceNumber: true, sourceType: true, ironBill: { select: { billNumber: true } }, serviceAppointment: { select: { appointmentNumber: true } } } } },
           },
           collectedByStaff: { select: { name: true } }
         },
@@ -51,14 +51,14 @@ const getCashBook = async (req, res) => {
       amount: Number(payment.amount),
       description: [
         payment.kind === 'REFUND' ? 'Cash refund' : 'Cash payment',
-        payment.order?.orderNumber || payment.allocations[0]?.invoice?.ironBill?.billNumber || payment.allocations[0]?.invoice?.invoiceNumber,
+        payment.order?.orderNumber || payment.allocations[0]?.invoice?.ironBill?.billNumber || payment.allocations[0]?.invoice?.serviceAppointment?.appointmentNumber || payment.allocations[0]?.invoice?.invoiceNumber,
         payment.order?.customer?.name || payment.customer?.name,
       ].filter(Boolean).join(' - '),
       staffId: payment.collectedBy || null,
       staffName: payment.collectedByStaff?.name || null,
       source: 'PAYMENT',
       paymentId: payment.id,
-      orderNumber: payment.order?.orderNumber || payment.allocations[0]?.invoice?.ironBill?.billNumber || null,
+      orderNumber: payment.order?.orderNumber || payment.allocations[0]?.invoice?.ironBill?.billNumber || payment.allocations[0]?.invoice?.serviceAppointment?.appointmentNumber || null,
       invoiceNumber: payment.allocations[0]?.invoice?.invoiceNumber || null,
       customerName: payment.order?.customer?.name || payment.customer?.name || null,
       customerPhone: payment.order?.customer?.phone || payment.customer?.phone || null

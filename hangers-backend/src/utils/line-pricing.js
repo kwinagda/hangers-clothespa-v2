@@ -1,5 +1,14 @@
 const roundMoney = (value) => Number((Number.isFinite(value) ? value : 0).toFixed(2));
 
+const roundCashAmount = (value) => {
+  const amount = Number.isFinite(value) ? value : 0;
+  const sign = amount < 0 ? -1 : 1;
+  const cents = Math.round(Math.abs(amount) * 100);
+  const rupees = Math.floor(cents / 100);
+  const paise = cents % 100;
+  return sign * (paise > 50 ? rupees + 1 : rupees);
+};
+
 const parseMoney = (value, fallback = 0) => {
   const parsed = Number.parseFloat(String(value ?? ''));
   if (!Number.isFinite(parsed)) return fallback;
@@ -84,6 +93,7 @@ const normalizeOrderItem = (item, options = {}) => {
 
 module.exports = {
   roundMoney,
+  roundCashAmount,
   parseMoney,
   normalizeLineDiscountType,
   getUpchargeTotal,

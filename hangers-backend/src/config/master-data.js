@@ -62,7 +62,7 @@ const ORDER_WORKFLOW = {
     PROCESSING: ['IRONING', 'READY_FOR_DELIVERY', 'SENT_TO_PLANT'],
     SENT_TO_PLANT: ['IRONING'],
     IRONING: ['READY_FOR_DELIVERY'],
-    READY_FOR_DELIVERY: ['OUT_FOR_DELIVERY'],
+    READY_FOR_DELIVERY: ['OUT_FOR_DELIVERY', 'DELIVERED'],
     OUT_FOR_DELIVERY: ['DELIVERED'],
   },
   allowedBackward: {
@@ -144,6 +144,52 @@ const ORDER_WORKFLOW = {
     },
   },
 };
+
+const FIELD_SERVICE_STATUSES = [
+  { key: 'SCHEDULED', label: 'Scheduled', color: '#1d4ed8', bg: '#dbeafe', border: '#bfdbfe', customerTrackVisible: true },
+  { key: 'ASSIGNED', label: 'Assigned', color: '#6d28d9', bg: '#ede9fe', border: '#ddd6fe', customerTrackVisible: true },
+  { key: 'IN_PROGRESS', label: 'In Service', color: '#92400e', bg: '#fef3c7', border: '#fde68a', customerTrackVisible: true },
+  { key: 'SERVICE_DONE', label: 'Service Done', color: '#166534', bg: '#dcfce7', border: '#bbf7d0', customerTrackVisible: true },
+  { key: 'INVOICED', label: 'Invoiced', color: '#0369a1', bg: '#e0f2fe', border: '#bae6fd', customerTrackVisible: true },
+  { key: 'PAID', label: 'Paid', color: '#166534', bg: '#dcfce7', border: '#bbf7d0', customerTrackVisible: true },
+  { key: 'CANCELLED', label: 'Cancelled', color: '#991b1b', bg: '#fee2e2', border: '#fecaca', customerTrackVisible: false },
+];
+
+const FIELD_SERVICE_WORKFLOW = {
+  initialStatus: 'SCHEDULED',
+  assignedInitialStatus: 'ASSIGNED',
+  activeStatuses: ['SCHEDULED', 'ASSIGNED', 'IN_PROGRESS', 'SERVICE_DONE', 'INVOICED', 'PAID'],
+  terminalStatuses: ['PAID', 'CANCELLED'],
+  invoiceableStatuses: ['SERVICE_DONE', 'INVOICED', 'PAID'],
+  payableStatuses: ['INVOICED', 'PAID'],
+  filters: ['ALL', 'SCHEDULED', 'ASSIGNED', 'IN_PROGRESS', 'SERVICE_DONE', 'INVOICED', 'PAID', 'CANCELLED'],
+  allowedForward: {
+    SCHEDULED: ['ASSIGNED', 'CANCELLED'],
+    ASSIGNED: ['IN_PROGRESS', 'CANCELLED'],
+    IN_PROGRESS: ['SERVICE_DONE', 'CANCELLED'],
+    SERVICE_DONE: ['INVOICED', 'CANCELLED'],
+    INVOICED: ['PAID'],
+  },
+  actions: {
+    SCHEDULED: [
+      { action: 'ASSIGNED', label: 'Assign Staff', tone: 'primary' },
+      { action: 'CANCELLED', label: 'Cancel', tone: 'danger' },
+    ],
+    ASSIGNED: [
+      { action: 'IN_PROGRESS', label: 'Start Service', tone: 'secondary' },
+      { action: 'CANCELLED', label: 'Cancel', tone: 'danger' },
+    ],
+    IN_PROGRESS: [
+      { action: 'SERVICE_DONE', label: 'Service Done', tone: 'primary' },
+      { action: 'CANCELLED', label: 'Cancel', tone: 'danger' },
+    ],
+    SERVICE_DONE: [
+      { action: 'INVOICE', label: 'Generate Invoice', tone: 'primary' },
+      { action: 'CANCELLED', label: 'Cancel', tone: 'danger' },
+    ],
+  },
+};
+
 const DELIVERY_MANAGER_ROLES = ['DELIVERY_MANAGER', 'MANAGER', 'SUPER_ADMIN'];
 const DELIVERY_PIN_ROLES = ['DELIVERY_MANAGER', 'DELIVERY_RIDER'];
 const PLANT_PIN_ROLES = ['PLANT_MANAGER', 'PLANT_STAFF', 'PLANT_QC'];
@@ -542,6 +588,11 @@ const WHATSAPP_TEMPLATES = {
     templateName: 'hangers_crm_order_updated',
     params: ['customerName', 'orderNumber', 'updatedTotalAmount', 'balanceDue'],
   },
+  quotationSent: {
+    templateName: 'hangers_crm_quotation_sent',
+    params: ['customerName', 'orderNumber', 'totalAmount', 'validUntil'],
+    buttonIndex: '0',
+  },
   dailyIron: {
     logButtonIndex: '0',
     logUpdated: {
@@ -602,6 +653,8 @@ module.exports = {
   STAFF_ROLE_VALUES,
   WEEKDAY_OPTIONS,
   EXPENSE_CATEGORIES,
+  FIELD_SERVICE_STATUSES,
+  FIELD_SERVICE_WORKFLOW,
   DISCOUNT_VALUE_TYPES,
   PROMO_BANNERS,
   WHATSAPP_TEMPLATES,

@@ -11,9 +11,11 @@
 
 const { Queue, Worker, UnrecoverableError } = require('bullmq');
 const { getConnection, isRedisAvailable } = require('./connection');
+const prisma = require('../config/database');
+const { getOrderStatuses } = require('../services/masterData.service');
 
 const QUEUE_NAME = 'notifications';
-const DLQ_NAME = 'notifications:dead-letter';
+const DLQ_NAME = 'notifications-dead-letter';
 
 const JOB_TYPE = Object.freeze({
   ORDER_STATUS:  'ORDER_STATUS',
@@ -31,8 +33,8 @@ function getQueue() {
   queue = new Queue(QUEUE_NAME, {
     connection:    conn,
     defaultJobOptions: {
-      attempts:    3,
-      backoff:     { type: 'exponential', delay: 2000 },
+      attempts:    8,
+      backoff:     { type: 'exponential', delay: 120000 },
       removeOnComplete: { count: 100 },
       removeOnFail:     { count: 500 },
     },
@@ -62,11 +64,62 @@ const classifyError = (err) => {
   };
 };
 
+const logOrderNotificationStage = async ({ order, status, outcome, error }) => {
+  const orderId = order?.id;
+  if (!orderId || !status) return;
+  const statuses = await getOrderStatuses().catch(() => []);
+  const statusLabel = statuses.find((item) => item.key === status)?.label
+    || String(status).replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase());
+  const failed = outcome === 'FAILED';
+  const skipped = outcome === 'SKIPPED';
+  await prisma.orderStage.create({
+    data: {
+      orderId,
+      stage: failed ? 'WHATSAPP_FAILED' : skipped ? 'WHATSAPP_SKIPPED' : 'WHATSAPP_SENT',
+      eventType: 'NOTIFICATION',
+      reasonCode: `WHATSAPP_${outcome}`,
+      notes: failed
+        ? `WhatsApp failed: ${statusLabel}${error ? ` - ${String(error).slice(0, 180)}` : ''}`
+        : skipped
+          ? `WhatsApp skipped: ${statusLabel}${error ? ` - ${String(error).slice(0, 180)}` : ''}`
+        : `WhatsApp sent: ${statusLabel}`,
+      metadata: {
+        channel: 'WHATSAPP',
+        provider: 'WHATOMATE',
+        status,
+        outcome,
+        orderNumber: order?.orderNumber || null,
+        customerId: order?.customer?.id || null,
+        error: error ? String(error).slice(0, 500) : null,
+      },
+    },
+  });
+};
+
 async function performNotification(type, data, options = {}) {
   if (type === JOB_TYPE.ORDER_STATUS) {
+    const current = data?.order?.id
+      ? await prisma.order.findUnique({ where: { id: data.order.id }, select: { status: true } })
+      : null;
+    if (current?.status && data.status && current.status !== data.status) {
+      await logOrderNotificationStage({
+        order: data.order,
+        status: data.status,
+        outcome: 'SKIPPED',
+        error: `current status is ${current.status}`,
+      }).catch((err) => {
+        console.error('[notifications] failed to log WhatsApp skipped stage:', err.message);
+      });
+      return true;
+    }
     const { sendOrderStatusMessage } = require('../services/whatomate.service');
     const sent = await sendOrderStatusMessage(data.order, data.status, options);
     if (!sent && options.throwOnFailure) throw new Error(`Order status notification was not sent for ${data?.order?.orderNumber || 'order'}`);
+    if (sent) {
+      await logOrderNotificationStage({ order: data.order, status: data.status, outcome: 'SENT' }).catch((err) => {
+        console.error('[notifications] failed to log WhatsApp sent stage:', err.message);
+      });
+    }
     return sent;
   }
   if (type === JOB_TYPE.DELIVERY_OTP) {
@@ -157,6 +210,16 @@ function startNotificationsWorker() {
     console.error(`[notifications-worker] job ${job?.id} failed:`, err.message);
     const attempts = job?.opts?.attempts || 1;
     if (job && (err instanceof UnrecoverableError || job.attemptsMade >= attempts)) {
+      if (job.name === JOB_TYPE.ORDER_STATUS) {
+        logOrderNotificationStage({
+          order: job.data?.order,
+          status: job.data?.status,
+          outcome: 'FAILED',
+          error: err?.message || 'Notification failed',
+        }).catch((stageErr) => {
+          console.error(`[notifications-worker] failed to log WhatsApp failure for job ${job.id}:`, stageErr.message);
+        });
+      }
       moveToDeadLetter(job, err).catch((dlqErr) => {
         console.error(`[notifications-worker] failed to move job ${job.id} to DLQ:`, dlqErr.message);
       });

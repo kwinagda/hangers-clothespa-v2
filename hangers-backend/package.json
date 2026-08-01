@@ -11,6 +11,7 @@
     "type:check": "tsc --noEmit",
     "postinstall": "npx prisma generate",
     "fabklean:payments": "node scripts/import-fabklean-payments.mjs",
+    "customers:normalize": "node scripts/normalize-customers.mjs",
     "start:prod": "npx prisma migrate deploy && node src/index.js",
     "start:worker": "node src/workers.js",
     "db:generate": "prisma generate",
