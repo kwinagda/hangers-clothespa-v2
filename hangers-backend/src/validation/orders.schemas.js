@@ -138,6 +138,10 @@ const orderPaymentReversalSchema = z.object({
   reason: adjustmentReason,
 }).strict();
 
+const manualOrderNotificationSchema = z.object({
+  type: z.enum(['ORDER_DETAILS', 'PAYMENT_REMINDER_ORDER', 'PAYMENT_REMINDER_SUMMARY']),
+}).strict();
+
 const deliveryOtpVerifySchema = z.object({
   otp: z.string().trim().min(4).max(6),
 }).strict();
@@ -156,4 +160,5 @@ module.exports = {
   orderPaymentSchema,
   orderRefundSchema,
   orderPaymentReversalSchema,
+  manualOrderNotificationSchema,
 };

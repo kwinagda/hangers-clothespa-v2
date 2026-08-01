@@ -11,6 +11,9 @@ const filterOptions = [
   { key: 'WHATSAPP_FAILED', label: 'WhatsApp Failed', params: { outcome: 'FAILED' } },
   { key: 'WHATSAPP_SENT', label: 'WhatsApp Sent', params: { outcome: 'SENT' } },
   { key: 'NOTIFICATION', label: 'Notifications', params: { eventType: 'NOTIFICATION' } },
+  { key: 'ACTION_ATTEMPTED', label: 'Action Attempted', params: { eventType: 'ACTION_ATTEMPTED' } },
+  { key: 'ACTION_SUCCEEDED', label: 'Action Completed', params: { eventType: 'ACTION_SUCCEEDED' } },
+  { key: 'ACTION_FAILED', label: 'Action Failed', params: { eventType: 'ACTION_FAILED' } },
   { key: 'WORKFLOW', label: 'Workflow', params: { eventType: 'WORKFLOW_TRANSITION' } },
 ]
 
@@ -20,10 +23,16 @@ const stageLabel = (stage: string) => {
   if (stage === 'WHATSAPP_SKIPPED') return 'WhatsApp Skipped'
   if (stage === 'PAYMENT_ENTRY_VOIDED') return 'Payment Entry Voided'
   if (stage === 'ORDER_EDITED') return 'Order Updated'
+  if (stage === 'ORDER_STATUS_ATTEMPTED') return 'Status Update Requested'
+  if (stage === 'ORDER_STATUS_SUCCEEDED') return 'Status Update Completed'
+  if (stage === 'ORDER_STATUS_FAILED') return 'Status Update Failed'
   return String(stage || 'Log').replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase())
 }
 
-const logTone = (stage: string) => {
+const logTone = (stage: string, eventType?: string) => {
+  if (eventType === 'ACTION_FAILED' || stage === 'ORDER_STATUS_FAILED') return { bg: '#fff1f2', border: '#fecdd3', color: '#b91c1c' }
+  if (eventType === 'ACTION_ATTEMPTED') return { bg: '#fffbeb', border: '#fde68a', color: '#b45309' }
+  if (eventType === 'ACTION_SUCCEEDED') return { bg: '#f0fdf4', border: '#bbf7d0', color: '#15803d' }
   if (stage === 'WHATSAPP_FAILED') return { bg: '#fff1f2', border: '#fecdd3', color: '#b91c1c' }
   if (stage === 'WHATSAPP_SENT') return { bg: '#f0fdf4', border: '#bbf7d0', color: '#15803d' }
   if (stage === 'WHATSAPP_SKIPPED') return { bg: '#fff7ed', border: '#fed7aa', color: '#c2410c' }
@@ -146,15 +155,16 @@ export default function LogsPage() {
                   </div>
                   <div style={{ padding: '14px 16px 2px' }}>
                     {group.logs.map((log: any, index: number) => {
-                      const tone = logTone(log.stage)
+                      const tone = logTone(log.stage, log.eventType)
                       const retryText = retryAttemptSummary(log.metadata)
+                      const actionErrorCode = log.eventType === 'ACTION_FAILED' ? (log.metadata?.errorCode || log.reasonCode || '') : ''
                       return (
                         <div key={log.id} style={{ display: 'grid', gridTemplateColumns: '22px 1fr', gap: 10, paddingBottom: 14 }}>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                             <div style={{ width: 12, height: 12, borderRadius: 999, background: tone.color, marginTop: 4 }} />
                             {index < group.logs.length - 1 && <div style={{ width: 2, flex: 1, background: '#e3edf6', marginTop: 4 }} />}
                           </div>
-                          <div style={{ minWidth: 0, border: log.stage === 'WHATSAPP_FAILED' ? '1px solid #fecaca' : 'none', background: log.stage === 'WHATSAPP_FAILED' ? '#fff7f7' : 'transparent', borderRadius: log.stage === 'WHATSAPP_FAILED' ? 12 : 0, padding: log.stage === 'WHATSAPP_FAILED' ? '9px 11px' : 0 }}>
+                          <div style={{ minWidth: 0, border: (log.stage === 'WHATSAPP_FAILED' || log.eventType === 'ACTION_FAILED') ? '1px solid #fecaca' : 'none', background: (log.stage === 'WHATSAPP_FAILED' || log.eventType === 'ACTION_FAILED') ? '#fff7f7' : 'transparent', borderRadius: (log.stage === 'WHATSAPP_FAILED' || log.eventType === 'ACTION_FAILED') ? 12 : 0, padding: (log.stage === 'WHATSAPP_FAILED' || log.eventType === 'ACTION_FAILED') ? '9px 11px' : 0 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                               <span style={{ display: 'inline-flex', border: `1px solid ${tone.border}`, background: tone.bg, color: tone.color, borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 900 }}>
                                 {stageLabel(log.stage)}
@@ -165,6 +175,11 @@ export default function LogsPage() {
                             <div style={{ marginTop: 6, color: '#142033', fontSize: 13, lineHeight: 1.45, overflowWrap: 'anywhere' }}>
                               {log.notes || stageLabel(log.stage)}
                             </div>
+                            {actionErrorCode && (
+                              <div style={{ marginTop: 7, display: 'inline-flex', border: '1px solid #fecaca', background: '#fff', color: '#991b1b', borderRadius: 999, padding: '4px 8px', fontSize: 11, fontWeight: 900 }}>
+                                Error code: {actionErrorCode}
+                              </div>
+                            )}
                             {retryText && <div style={{ marginTop: 5, color: '#8a5a00', fontSize: 12 }}>{retryText}</div>}
                             {log.changedBy?.name && <div style={{ marginTop: 5, color: '#9dafc8', fontSize: 11.5 }}>By {log.changedBy.name}</div>}
                           </div>

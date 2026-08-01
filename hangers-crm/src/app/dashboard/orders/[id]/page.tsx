@@ -18,6 +18,9 @@ import { AlertTriangle, Bike, CalendarRange, ClipboardList, Clock3, IndianRupee,
 const getStatusLabel = (status: string, source?: string, labels: Record<string, string> = {}) => {
   if (status === 'ORDER_EDITED') return 'Order Updated'
   if (status === 'PAYMENT_ENTRY_VOIDED') return 'Payment Entry Voided'
+  if (status === 'ORDER_STATUS_ATTEMPTED') return 'Status Update Requested'
+  if (status === 'ORDER_STATUS_SUCCEEDED') return 'Status Update Completed'
+  if (status === 'ORDER_STATUS_FAILED') return 'Status Update Failed'
   if (status === 'WHATSAPP_SENT') return 'WhatsApp Sent'
   if (status === 'WHATSAPP_FAILED') return 'WhatsApp Failed'
   if (status === 'WHATSAPP_SKIPPED') return 'WhatsApp Skipped'
@@ -278,6 +281,9 @@ const renderStageNote = (note?: string | null) => {
 const getTimelineTitle = (stage: string, note: string, statusLabel: (status: string) => string) => {
   if (stage === 'ORDER_EDITED' || String(note || '').trim().startsWith('[ORDER_EDIT]')) return 'Order Updated'
   if (stage === 'PAYMENT_ENTRY_VOIDED') return 'Payment Entry Voided'
+  if (stage === 'ORDER_STATUS_ATTEMPTED') return 'Status Update Requested'
+  if (stage === 'ORDER_STATUS_SUCCEEDED') return 'Status Update Completed'
+  if (stage === 'ORDER_STATUS_FAILED') return 'Status Update Failed'
   if (stage === 'WHATSAPP_SENT') return 'WhatsApp Sent'
   if (stage === 'WHATSAPP_FAILED') return 'WhatsApp Failed'
   if (stage === 'WHATSAPP_SKIPPED') return 'WhatsApp Skipped'
@@ -580,6 +586,15 @@ export default function OrderDetailPage() {
     kind: 'forward',
     reason: '',
   })
+  const [manualWhatsApp, setManualWhatsApp] = useState<{ open: boolean; type: 'ORDER_DETAILS' | 'PAYMENT_REMINDER_ORDER' | 'PAYMENT_REMINDER_SUMMARY'; confirm: boolean }>({
+    open: false,
+    type: 'ORDER_DETAILS',
+    confirm: false,
+  })
+  const [manualWhatsAppBusy, setManualWhatsAppBusy] = useState(false)
+  const [manualWhatsAppPreview, setManualWhatsAppPreview] = useState<any>(null)
+  const [manualWhatsAppPreviewLoading, setManualWhatsAppPreviewLoading] = useState(false)
+  const [manualWhatsAppCooldownTick, setManualWhatsAppCooldownTick] = useState(0)
 
   const loadOrder = useCallback(async () => {
     if (!orderId) return
@@ -681,7 +696,7 @@ export default function OrderDetailPage() {
     } finally { setUpdating(false) }
   }
 
-  const retryWhatsAppStage = async (stageId: string) => {
+	  const retryWhatsAppStage = async (stageId: string) => {
     setRetryingStageId(stageId)
     const addLocalFailedRetryAttempt = (message: string) => {
       const attemptedAt = new Date().toISOString()
@@ -710,7 +725,7 @@ export default function OrderDetailPage() {
                 lastRetryOutcome: 'FAILED',
                 lastRetryError: message,
               },
-            }
+		  }
           }),
         }
       })
@@ -726,12 +741,89 @@ export default function OrderDetailPage() {
       window.setTimeout(() => {
         loadOrder().catch(() => undefined)
       }, 900)
+	    } finally {
+	      setRetryingStageId('')
+	    }
+	  }
+
+  useEffect(() => {
+    if (!manualWhatsApp.open || !order?.id) {
+      setManualWhatsAppPreview(null)
+      return
+    }
+    let cancelled = false
+    setManualWhatsAppPreviewLoading(true)
+    ordersAPI.previewManualNotification(order.id, { type: manualWhatsApp.type })
+      .then((response: any) => {
+        if (cancelled) return
+        const nextPreview = response?.data || response
+        setManualWhatsAppPreview(nextPreview)
+        setManualWhatsAppCooldownTick(Number(nextPreview?.cooldown?.waitSeconds || 0))
+      })
+      .catch((e: any) => {
+        if (cancelled) return
+        setManualWhatsAppPreview({ error: e?.message || 'Failed to load WhatsApp preview' })
+      })
+      .finally(() => {
+        if (!cancelled) setManualWhatsAppPreviewLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [manualWhatsApp.open, manualWhatsApp.type, order?.id])
+
+  useEffect(() => {
+    if (!manualWhatsApp.open || !manualWhatsAppPreview?.cooldown?.waitSeconds) return
+    const startedAt = Date.now()
+    const interval = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000)
+      const remaining = Math.max(0, Number(manualWhatsAppPreview.cooldown.waitSeconds || 0) - elapsed)
+      setManualWhatsAppCooldownTick(remaining)
+      if (remaining <= 0) {
+        window.clearInterval(interval)
+        if (order?.id) {
+          setManualWhatsAppPreviewLoading(true)
+          ordersAPI.previewManualNotification(order.id, { type: manualWhatsApp.type })
+            .then((response: any) => {
+              const nextPreview = response?.data || response
+              setManualWhatsAppPreview(nextPreview)
+              setManualWhatsAppCooldownTick(Number(nextPreview?.cooldown?.waitSeconds || 0))
+            })
+            .catch((e: any) => setManualWhatsAppPreview({ error: e?.message || 'Failed to load WhatsApp preview' }))
+            .finally(() => setManualWhatsAppPreviewLoading(false))
+        }
+      }
+    }, 1000)
+    return () => window.clearInterval(interval)
+  }, [manualWhatsApp.open, manualWhatsApp.type, manualWhatsAppPreview?.cooldown?.waitSeconds, order?.id])
+
+  const submitManualWhatsApp = async () => {
+    if (!order?.id) return
+    if (!manualWhatsApp.confirm) {
+      toast.error('Confirm before sending WhatsApp')
+      return
+    }
+    if (manualWhatsAppPreview?.cooldown?.waitSeconds) {
+      toast.error(`Wait ${Math.max(1, manualWhatsAppCooldownTick || manualWhatsAppPreview.cooldown.waitSeconds)}s before sending again`)
+      return
+    }
+    setManualWhatsAppBusy(true)
+    try {
+      if (!manualWhatsAppPreview || manualWhatsAppPreview.error) {
+        toast.error('Preview must load before sending')
+        return
+      }
+      await ordersAPI.sendManualNotification(order.id, { type: manualWhatsApp.type })
+      toast.success('WhatsApp request sent')
+      setManualWhatsApp({ open: false, type: 'ORDER_DETAILS', confirm: false })
+      await loadOrder()
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to send WhatsApp')
+      await loadOrder()
     } finally {
-      setRetryingStageId('')
+      setManualWhatsAppBusy(false)
     }
   }
 
-  const submitStatusModal = async () => {
+	  const submitStatusModal = async () => {
     if (!statusModal.reason.trim()) {
       toast.error('Reason is required for this status correction')
       return
@@ -776,6 +868,9 @@ export default function OrderDetailPage() {
   })
   const showItemsPanel = !order.isReturn && !isLocked && !plantStatuses.includes(order.status) && noItems && statusChoices.some((status) => orderWorkflow.requiresItems.includes(status))
   const canEditOrder = !order.isReturn && !isLocked && !plantStatuses.includes(order.status) && !['DELIVERED', 'CANCELLED', 'RETURNED'].includes(order.status) && hasCorrectionAuthority(currentStaff)
+  const manualWhatsAppCooldownRemaining = manualWhatsApp.open && manualWhatsAppPreview?.cooldown?.waitSeconds
+    ? Math.max(0, manualWhatsAppCooldownTick || Number(manualWhatsAppPreview.cooldown.waitSeconds || 0))
+    : 0
   const currentPermissions = currentStaff?.effectivePermissions || currentStaff?.permissions || []
   const canRefund = currentPermissions.includes('*') || currentPermissions.includes('finance.refund')
   const canAssignRider = orderWorkflow.riderAssignableStatuses.includes(order.status)
@@ -955,7 +1050,7 @@ export default function OrderDetailPage() {
               {forwardActionStatuses.length > 0 && !isLocked && !order.isReturn && forwardActionStatuses.map((targetStatus, index) => {
                 const blocked = !canProgress(targetStatus)
                 const isPrimary = targetStatus === nextSt || index === 0
-                const isDirectDelivered = order.status === 'READY_FOR_DELIVERY' && targetStatus === 'DELIVERED'
+                const isDirectDelivered = targetStatus === 'DELIVERED'
                 return (
                   <button key={targetStatus} onClick={()=>updateStatus(targetStatus)} disabled={updating||blocked}
                     style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,width:'100%',padding:11,borderRadius:9,fontSize:13.5,fontWeight:700,border:isPrimary?'none':'1.5px solid #dce8f0',cursor:blocked?'not-allowed':'pointer',background:blocked?'#f1f5f9':isPrimary?'#023c62':'#fff',color:blocked?'#9dafc8':isPrimary?'#fff':'#023c62',opacity:updating?0.6:1,whiteSpace:'normal' as const,lineHeight:1.35}}>
@@ -976,15 +1071,14 @@ export default function OrderDetailPage() {
                   {showEditPanel ? 'Close Order Edit' : 'Edit Items / Pricing'}
                 </button>
               )}
-              <div style={{display:'flex',gap:8}}>
-                {order.customer?.phone && (
-                  <a href={'https://wa.me/91'+order.customer.phone}
-                    target="_blank" rel="noreferrer"
-                    style={{flex:'1 1 0',minWidth:0,display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:9,borderRadius:8,background:'#fff',border:'1px solid #dce8f0',color:'#3d5470',fontSize:12,fontWeight:600,textDecoration:'none'}}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20l1.3-3.9A7.5 7.5 0 1 1 9 18.5L4 20z"/></svg>
-                    Message
-                  </a>
-                )}
+	              <div style={{display:'flex',gap:8}}>
+	                {order.customer?.phone && (
+	                  <button onClick={() => setManualWhatsApp({ open: true, type: 'ORDER_DETAILS', confirm: false })}
+	                    style={{flex:'1 1 0',minWidth:0,display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:9,borderRadius:8,background:'#fff',border:'1px solid #dce8f0',color:'#3d5470',fontSize:12,fontWeight:600,textDecoration:'none'}}>
+	                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20l1.3-3.9A7.5 7.5 0 1 1 9 18.5L4 20z"/></svg>
+	                    Message
+	                  </button>
+	                )}
                 <button onClick={() => openPrintWindow('/dashboard/print?orderId='+order.id+'&type=receipt&autoprint=1')}
                   style={{flex:'1 1 0',minWidth:0,display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:9,borderRadius:8,background:'#fff',border:'1px solid #dce8f0',color:'#3d5470',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V4h12v5"/><path d="M6 18h12v3H6z"/><path d="M4 9h16v7H4z"/></svg>
@@ -1010,6 +1104,10 @@ export default function OrderDetailPage() {
                 const timelineNote = getTimelineNote(st.notes)
                 const isWhatsAppFailed = st.stage === 'WHATSAPP_FAILED'
                 const isWhatsAppSent = st.stage === 'WHATSAPP_SENT'
+                const isActionFailed = st.eventType === 'ACTION_FAILED' || st.stage === 'ORDER_STATUS_FAILED'
+                const isActionAttempted = st.eventType === 'ACTION_ATTEMPTED'
+                const isActionSucceeded = st.eventType === 'ACTION_SUCCEEDED'
+                const timelineErrorCode = isActionFailed ? (st.metadata?.errorCode || st.reasonCode || '') : ''
                 const retryResolved = resolvedWhatsAppFailureIds.has(st.id)
                 const failedRetryAttempts = Array.isArray(st.metadata?.retryAttempts)
                   ? st.metadata.retryAttempts.filter((attempt: any) => attempt?.outcome === 'FAILED')
@@ -1017,14 +1115,14 @@ export default function OrderDetailPage() {
                 return (
 		                <div key={st.id} style={{display:'flex',gap:12,padding:'0 20px 18px',position:'relative' as const,minWidth:0}}>
                     <div style={{display:'flex',flexDirection:'column' as const,alignItems:'center'}}>
-	                      <div style={{width:isWhatsAppFailed?18:10,height:isWhatsAppFailed?18:10,borderRadius:999,background:isWhatsAppFailed?'#fee2e2':isWhatsAppSent?'#dcfce7':'#023c62',color:isWhatsAppFailed?'#dc2626':isWhatsAppSent?'#16a34a':'#fff',marginTop:isWhatsAppFailed?1:4,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                          {isWhatsAppFailed ? <XCircle size={16} strokeWidth={2.4}/> : null}
+	                      <div style={{width:isWhatsAppFailed||isActionFailed?18:10,height:isWhatsAppFailed||isActionFailed?18:10,borderRadius:999,background:isWhatsAppFailed||isActionFailed?'#fee2e2':isWhatsAppSent||isActionSucceeded?'#dcfce7':isActionAttempted?'#fef3c7':'#023c62',color:isWhatsAppFailed||isActionFailed?'#dc2626':isWhatsAppSent||isActionSucceeded?'#16a34a':isActionAttempted?'#b45309':'#fff',marginTop:isWhatsAppFailed||isActionFailed?1:4,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                          {isWhatsAppFailed || isActionFailed ? <XCircle size={16} strokeWidth={2.4}/> : null}
                         </div>
 	                      {i<arr.length-1&&<div style={{width:2,flex:1,background:'#e3edf6',margin:'3px 0'}}/>}
 	                    </div>
-		                  <div style={{minWidth:0,flex:1,border:isWhatsAppFailed?'1px solid #fecaca':'none',background:isWhatsAppFailed?'#fff7f7':'transparent',borderRadius:isWhatsAppFailed?12:0,padding:isWhatsAppFailed?'10px 12px':0,marginTop:isWhatsAppFailed?-5:0}}>
+		                  <div style={{minWidth:0,flex:1,border:isWhatsAppFailed||isActionFailed?'1px solid #fecaca':'none',background:isWhatsAppFailed||isActionFailed?'#fff7f7':'transparent',borderRadius:isWhatsAppFailed||isActionFailed?12:0,padding:isWhatsAppFailed||isActionFailed?'10px 12px':0,marginTop:isWhatsAppFailed||isActionFailed?-5:0}}>
                         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
-		                      <div style={{fontSize:13,fontWeight:800,color:isWhatsAppFailed?'#b91c1c':'#142033'}}>{getTimelineTitle(st.stage, st.notes, statusLabel)}</div>
+		                      <div style={{fontSize:13,fontWeight:800,color:isWhatsAppFailed||isActionFailed?'#b91c1c':'#142033'}}>{getTimelineTitle(st.stage, st.notes, statusLabel)}</div>
                           {isWhatsAppFailed && retryResolved && (
                             <span style={{display:'inline-flex',alignItems:'center',gap:5,border:'1px solid #bbf7d0',background:'#f0fdf4',color:'#15803d',borderRadius:999,padding:'5px 10px',fontSize:11.5,fontWeight:800,whiteSpace:'nowrap' as const}}>
                               Retried successfully
@@ -1041,7 +1139,12 @@ export default function OrderDetailPage() {
                             </button>
                           )}
                         </div>
-			                    <div style={{fontSize:11.5,color:isWhatsAppFailed?'#b45353':'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{format(new Date(st.createdAt),'d MMM, h:mm a')}{timelineNote ? ` · ${timelineNote}` : ''}</div>
+			                    <div style={{fontSize:11.5,color:isWhatsAppFailed||isActionFailed?'#b45353':'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{format(new Date(st.createdAt),'d MMM, h:mm a')}{timelineNote ? ` · ${timelineNote}` : ''}</div>
+                          {timelineErrorCode && (
+                            <div style={{marginTop:7,display:'inline-flex',alignItems:'center',gap:6,border:'1px solid #fecaca',background:'#fff',color:'#991b1b',borderRadius:999,padding:'4px 8px',fontSize:11,fontWeight:800,letterSpacing:'0.02em'}}>
+                              Error code: {timelineErrorCode}
+                            </div>
+                          )}
                           {isWhatsAppFailed && failedRetryAttempts.length > 0 && (
                             <div style={{marginTop:9,display:'grid',gap:6}}>
                               {failedRetryAttempts.map((attempt: any, attemptIndex: number) => {
@@ -1118,6 +1221,74 @@ export default function OrderDetailPage() {
           </div>
         </div>
       </div>
+      {manualWhatsApp.open && (
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.42)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:80,padding:'18px',boxSizing:'border-box'}}>
+          <div style={{width:'min(720px,100%)',maxHeight:'min(760px,calc(100vh - 36px))',background:'#fff',borderRadius:18,border:'1px solid #e4edf5',boxShadow:'0 28px 64px rgba(2,60,98,0.22)',overflow:'hidden',display:'flex',flexDirection:'column'}}>
+            <div style={{padding:'18px 22px',borderBottom:'1px solid #edf3f8',flexShrink:0}}>
+              <div style={{fontSize:18,fontWeight:900,color:'#023c62'}}>Send WhatsApp</div>
+              <div style={{fontSize:12.5,color:'#6b7fa3',marginTop:4}}>
+                {order.orderNumber} · {order.customer?.name || 'Customer'} · Balance {formatCurrency(outstandingAmount)}
+              </div>
+            </div>
+            <div style={{padding:22,display:'grid',gap:12,overflowY:'auto',minHeight:0}}>
+              {[
+                { type: 'ORDER_DETAILS', title: 'Resend order details', detail: 'Sends the current order status/details with invoice link.' },
+                { type: 'PAYMENT_REMINDER_ORDER', title: 'Payment reminder for this order', detail: 'Sends this order outstanding amount with payment details.' },
+                { type: 'PAYMENT_REMINDER_SUMMARY', title: 'Customer full O/S summary', detail: 'Sends customer-level pending order count and total outstanding.' },
+              ].map((option: any) => (
+                <label key={option.type} style={{display:'grid',gridTemplateColumns:'18px 1fr',gap:10,padding:12,border:'1px solid #dce8f0',borderRadius:12,cursor:'pointer',background:manualWhatsApp.type === option.type ? '#eff6ff' : '#fff'}}>
+                  <input type="radio" checked={manualWhatsApp.type === option.type} onChange={() => setManualWhatsApp((current) => ({ ...current, type: option.type, confirm: false }))} />
+                  <span>
+                    <strong style={{display:'block',fontSize:13.5,color:'#142033'}}>{option.title}</strong>
+                    <span style={{display:'block',fontSize:12,color:'#6b7fa3',marginTop:2,lineHeight:1.4}}>{option.detail}</span>
+                  </span>
+                </label>
+              ))}
+              <label style={{display:'flex',gap:9,alignItems:'flex-start',fontSize:12.5,color:'#51657f',lineHeight:1.45}}>
+                <input type="checkbox" checked={manualWhatsApp.confirm} onChange={(e) => setManualWhatsApp((current) => ({ ...current, confirm: e.target.checked }))} />
+                I confirm this will send a WhatsApp template to the customer and create a timeline log.
+              </label>
+              <div style={{border:'1px solid #dce8f0',borderRadius:12,background:'#f8fafc',padding:12,minHeight:260}}>
+                <div style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center',marginBottom:8}}>
+                  <div style={{fontSize:11,fontWeight:800,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em'}}>Message Preview</div>
+                  {manualWhatsAppPreviewLoading && <div style={{fontSize:11.5,color:'#6b7fa3',fontWeight:800}}>Updating...</div>}
+                </div>
+                {manualWhatsAppPreview?.error ? (
+                  <div style={{fontSize:12,color:'#b91c1c',fontWeight:700}}>{manualWhatsAppPreview.error}</div>
+                ) : (
+                  <>
+                    {manualWhatsAppPreview?.qrImage && <img src={manualWhatsAppPreview.qrImage} alt="Payment QR preview" style={{width:96,height:96,objectFit:'contain',border:'1px solid #dce8f0',borderRadius:10,background:'#fff',marginBottom:10}} />}
+                    {manualWhatsAppCooldownRemaining > 0 && (
+                      <div style={{border:'1px solid #fde68a',background:'#fffbeb',borderRadius:10,padding:10,marginBottom:10}}>
+                        <div style={{display:'flex',justifyContent:'space-between',gap:10,fontSize:12,color:'#92400e',fontWeight:900}}>
+                          <span>Cooldown active</span>
+                          <span>{manualWhatsAppCooldownRemaining}s</span>
+                        </div>
+                        <div style={{height:5,background:'#fde68a',borderRadius:999,overflow:'hidden',marginTop:8}}>
+                          <div style={{height:'100%',width:`${Math.max(0, Math.min(100, (manualWhatsAppCooldownRemaining / Number(manualWhatsAppPreview.cooldown.waitSeconds || 60)) * 100))}%`,background:'#f59e0b',borderRadius:999,transition:'width 1s linear'}} />
+                        </div>
+                        <div style={{fontSize:11.5,color:'#a16207',marginTop:7,lineHeight:1.35}}>Send will unlock only after the CRM rechecks the server.</div>
+                      </div>
+                    )}
+                    <pre style={{whiteSpace:'pre-wrap',margin:0,fontFamily:'var(--crm-font-ui)',fontSize:12.5,lineHeight:1.5,color:'#142033',maxHeight:220,overflowY:'auto',background:'#fff',border:'1px solid #edf3f8',borderRadius:10,padding:12}}>{manualWhatsAppPreview?.body || 'Preview not available'}</pre>
+                    <div style={{marginTop:10,fontSize:12,color:'#023c62',fontWeight:800}}>Button: {manualWhatsAppPreview?.buttonLabel || 'View Invoice'}</div>
+                  </>
+                )}
+              </div>
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end',gap:10,padding:'14px 22px',borderTop:'1px solid #edf3f8',background:'#f8fafc',flexShrink:0}}>
+              <button onClick={() => setManualWhatsApp({ open:false, type:'ORDER_DETAILS', confirm:false })} disabled={manualWhatsAppBusy}
+                style={{padding:'9px 14px',borderRadius:10,border:'1px solid #dce8f0',background:'#fff',color:'#51657f',fontWeight:700,cursor:manualWhatsAppBusy?'wait':'pointer'}}>
+                Cancel
+              </button>
+              <button onClick={submitManualWhatsApp} disabled={manualWhatsAppBusy || !manualWhatsApp.confirm || manualWhatsAppPreviewLoading || Boolean(manualWhatsAppPreview?.error) || manualWhatsAppCooldownRemaining > 0}
+                style={{padding:'9px 16px',borderRadius:10,border:'none',background:'#0d7a4e',color:'#fff',fontWeight:800,cursor:manualWhatsAppBusy?'wait':'pointer',opacity:(!manualWhatsApp.confirm || manualWhatsAppBusy || manualWhatsAppCooldownRemaining > 0)?0.6:1}}>
+                {manualWhatsAppBusy ? 'Sending...' : manualWhatsAppCooldownRemaining > 0 ? `Wait ${manualWhatsAppCooldownRemaining}s` : 'Send WhatsApp'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {statusModal.open && (() => {
         const meta = getCorrectionMeta(statusModal.kind)
         return (

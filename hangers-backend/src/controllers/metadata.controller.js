@@ -76,6 +76,7 @@ const getMetadata = async (_req, res) => {
         recurringFrequencies: masterMetadata.recurringFrequencies,
         weekdays: masterMetadata.weekdays,
         expenseCategories: masterMetadata.expenseCategories,
+        errorCatalog: masterMetadata.errorCatalog,
         fieldServiceStatuses: masterMetadata.fieldServiceStatuses,
         fieldServiceWorkflow: masterMetadata.fieldServiceWorkflow,
         discountValueTypes: masterMetadata.discountValueTypes,

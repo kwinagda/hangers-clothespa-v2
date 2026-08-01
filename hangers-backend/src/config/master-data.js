@@ -14,6 +14,50 @@ const ORDER_STATUSES = [
   { key: 'RETURNED', label: 'Returned', customerLabel: 'Returned', plantLabel: 'Returned', icon: 'backup-restore', crmEditable: false, plantManaged: false, customerBucket: 'completed', customerTrackVisible: false, color: '#991b1b', bg: '#fee2e2', border: '#fecaca' },
 ];
 
+const ERROR_CATALOG = {
+  DUPLICATE_BACKGROUND_EVENT: {
+    code: 'DUPLICATE_BACKGROUND_EVENT',
+    severity: 'warning',
+    title: 'Duplicate background event',
+    message: 'This action was blocked because the same background event was already recorded. Refresh and retry once.',
+    retryable: true,
+    match: {
+      prismaCodes: ['P2002'],
+      messageIncludes: ['Unique constraint failed'],
+    },
+  },
+  TRANSACTION_ABORTED_AFTER_DB_ERROR: {
+    code: 'TRANSACTION_ABORTED_AFTER_DB_ERROR',
+    severity: 'error',
+    title: 'Database transaction stopped',
+    message: 'This action could not finish because an earlier database step failed in the same request. Refresh and retry once.',
+    retryable: true,
+    match: {
+      postgresCodes: ['25P02'],
+      messageIncludes: ['current transaction is aborted'],
+    },
+  },
+  DATABASE_ACTION_FAILED: {
+    code: 'DATABASE_ACTION_FAILED',
+    severity: 'error',
+    title: 'Database action failed',
+    message: 'This action could not be completed due to a backend database error. Refresh and retry once.',
+    retryable: true,
+    match: {
+      names: ['PrismaClientKnownRequestError', 'PrismaClientUnknownRequestError'],
+      messageIncludes: ['ConnectorError', 'PostgresError', 'prisma.'],
+    },
+  },
+  ORDER_ACTION_FAILED: {
+    code: 'ORDER_ACTION_FAILED',
+    severity: 'error',
+    title: 'Order action failed',
+    message: 'This order action could not be completed. Refresh and retry once.',
+    retryable: true,
+    match: {},
+  },
+};
+
 const ORDER_STATUS_KEYS = ORDER_STATUSES.map((status) => status.key);
 const ORDER_STATUS_LABELS = ORDER_STATUSES.reduce((acc, status) => {
   acc[status.key] = status.plantLabel || status.label;
@@ -588,6 +632,20 @@ const WHATSAPP_TEMPLATES = {
     templateName: 'hangers_crm_order_updated',
     params: ['customerName', 'orderNumber', 'updatedTotalAmount', 'balanceDue'],
   },
+  paymentReminder: {
+    order: {
+      templateName: 'hangers_crm_payment_reminder_order',
+      params: ['customerName', 'orderNumber', 'balanceDue', 'upiId', 'gpayNumber'],
+      buttonIndex: '0',
+      headerImageIndex: '0',
+    },
+    outstandingSummary: {
+      templateName: 'hangers_crm_payment_reminder_summary',
+      params: ['customerName', 'outstandingOrderCount', 'outstandingAmount', 'upiId', 'gpayNumber'],
+      buttonIndex: '0',
+      headerImageIndex: '0',
+    },
+  },
   quotationSent: {
     templateName: 'hangers_crm_quotation_sent',
     params: ['customerName', 'orderNumber', 'totalAmount', 'validUntil'],
@@ -620,6 +678,7 @@ module.exports = {
   DELIVERY_MANAGER_ROLES,
   DELIVERY_PIN_ROLES,
   DOCUMENT_TYPES,
+  ERROR_CATALOG,
   IRON_SUBSCRIPTION_STATUS_META,
   IRON_SUBSCRIPTION_STATUSES,
   LANGUAGES,

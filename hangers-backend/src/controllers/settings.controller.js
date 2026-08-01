@@ -9,6 +9,7 @@ const {
   DEFAULT_PRINT_LAYOUT_SETTINGS,
   DEFAULT_PAYMENT_QR_SETTINGS,
 } = require('../config/print-settings');
+const { normalizePaymentQrSettings, getPaymentQrSettings } = require('../services/payment-account-settings.service');
 
 const ALLOWED_SETTING_KEYS = new Set([
   'writeoff_max_amount',
@@ -34,9 +35,9 @@ const parseSettingValue = (setting) => {
   }
   if (setting.key === PAYMENT_QR_SETTING_KEY) {
     try {
-      return JSON.parse(setting.value);
+      return normalizePaymentQrSettings(JSON.parse(setting.value));
     } catch {
-      return DEFAULT_PAYMENT_QR_SETTINGS;
+      return normalizePaymentQrSettings(DEFAULT_PAYMENT_QR_SETTINGS);
     }
   }
   return setting.value;
@@ -158,4 +159,23 @@ const getPublicSettings = async (req, res) => {
   }
 };
 
-module.exports = { getSettings, updateSettings, getPublicSettings };
+const getPaymentAccountQrImage = async (req, res) => {
+  try {
+    const settings = await getPaymentQrSettings();
+    const account = settings.accounts.find((item) => item.id === req.params.accountId);
+    if (!account?.qrImageDataUrl) return res.status(404).send('QR image not found');
+
+    const match = String(account.qrImageDataUrl).match(/^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,(.+)$/);
+    if (!match) return res.status(422).send('Stored QR image is invalid');
+
+    const contentType = match[1] === 'image/jpg' ? 'image/jpeg' : match[1];
+    const buffer = Buffer.from(match[2], 'base64');
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.send(buffer);
+  } catch (e) {
+    return error(res, 'Failed to load payment QR image');
+  }
+};
+
+module.exports = { getSettings, updateSettings, getPublicSettings, getPaymentAccountQrImage };

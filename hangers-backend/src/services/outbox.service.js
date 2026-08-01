@@ -70,15 +70,35 @@ const enqueueOutboxEvent = async (tx, {
   dedupeKey,
 }) => {
   if (!tx) throw new Error('enqueueOutboxEvent requires a Prisma transaction client');
-  const event = await tx.outboxEvent.create({
-    data: {
-      eventType,
-      aggregateType,
-      aggregateId,
-      payload,
-      dedupeKey: dedupeKey || `${eventType}:${aggregateId}:${crypto.randomUUID()}`,
-    },
-  });
+  const resolvedDedupeKey = dedupeKey || `${eventType}:${aggregateId}:${crypto.randomUUID()}`;
+  let event = null;
+  let created = true;
+  if (dedupeKey) {
+    const result = await tx.outboxEvent.createMany({
+      data: [{
+        eventType,
+        aggregateType,
+        aggregateId,
+        payload,
+        dedupeKey: resolvedDedupeKey,
+      }],
+      skipDuplicates: true,
+    });
+    created = result.count > 0;
+    event = await tx.outboxEvent.findUnique({ where: { dedupeKey: resolvedDedupeKey } });
+  } else {
+    event = await tx.outboxEvent.create({
+      data: {
+        eventType,
+        aggregateType,
+        aggregateId,
+        payload,
+        dedupeKey: resolvedDedupeKey,
+      },
+    });
+  }
+  if (!event) throw new Error(`Failed to enqueue or load outbox event for dedupe key ${resolvedDedupeKey}`);
+  if (!created) return event;
   if (aggregateType === 'order') {
     await logOrderWhatsAppPending(tx, {
       orderId: aggregateId,

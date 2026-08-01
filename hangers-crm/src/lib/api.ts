@@ -67,6 +67,15 @@ export const ordersAPI = {
     {},
     idempotencyConfig('crm-order-notification-retry')
   ) as any,
+  previewManualNotification: (id: string, data: { type: 'ORDER_DETAILS' | 'PAYMENT_REMINDER_ORDER' | 'PAYMENT_REMINDER_SUMMARY' }) => api.post(
+    `/orders/${id}/notifications/preview`,
+    data
+  ) as any,
+  sendManualNotification: (id: string, data: { type: 'ORDER_DETAILS' | 'PAYMENT_REMINDER_ORDER' | 'PAYMENT_REMINDER_SUMMARY' }) => api.post(
+    `/orders/${id}/notifications/manual`,
+    data,
+    idempotencyConfig('crm-order-notification-manual')
+  ) as any,
   addItems:     (id: string, data: any) => api.patch(`/orders/${id}/items`, data, idempotencyConfig('crm-order-itemize')) as any,
   delete:       (id: string)   => api.delete(`/orders/${id}`, idempotencyConfig('crm-order-archive')),
 }

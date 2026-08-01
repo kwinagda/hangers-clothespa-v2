@@ -90,12 +90,13 @@ const ironBalance = (bill) => {
   return Math.max(0, Number((total - paid).toFixed(2)));
 };
 
-const resolveParam = ({ name, order, payment, iron }) => {
+const resolveParam = ({ name, order, payment, iron, reminder }) => {
   const customer = order?.customer || {};
   const ironCustomer = iron?.customer || {};
   const log = iron?.log || {};
   const bill = iron?.bill || {};
   const monthToDate = iron?.monthToDate || {};
+  const paymentSettings = reminder?.paymentSettings || {};
   const values = {
     customerName: customer.name || 'Customer',
     orderNumber: order?.orderNumber || '',
@@ -116,6 +117,10 @@ const resolveParam = ({ name, order, payment, iron }) => {
     billPieces: String(bill?.totalPieces || 0),
     billAmount: formatAmount(bill?.totalAmount),
     ironBalanceDue: formatAmount(ironBalance(bill)),
+    outstandingAmount: formatAmount(reminder?.outstandingAmount),
+    outstandingOrderCount: String(reminder?.outstandingOrderCount || 0),
+    upiId: paymentSettings.vpa || '',
+    gpayNumber: paymentSettings.gpayNumber || '',
   };
   if (name === 'customerName' && ironCustomer.name) return ironCustomer.name;
   if (name === 'balanceDue' && iron?.bill) return values.ironBalanceDue;
@@ -140,7 +145,7 @@ const isRetryableHttpStatus = (status) => (
   || status >= 500
 );
 
-const postTemplate = async ({ phone, templateName, templateParams, buttonParams, accountName, idempotencyKey, throwOnFailure = false }) => {
+const postTemplate = async ({ phone, templateName, templateParams, buttonParams, headerParams, headerMediaUrl, accountName, idempotencyKey, throwOnFailure = false }) => {
   if (!phone) {
     return maybeThrow(throwOnFailure, new WhatomateDeliveryError('Missing customer phone for WhatsApp template', {
       retryable: false,
@@ -159,6 +164,8 @@ const postTemplate = async ({ phone, templateName, templateParams, buttonParams,
     template_name: templateName,
     template_params: templateParams || {},
     button_params: buttonParams || {},
+    ...(headerParams && Object.keys(headerParams).length ? { header_params: headerParams } : {}),
+    ...(headerMediaUrl ? { header_media_url: headerMediaUrl } : {}),
     account_name: process.env.WHATOMATE_ACCOUNT_NAME || accountName || 'Hangers',
   };
 
@@ -322,6 +329,47 @@ const sendOrderUpdatedMessage = async (order, options = {}) => {
   return sent;
 };
 
+const sendPaymentReminderMessage = async (order, reminder, options = {}) => {
+  const phone = order?.customer?.phone;
+  if (!phone) {
+    return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('Missing customer phone for payment reminder', {
+      retryable: false,
+      code: 'MISSING_PHONE',
+    }));
+  }
+
+  const config = await getWhatsAppTemplates();
+  const mode = reminder?.mode === 'OUTSTANDING_SUMMARY' ? 'outstandingSummary' : 'order';
+  const template = config?.paymentReminder?.[mode];
+  if (!template?.templateName) {
+    return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('No WhatsApp payment reminder template configured', {
+      retryable: false,
+      code: 'MISSING_TEMPLATE',
+    }));
+  }
+  const invoiceSlug = await invoiceSlugFor(order);
+  if (!invoiceSlug) {
+    return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('Could not create public invoice token', {
+      retryable: true,
+      code: 'PUBLIC_TOKEN_CREATE_FAILED',
+    }));
+  }
+
+  const sent = await postTemplate({
+    phone,
+    templateName: template.templateName,
+    templateParams: buildTemplateParams(template.params, { order, reminder }),
+    buttonParams: { [template.buttonIndex || config.invoiceButtonIndex || '0']: invoiceSlug },
+    headerMediaUrl: reminder?.paymentSettings?.qrMediaUrl || reminder?.paymentSettings?.qrImageUrl || undefined,
+    accountName: config.accountName,
+    idempotencyKey: options.idempotencyKey || `payment-reminder:${order.id}:${mode}:${Date.now()}`,
+    throwOnFailure: options.throwOnFailure,
+  });
+
+  if (sent) console.log(`[Whatomate] Payment reminder template sent to ${maskPhone(phone)}`);
+  return sent;
+};
+
 const sendQuotationSentMessage = async (quotation, options = {}) => {
   const phone = quotation?.customer?.phone;
   if (!phone) {
@@ -454,6 +502,7 @@ module.exports = {
   sendOrderStatusMessage,
   sendPaymentReceivedMessage,
   sendOrderUpdatedMessage,
+  sendPaymentReminderMessage,
   sendQuotationSentMessage,
   sendDailyIronLogMessage,
   sendDailyIronBillMessage,

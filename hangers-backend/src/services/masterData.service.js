@@ -6,6 +6,7 @@ const {
   DISCOUNT_VALUE_TYPES,
   DELIVERY_FAIL_REASONS,
   DOCUMENT_TYPES,
+  ERROR_CATALOG,
   EXPENSE_CATEGORIES,
   FIELD_SERVICE_STATUSES,
   FIELD_SERVICE_WORKFLOW,
@@ -41,6 +42,7 @@ const MASTER_SETTING_KEYS = {
   discountValueTypes: 'master.discountValueTypes',
   documentTypes: 'master.documentTypes',
   expenseCategories: 'master.expenseCategories',
+  errorCatalog: 'master.errorCatalog',
   fieldServiceStatuses: 'master.fieldServiceStatuses',
   fieldServiceWorkflow: 'master.fieldServiceWorkflow',
   ironSubscriptionStatuses: 'master.ironSubscriptionStatuses',
@@ -76,6 +78,7 @@ const BOOTSTRAP_MASTER_SETTINGS = {
   [MASTER_SETTING_KEYS.discountValueTypes]: DISCOUNT_VALUE_TYPES,
   [MASTER_SETTING_KEYS.documentTypes]: DOCUMENT_TYPES,
   [MASTER_SETTING_KEYS.expenseCategories]: EXPENSE_CATEGORIES,
+  [MASTER_SETTING_KEYS.errorCatalog]: ERROR_CATALOG,
   [MASTER_SETTING_KEYS.fieldServiceStatuses]: FIELD_SERVICE_STATUSES,
   [MASTER_SETTING_KEYS.fieldServiceWorkflow]: FIELD_SERVICE_WORKFLOW,
   [MASTER_SETTING_KEYS.ironSubscriptionStatuses]: IRON_SUBSCRIPTION_STATUS_META,
@@ -154,6 +157,7 @@ const getCorePaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.corePay
 const getPaymentTransactionStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.paymentTransactionStatuses);
 const getLaunchCapabilities = () => getMasterSetting(MASTER_SETTING_KEYS.launchCapabilities);
 const getDeliveryFailReasons = () => getMasterSetting(MASTER_SETTING_KEYS.deliveryFailReasons);
+const getErrorCatalog = () => getMasterSetting(MASTER_SETTING_KEYS.errorCatalog);
 const getReportTypes = () => getMasterSetting(MASTER_SETTING_KEYS.reportTypes);
 const getServiceCodes = () => getMasterSetting(MASTER_SETTING_KEYS.serviceCodes);
 const getRoleServiceAccess = () => getMasterSetting(MASTER_SETTING_KEYS.roleServiceAccess);
@@ -241,6 +245,7 @@ module.exports = {
   getCapturedPaymentStatusValues,
   getCorePaymentMethods,
   getDeliveryFailReasons,
+  getErrorCatalog,
   getFieldServiceStatuses,
   getFieldServiceWorkflow,
   getLaunchCapabilities,

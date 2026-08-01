@@ -8,7 +8,7 @@ const { log, writeAuditEvent, getRequestMeta }     = require('../services/activi
 const { success, badRequest, error, notFound, forbidden }     = require('../utils/response');
 const { generateOrderNumber }                      = require('../utils/order-number');
 const { hasPermission }                            = require('../middleware/rbac');
-const { orderStatusUpdateSchema, createOrderSchema, editOrderSchema, orderPaymentSchema, orderRefundSchema, orderPaymentReversalSchema, addItemsSchema } = require('../validation/orders.schemas');
+const { orderStatusUpdateSchema, createOrderSchema, editOrderSchema, orderPaymentSchema, orderRefundSchema, orderPaymentReversalSchema, addItemsSchema, manualOrderNotificationSchema } = require('../validation/orders.schemas');
 const { normalizeOrderItem, roundMoney, roundCashAmount } = require('../utils/line-pricing');
 const { emitOrderUpdate }                          = require('../services/sse.service');
 const { buildOrderSearchOr }                       = require('../utils/order-search');
@@ -16,18 +16,148 @@ const { normalizePaymentMethod }                   = require('../utils/payment-m
 const { withDerivedPaymentState }                  = require('../utils/order-payment-state');
 const { normalizeOrderSource }                     = require('../utils/order-source');
 const { normalizeCustomerPhone, normalizeCustomerName } = require('../utils/customer-normalization');
-const { getCapturedPaymentStatusValues, getCorePaymentMethods, getOrderSources, getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
+const { getCapturedPaymentStatusValues, getCorePaymentMethods, getErrorCatalog, getOrderSources, getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
 const { CommercialRuleError, commitPricingBenefits, resolveOrderPricing } = require('../services/pricing.service');
 const { PaymentRuleError, recordOrderRefund, recordOrderSettlement, reverseOrderPaymentCorrection }  = require('../services/payment.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent }          = require('../services/outbox.service');
-const { sendOrderStatusMessage, sendOrderUpdatedMessage, sendPaymentReceivedMessage } = require('../services/whatomate.service');
+const { sendOrderStatusMessage, sendOrderUpdatedMessage, sendPaymentReceivedMessage, sendPaymentReminderMessage } = require('../services/whatomate.service');
 const { BillingRuleError, ensureOrderInvoice, refreshOrderInvoice } = require('../services/billing.service');
 const { nextDocumentNumber } = require('../services/document-number.service');
 const { GarmentUnitError, syncOrderGarmentUnits } = require('../services/garment-unit.service');
+const { getDefaultPaymentAccount, getPaymentAccountQrMediaUrl } = require('../services/payment-account-settings.service');
 
 const STATUS_CORRECTION_ROLES = ['SUPER_ADMIN', 'MANAGER'];
 const HIGH_RISK_STATUS_CORRECTION_ROLES = ['SUPER_ADMIN'];
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
+const MANUAL_WHATSAPP_COOLDOWN_MS = 60 * 1000;
+
+const FALLBACK_ERROR_ENTRY = {
+  code: 'ORDER_ACTION_FAILED',
+  severity: 'error',
+  title: 'Order action failed',
+  message: 'This order action could not be completed. Refresh and retry once.',
+  retryable: true,
+};
+
+const getRawTimelineError = (err, fallback = 'Action failed') => {
+  const rawMessage = String(err?.message || fallback);
+  const rawCode = err?.code || err?.name || 'ORDER_ACTION_FAILED';
+  const postgresCode = rawMessage.match(/code:\s*"([^"]+)"/)?.[1] || err?.meta?.code || null;
+  return { rawMessage, rawCode, postgresCode };
+};
+
+const matchErrorCatalogEntry = (catalog, { rawMessage, rawCode, postgresCode }) => {
+  const entries = Object.values(catalog || {});
+  return entries.find((entry) => {
+    const match = entry?.match || {};
+    if (Array.isArray(match.prismaCodes) && match.prismaCodes.includes(rawCode)) return true;
+    if (Array.isArray(match.postgresCodes) && postgresCode && match.postgresCodes.includes(postgresCode)) return true;
+    if (Array.isArray(match.names) && match.names.includes(rawCode)) return true;
+    if (Array.isArray(match.messageIncludes) && match.messageIncludes.some((needle) => rawMessage.toLowerCase().includes(String(needle).toLowerCase()))) return true;
+    return false;
+  });
+};
+
+const normalizeTimelineError = async (err, fallback = 'Action failed') => {
+  const raw = getRawTimelineError(err, fallback);
+  if (err instanceof CommercialRuleError || err instanceof BillingRuleError || err instanceof PaymentRuleError || err instanceof GarmentUnitError) {
+    return {
+      code: raw.rawCode,
+      message: raw.rawMessage.slice(0, 220),
+      rawCode: raw.rawCode,
+      rawMessage: raw.rawMessage,
+      postgresCode: raw.postgresCode,
+      retryable: false,
+      severity: 'warning',
+    };
+  }
+
+  let catalog = null;
+  try {
+    catalog = await getErrorCatalog();
+  } catch (catalogErr) {
+    console.error('getErrorCatalog error:', catalogErr);
+  }
+  const matched = matchErrorCatalogEntry(catalog, raw) || catalog?.ORDER_ACTION_FAILED || FALLBACK_ERROR_ENTRY;
+  return {
+    code: matched.code || FALLBACK_ERROR_ENTRY.code,
+    message: matched.message || FALLBACK_ERROR_ENTRY.message,
+    rawCode: raw.rawCode,
+    rawMessage: raw.rawMessage,
+    postgresCode: raw.postgresCode,
+    retryable: Boolean(matched.retryable),
+    severity: matched.severity || 'error',
+  };
+};
+
+const requestMetaForTimeline = (req) => {
+  const meta = getRequestMeta(req);
+  return {
+    route: meta.route || null,
+    method: meta.method || null,
+    requestId: meta.requestId || null,
+    ipAddress: meta.ipAddress || null,
+    userAgent: meta.userAgent || null,
+  };
+};
+
+const logOrderActionEvent = async ({ orderId, stage, eventType, attemptedStatus, notes, reasonCode, staff, metadata = {} }) => {
+  if (!orderId) return;
+  try {
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, ...ORDER_ONLY_WHERE },
+      select: { id: true, orderNumber: true, status: true, version: true },
+    });
+    if (!order) return;
+    await prisma.orderStage.create({
+      data: {
+        orderId,
+        stage,
+        eventType,
+        fromStatus: order.status || null,
+        toStatus: attemptedStatus || null,
+        reasonCode,
+        notes,
+        changedById: staff?.id || null,
+        metadata: {
+          ...metadata,
+          orderNumber: order.orderNumber || null,
+          currentStatus: order.status || null,
+          currentVersion: order.version || null,
+          actorId: staff?.id || null,
+          actorName: staff?.name || null,
+          actorRole: staff?.role || null,
+        },
+      },
+    });
+  } catch (logErr) {
+    console.error('logOrderActionEvent error:', logErr);
+  }
+};
+
+const logOrderActionFailure = async ({ orderId, stage, attemptedStatus, err, staff, metadata = {} }) => {
+  const normalized = await normalizeTimelineError(err);
+  return logOrderActionEvent({
+    orderId,
+    stage,
+    eventType: 'ACTION_FAILED',
+    attemptedStatus,
+    reasonCode: normalized.code,
+    notes: normalized.message,
+    staff,
+    metadata: {
+      ...metadata,
+      outcome: 'FAILED',
+      errorCode: normalized.code,
+      errorMessage: normalized.message,
+      errorSeverity: normalized.severity,
+      retryable: normalized.retryable,
+      rawErrorCode: normalized.rawCode,
+      rawErrorMessage: normalized.rawMessage.slice(0, 1000),
+      postgresErrorCode: normalized.postgresCode,
+    },
+  });
+};
 
 const getOrderViewStatuses = (workflow, viewKey) => {
   const viewConfig = workflow.views?.[viewKey];
@@ -359,6 +489,269 @@ const markWhatsAppFailureResolved = async (failedStage, staff) => {
       },
     },
   });
+};
+
+const getOrderOutstanding = (order) => Math.max(0, Number((
+  Number(order?.totalAmount || 0)
+  - Number(order?.paidAmount || 0)
+  - Number(order?.writeOffAmount || 0)
+).toFixed(2)));
+
+const getPaymentReminderSettings = async () => {
+  const { account } = await getDefaultPaymentAccount();
+  const qrMediaUrl = getPaymentAccountQrMediaUrl(account);
+  if (!account || (!account.vpa && !account.gpayNumber)) {
+    throw new Error('Default payment account is not configured');
+  }
+  if (!qrMediaUrl) {
+    throw new Error('Default payment account QR image is not configured for WhatsApp payment reminders');
+  }
+  return { ...account, qrMediaUrl };
+};
+
+const logManualWhatsAppAttempt = async ({ order, type, outcome, notes, staff, metadata = {} }) => prisma.orderStage.create({
+  data: {
+    orderId: order.id,
+    stage: outcome === 'SENT' ? 'WHATSAPP_SENT' : 'WHATSAPP_FAILED',
+    eventType: 'NOTIFICATION',
+    reasonCode: `MANUAL_${type}_${outcome}`,
+    notes,
+    changedById: staff?.id || null,
+    metadata: {
+      channel: 'WHATSAPP',
+      provider: 'WHATOMATE',
+      outcome,
+      manualSend: true,
+      manualType: type,
+      orderNumber: order.orderNumber,
+      customerId: order.customer?.id || null,
+      staffId: staff?.id || null,
+      staffName: staff?.name || null,
+      ...metadata,
+    },
+  },
+});
+
+const assertManualWhatsAppCooldown = async (orderId, type) => {
+  const waitSeconds = await getManualWhatsAppCooldownSeconds(orderId, type);
+  if (!waitSeconds) return;
+  const cooldownError = new Error(`Please wait ${waitSeconds}s before sending this WhatsApp message again`);
+  cooldownError.statusCode = 429;
+  throw cooldownError;
+};
+
+const getManualWhatsAppCooldownSeconds = async (orderId, type) => {
+  const since = new Date(Date.now() - MANUAL_WHATSAPP_COOLDOWN_MS);
+  const recent = await prisma.orderStage.findFirst({
+    where: {
+      orderId,
+      eventType: 'NOTIFICATION',
+      createdAt: { gte: since },
+      metadata: { path: ['manualType'], equals: type },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!recent) return 0;
+  const waitSeconds = Math.max(1, Math.ceil((MANUAL_WHATSAPP_COOLDOWN_MS - (Date.now() - new Date(recent.createdAt).getTime())) / 1000));
+  return waitSeconds;
+};
+
+const getCustomerOutstandingSummary = async (customerId) => {
+  const orders = await prisma.order.findMany({
+    where: {
+      customerId,
+      documentType: 'ORDER',
+      status: { notIn: ['CANCELLED', 'RETURNED'] },
+    },
+    select: {
+      id: true,
+      orderNumber: true,
+      totalAmount: true,
+      paidAmount: true,
+      writeOffAmount: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  const outstandingOrders = orders
+    .map((order) => ({ ...order, balanceDue: getOrderOutstanding(order) }))
+    .filter((order) => order.balanceDue > 0);
+  return {
+    outstandingOrderCount: outstandingOrders.length,
+    outstandingAmount: Number(outstandingOrders.reduce((sum, order) => sum + order.balanceDue, 0).toFixed(2)),
+    orderNumbers: outstandingOrders.map((order) => order.orderNumber),
+  };
+};
+
+const sendManualOrderNotification = async (req, res) => {
+  const parsed = manualOrderNotificationSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid notification payload');
+
+  const { type } = parsed.data;
+  let order = null;
+  try {
+    order = await prisma.order.findFirst({
+      where: { id: req.params.id, ...ORDER_ONLY_WHERE },
+      include: {
+        customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } },
+      },
+    });
+    if (!order) return notFound(res, 'Order not found');
+    if (order.customer?.notifWhatsApp === false) return badRequest(res, 'Customer WhatsApp notifications are disabled');
+
+    await assertManualWhatsAppCooldown(order.id, type);
+
+    let label = 'Order details';
+    let sent = false;
+    let reminder = null;
+
+    if (type === 'ORDER_DETAILS') {
+      label = 'Order details';
+      sent = await sendOrderStatusMessage(order, order.status, {
+        idempotencyKey: `manual-order-details:${order.id}:${Date.now()}`,
+        throwOnFailure: true,
+      });
+    } else {
+      const balanceDue = getOrderOutstanding(order);
+      const paymentSettings = await getPaymentReminderSettings();
+      if (type === 'PAYMENT_REMINDER_ORDER') {
+        if (!(balanceDue > 0)) return badRequest(res, 'This order has no outstanding balance');
+        label = 'Payment reminder';
+        reminder = {
+          mode: 'ORDER',
+          outstandingAmount: balanceDue,
+          outstandingOrderCount: 1,
+          paymentSettings,
+        };
+      } else {
+        const summary = await getCustomerOutstandingSummary(order.customerId);
+        if (!(summary.outstandingAmount > 0)) return badRequest(res, 'This customer has no outstanding balance');
+        label = 'Outstanding payment summary';
+        reminder = {
+          mode: 'OUTSTANDING_SUMMARY',
+          ...summary,
+          paymentSettings,
+        };
+      }
+      sent = await sendPaymentReminderMessage(order, reminder, {
+        idempotencyKey: `manual-payment-reminder:${order.id}:${type}:${Date.now()}`,
+        throwOnFailure: true,
+      });
+    }
+
+    if (!sent) throw new Error('WhatsApp provider did not accept the message');
+    await logManualWhatsAppAttempt({
+      order,
+      type,
+      outcome: 'SENT',
+      notes: `WhatsApp sent: ${label}`,
+      staff: req.staff,
+      metadata: reminder ? {
+        outstandingAmount: reminder.outstandingAmount,
+        outstandingOrderCount: reminder.outstandingOrderCount,
+        orderNumbers: reminder.orderNumbers || [order.orderNumber],
+      } : { status: order.status },
+    });
+    return success(res, { sent: true, type }, `${label} sent on WhatsApp`);
+  } catch (err) {
+    console.error('sendManualOrderNotification error:', err);
+    if (err?.statusCode === 429) return error(res, err.message, 429);
+    if (order?.id) {
+      await logManualWhatsAppAttempt({
+        order,
+        type,
+        outcome: 'FAILED',
+        notes: `WhatsApp failed: ${type.replace(/_/g, ' ').toLowerCase()} - ${String(err?.message || err).slice(0, 180)}`,
+        staff: req.staff,
+        metadata: { error: String(err?.message || err).slice(0, 500) },
+      }).catch((stageErr) => console.error('sendManualOrderNotification stage log error:', stageErr));
+    }
+    return error(res, err?.message || 'Failed to send WhatsApp message');
+  }
+};
+
+const previewManualOrderNotification = async (req, res) => {
+  const parsed = manualOrderNotificationSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid notification payload');
+
+  try {
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id, ...ORDER_ONLY_WHERE },
+      include: { customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } } },
+    });
+    if (!order) return notFound(res, 'Order not found');
+
+    const { type } = parsed.data;
+    const cooldownSeconds = await getManualWhatsAppCooldownSeconds(order.id, type);
+    const customerName = order.customer?.name || 'Customer';
+    const balanceDue = getOrderOutstanding(order);
+    let title = 'Order details';
+    let body = '';
+    let paymentAccount = null;
+    let qrImage = '';
+
+    if (type === 'ORDER_DETAILS') {
+      const label = (await getOrderStatuses()).find((item) => item.key === order.status)?.label || order.status;
+      body = [
+        `Hi ${customerName},`,
+        '',
+        `Your Hangers Clothes Spa order ${order.orderNumber} is currently ${label}.`,
+        `Total: Rs ${Number(order.totalAmount || 0).toFixed(2)}`,
+        `Balance: Rs ${balanceDue.toFixed(2)}`,
+        '',
+        'Use the invoice link button to view order details.',
+      ].join('\n');
+    } else {
+      const account = await getPaymentReminderSettings();
+      paymentAccount = account;
+      qrImage = account?.qrMediaUrl || account?.qrImageUrl || account?.qrImageDataUrl || '';
+      if (type === 'PAYMENT_REMINDER_ORDER') {
+        title = 'Payment reminder';
+        body = [
+          `Hi ${customerName},`,
+          '',
+          'This is a payment reminder from Hangers Clothes Spa.',
+          `Order: ${order.orderNumber}`,
+          `Pending amount: Rs ${balanceDue.toFixed(2)}`,
+          '',
+          'You can pay using:',
+          `UPI ID: ${account?.vpa || ''}`,
+          `GPay: ${account?.gpayNumber || ''}`,
+          '',
+          'Please use the invoice link button to view order details and payment QR.',
+        ].join('\n');
+      } else {
+        title = 'Outstanding summary';
+        const summary = await getCustomerOutstandingSummary(order.customerId);
+        body = [
+          `Hi ${customerName},`,
+          '',
+          'This is a payment reminder from Hangers Clothes Spa.',
+          `Pending orders: ${summary.outstandingOrderCount}`,
+          `Total outstanding: Rs ${summary.outstandingAmount.toFixed(2)}`,
+          '',
+          'You can pay using:',
+          `UPI ID: ${account?.vpa || ''}`,
+          `GPay: ${account?.gpayNumber || ''}`,
+          '',
+          'Please use the payment link button to view payment details.',
+        ].join('\n');
+      }
+    }
+
+    return success(res, {
+      type,
+      title,
+      body,
+      buttonLabel: type === 'PAYMENT_REMINDER_SUMMARY' ? 'View Payment Details' : 'View Invoice',
+      paymentAccount,
+      qrImage,
+      cooldown: cooldownSeconds > 0 ? { waitSeconds: cooldownSeconds } : null,
+      source: 'DB',
+    });
+  } catch (err) {
+    return error(res, err?.message || 'Failed to preview WhatsApp message');
+  }
 };
 
 const retryWhatsAppNotification = async (req, res) => {
@@ -931,6 +1324,22 @@ const updateOrderStatus = async (req, res) => {
     const orderStatusKeys = orderStatuses.map((item) => item.key);
     if (!orderStatusKeys.includes(status)) return badRequest(res, 'Invalid order status');
     const trimmedNotes = notes?.trim() || '';
+    await logOrderActionEvent({
+      orderId: req.params.id,
+      stage: 'ORDER_STATUS_ATTEMPTED',
+      eventType: 'ACTION_ATTEMPTED',
+      attemptedStatus: status,
+      reasonCode: 'UPDATE_ORDER_STATUS_ATTEMPTED',
+      notes: `Status update requested: ${status}`,
+      staff: req.staff,
+      metadata: {
+        action: 'UPDATE_ORDER_STATUS',
+        requestedStatus: status,
+        expectedVersion: expectedVersion || null,
+        effectiveAt: effectiveAt ? effectiveAt.toISOString() : null,
+        request: requestMetaForTimeline(req),
+      },
+    });
     const transactionResult = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${req.params.id} FOR UPDATE`;
       const order = await tx.order.findFirst({
@@ -1072,12 +1481,43 @@ const updateOrderStatus = async (req, res) => {
     }, { isolationLevel: 'Serializable' });
     const { updated } = transactionResult;
 
+    await logOrderActionEvent({
+      orderId: updated.id,
+      stage: 'ORDER_STATUS_SUCCEEDED',
+      eventType: 'ACTION_SUCCEEDED',
+      attemptedStatus: status,
+      reasonCode: 'UPDATE_ORDER_STATUS_SUCCEEDED',
+      notes: `Status update completed: ${status}`,
+      staff: req.staff,
+      metadata: {
+        action: 'UPDATE_ORDER_STATUS',
+        requestedStatus: status,
+        newStatus: updated.status,
+        newVersion: updated.version || null,
+        request: requestMetaForTimeline(req),
+      },
+    });
+
     // Emit real-time update to all CRM SSE subscribers immediately
     emitOrderUpdate(updated.id, { status, orderNumber: updated.orderNumber });
 
     return success(res, { order: updated }, `Status updated to ${status}`);
   } catch (err) {
     console.error('updateOrderStatus error:', err);
+    await logOrderActionFailure({
+      orderId: req.params.id,
+      stage: 'ORDER_STATUS_FAILED',
+      attemptedStatus: status,
+      err,
+      staff: req.staff,
+      metadata: {
+        action: 'UPDATE_ORDER_STATUS',
+        requestedStatus: status,
+        expectedVersion: expectedVersion || null,
+        effectiveAt: effectiveAt ? effectiveAt.toISOString() : null,
+        request: requestMetaForTimeline(req),
+      },
+    });
     if (err instanceof CommercialRuleError || err instanceof BillingRuleError) {
       if (err.statusCode === 404) return notFound(res, err.message);
       if (err.statusCode === 403) return forbidden(res, err.message);
@@ -1696,6 +2136,8 @@ module.exports = {
   createOrder,
   updateOrder,
   updateOrderStatus,
+  previewManualOrderNotification,
+  sendManualOrderNotification,
   retryWhatsAppNotification,
   addItemsToOrder,
   deleteOrder,

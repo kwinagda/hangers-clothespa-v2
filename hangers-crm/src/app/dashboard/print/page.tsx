@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import QRCode from 'qrcode'
 import { API_BASE_URL, ordersAPI, settingsAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
-import { Check, FileText, Printer, Receipt, ScrollText, Tag } from 'lucide-react'
+import { Check, FileText, Pencil, Printer, Receipt, ScrollText, Tag, Trash2 } from 'lucide-react'
 import { LOGO_BLUE_URL, LOGO_WHITE_URL } from '@/lib/branding'
 
 type PrintType = 'garment' | 'label' | 'bag' | 'receipt' | 'thermal'
@@ -24,12 +24,25 @@ type PrintTypeConfig = {
 }
 type PrintLayoutSettings = Record<PrintType, PrintTypeConfig>
 type PaymentQrSettings = {
-  enabled?: boolean
   provider?: string
   vpa?: string
+  gpayNumber?: string
   payeeName?: string
-  currency?: string
+  defaultAccountId?: string
+  accounts?: PaymentAccount[]
 }
+type PaymentAccount = {
+  id: string
+  label: string
+  isDefault?: boolean
+  provider?: string
+  vpa?: string
+  gpayNumber?: string
+  payeeName?: string
+  qrImageUrl?: string
+  qrImageDataUrl?: string
+}
+type PaymentAccountValidation = Record<string, string[]>
 type PrintBrandLogos = {
   blueLogo: string
   whiteLogo: string
@@ -102,18 +115,29 @@ const compareOrderItems = (a: any, b: any) => {
   return String(a?.id || '').localeCompare(String(b?.id || ''))
 }
 
-function buildUpiPayload(order: any, settings?: PaymentQrSettings | null) {
-  if (!settings?.enabled || !settings.vpa?.trim()) return ''
-  const balance = Math.max(0, Number(order.totalAmount || 0) - Number(order.paidAmount || 0) - Number(order.writeOffAmount || 0))
-  const params = new URLSearchParams({
-    pa: settings.vpa.trim(),
-    pn: settings.payeeName?.trim() || STORE_LINE,
-    cu: settings.currency?.trim() || 'INR',
-    tn: `Order ${order.orderNumber}`,
-  })
-  if (balance > 0) params.set('am', balance.toFixed(2))
-  return `upi://pay?${params.toString()}`
+const getDefaultPaymentAccount = (settings?: PaymentQrSettings | null): PaymentAccount | null => {
+  if (!settings) return null
+  const accounts = Array.isArray(settings.accounts) ? settings.accounts : []
+  const account = accounts.find((item) => item.id === settings.defaultAccountId) || accounts.find((item) => item.isDefault) || accounts[0]
+  if (account) return account
+  return {
+    id: settings.defaultAccountId || 'primary',
+    label: 'Primary Account',
+    isDefault: true,
+    provider: settings.provider || 'UPI',
+    vpa: settings.vpa || '',
+    gpayNumber: settings.gpayNumber || '',
+    payeeName: settings.payeeName || '',
+  }
 }
+
+function getPaymentQrImage(settings?: PaymentQrSettings | null) {
+  const account = getDefaultPaymentAccount(settings)
+  return account?.qrImageDataUrl || account?.qrImageUrl || ''
+}
+
+const isValidUpiId = (value: string) => /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9.\-_]{2,64}$/.test(value.trim())
+const digitsOnly = (value: string) => value.replace(/\D/g, '').slice(0, 10)
 
 async function buildPrintHTML(
   order: any,
@@ -392,8 +416,7 @@ async function buildPrintHTML(
 
   if (type === 'receipt') {
     const trackingQrData = f('barcode') ? await qr(order.orderNumber) : ''
-    const upiPayload = f('upiQr') ? buildUpiPayload(order, paymentQrSettings) : ''
-    const upiQrData = upiPayload ? await qr(upiPayload) : ''
+    const upiQrData = f('upiQr') ? getPaymentQrImage(paymentQrSettings) : ''
     body = `
       <section class="page receipt-page">
         <div class="receipt-sheet">
@@ -451,7 +474,7 @@ async function buildPrintHTML(
               ${f('balanceDue') ? `<div class="total-line"><span>Balance</span><span>${rupee(balance)}</span></div>` : ''}
             </div>
             ${f('customNote') && order.notes ? `<div class="receipt-note"><strong>Notes:</strong> ${escapeHtml(order.notes)}</div>` : ''}
-            ${trackingQrData || upiQrData ? `<div class="center" style="display:flex;justify-content:center;gap:8mm;margin-top:4mm">${trackingQrData ? `<div><img src="${trackingQrData}" width="64" height="64" alt="Tracking QR" /><div class="muted">Track order</div></div>` : ''}${upiQrData ? `<div><img src="${upiQrData}" width="64" height="64" alt="UPI QR" /><div class="muted">Scan to pay</div></div>` : ''}</div>` : ''}
+            ${trackingQrData || upiQrData ? `<div class="center" style="display:flex;justify-content:center;gap:8mm;margin-top:4mm">${trackingQrData ? `<div><img src="${trackingQrData}" width="64" height="64" alt="Tracking QR" /><div class="muted">Track order</div></div>` : ''}${upiQrData ? `<div><img src="${escapeHtml(upiQrData)}" width="64" height="64" alt="Payment QR" /><div class="muted">Scan to pay</div></div>` : ''}</div>` : ''}
             ${f('terms') ? `<div class="receipt-footer">Retain this receipt for delivery. Please check garments at delivery.</div>` : ''}
           </div>
         </div>
@@ -460,8 +483,7 @@ async function buildPrintHTML(
 
   if (type === 'thermal') {
     const trackingQrData = f('barcode') ? await qr(order.orderNumber) : ''
-    const upiPayload = f('upiQr') ? buildUpiPayload(order, paymentQrSettings) : ''
-    const upiQrData = upiPayload ? await qr(upiPayload) : ''
+    const upiQrData = f('upiQr') ? getPaymentQrImage(paymentQrSettings) : ''
     const itemRows = items.map((item: any, index: number) => `
       <div class="thermal-item ${f('itemSerial') ? '' : 'no-si'}">
         ${f('itemSerial') ? `<div>${index + 1}</div>` : ''}
@@ -499,7 +521,7 @@ async function buildPrintHTML(
         </div>
         ${f('customerNote') && order.notes ? `<div class="divider"></div><div><strong>Notes:</strong> ${escapeHtml(order.notes)}</div>` : ''}
         ${trackingQrData ? `<div class="thermal-center" style="margin-top:3mm"><img src="${trackingQrData}" width="82" height="82" alt="Tracking QR" /></div>` : ''}
-        ${upiQrData ? `<div class="thermal-center" style="margin-top:3mm"><img src="${upiQrData}" width="82" height="82" alt="UPI QR" /><div>Scan to pay</div></div>` : ''}
+        ${upiQrData ? `<div class="thermal-center" style="margin-top:3mm"><img src="${escapeHtml(upiQrData)}" width="82" height="82" alt="Payment QR" /><div>Scan to pay</div></div>` : ''}
         ${f('visitMessage') ? `<div class="divider"></div><div class="thermal-center">${STORE_NOTE}</div>` : ''}
       </section>`
   }
@@ -550,7 +572,7 @@ function AutoPrintRunner({ orderId, printType }: { orderId: string; printType: s
         const settingsResponse = await requestPrintJson('/settings')
         const dbConfig = settingsResponse?.data?.map?.[PRINT_LAYOUT_SETTING_KEY] || settingsResponse?.map?.[PRINT_LAYOUT_SETTING_KEY]
         if (!dbConfig?.garment?.fields || !dbConfig?.label?.fields || !dbConfig?.bag?.fields || !dbConfig?.receipt?.fields || !dbConfig?.thermal?.fields) {
-          throw new Error('Print settings are missing from database')
+          throw new Error('Print settings are missing')
         }
 
         const fields = getInitialFields(dbConfig, type)
@@ -562,8 +584,8 @@ function AutoPrintRunner({ orderId, printType }: { orderId: string; printType: s
           : dbConfig.garment?.size || { w: 0, h: 0 }
         const paymentQrSettings = settingsResponse?.data?.map?.[PAYMENT_QR_SETTING_KEY] || settingsResponse?.map?.[PAYMENT_QR_SETTING_KEY] || null
 
-        if (fields.upiQr && (!paymentQrSettings?.enabled || !paymentQrSettings?.vpa?.trim())) {
-          throw new Error('UPI QR is enabled for this print type, but payment QR settings are not configured in DB')
+        if (fields.upiQr && !getPaymentQrImage(paymentQrSettings)) {
+          throw new Error('Payment QR is enabled for this print type, but no default account QR image is configured in DB')
         }
 
         setStatus('Building print document...')
@@ -686,7 +708,14 @@ function PrintCenterPageContent() {
   const [brandLogos, setBrandLogos] = useState<PrintBrandLogos>({ blueLogo: LOGO_BLUE_URL, whiteLogo: LOGO_WHITE_URL })
   const [fieldsOpen, setFieldsOpen] = useState(true)
   const [savingFields, setSavingFields] = useState(false)
+  const [savingPaymentQr, setSavingPaymentQr] = useState(false)
+  const [paymentDraftSettings, setPaymentDraftSettings] = useState<PaymentQrSettings | null>(null)
+  const [paymentDraftDirty, setPaymentDraftDirty] = useState(false)
+  const [editingPaymentAccountIds, setEditingPaymentAccountIds] = useState<Set<string>>(new Set())
+  const [dirtyPaymentAccountIds, setDirtyPaymentAccountIds] = useState<Set<string>>(new Set())
   const fieldSaveSeq = useRef(0)
+  const paymentSaveSeq = useRef(0)
+  const paymentSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoPrintSeq = useRef('')
 
   const currentConfig = printConfig?.[type]
@@ -755,22 +784,30 @@ function PrintCenterPageContent() {
       .then((response: any) => {
         const dbConfig = response?.data?.map?.[PRINT_LAYOUT_SETTING_KEY] || response?.map?.[PRINT_LAYOUT_SETTING_KEY]
         if (!dbConfig?.garment?.fields || !dbConfig?.label?.fields || !dbConfig?.bag?.fields || !dbConfig?.receipt?.fields || !dbConfig?.thermal?.fields) {
-          throw new Error('Print settings are missing from database')
+          throw new Error('Print settings are missing')
         }
         setPrintConfig(dbConfig)
         const qrConfig = response?.data?.map?.[PAYMENT_QR_SETTING_KEY] || response?.map?.[PAYMENT_QR_SETTING_KEY] || null
         setPaymentQrSettings(qrConfig)
+        setPaymentDraftSettings(qrConfig)
+        setPaymentDraftDirty(false)
         const nextType = type
         setFields(getInitialFields(dbConfig, nextType))
         if (nextType === 'garment' || nextType === 'label' || nextType === 'bag') setCustomSize({ ...(dbConfig[nextType].size || { w: 0, h: 0 }) })
       })
       .catch((err: any) => {
-        const message = err.message || 'Failed to load DB-backed print settings'
+        const message = err.message || 'Failed to load print settings'
         setPrintError(message)
         if (autoPrint) window.opener?.postMessage({ type: 'HANGERS_PRINT_ERROR', message }, window.location.origin)
         else toast.error(message)
       })
   }, [autoPrint])
+
+  useEffect(() => {
+    return () => {
+      if (paymentSaveTimer.current) clearTimeout(paymentSaveTimer.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!printConfig) return
@@ -785,7 +822,7 @@ function PrintCenterPageContent() {
     if ((nextType === 'garment' || nextType === 'label' || nextType === 'bag') && printConfig) setCustomSize({ ...(printConfig[nextType].size || { w: 0, h: 0 }) })
   }
 
-  const toggleField = (key: string) => {
+	  const toggleField = (key: string) => {
     if (!printConfig?.[type]?.fields?.[key]) return
 
     const nextEnabled = !fields[key]
@@ -817,9 +854,303 @@ function PrintCenterPageContent() {
       .finally(() => {
         if (fieldSaveSeq.current === saveId) setSavingFields(false)
       })
+	  }
+
+  const persistPaymentQrSettings = async (nextSettings: PaymentQrSettings) => {
+    if (paymentSaveTimer.current) clearTimeout(paymentSaveTimer.current)
+    setSavingPaymentQr(true)
+    const saveId = paymentSaveSeq.current + 1
+    paymentSaveSeq.current = saveId
+    try {
+      await settingsAPI.update({ [PAYMENT_QR_SETTING_KEY]: nextSettings })
+      setPaymentQrSettings(nextSettings)
+      setPaymentDraftSettings(nextSettings)
+      setPaymentDraftDirty(false)
+      setEditingPaymentAccountIds(new Set())
+      setDirtyPaymentAccountIds(new Set())
+      toast.success('Payment accounts saved')
+    } catch {
+      toast.error('Could not save payment account settings')
+    } finally {
+      if (paymentSaveSeq.current === saveId) setSavingPaymentQr(false)
+    }
   }
 
-  const findOrder = async () => {
+  const updatePaymentQrSetting = (patch: PaymentQrSettings) => {
+    const nextSettings = {
+      provider: 'UPI',
+      vpa: '',
+      gpayNumber: '',
+      payeeName: '',
+      defaultAccountId: 'primary',
+      accounts: [],
+      ...(paymentDraftSettings || paymentQrSettings || {}),
+      ...patch,
+    }
+    setPaymentDraftSettings(nextSettings)
+    setPaymentDraftDirty(true)
+  }
+
+  const markPaymentAccountDirty = (accountId: string) => {
+    setPaymentDraftDirty(true)
+    setDirtyPaymentAccountIds((prev) => new Set(prev).add(accountId))
+  }
+
+  const normalizedPaymentSettings = (source: PaymentQrSettings | null = paymentDraftSettings || paymentQrSettings): PaymentQrSettings => {
+    const existing = source || {}
+    const legacyAccount: PaymentAccount = {
+      id: existing.defaultAccountId || 'primary',
+      label: 'Primary Account',
+      isDefault: true,
+      provider: existing.provider || 'UPI',
+      vpa: existing.vpa || '',
+      gpayNumber: existing.gpayNumber || '',
+      payeeName: existing.payeeName || '',
+    }
+    const accounts = Array.isArray(existing.accounts) && existing.accounts.length ? existing.accounts : [legacyAccount]
+    const defaultAccountId = existing.defaultAccountId || accounts.find((account) => account.isDefault)?.id || accounts[0].id
+    return {
+      provider: existing.provider || 'UPI',
+      vpa: existing.vpa || '',
+      gpayNumber: existing.gpayNumber || '',
+      payeeName: existing.payeeName || '',
+      defaultAccountId,
+      accounts: accounts.map((account) => ({ ...account, isDefault: account.id === defaultAccountId })),
+    }
+  }
+
+  const validatePaymentAccounts = (settings: PaymentQrSettings): PaymentAccountValidation => {
+    const errors: PaymentAccountValidation = {}
+    const accounts = settings.accounts || []
+    const addError = (accountId: string, message: string) => {
+      errors[accountId] = [...(errors[accountId] || []), message]
+    }
+    for (const account of accounts) {
+      if (!String(account.label || '').trim()) addError(account.id, 'Account label is required')
+      if (!String(account.payeeName || '').trim()) addError(account.id, 'Payee name is required')
+      if (account.gpayNumber && !/^\d{10}$/.test(account.gpayNumber)) addError(account.id, 'GPay number must be exactly 10 digits')
+      if (account.vpa && !isValidUpiId(account.vpa)) addError(account.id, 'UPI ID format should look like name@bank')
+      if (!String(account.vpa || '').trim() && !String(account.gpayNumber || '').trim()) addError(account.id, 'Add UPI ID or GPay number')
+      if (account.qrImageUrl && !/^https:\/\/.+/i.test(account.qrImageUrl.trim())) addError(account.id, 'QR image URL must start with https://')
+    }
+    if (settings.defaultAccountId && !accounts.some((account) => account.id === settings.defaultAccountId)) {
+      errors.__root = ['Default payment account is missing']
+    }
+    return errors
+  }
+
+  const savePaymentAccounts = (accounts: PaymentAccount[], defaultAccountId?: string) => {
+    const nextDefaultId = defaultAccountId || accounts.find((account) => account.isDefault)?.id || accounts[0]?.id || 'primary'
+    const nextAccounts = accounts.map((account) => ({ ...account, isDefault: account.id === nextDefaultId }))
+    const defaultAccount = nextAccounts.find((account) => account.id === nextDefaultId) || nextAccounts[0]
+    updatePaymentQrSetting({
+      defaultAccountId: nextDefaultId,
+      accounts: nextAccounts,
+      provider: defaultAccount?.provider || 'UPI',
+      vpa: defaultAccount?.vpa || '',
+      gpayNumber: defaultAccount?.gpayNumber || '',
+      payeeName: defaultAccount?.payeeName || '',
+    })
+  }
+
+  const savePaymentAccountDraft = async (accountId: string) => {
+    const draftSettings = normalizedPaymentSettings(paymentDraftSettings || paymentQrSettings)
+    const savedSettings = normalizedPaymentSettings(paymentQrSettings)
+    const draftAccount = draftSettings.accounts?.find((account) => account.id === accountId)
+    if (!draftAccount) {
+      toast.error('Payment account not found')
+      return
+    }
+    const errors = validatePaymentAccounts(draftSettings)
+    const firstError = errors[accountId]?.[0] || errors.__root?.[0]
+    if (firstError) {
+      toast.error(firstError)
+      return
+    }
+    const savedAccounts = savedSettings.accounts || []
+    const accountExists = savedAccounts.some((account) => account.id === accountId)
+    const nextAccounts = accountExists
+      ? savedAccounts.map((account) => account.id === accountId ? draftAccount : account)
+      : [...savedAccounts, draftAccount]
+    const nextDefaultId = draftSettings.defaultAccountId === accountId
+      ? accountId
+      : (savedSettings.defaultAccountId && nextAccounts.some((account) => account.id === savedSettings.defaultAccountId)
+        ? savedSettings.defaultAccountId
+        : nextAccounts[0]?.id || accountId)
+    const defaultAccount = nextAccounts.find((account) => account.id === nextDefaultId) || nextAccounts[0]
+    const nextSavedSettings = {
+      ...savedSettings,
+      defaultAccountId: nextDefaultId,
+      accounts: nextAccounts.map((account) => ({ ...account, isDefault: account.id === nextDefaultId })),
+      provider: defaultAccount?.provider || 'UPI',
+      vpa: defaultAccount?.vpa || '',
+      gpayNumber: defaultAccount?.gpayNumber || '',
+      payeeName: defaultAccount?.payeeName || '',
+    }
+    if (paymentSaveTimer.current) clearTimeout(paymentSaveTimer.current)
+    setSavingPaymentQr(true)
+    const saveId = paymentSaveSeq.current + 1
+    paymentSaveSeq.current = saveId
+    try {
+      await settingsAPI.update({ [PAYMENT_QR_SETTING_KEY]: nextSavedSettings })
+      setPaymentQrSettings(nextSavedSettings)
+      setPaymentDraftSettings((current) => {
+        const active = normalizedPaymentSettings(current || nextSavedSettings)
+        return {
+          ...active,
+          defaultAccountId: nextDefaultId,
+          accounts: (active.accounts || []).map((account) => ({
+            ...account,
+            isDefault: account.id === nextDefaultId,
+          })),
+          provider: defaultAccount?.provider || 'UPI',
+          vpa: defaultAccount?.vpa || '',
+          gpayNumber: defaultAccount?.gpayNumber || '',
+          payeeName: defaultAccount?.payeeName || '',
+        }
+      })
+      toast.success('Payment account saved')
+    } catch {
+      toast.error('Could not save payment account')
+      return
+    } finally {
+      if (paymentSaveSeq.current === saveId) setSavingPaymentQr(false)
+    }
+    setEditingPaymentAccountIds((prev) => {
+      const next = new Set(prev)
+      next.delete(accountId)
+      return next
+    })
+    setDirtyPaymentAccountIds((prev) => {
+      const next = new Set(prev)
+      next.delete(accountId)
+      return next
+    })
+  }
+
+  const discardPaymentAccountDraft = (accountId: string) => {
+    const saved = normalizedPaymentSettings(paymentQrSettings)
+    const draft = normalizedPaymentSettings(paymentDraftSettings || paymentQrSettings)
+    const savedAccount = saved.accounts?.find((account) => account.id === accountId)
+    const nextAccounts = savedAccount
+      ? (draft.accounts || []).map((account) => account.id === accountId ? savedAccount : account)
+      : (draft.accounts || []).filter((account) => account.id !== accountId)
+    const nextDefaultId = saved.defaultAccountId && nextAccounts.some((account) => account.id === saved.defaultAccountId)
+      ? saved.defaultAccountId
+      : nextAccounts[0]?.id || 'primary'
+    const defaultAccount = nextAccounts.find((account) => account.id === nextDefaultId) || nextAccounts[0]
+    setPaymentDraftSettings({
+      ...draft,
+      defaultAccountId: nextDefaultId,
+      accounts: nextAccounts.map((account) => ({ ...account, isDefault: account.id === nextDefaultId })),
+      provider: defaultAccount?.provider || 'UPI',
+      vpa: defaultAccount?.vpa || '',
+      gpayNumber: defaultAccount?.gpayNumber || '',
+      payeeName: defaultAccount?.payeeName || '',
+    })
+    setEditingPaymentAccountIds((prev) => {
+      const next = new Set(prev)
+      next.delete(accountId)
+      return next
+    })
+    setDirtyPaymentAccountIds((prev) => {
+      const next = new Set(prev)
+      next.delete(accountId)
+      setPaymentDraftDirty(next.size > 0)
+      return next
+    })
+  }
+
+  const updatePaymentAccount = (accountId: string, patch: Partial<PaymentAccount>) => {
+    const current = normalizedPaymentSettings()
+    const accounts = (current.accounts || []).map((account) => account.id === accountId ? { ...account, ...patch } : account)
+    savePaymentAccounts(accounts, current.defaultAccountId)
+    markPaymentAccountDirty(accountId)
+  }
+
+  const addPaymentAccount = () => {
+    const current = normalizedPaymentSettings()
+    const id = `account-${Date.now()}`
+    savePaymentAccounts([
+      ...(current.accounts || []),
+      {
+        id,
+        label: 'New Payment Account',
+        provider: 'UPI',
+        vpa: '',
+        gpayNumber: '',
+        payeeName: STORE_LINE,
+        qrImageUrl: '',
+        qrImageDataUrl: '',
+      },
+    ], current.defaultAccountId)
+    setEditingPaymentAccountIds((prev) => new Set(prev).add(id))
+    markPaymentAccountDirty(id)
+  }
+
+  const deletePaymentAccount = async (accountId: string) => {
+    const current = normalizedPaymentSettings()
+    const accounts = current.accounts || []
+    if (accounts.length <= 1) {
+      toast.error('At least one payment account is required')
+      return
+    }
+    if (current.defaultAccountId === accountId) {
+      toast.error('Set another account as default before deleting this one')
+      return
+    }
+    const account = accounts.find((item) => item.id === accountId)
+    const label = account?.label || 'this payment account'
+    if (!window.confirm(`Delete ${label}? This removes its UPI/GPay/QR settings from CRM payment settings.`)) return
+    const nextAccounts = accounts.filter((item) => item.id !== accountId)
+    const defaultAccount = nextAccounts.find((item) => item.id === current.defaultAccountId) || nextAccounts[0]
+    const nextSettings = {
+      ...current,
+      defaultAccountId: defaultAccount?.id || 'primary',
+      accounts: nextAccounts.map((item) => ({ ...item, isDefault: item.id === defaultAccount?.id })),
+      provider: defaultAccount?.provider || 'UPI',
+      vpa: defaultAccount?.vpa || '',
+      gpayNumber: defaultAccount?.gpayNumber || '',
+      payeeName: defaultAccount?.payeeName || '',
+    }
+    setSavingPaymentQr(true)
+    try {
+      await settingsAPI.update({ [PAYMENT_QR_SETTING_KEY]: nextSettings })
+      setPaymentQrSettings(nextSettings)
+      setPaymentDraftSettings(nextSettings)
+      toast.success('Payment account deleted')
+    } catch {
+      toast.error('Could not delete payment account')
+      return
+    } finally {
+      setSavingPaymentQr(false)
+    }
+    setEditingPaymentAccountIds((prev) => {
+      const next = new Set(prev)
+      next.delete(accountId)
+      return next
+    })
+    setDirtyPaymentAccountIds((prev) => {
+      const next = new Set(prev)
+      next.delete(accountId)
+      setPaymentDraftDirty(next.size > 0)
+      return next
+    })
+  }
+
+  const uploadPaymentQr = (accountId: string, file?: File | null) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error('Upload an image file for QR')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => updatePaymentAccount(accountId, { qrImageDataUrl: String(reader.result || ''), qrImageUrl: '' })
+    reader.onerror = () => toast.error('Could not read QR image')
+    reader.readAsDataURL(file)
+  }
+
+	  const findOrder = async () => {
     if (!orderNum.trim()) {
       toast.error('Enter an order number')
       return
@@ -846,7 +1177,7 @@ function PrintCenterPageContent() {
   const doPrint = async () => {
     if (!order) return
     if (!printConfig || !currentConfig) {
-      const message = !printConfig ? 'Print settings are not loaded from database' : `Print settings are missing for ${type}`
+      const message = !printConfig ? 'Print settings are not loaded' : `Print settings are missing for ${type}`
       setPrintError(message)
       if (autoPrint) window.opener?.postMessage({ type: 'HANGERS_PRINT_ERROR', message }, window.location.origin)
       else toast.error(message)
@@ -856,8 +1187,8 @@ function PrintCenterPageContent() {
     setPrintError('')
     setPrintStatus('Building print document...')
     try {
-      if (fields.upiQr && (!paymentQrSettings?.enabled || !paymentQrSettings?.vpa?.trim())) {
-        const message = 'UPI QR is enabled for this print type, but payment QR settings are not configured in DB'
+      if (fields.upiQr && !getPaymentQrImage(paymentQrSettings)) {
+        const message = 'Payment QR is enabled for this print type, but no default account QR image is configured in DB'
         if (autoPrint) window.opener?.postMessage({ type: 'HANGERS_PRINT_ERROR', message }, window.location.origin)
         else toast.error(message)
         setPrintError(message)
@@ -984,13 +1315,13 @@ function PrintCenterPageContent() {
   return (
     <div style={{ padding: '30px 36px 56px', maxWidth: 980, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontWeight: 800, fontSize: 28, color: '#023c62', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Printer size={28} /> Print Center
-        </h1>
-        <p style={{ fontSize: 14, color: '#6b7fa3', margin: 0 }}>Garment, label, receipt, and thermal layouts use separate printer settings.</p>
+	        <h1 style={{ fontWeight: 800, fontSize: 28, color: '#023c62', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
+	          <Printer size={28} /> Print & Payment Settings
+	        </h1>
+	        <p style={{ fontSize: 14, color: '#6b7fa3', margin: 0 }}>Set print layouts, payment QR, UPI ID, and GPay number from one place.</p>
         {autoPrint && (
           <p style={{ fontSize: 12, color: '#15803d', margin: '8px 0 0', fontWeight: 800 }}>
-            Auto print is enabled. The print dialog will open after DB settings and order data load.
+            Auto print is enabled. The print dialog will open after settings and order details load.
           </p>
         )}
       </div>
@@ -1011,14 +1342,190 @@ function PrintCenterPageContent() {
         </div>
       </div>
 
-      {!printConfig && (
-        <div style={{ background: '#fff7ed', borderRadius: 12, padding: '13px 16px', border: '1px solid #fed7aa', marginBottom: 18, color: '#9a3412', fontSize: 13, fontWeight: 700 }}>
-          Loading print settings from database...
+	      {!printConfig && (
+	        <div style={{ background: '#fff7ed', borderRadius: 12, padding: '13px 16px', border: '1px solid #fed7aa', marginBottom: 18, color: '#9a3412', fontSize: 13, fontWeight: 700 }}>
+	          Loading print settings...
+	        </div>
+	      )}
+
+      {printConfig && (
+        <div style={card()}>
+          {(() => {
+            const paymentSettings = normalizedPaymentSettings()
+            const accounts = paymentSettings.accounts || []
+            const accountErrors = validatePaymentAccounts(paymentSettings)
+            return (
+              <>
+          <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',marginBottom:14,flexWrap:'wrap'}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em'}}>UPI / GPay Details For Payment Reminders</div>
+              <div style={{fontSize:12,color:'#9dafc8',marginTop:4}}>The default account is used for invoice QR, payment prints, and WhatsApp payment reminders.</div>
+            </div>
+          </div>
+          <div style={{marginBottom:12,background:'#f8fbfd',border:'1px solid #e8f0f7',borderRadius:12,padding:'10px 12px',fontSize:12,color:'#51657f',lineHeight:1.45}}>
+            Edit all fields first, then save once. Nothing is written to server while typing.
+          </div>
+          <div style={{display:'grid',gap:12}}>
+            {accounts.map((account) => {
+              const isDefault = account.id === paymentSettings.defaultAccountId
+              const isEditing = editingPaymentAccountIds.has(account.id)
+              const hasQr = Boolean(account.qrImageDataUrl || account.qrImageUrl)
+              return (
+                <div key={account.id} style={{border:`1.5px solid ${isDefault ? '#023c62' : '#dce8f0'}`,borderRadius:14,padding:14,background:isDefault?'#f0f5fa':'#fff'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',marginBottom:12}}>
+                    {isEditing ? (
+                      <input
+                        value={account.label || ''}
+                        onChange={(event) => updatePaymentAccount(account.id, { label: event.target.value })}
+                        placeholder="Account label"
+                        style={{flex:1,border:'1.5px solid #dce8f0',borderRadius:9,padding:'8px 10px',fontSize:13,fontWeight:800,color:'#142033'}}
+                      />
+                    ) : (
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:15,fontWeight:900,color:'#142033',overflowWrap:'anywhere'}}>{account.label || 'Payment Account'}</div>
+                        <div style={{fontSize:12,color:'#6b7fa3',marginTop:3}}>{account.payeeName || STORE_LINE}</div>
+                      </div>
+                    )}
+                    <span style={{border:'none',background:isDefault?'#023c62':'#e8f0f7',color:isDefault?'#fff':'#023c62',borderRadius:999,padding:'7px 12px',fontSize:12,fontWeight:800,whiteSpace:'nowrap'}}>
+                      {isDefault ? 'Default' : 'Not default'}
+                    </span>
+                    {!isEditing && (
+                      <button
+                        onClick={() => setEditingPaymentAccountIds((prev) => new Set(prev).add(account.id))}
+                        style={{width:34,height:34,borderRadius:10,border:'1px solid #dce8f0',background:'#fff',color:'#023c62',display:'inline-flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}
+                        title="Edit payment account"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                    )}
+                    {isEditing && (
+                      <>
+                        <button onClick={() => savePaymentAccounts(accounts, account.id)}
+                          disabled={isDefault}
+                          onMouseUp={() => markPaymentAccountDirty(account.id)}
+                          style={{border:'none',background:isDefault?'#023c62':'#e8f0f7',color:isDefault?'#fff':'#023c62',borderRadius:999,padding:'7px 12px',fontSize:12,fontWeight:800,cursor:isDefault?'default':'pointer',opacity:isDefault?0.75:1}}>
+                          {isDefault ? 'Default' : 'Set Default'}
+                        </button>
+                        <button
+                          onClick={() => deletePaymentAccount(account.id)}
+                          disabled={accounts.length <= 1 || isDefault}
+                          title={isDefault ? 'Set another account as default before deleting this one' : accounts.length <= 1 ? 'At least one payment account is required' : 'Delete payment account'}
+                          style={{width:34,height:34,borderRadius:10,border:'1px solid #fecaca',background:'#fff7f7',color:'#dc2626',display:'inline-flex',alignItems:'center',justifyContent:'center',cursor:accounts.length <= 1 || isDefault ? 'not-allowed' : 'pointer',opacity:accounts.length <= 1 || isDefault ? 0.45 : 1}}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {isEditing ? (
+                    <>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:10}}>
+                        {[
+                          ['payeeName', 'Payee Name', STORE_LINE],
+                          ['vpa', 'UPI ID', 'name@bank'],
+                          ['gpayNumber', 'GPay Number', '10 digit payment number'],
+                        ].map(([key, label, placeholder]) => (
+                          <label key={key} style={{fontSize:12,color:'#6b7fa3',fontWeight:700}}>
+                            {label}
+                            <input
+                              value={(account as any)[key] || ''}
+                              onChange={(event) => updatePaymentAccount(account.id, { [key]: key === 'gpayNumber' ? digitsOnly(event.target.value) : event.target.value } as any)}
+                              placeholder={placeholder}
+                              inputMode={key === 'gpayNumber' ? 'numeric' : 'text'}
+                              style={{display:'block',width:'100%',marginTop:6,border:'1.5px solid #dce8f0',borderRadius:9,padding:'9px 11px',boxSizing:'border-box',fontSize:13}}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:12,alignItems:'center',marginTop:12}}>
+                        <label style={{fontSize:12,color:'#6b7fa3',fontWeight:700}}>
+                          Public QR Image URL
+                          <input
+                            value={account.qrImageUrl || ''}
+                            onChange={(event) => updatePaymentAccount(account.id, { qrImageUrl: event.target.value, qrImageDataUrl: account.qrImageDataUrl || '' })}
+                            placeholder="Optional hosted image URL for WhatsApp header"
+                            style={{display:'block',width:'100%',marginTop:6,border:'1.5px solid #dce8f0',borderRadius:9,padding:'9px 11px',boxSizing:'border-box',fontSize:13}}
+                          />
+                        </label>
+                        <label style={{border:'1.5px solid #dce8f0',borderRadius:10,padding:'9px 12px',fontSize:12,fontWeight:800,color:'#023c62',background:'#fff',cursor:'pointer',alignSelf:'end'}}>
+                          Upload QR
+                          <input type="file" accept="image/*" onChange={(event) => uploadPaymentQr(account.id, event.target.files?.[0])} style={{display:'none'}} />
+                        </label>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
+                      {[
+                        ['UPI ID', account.vpa || 'Not set'],
+                        ['GPay', account.gpayNumber || 'Not set'],
+                        ['QR', hasQr ? 'Configured' : 'Not set'],
+                      ].map(([label, value]) => (
+                        <div key={label} style={{border:'1px solid #e8f0f7',borderRadius:10,background:'#fff',padding:'9px 10px',minWidth:0}}>
+                          <div style={{fontSize:10.5,color:'#9dafc8',fontWeight:800,textTransform:'uppercase',letterSpacing:'0.05em'}}>{label}</div>
+                          <div style={{fontSize:12.5,color:'#142033',fontWeight:800,marginTop:3,overflowWrap:'anywhere'}}>{value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {isEditing && accountErrors[account.id]?.length > 0 && (
+                    <div style={{marginTop:10,border:'1px solid #fecaca',background:'#fff7f7',borderRadius:10,padding:'8px 10px',display:'grid',gap:4}}>
+                      {accountErrors[account.id].map((message) => (
+                        <div key={message} style={{fontSize:12,color:'#b91c1c',fontWeight:700}}>{message}</div>
+                      ))}
+                    </div>
+                  )}
+                  {isEditing && (
+                    <div style={{marginTop:12,display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,background:'#f8fbfd',border:'1px solid #e8f0f7',borderRadius:10,padding:'9px 10px',flexWrap:'wrap'}}>
+                      <span style={{fontSize:12,color:dirtyPaymentAccountIds.has(account.id)?'#b45309':'#15803d',fontWeight:800}}>
+                        {dirtyPaymentAccountIds.has(account.id) ? 'Unsaved changes in this account' : 'No changes'}
+                      </span>
+                      <div style={{display:'flex',gap:8}}>
+                        <button
+                          onClick={() => discardPaymentAccountDraft(account.id)}
+                          disabled={savingPaymentQr}
+                          style={{border:'1.5px solid #dce8f0',background:'#fff',color:'#51657f',borderRadius:9,padding:'8px 12px',fontSize:12,fontWeight:800,cursor:savingPaymentQr?'wait':'pointer'}}
+                        >
+                          Discard
+                        </button>
+                        <button
+                          onClick={() => savePaymentAccountDraft(account.id)}
+                          disabled={savingPaymentQr || !dirtyPaymentAccountIds.has(account.id) || Boolean(accountErrors[account.id]?.length)}
+                          title={accountErrors[account.id]?.[0] || undefined}
+                          style={{border:'none',background:'#023c62',color:'#fff',borderRadius:9,padding:'8px 13px',fontSize:12,fontWeight:900,cursor:!savingPaymentQr && dirtyPaymentAccountIds.has(account.id) && !accountErrors[account.id]?.length?'pointer':'not-allowed',opacity:!savingPaymentQr && dirtyPaymentAccountIds.has(account.id) && !accountErrors[account.id]?.length?1:0.55}}
+                        >
+                          {savingPaymentQr ? 'Saving...' : 'Save Account'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {hasQr && (
+                    <div style={{marginTop:10,display:'flex',alignItems:'center',gap:10}}>
+                      <img src={account.qrImageDataUrl || account.qrImageUrl} alt={`${account.label} QR`} style={{width:74,height:74,objectFit:'contain',border:'1px solid #dce8f0',borderRadius:10,background:'#fff'}} />
+                      <div style={{fontSize:12,color:'#6b7fa3',lineHeight:1.45}}>This QR is stored with this payment account and used when this account is default.</div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <div style={{position:'sticky',bottom:0,marginTop:14,display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,background:'#f8fbfd',border:'1px solid #e8f0f7',borderRadius:12,padding:'11px 12px',boxShadow:'0 -8px 18px rgba(2,60,98,0.04)',flexWrap:'wrap'}}>
+            <span style={{fontSize:12,color:savingPaymentQr ? '#92400e' : paymentDraftDirty ? '#b45309' : '#15803d',fontWeight:800}}>
+              {savingPaymentQr ? 'Saving...' : paymentDraftDirty ? 'Some account changes are unsaved' : 'Payment accounts saved'}
+            </span>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+              <button onClick={addPaymentAccount} style={{border:'1.5px solid #023c62',background:'#fff',color:'#023c62',borderRadius:10,padding:'8px 12px',fontSize:12,fontWeight:800,cursor:'pointer'}}>
+                Add Account
+              </button>
+            </div>
+          </div>
+              </>
+            )
+          })()}
         </div>
       )}
 
-      {order && printConfig && (
-        <>
+	      {order && printConfig && (
+	        <>
           <div style={{ background: '#e8f7ef', borderRadius: 12, padding: '13px 16px', border: '1px solid #86efac', marginBottom: 18, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 15, color: '#023c62' }}>{order.orderNumber}</span>
@@ -1082,9 +1589,9 @@ function PrintCenterPageContent() {
             </div>
           )}
 
-          <div style={card()}>
-            <button onClick={() => setFieldsOpen((open) => !open)}
-              style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+	          <div style={card()}>
+	            <button onClick={() => setFieldsOpen((open) => !open)}
+	              style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
               <div>
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7fa3', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Fields</span>
                 <span style={{ fontSize: 12, color: '#9dafc8', marginLeft: 10 }}>{activeFields.length} enabled</span>
@@ -1111,10 +1618,10 @@ function PrintCenterPageContent() {
               <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {activeFields.map((key) => <span key={key} style={{ fontSize: 11, background: '#e8f0f7', color: '#023c62', borderRadius: 999, padding: '3px 9px', fontWeight: 700 }}>{fieldLabels[key]}</span>)}
               </div>
-            )}
-          </div>
+	            )}
+	          </div>
 
-          <div style={{ background: '#f7f9fc', borderRadius: 10, padding: '12px 14px', border: '1px solid #e8f0f7', marginBottom: 18, fontSize: 13, color: '#6b7fa3', lineHeight: 1.7 }}>
+		          <div style={{ background: '#f7f9fc', borderRadius: 10, padding: '12px 14px', border: '1px solid #e8f0f7', marginBottom: 18, fontSize: 13, color: '#6b7fa3', lineHeight: 1.7 }}>
             {type === 'garment' && <span>Will print <strong style={{ color: '#023c62' }}>{garmentCount} garment tags</strong> at {labelSize.w}×{labelSize.h}mm.</span>}
             {type === 'label' && <span>Will print <strong style={{ color: '#023c62' }}>{garmentCount} numbered received labels</strong> at {labelSize.w}×{labelSize.h}mm.</span>}
             {type === 'bag' && <span>Will print <strong style={{ color: '#023c62' }}>{bagTotal} bag labels</strong> at {labelSize.w}×{labelSize.h}mm.</span>}

@@ -291,7 +291,7 @@ export default function PricingPage() {
 
       {!catalog.length ? (
         <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: '40px 32px', textAlign: 'center', color: '#6b7fa3' }}>
-          {loadError || 'No pricing catalog found in the database. Bootstrap it once from seed or create services from CRM.'}
+          {loadError || 'No pricing catalog found. Add services from this page to begin.'}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>

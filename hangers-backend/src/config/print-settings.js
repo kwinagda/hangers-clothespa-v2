@@ -2,11 +2,24 @@ const PRINT_LAYOUT_SETTING_KEY = 'print_layout_settings';
 const PAYMENT_QR_SETTING_KEY = 'payment_qr_settings';
 
 const DEFAULT_PAYMENT_QR_SETTINGS = {
-  enabled: false,
   provider: 'UPI',
   vpa: '',
+  gpayNumber: '',
   payeeName: 'Hangers Clothes Spa',
-  currency: 'INR',
+  defaultAccountId: 'primary',
+  accounts: [
+    {
+      id: 'primary',
+      label: 'Primary Account',
+      isDefault: true,
+      provider: 'UPI',
+      vpa: '',
+      gpayNumber: '',
+      payeeName: 'Hangers Clothes Spa',
+      qrImageUrl: '',
+      qrImageDataUrl: '',
+    },
+  ],
 };
 
 const DEFAULT_PRINT_LAYOUT_SETTINGS = {

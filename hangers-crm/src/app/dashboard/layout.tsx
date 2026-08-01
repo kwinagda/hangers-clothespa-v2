@@ -37,7 +37,7 @@ const NAV_SECTIONS = [
       { href: '/dashboard/quotations', label: 'Quotations', d: '<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M9 12h6M9 16h6M9 8h3"/>' },
       { href: '/dashboard/service-appointments', label: 'Sofa / Field Service', d: '<path d="M4 13h16v5H4z"/><path d="M6 13V9a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v4"/><path d="M7 18v2M17 18v2"/>' },
       { href: '/dashboard/plantchallans', label: 'Plant Challans', d: '<path d="M2.5 16V8a1 1 0 0 1 1-1H14v9"/><path d="M14 10.5h3.6l3 3V16h-1.6"/><circle cx="7" cy="17.5" r="2"/><circle cx="17" cy="17.5" r="2"/>' },
-      { href: '/dashboard/print', label: 'Print Settings', d: '<path d="M6 9V4h12v5"/><path d="M6 18h12v3H6z"/><path d="M4 9h16v7H4z"/>' },
+      { href: '/dashboard/print', label: 'Print & Payment Settings', d: '<path d="M6 9V4h12v5"/><path d="M6 18h12v3H6z"/><path d="M4 9h16v7H4z"/>' },
       { href: '/dashboard/recurring', label: 'Recurring Pickups', d: '<path d="M4 12a8 8 0 0 1 13.6-5.7L20 8"/><path d="M20 4v4h-4"/><path d="M20 12a8 8 0 0 1-13.6 5.7L4 16"/><path d="M4 20v-4h4"/>' },
     ],
   },

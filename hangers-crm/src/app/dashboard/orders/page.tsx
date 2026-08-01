@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { authAPI, ordersAPI, challanAPI, metadataAPI } from '@/lib/api'
+import { authAPI, ordersAPI, challanAPI, metadataAPI, paymentsAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { ClipboardList, Lock, Plus } from 'lucide-react'
@@ -55,6 +55,21 @@ const openPrintWindow = (href: string) => {
   window.addEventListener('message', onMessage)
 }
 const formatCurrency = (value: number) => `₹${(value || 0).toLocaleString('en-IN')}`
+const orderBalanceDue = (order: any) => {
+  const explicit = Number(order?.balanceDue)
+  const computed = Number(order?.totalAmount || 0) - Number(order?.paidAmount || 0) - Number(order?.writeOffAmount || 0)
+  return Math.max(0, Number((Number.isFinite(explicit) ? explicit : computed).toFixed(2)))
+}
+const orderTotalQty = (order: any) => (order?.items || []).reduce((sum: number, item: any) => sum + (Number(item.quantity) || 0), 0)
+const orderItemSummaryText = (order: any) => {
+  const items = order?.items || []
+  if (!items.length) return 'No garments'
+  const visible = items.slice(0, 4).map((item: any) => {
+    const name = item.garmentType || item.serviceName || item.service?.name || 'Item'
+    return `${Number(item.quantity) || 0}x ${name}`
+  })
+  return `${visible.join(', ')}${items.length > visible.length ? ` +${items.length - visible.length} more` : ''}`
+}
 type OrderViewMeta = { key: string; label: string; title: string; description: string; metric?: string; statuses?: string[] }
 const DEFAULT_ORDER_VIEW: OrderViewMeta = {
   key: 'all',
@@ -239,6 +254,20 @@ function OrdersPageContent() {
   const [challanForm, setChallanForm] = useState({ plant: '', driverName: '', vehicleNo: '' })
   const [creatingChallan, setCreatingChallan] = useState(false)
   const [bulkUpdating, setBulkUpdating] = useState('')
+  const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([])
+  const [showBulkPayModal, setShowBulkPayModal] = useState(false)
+  const [bulkPayBusy, setBulkPayBusy] = useState(false)
+  const [bulkPayForm, setBulkPayForm] = useState({ method: '', reference: '', notes: '', amount: '' })
+  const [whatsAppModal, setWhatsAppModal] = useState<{ open: boolean; order: any | null; type: 'ORDER_DETAILS' | 'PAYMENT_REMINDER_ORDER' | 'PAYMENT_REMINDER_SUMMARY'; confirm: boolean }>({
+    open: false,
+    order: null,
+    type: 'ORDER_DETAILS',
+    confirm: false,
+  })
+  const [whatsAppBusy, setWhatsAppBusy] = useState(false)
+  const [whatsAppPreview, setWhatsAppPreview] = useState<any>(null)
+  const [whatsAppPreviewLoading, setWhatsAppPreviewLoading] = useState(false)
+  const [whatsAppCooldownTick, setWhatsAppCooldownTick] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -285,6 +314,11 @@ function OrdersPageContent() {
           border: item.border || '#dce8f0',
         }])))
         const nextPlantPartners = metadata.plantPartners || []
+        const nextPaymentMethods = metadata.collectablePaymentMethods || []
+        setPaymentMethods(nextPaymentMethods)
+        if (nextPaymentMethods.length) {
+          setBulkPayForm((prev) => ({ ...prev, method: prev.method || nextPaymentMethods[0].value }))
+        }
         setPlantPartners(nextPlantPartners)
         if (nextPlantPartners.length) {
           setChallanForm((prev) => ({ ...prev, plant: prev.plant || nextPlantPartners[0].value }))
@@ -416,11 +450,164 @@ function OrdersPageContent() {
     }
   }
 
+  const openBulkPayModal = () => {
+    const payable = selectedOrders.filter((order: any) => orderBalanceDue(order) > 0 && !['CANCELLED', 'RETURNED'].includes(order.status))
+    if (!payable.length) {
+      toast.error('Selected orders have no payable balance')
+      return
+    }
+    const customerIds = new Set(payable.map((order: any) => order.customer?.id || order.customerId).filter(Boolean))
+    if (customerIds.size !== 1) {
+      toast.error('Bulk payment can only be recorded for one customer at a time')
+      return
+    }
+    const totalDue = payable.reduce((sum: number, order: any) => sum + orderBalanceDue(order), 0)
+    setBulkPayForm((prev) => ({ ...prev, amount: totalDue.toFixed(2), method: prev.method || paymentMethods[0]?.value || 'CASH' }))
+    setShowBulkPayModal(true)
+  }
+
+  const submitBulkPayment = async () => {
+    const amount = Number(bulkPayForm.amount)
+    const payable = selectedOrders
+      .filter((order: any) => orderBalanceDue(order) > 0 && !['CANCELLED', 'RETURNED'].includes(order.status))
+      .sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+    const totalDue = payable.reduce((sum: number, order: any) => sum + orderBalanceDue(order), 0)
+    if (!(amount > 0)) {
+      toast.error('Enter received amount')
+      return
+    }
+    if (amount > totalDue) {
+      toast.error(`Amount cannot exceed selected outstanding ${formatCurrency(totalDue)}`)
+      return
+    }
+    if (!bulkPayForm.method) {
+      toast.error('Select payment method')
+      return
+    }
+
+    setBulkPayBusy(true)
+    try {
+      let remaining = amount
+      for (const order of payable) {
+        if (remaining <= 0) break
+        const allocation = Math.min(orderBalanceDue(order), remaining)
+        if (allocation > 0) {
+          await paymentsAPI.record({
+            orderId: order.id,
+            amount: Number(allocation.toFixed(2)),
+            method: bulkPayForm.method,
+            reference: bulkPayForm.reference || undefined,
+            notes: bulkPayForm.notes || `Bulk payment allocated to ${order.orderNumber}`,
+          })
+          remaining = Number((remaining - allocation).toFixed(2))
+        }
+      }
+      toast.success('Bulk payment recorded')
+      setSelected(new Set())
+      setShowBulkPayModal(false)
+      setBulkPayForm((prev) => ({ ...prev, reference: '', notes: '', amount: '' }))
+      load()
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to record bulk payment')
+    } finally {
+      setBulkPayBusy(false)
+    }
+  }
+
+  const openWhatsAppModal = (order: any) => {
+    setWhatsAppModal({ open: true, order, type: 'ORDER_DETAILS', confirm: false })
+  }
+
+  useEffect(() => {
+    if (!whatsAppModal.open || !whatsAppModal.order?.id) {
+      setWhatsAppPreview(null)
+      return
+    }
+    let cancelled = false
+    setWhatsAppPreviewLoading(true)
+    ordersAPI.previewManualNotification(whatsAppModal.order.id, { type: whatsAppModal.type })
+      .then((response: any) => {
+        if (cancelled) return
+        const nextPreview = response?.data || response
+        setWhatsAppPreview(nextPreview)
+        setWhatsAppCooldownTick(Number(nextPreview?.cooldown?.waitSeconds || 0))
+      })
+      .catch((e: any) => {
+        if (cancelled) return
+        setWhatsAppPreview({ error: e?.message || 'Failed to load WhatsApp preview' })
+      })
+      .finally(() => {
+        if (!cancelled) setWhatsAppPreviewLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [whatsAppModal.open, whatsAppModal.order?.id, whatsAppModal.type])
+
+  useEffect(() => {
+    if (!whatsAppModal.open || !whatsAppPreview?.cooldown?.waitSeconds) return
+    const startedAt = Date.now()
+    const interval = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000)
+      const remaining = Math.max(0, Number(whatsAppPreview.cooldown.waitSeconds || 0) - elapsed)
+      setWhatsAppCooldownTick(remaining)
+      if (remaining <= 0) {
+        window.clearInterval(interval)
+        if (whatsAppModal.order?.id) {
+          setWhatsAppPreviewLoading(true)
+          ordersAPI.previewManualNotification(whatsAppModal.order.id, { type: whatsAppModal.type })
+            .then((response: any) => {
+              const nextPreview = response?.data || response
+              setWhatsAppPreview(nextPreview)
+              setWhatsAppCooldownTick(Number(nextPreview?.cooldown?.waitSeconds || 0))
+            })
+            .catch((e: any) => setWhatsAppPreview({ error: e?.message || 'Failed to load WhatsApp preview' }))
+            .finally(() => setWhatsAppPreviewLoading(false))
+        }
+      }
+    }, 1000)
+    return () => window.clearInterval(interval)
+  }, [whatsAppModal.open, whatsAppModal.order?.id, whatsAppModal.type, whatsAppPreview?.cooldown?.waitSeconds])
+
+  const submitManualWhatsApp = async () => {
+    const order = whatsAppModal.order
+    if (!order) return
+    if (!whatsAppModal.confirm) {
+      toast.error('Confirm before sending WhatsApp')
+      return
+    }
+    if (whatsAppPreview?.cooldown?.waitSeconds) {
+      toast.error(`Wait ${Math.max(1, whatsAppCooldownTick || whatsAppPreview.cooldown.waitSeconds)}s before sending again`)
+      return
+    }
+    setWhatsAppBusy(true)
+    try {
+      if (!whatsAppPreview || whatsAppPreview.error) {
+        toast.error('Preview must load before sending')
+        return
+      }
+      await ordersAPI.sendManualNotification(order.id, { type: whatsAppModal.type })
+      toast.success('WhatsApp request sent')
+      setWhatsAppModal({ open: false, order: null, type: 'ORDER_DETAILS', confirm: false })
+      load()
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to send WhatsApp')
+      load()
+    } finally {
+      setWhatsAppBusy(false)
+    }
+  }
+
   const selectedOrders = orders.filter((o:any) => selected.has(o.id))
+  const selectedPayableOrders = selectedOrders.filter((order: any) => orderBalanceDue(order) > 0 && !['CANCELLED', 'RETURNED'].includes(order.status))
+  const selectedPayableTotal = selectedPayableOrders.reduce((sum: number, order: any) => sum + orderBalanceDue(order), 0)
+  const selectedCustomerCount = new Set(selectedPayableOrders.map((order: any) => order.customer?.id || order.customerId).filter(Boolean)).size
+  const selectedGarmentTotal = selectedOrders.reduce((sum: number, order: any) => sum + orderTotalQty(order), 0)
   const visibleValue = orders.reduce((sum: number, order: any) => sum + (order.totalAmount || 0), 0)
   const plantLockedCount = orders.filter((order: any) => plantStatuses.includes(order.status)).length
   const noItemsCount = orders.filter((order: any) => !order.items?.length).length
   const activeView = orderViews.find((item) => item.key === view) || orderViews[0] || DEFAULT_ORDER_VIEW
+  const whatsAppCooldownRemaining = whatsAppModal.open && whatsAppPreview?.cooldown?.waitSeconds
+    ? Math.max(0, whatsAppCooldownTick || Number(whatsAppPreview.cooldown.waitSeconds || 0))
+    : 0
 
   return (
     <div className="crm-page-enter" style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto'}}>
@@ -456,7 +643,7 @@ function OrdersPageContent() {
       </div>
 
       {/* Bulk action bar */}
-      {selected.size > 0 && (
+	      {selected.size > 0 && !showChallanModal && !showBulkPayModal && (
         <>
           <div style={{height:64, marginBottom:14}} />
           <div style={{position:'fixed' as const,top:72,left:'50%',transform:'translateX(-50%)',width:'min(calc(100vw - 32px), 1320px)',zIndex:1000,background:'#023c62',borderRadius:16,padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap' as const,fontSize:13,color:'#fff',boxShadow:'0 18px 42px rgba(2,60,98,0.26)'}}>
@@ -472,12 +659,18 @@ function OrdersPageContent() {
                   </button>
                 )
               })}
-              <button onClick={() => setShowChallanModal(true)}
-                style={{padding:'6px 14px',background:'#fff',color:'#023c62',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:'pointer'}}>
-                Create Challan & Send to Plant
-              </button>
-              <button onClick={() => setSelected(new Set())}
-                style={{padding:'6px 14px',background:'rgba(255,255,255,0.15)',color:'#fff',borderRadius:8,fontSize:12,border:'none',cursor:'pointer'}}>
+	              <button onClick={() => setShowChallanModal(true)}
+	                style={{padding:'6px 14px',background:'#fff',color:'#023c62',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:'pointer'}}>
+	                Create Challan & Send to Plant
+	              </button>
+	              {selectedPayableOrders.length > 0 && (
+	                <button onClick={openBulkPayModal}
+	                  style={{padding:'6px 14px',background:'#fff',color:'#023c62',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:'pointer'}}>
+	                  {selectedPayableOrders.length === 1 ? 'Record Payment' : 'Bulk Pay'} {formatCurrency(selectedPayableTotal)}
+	                </button>
+	              )}
+	              <button onClick={() => setSelected(new Set())}
+	                style={{padding:'6px 14px',background:'rgba(255,255,255,0.15)',color:'#fff',borderRadius:8,fontSize:12,border:'none',cursor:'pointer'}}>
                 Clear
               </button>
             </div>
@@ -609,9 +802,9 @@ function OrdersPageContent() {
                             <span title="Record payment" style={{width:28,height:28,borderRadius:7,background:'#fff',border:'1px solid #dce8f0',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#3d5470',cursor:'pointer',flexShrink:0}}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg>
                             </span>
-                            <a href={`https://wa.me/91${(o.customer?.phone||'').replace(/\D/g,'')}`} target="_blank" rel="noopener" title="WhatsApp customer" style={{width:28,height:28,borderRadius:7,background:'#e8f7ef',border:'1px solid #bfe6d2',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#0d7a4e',flexShrink:0}}>
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20l1.3-3.9A7.5 7.5 0 1 1 9 18.5L4 20z"/></svg>
-                            </a>
+	                            <button onClick={() => openWhatsAppModal(o)} title="Send WhatsApp message" style={{width:28,height:28,borderRadius:7,background:'#e8f7ef',border:'1px solid #bfe6d2',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#0d7a4e',flexShrink:0,cursor:'pointer'}}>
+	                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20l1.3-3.9A7.5 7.5 0 1 1 9 18.5L4 20z"/></svg>
+	                            </button>
                           </div>
                         </td>
                       </tr>
@@ -634,52 +827,222 @@ function OrdersPageContent() {
         pageSizeOptions={[10, 20, 30, 50, 100]}
       />
 
+      {whatsAppModal.open && whatsAppModal.order && (
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.42)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:60,padding:'18px',boxSizing:'border-box'}}>
+          <div style={{width:'min(720px,100%)',maxHeight:'min(760px,calc(100vh - 36px))',background:'#fff',borderRadius:18,border:'1px solid #e4edf5',boxShadow:'0 28px 64px rgba(2,60,98,0.22)',overflow:'hidden',display:'flex',flexDirection:'column'}}>
+            <div style={{padding:'18px 22px',borderBottom:'1px solid #edf3f8',flexShrink:0}}>
+              <div style={{fontSize:18,fontWeight:900,color:'#023c62'}}>Send WhatsApp</div>
+              <div style={{fontSize:12.5,color:'#6b7fa3',marginTop:4}}>
+                {whatsAppModal.order.orderNumber} · {whatsAppModal.order.customer?.name || 'Customer'} · Balance {formatCurrency(orderBalanceDue(whatsAppModal.order))}
+              </div>
+            </div>
+            <div style={{padding:22,display:'grid',gap:12,overflowY:'auto',minHeight:0}}>
+              {[
+                { type: 'ORDER_DETAILS', title: 'Resend order details', detail: 'Sends the current order status/details with invoice link.' },
+                { type: 'PAYMENT_REMINDER_ORDER', title: 'Payment reminder for this order', detail: 'Sends this order outstanding amount with payment details.' },
+                { type: 'PAYMENT_REMINDER_SUMMARY', title: 'Customer full O/S summary', detail: 'Sends customer-level pending order count and total outstanding.' },
+              ].map((option: any) => (
+                <label key={option.type} style={{display:'grid',gridTemplateColumns:'18px 1fr',gap:10,padding:12,border:'1px solid #dce8f0',borderRadius:12,cursor:'pointer',background:whatsAppModal.type === option.type ? '#eff6ff' : '#fff'}}>
+                  <input type="radio" checked={whatsAppModal.type === option.type} onChange={() => setWhatsAppModal((current) => ({ ...current, type: option.type, confirm: false }))} />
+                  <span>
+                    <strong style={{display:'block',fontSize:13.5,color:'#142033'}}>{option.title}</strong>
+                    <span style={{display:'block',fontSize:12,color:'#6b7fa3',marginTop:2,lineHeight:1.4}}>{option.detail}</span>
+                  </span>
+                </label>
+              ))}
+              <label style={{display:'flex',gap:9,alignItems:'flex-start',fontSize:12.5,color:'#51657f',lineHeight:1.45}}>
+                <input type="checkbox" checked={whatsAppModal.confirm} onChange={(e) => setWhatsAppModal((current) => ({ ...current, confirm: e.target.checked }))} />
+                I confirm this will send a WhatsApp template to the customer and create a timeline log.
+              </label>
+              <div style={{border:'1px solid #dce8f0',borderRadius:12,background:'#f8fafc',padding:12,minHeight:260}}>
+                <div style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center',marginBottom:8}}>
+                  <div style={{fontSize:11,fontWeight:800,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em'}}>Message Preview</div>
+                  {whatsAppPreviewLoading && <div style={{fontSize:11.5,color:'#6b7fa3',fontWeight:800}}>Updating...</div>}
+                </div>
+                {whatsAppPreview?.error ? (
+                  <div style={{fontSize:12,color:'#b91c1c',fontWeight:700}}>{whatsAppPreview.error}</div>
+                ) : (
+                  <>
+                    {whatsAppPreview?.qrImage && <img src={whatsAppPreview.qrImage} alt="Payment QR preview" style={{width:96,height:96,objectFit:'contain',border:'1px solid #dce8f0',borderRadius:10,background:'#fff',marginBottom:10}} />}
+                    {whatsAppCooldownRemaining > 0 && (
+                      <div style={{border:'1px solid #fde68a',background:'#fffbeb',borderRadius:10,padding:10,marginBottom:10}}>
+                        <div style={{display:'flex',justifyContent:'space-between',gap:10,fontSize:12,color:'#92400e',fontWeight:900}}>
+                          <span>Cooldown active</span>
+                          <span>{whatsAppCooldownRemaining}s</span>
+                        </div>
+                        <div style={{height:5,background:'#fde68a',borderRadius:999,overflow:'hidden',marginTop:8}}>
+                          <div style={{height:'100%',width:`${Math.max(0, Math.min(100, (whatsAppCooldownRemaining / Number(whatsAppPreview.cooldown.waitSeconds || 60)) * 100))}%`,background:'#f59e0b',borderRadius:999,transition:'width 1s linear'}} />
+                        </div>
+                        <div style={{fontSize:11.5,color:'#a16207',marginTop:7,lineHeight:1.35}}>Send will unlock only after the CRM rechecks the server.</div>
+                      </div>
+                    )}
+                    <pre style={{whiteSpace:'pre-wrap',margin:0,fontFamily:'var(--crm-font-ui)',fontSize:12.5,lineHeight:1.5,color:'#142033',maxHeight:220,overflowY:'auto',background:'#fff',border:'1px solid #edf3f8',borderRadius:10,padding:12}}>{whatsAppPreview?.body || 'Preview not available'}</pre>
+                    <div style={{marginTop:10,fontSize:12,color:'#023c62',fontWeight:800}}>Button: {whatsAppPreview?.buttonLabel || 'View Invoice'}</div>
+                  </>
+                )}
+              </div>
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end',gap:10,padding:'14px 22px',borderTop:'1px solid #edf3f8',background:'#f8fafc',flexShrink:0}}>
+              <button onClick={() => setWhatsAppModal({ open:false, order:null, type:'ORDER_DETAILS', confirm:false })} disabled={whatsAppBusy}
+                style={{padding:'9px 14px',borderRadius:10,border:'1px solid #dce8f0',background:'#fff',color:'#51657f',fontWeight:700,cursor:whatsAppBusy?'wait':'pointer'}}>
+                Cancel
+              </button>
+              <button onClick={submitManualWhatsApp} disabled={whatsAppBusy || !whatsAppModal.confirm || whatsAppPreviewLoading || Boolean(whatsAppPreview?.error) || whatsAppCooldownRemaining > 0}
+                style={{padding:'9px 16px',borderRadius:10,border:'none',background:'#0d7a4e',color:'#fff',fontWeight:800,cursor:whatsAppBusy?'wait':'pointer',opacity:(!whatsAppModal.confirm || whatsAppBusy || whatsAppCooldownRemaining > 0)?0.6:1}}>
+                {whatsAppBusy ? 'Sending...' : whatsAppCooldownRemaining > 0 ? `Wait ${whatsAppCooldownRemaining}s` : 'Send WhatsApp'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBulkPayModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.42)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:60,padding:20}}>
+          <div style={{width:'100%',maxWidth:620,background:'#fff',borderRadius:18,border:'1px solid #e4edf5',boxShadow:'0 28px 64px rgba(2,60,98,0.22)',overflow:'hidden'}}>
+            <div style={{padding:'18px 22px',borderBottom:'1px solid #edf3f8'}}>
+              <div style={{fontSize:18,fontWeight:900,color:'#023c62'}}>Bulk Record Payment</div>
+              <div style={{fontSize:12.5,color:'#6b7fa3',marginTop:4}}>
+                {selectedPayableOrders.length} payable order{selectedPayableOrders.length === 1 ? '' : 's'} · Selected O/S {formatCurrency(selectedPayableTotal)}
+              </div>
+            </div>
+            <div style={{padding:22}}>
+              {selectedCustomerCount > 1 && (
+                <div style={{background:'#fff7ed',border:'1px solid #fed7aa',color:'#9a3412',padding:12,borderRadius:12,fontSize:13,fontWeight:700,marginBottom:14}}>
+                  Select orders of one customer only before recording bulk payment.
+                </div>
+              )}
+              <div style={{maxHeight:180,overflowY:'auto',border:'1px solid #e3edf6',borderRadius:12,marginBottom:14}}>
+                {selectedPayableOrders.map((order: any) => (
+                  <div key={order.id} style={{display:'grid',gridTemplateColumns:'120px 1fr 90px',gap:10,padding:'10px 12px',borderBottom:'1px solid #eef4f8',fontSize:12.5}}>
+                    <strong style={{fontFamily:'var(--crm-font-mono)',color:'#023c62'}}>{order.orderNumber}</strong>
+                    <span style={{color:'#51657f',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{order.customer?.name || 'Customer'}</span>
+                    <strong style={{color:'#142033',textAlign:'right'}}>{formatCurrency(orderBalanceDue(order))}</strong>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                <div>
+                  <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Amount Received</label>
+                  <input type="number" min="0" step="0.01" value={bulkPayForm.amount} onChange={(e)=>setBulkPayForm((prev)=>({...prev,amount:e.target.value}))}
+                    style={{width:'100%',border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',boxSizing:'border-box'}} />
+                </div>
+                <div>
+                  <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Payment Method</label>
+                  <select value={bulkPayForm.method} onChange={(e)=>setBulkPayForm((prev)=>({...prev,method:e.target.value}))}
+                    style={{width:'100%',border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',boxSizing:'border-box',background:'#fff'}}>
+                    {paymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Reference</label>
+                  <input value={bulkPayForm.reference} onChange={(e)=>setBulkPayForm((prev)=>({...prev,reference:e.target.value}))}
+                    placeholder="Optional" style={{width:'100%',border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',boxSizing:'border-box'}} />
+                </div>
+                <div>
+                  <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Notes</label>
+                  <input value={bulkPayForm.notes} onChange={(e)=>setBulkPayForm((prev)=>({...prev,notes:e.target.value}))}
+                    placeholder="Optional" style={{width:'100%',border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',boxSizing:'border-box'}} />
+                </div>
+              </div>
+              <div style={{fontSize:12,color:'#6b7fa3',lineHeight:1.45,marginTop:12}}>
+                Allocation is applied to the oldest selected outstanding order first. Each allocation creates the normal payment and timeline entry.
+              </div>
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end',gap:10,padding:'14px 22px',borderTop:'1px solid #edf3f8',background:'#f8fafc'}}>
+              <button onClick={() => setShowBulkPayModal(false)} disabled={bulkPayBusy}
+                style={{padding:'9px 14px',borderRadius:10,border:'1px solid #dce8f0',background:'#fff',color:'#51657f',fontWeight:700,cursor:bulkPayBusy?'wait':'pointer'}}>
+                Cancel
+              </button>
+              <button onClick={submitBulkPayment} disabled={bulkPayBusy || selectedCustomerCount !== 1}
+                style={{padding:'9px 16px',borderRadius:10,border:'none',background:'#023c62',color:'#fff',fontWeight:800,cursor:bulkPayBusy?'wait':'pointer',opacity:(bulkPayBusy || selectedCustomerCount !== 1)?0.6:1}}>
+                {bulkPayBusy ? 'Recording...' : 'Record Bulk Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create Challan Modal */}
       {showChallanModal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50}}>
-          <div style={{background:'#fff',borderRadius:16,padding:24,width:'100%',maxWidth:480,boxShadow:'0 20px 60px rgba(0,0,0,0.15)'}}>
-            <h2 style={{fontFamily:"var(--crm-font-display)",fontWeight:700,fontSize:18,marginBottom:4}}>Create Delivery Challan</h2>
-            <p style={{fontSize:13,color:'#6b7fa3',marginBottom:20}}>
-              {selected.size} order{selected.size > 1 ? 's' : ''} will be sent to the plant and locked until the plant marks them as received.
-            </p>
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.46)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,padding:20}}>
+	          <div style={{background:'#fff',borderRadius:16,width:'min(920px, 100%)',maxHeight:'min(760px, calc(100vh - 40px))',boxShadow:'0 24px 70px rgba(2,60,98,0.22)',display:'flex',flexDirection:'column' as const,overflow:'hidden'}}>
+            <div style={{padding:'20px 24px 16px',borderBottom:'1px solid #e8f0f7',background:'#fff'}}>
+              <h2 style={{fontFamily:"var(--crm-font-display)",fontWeight:800,fontSize:19,margin:'0 0 5px',color:'#023c62'}}>Create Delivery Challan</h2>
+              <p style={{fontSize:13,color:'#6b7fa3',margin:0,lineHeight:1.45}}>
+                Review selected orders, choose plant details, then send them to plant.
+              </p>
+            </div>
 
-            {/* Selected orders preview */}
-            <div style={{background:'#f8fafc',borderRadius:8,padding:12,marginBottom:16,maxHeight:120,overflowY:'auto' as const}}>
-              {selectedOrders.map((o:any) => (
-                <div key={o.id} style={{fontSize:12,color:'#374151',padding:'3px 0',display:'flex',justifyContent:'space-between'}}>
-                  <span style={{fontFamily:'monospace',color:'#023c62'}}>{o.orderNumber}</span>
-                  <span style={{color:'#6b7fa3'}}>{o.customer?.name}</span>
+            <div style={{padding:24,overflowY:'auto' as const,display:'grid',gridTemplateColumns:'minmax(0,1fr) 300px',gap:18,alignItems:'start'}}>
+              <div style={{minWidth:0}}>
+	              <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10,marginBottom:14}}>
+	                <div style={{background:'#f8fafc',border:'1px solid #e3edf6',borderRadius:12,padding:12}}>
+	                  <div style={{fontSize:10,fontWeight:800,color:'#6b7fa3',textTransform:'uppercase'}}>Orders</div>
+	                  <div style={{fontSize:22,fontWeight:900,color:'#023c62',marginTop:3}}>{selectedOrders.length}</div>
+	                </div>
+	                <div style={{background:'#f8fafc',border:'1px solid #e3edf6',borderRadius:12,padding:12}}>
+	                  <div style={{fontSize:10,fontWeight:800,color:'#6b7fa3',textTransform:'uppercase'}}>Garments</div>
+	                  <div style={{fontSize:22,fontWeight:900,color:'#023c62',marginTop:3}}>{selectedGarmentTotal}</div>
+	                </div>
+	                <div style={{background:'#f8fafc',border:'1px solid #e3edf6',borderRadius:12,padding:12}}>
+	                  <div style={{fontSize:10,fontWeight:800,color:'#6b7fa3',textTransform:'uppercase'}}>Plant</div>
+	                  <div style={{fontSize:14,fontWeight:800,color:'#023c62',marginTop:7,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+	                    {plantPartners.find((plant) => plant.value === challanForm.plant)?.label || challanForm.plant || 'Select plant'}
+	                  </div>
+	                </div>
+	              </div>
+
+	              <div style={{border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden',background:'#fff'}}>
+                  <div style={{padding:'10px 12px',background:'#f8fafc',borderBottom:'1px solid #e3edf6',display:'grid',gridTemplateColumns:'118px minmax(0,1fr) 76px',gap:10,fontSize:10,fontWeight:900,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.05em'}}>
+                    <span>Order</span>
+                    <span>Customer / Garments</span>
+                    <span style={{textAlign:'right'}}>Pieces</span>
+                  </div>
+	                <div style={{maxHeight:'calc(100vh - 390px)',minHeight:180,overflowY:'auto' as const}}>
+	                  {selectedOrders.map((o:any) => (
+	                    <div key={o.id} style={{fontSize:12,color:'#374151',padding:'10px 12px',display:'grid',gridTemplateColumns:'118px minmax(0,1fr) 76px',gap:10,borderBottom:'1px solid #eef4f8',alignItems:'center'}}>
+	                      <span style={{fontFamily:'monospace',color:'#023c62',fontWeight:900}}>{o.orderNumber}</span>
+	                      <span style={{minWidth:0}}>
+	                        <strong style={{display:'block',color:'#1a2332',fontSize:12.5,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{o.customer?.name || 'Customer'}</strong>
+	                        <span style={{display:'block',color:'#6b7fa3',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',marginTop:2}}>{orderItemSummaryText(o)}</span>
+	                      </span>
+	                      <span style={{color:'#023c62',fontWeight:900,textAlign:'right'}}>{orderTotalQty(o)} pcs</span>
+	                    </div>
+	                  ))}
+	                </div>
+	              </div>
+              </div>
+
+              <div style={{border:'1px solid #e3edf6',borderRadius:14,padding:14,background:'#fbfdff',position:'sticky' as const,top:0}}>
+                <div style={{fontSize:11,fontWeight:900,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:12}}>Plant Details</div>
+                <div style={{display:'flex',flexDirection:'column' as const,gap:13}}>
+                  <div>
+                    <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6,fontWeight:800}}>Send to Plant *</label>
+                    <select value={challanForm.plant} onChange={(e:any)=>setChallanForm({...challanForm,plant:e.target.value})}
+                      style={{width:'100%',border:'1px solid #dce8f0',borderRadius:9,padding:'9px 11px',fontSize:13,background:'#fff'}}>
+                      {plantPartners.map((plant) => <option key={plant.value} value={plant.value}>{plant.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6,fontWeight:800}}>Driver Name</label>
+                    <input type="text" value={challanForm.driverName} onChange={(e:any)=>setChallanForm({...challanForm,driverName:e.target.value})}
+                      placeholder="Optional"
+                      style={{width:'100%',border:'1px solid #dce8f0',borderRadius:9,padding:'9px 11px',fontSize:13,boxSizing:'border-box' as const,background:'#fff'}}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6,fontWeight:800}}>Vehicle No</label>
+                    <input type="text" value={challanForm.vehicleNo} onChange={(e:any)=>setChallanForm({...challanForm,vehicleNo:e.target.value})}
+                      placeholder="Optional"
+                      style={{width:'100%',border:'1px solid #dce8f0',borderRadius:9,padding:'9px 11px',fontSize:13,boxSizing:'border-box' as const,background:'#fff'}}/>
+                  </div>
                 </div>
-              ))}
-            </div>
-
-            <div style={{display:'flex',flexDirection:'column' as const,gap:14}}>
-              <div>
-                <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Send to Plant *</label>
-                <select value={challanForm.plant} onChange={(e:any)=>setChallanForm({...challanForm,plant:e.target.value})}
-                  style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13}}>
-                  {plantPartners.map((plant) => <option key={plant.value} value={plant.value}>{plant.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Driver Name</label>
-                <input type="text" value={challanForm.driverName} onChange={(e:any)=>setChallanForm({...challanForm,driverName:e.target.value})}
-                  placeholder="Optional"
-                  style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/>
-              </div>
-              <div>
-                <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Vehicle No</label>
-                <input type="text" value={challanForm.vehicleNo} onChange={(e:any)=>setChallanForm({...challanForm,vehicleNo:e.target.value})}
-                  placeholder="Optional"
-                  style={{width:'100%',border:'1px solid #e2e8f0',borderRadius:8,padding:'8px 12px',fontSize:13,boxSizing:'border-box' as const}}/>
+                <div style={{background:'#fff7ed',border:'1px solid #fed7aa',borderRadius:10,padding:'10px 12px',marginTop:14,fontSize:12,color:'#9a3412',lineHeight:1.45}}>
+                  Orders stay locked for regular status changes until the plant marks the challan as received.
+                </div>
               </div>
             </div>
 
-            <div style={{background:'#fef9c3',borderRadius:8,padding:'10px 14px',marginTop:14,fontSize:12,color:'#854d0e'}}>
-              Once sent to plant, orders will be locked from status updates until the plant marks the challan as Received.
-            </div>
-
-            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:20}}>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',padding:'14px 24px',borderTop:'1px solid #e8f0f7',background:'#fff'}}>
               <button onClick={()=>setShowChallanModal(false)}
                 style={{padding:'8px 16px',fontSize:13,color:'#6b7fa3',background:'none',border:'none',cursor:'pointer'}}>
                 Cancel
