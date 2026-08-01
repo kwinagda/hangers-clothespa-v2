@@ -33,6 +33,7 @@ const MANUAL_WHATSAPP_COOLDOWN_MS = 60 * 1000;
 
 const FALLBACK_ERROR_ENTRY = {
   code: 'ORDER_ACTION_FAILED',
+  displayCode: 'E-ORD-001',
   severity: 'error',
   title: 'Order action failed',
   message: 'This order action could not be completed. Refresh and retry once.',
@@ -63,6 +64,7 @@ const normalizeTimelineError = async (err, fallback = 'Action failed') => {
   if (err instanceof CommercialRuleError || err instanceof BillingRuleError || err instanceof PaymentRuleError || err instanceof GarmentUnitError) {
     return {
       code: raw.rawCode,
+      displayCode: raw.rawCode,
       message: raw.rawMessage.slice(0, 220),
       rawCode: raw.rawCode,
       rawMessage: raw.rawMessage,
@@ -81,6 +83,7 @@ const normalizeTimelineError = async (err, fallback = 'Action failed') => {
   const matched = matchErrorCatalogEntry(catalog, raw) || catalog?.ORDER_ACTION_FAILED || FALLBACK_ERROR_ENTRY;
   return {
     code: matched.code || FALLBACK_ERROR_ENTRY.code,
+    displayCode: matched.displayCode || matched.code || FALLBACK_ERROR_ENTRY.displayCode,
     message: matched.message || FALLBACK_ERROR_ENTRY.message,
     rawCode: raw.rawCode,
     rawMessage: raw.rawMessage,
@@ -149,6 +152,7 @@ const logOrderActionFailure = async ({ orderId, stage, attemptedStatus, err, sta
       ...metadata,
       outcome: 'FAILED',
       errorCode: normalized.code,
+      errorDisplayCode: normalized.displayCode,
       errorMessage: normalized.message,
       errorSeverity: normalized.severity,
       retryable: normalized.retryable,

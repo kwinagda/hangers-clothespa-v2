@@ -17,9 +17,10 @@ const ORDER_STATUSES = [
 const ERROR_CATALOG = {
   DUPLICATE_BACKGROUND_EVENT: {
     code: 'DUPLICATE_BACKGROUND_EVENT',
+    displayCode: 'E-BG-001',
     severity: 'warning',
     title: 'Duplicate background event',
-    message: 'This action was blocked because the same background event was already recorded. Refresh and retry once.',
+    message: 'This action was already recorded in the background.',
     retryable: true,
     match: {
       prismaCodes: ['P2002'],
@@ -28,9 +29,10 @@ const ERROR_CATALOG = {
   },
   TRANSACTION_ABORTED_AFTER_DB_ERROR: {
     code: 'TRANSACTION_ABORTED_AFTER_DB_ERROR',
+    displayCode: 'E-DB-002',
     severity: 'error',
     title: 'Database transaction stopped',
-    message: 'This action could not finish because an earlier database step failed in the same request. Refresh and retry once.',
+    message: 'One database write failed, so the remaining steps were cancelled to keep the order data consistent.',
     retryable: true,
     match: {
       postgresCodes: ['25P02'],
@@ -39,9 +41,10 @@ const ERROR_CATALOG = {
   },
   DATABASE_ACTION_FAILED: {
     code: 'DATABASE_ACTION_FAILED',
+    displayCode: 'E-DB-001',
     severity: 'error',
     title: 'Database action failed',
-    message: 'This action could not be completed due to a backend database error. Refresh and retry once.',
+    message: 'A database step failed while saving this action.',
     retryable: true,
     match: {
       names: ['PrismaClientKnownRequestError', 'PrismaClientUnknownRequestError'],
@@ -50,9 +53,10 @@ const ERROR_CATALOG = {
   },
   ORDER_ACTION_FAILED: {
     code: 'ORDER_ACTION_FAILED',
+    displayCode: 'E-ORD-001',
     severity: 'error',
     title: 'Order action failed',
-    message: 'This order action could not be completed. Refresh and retry once.',
+    message: 'The system could not complete this order action.',
     retryable: true,
     match: {},
   },

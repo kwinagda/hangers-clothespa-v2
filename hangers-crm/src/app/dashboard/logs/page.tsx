@@ -39,6 +39,13 @@ const logTone = (stage: string, eventType?: string) => {
   return { bg: '#eef6fb', border: '#d6e5f0', color: '#023c62' }
 }
 
+const getActionFailureDisplay = (log: any) => {
+  const metadata = log?.metadata || {}
+  const code = metadata.errorDisplayCode || metadata.displayCode || metadata.errorCode || log?.reasonCode || ''
+  const message = String(metadata.errorMessage || log?.notes || 'Action failed').trim()
+  return { code, message }
+}
+
 const retryAttemptSummary = (metadata: any) => {
   const attempts = Array.isArray(metadata?.retryAttempts) ? metadata.retryAttempts : []
   const failed = attempts.filter((attempt: any) => attempt?.outcome === 'FAILED').length
@@ -157,7 +164,8 @@ export default function LogsPage() {
                     {group.logs.map((log: any, index: number) => {
                       const tone = logTone(log.stage, log.eventType)
                       const retryText = retryAttemptSummary(log.metadata)
-                      const actionErrorCode = log.eventType === 'ACTION_FAILED' ? (log.metadata?.errorCode || log.reasonCode || '') : ''
+                      const actionFailureDisplay = log.eventType === 'ACTION_FAILED' ? getActionFailureDisplay(log) : null
+                      const actionErrorCode = actionFailureDisplay?.code || ''
                       return (
                         <div key={log.id} style={{ display: 'grid', gridTemplateColumns: '22px 1fr', gap: 10, paddingBottom: 14 }}>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -173,11 +181,11 @@ export default function LogsPage() {
                               <span style={{ color: '#9dafc8', fontSize: 11.5 }}>{log.eventType || 'EVENT'}</span>
                             </div>
                             <div style={{ marginTop: 6, color: '#142033', fontSize: 13, lineHeight: 1.45, overflowWrap: 'anywhere' }}>
-                              {log.notes || stageLabel(log.stage)}
+                              {actionFailureDisplay?.message || log.notes || stageLabel(log.stage)}
                             </div>
                             {actionErrorCode && (
                               <div style={{ marginTop: 7, display: 'inline-flex', border: '1px solid #fecaca', background: '#fff', color: '#991b1b', borderRadius: 999, padding: '4px 8px', fontSize: 11, fontWeight: 900 }}>
-                                Error code: {actionErrorCode}
+                                Ref: {actionErrorCode}
                               </div>
                             )}
                             {retryText && <div style={{ marginTop: 5, color: '#8a5a00', fontSize: 12 }}>{retryText}</div>}

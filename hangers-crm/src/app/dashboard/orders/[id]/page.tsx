@@ -96,6 +96,13 @@ const getTimelineNote = (notes?: string | null) => {
 
   return trimmed
 }
+
+const getActionFailureDisplay = (stage: any) => {
+  const metadata = stage?.metadata || {}
+  const code = metadata.errorDisplayCode || metadata.displayCode || metadata.errorCode || stage?.reasonCode || ''
+  const message = String(metadata.errorMessage || stage?.notes || 'Action failed').trim()
+  return { code, message }
+}
 const getWhatsAppTimelineKey = (stage: any) => {
   const metadata = stage?.metadata || {}
   if (stage?.eventType !== 'NOTIFICATION' || !String(stage?.stage || '').startsWith('WHATSAPP_')) return ''
@@ -1101,13 +1108,14 @@ export default function OrderDetailPage() {
               {!order.stages?.length ? (
                 <div style={{padding:'20px',color:'#9dafc8',fontSize:13}}>No timeline entries yet</div>
               ) : (order.stages||[]).map((st:any,i:number,arr:any[])=>{
-                const timelineNote = getTimelineNote(st.notes)
                 const isWhatsAppFailed = st.stage === 'WHATSAPP_FAILED'
                 const isWhatsAppSent = st.stage === 'WHATSAPP_SENT'
                 const isActionFailed = st.eventType === 'ACTION_FAILED' || st.stage === 'ORDER_STATUS_FAILED'
                 const isActionAttempted = st.eventType === 'ACTION_ATTEMPTED'
                 const isActionSucceeded = st.eventType === 'ACTION_SUCCEEDED'
-                const timelineErrorCode = isActionFailed ? (st.metadata?.errorCode || st.reasonCode || '') : ''
+                const actionFailureDisplay = isActionFailed ? getActionFailureDisplay(st) : null
+                const timelineNote = actionFailureDisplay?.message || getTimelineNote(st.notes)
+                const timelineErrorCode = actionFailureDisplay?.code || ''
                 const retryResolved = resolvedWhatsAppFailureIds.has(st.id)
                 const failedRetryAttempts = Array.isArray(st.metadata?.retryAttempts)
                   ? st.metadata.retryAttempts.filter((attempt: any) => attempt?.outcome === 'FAILED')
@@ -1142,7 +1150,7 @@ export default function OrderDetailPage() {
 			                    <div style={{fontSize:11.5,color:isWhatsAppFailed||isActionFailed?'#b45353':'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{format(new Date(st.createdAt),'d MMM, h:mm a')}{timelineNote ? ` · ${timelineNote}` : ''}</div>
                           {timelineErrorCode && (
                             <div style={{marginTop:7,display:'inline-flex',alignItems:'center',gap:6,border:'1px solid #fecaca',background:'#fff',color:'#991b1b',borderRadius:999,padding:'4px 8px',fontSize:11,fontWeight:800,letterSpacing:'0.02em'}}>
-                              Error code: {timelineErrorCode}
+                              Ref: {timelineErrorCode}
                             </div>
                           )}
                           {isWhatsAppFailed && failedRetryAttempts.length > 0 && (
