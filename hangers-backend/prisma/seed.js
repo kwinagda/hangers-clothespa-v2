@@ -234,15 +234,15 @@ const CATALOG = [
   { name: 'Normal Ironing',                         category: 'NORMAL IRONING',           basePrice: 15,   isActive: true },
 
   // ── DAILY IRON ─────────────────────────────────────────────────────────────
-  { name: 'Shirt',                                  category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 1 },
-  { name: 'T-Shirt',                                category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 2 },
-  { name: 'Trouser / Pant',                         category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 3 },
-  { name: 'Salwar / Kurta',                         category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 4 },
-  { name: 'Saree',                                  category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 5 },
-  { name: 'Long Dress',                             category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 6 },
-  { name: 'Bedsheet (Single)',                      category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 7 },
-  { name: 'Bedsheet (Double)',                      category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 8 },
-  { name: 'General Ironing',                        category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 9 },
+  { name: 'General Ironing',                        category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 1 },
+  { name: 'Shirt',                                  category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 2 },
+  { name: 'T-Shirt',                                category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 3 },
+  { name: 'Trouser / Pant',                         category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 4 },
+  { name: 'Salwar / Kurta',                         category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 5 },
+  { name: 'Saree',                                  category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 6 },
+  { name: 'Long Dress',                             category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 7 },
+  { name: 'Bedsheet (Single)',                      category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 8 },
+  { name: 'Bedsheet (Double)',                      category: 'DAILY_IRON',               basePrice: 0,    isActive: true, sortOrder: 9 },
 
   // ── ROLL PRESS ─────────────────────────────────────────────────────────────
   { name: 'Saree',                                  category: 'ROLL PRESS',               basePrice: 100,  isActive: true },

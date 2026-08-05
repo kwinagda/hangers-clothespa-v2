@@ -112,6 +112,18 @@ export default function DailyIronSheetPage() {
     return map
   }, [dayLogs])
 
+  const daySummary = useMemo(() => {
+    const customerIds = new Set<string>()
+    let pieces = 0
+    let amount = 0
+    dayLogs.forEach((log: any) => {
+      if (log.customerId) customerIds.add(log.customerId)
+      pieces += Number(log.pieces || 0)
+      amount += Number(log.amount || 0)
+    })
+    return { customers: customerIds.size, lines: dayLogs.length, pieces, amount }
+  }, [dayLogs])
+
   const filteredSubscriptions = useMemo(() => {
     const search = query.trim().toLowerCase()
     return subscriptions.filter((sub: any) => {
@@ -311,14 +323,15 @@ export default function DailyIronSheetPage() {
         </div>
         <div style={{ background: '#023c62', borderRadius: 12, padding: '12px 16px', color: '#fff', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10 }}>
           {[
-            ['Customers', draftSummary.customers],
-            ['Lines', draftSummary.lines],
-            ['Pieces', draftSummary.pieces],
-            ['Value', fmt(draftSummary.amount)],
-          ].map(([label, value]) => (
+            ['Customers', daySummary.customers, draftSummary.customers ? `+${draftSummary.customers} pending` : 'saved today'],
+            ['Lines', daySummary.lines, draftSummary.lines ? `+${draftSummary.lines} pending` : 'saved today'],
+            ['Pieces', daySummary.pieces, draftSummary.pieces ? `+${draftSummary.pieces} pending` : 'saved today'],
+            ['Value', fmt(daySummary.amount), draftSummary.amount ? `+${fmt(draftSummary.amount)} pending` : 'saved today'],
+          ].map(([label, value, hint]) => (
             <div key={label}>
               <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(214,232,247,0.72)', marginBottom: 3 }}>{label}</div>
               <div style={{ fontSize: 18, fontWeight: 900 }}>{value}</div>
+              <div style={{ fontSize: 10.5, color: 'rgba(214,232,247,0.68)', marginTop: 2, fontWeight: 700 }}>{hint}</div>
             </div>
           ))}
         </div>
@@ -386,7 +399,7 @@ export default function DailyIronSheetPage() {
                           <td key={service.id} style={{ borderBottom: '1px solid #eef4f8', borderRight: '1px solid #f1f5f9', padding: '10px 8px', verticalAlign: 'top' }}>
                             {savedCell && (
                               <div style={{ marginBottom: 7, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', borderRadius: 8, padding: '5px 6px', textAlign: 'center', fontSize: 11.5, fontWeight: 900 }}>
-                                Saved {savedCell.pieces}
+                                {savedCell.pieces}
                               </div>
                             )}
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
