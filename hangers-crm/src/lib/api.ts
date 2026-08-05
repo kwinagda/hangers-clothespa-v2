@@ -151,6 +151,7 @@ export const ironAPI = {
     api.get(`/iron/logs/${customerId}/period`, { params: { start, end } }) as any,
   createLog: (data: any) => api.post('/iron/logs', data, idempotencyConfig('crm-iron-log')) as any,
   createLogsBatch: (data: any) => api.post('/iron/logs/batch', data, idempotencyConfig('crm-iron-log-batch')) as any,
+  createDaySheet: (data: any) => api.post('/iron/logs/day-sheet', data, idempotencyConfig('crm-iron-day-sheet')) as any,
   deleteLog: (id: string, reason: string) => api.delete(`/iron/logs/${id}`, { ...idempotencyConfig('crm-iron-log-void'), data: { reason } }) as any,
   generateBill: (data: any) => api.post('/iron/bills/generate', data, idempotencyConfig('crm-iron-bill')) as any,
   getBills: (customerId: string) => api.get(`/iron/bills/customer/${customerId}`) as any,

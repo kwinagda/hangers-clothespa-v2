@@ -32,6 +32,14 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    label: 'Daily Iron',
+    items: [
+      { href: '/dashboard/iron/sheet', label: 'Today Sheet', d: '<path d="M4 5h16v14H4z"/><path d="M4 10h16M9 5v14"/><path d="M12 14l1.7 1.7L17 12.4"/>' },
+      { href: '/dashboard/iron/logs', label: 'Iron Logs', d: '<path d="M8.5 4l-4.5 2 1.8 3.2L8 8v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V8l2.2 1.2L20 6l-4.5-2s-.5 2-3.5 2-3.5-2-3.5-2z"/>' },
+      { href: '/dashboard/iron/applications', label: 'Applications', d: '<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M8.5 12.5l2.3 2.3L15.5 10"/>' },
+    ],
+  },
+  {
     label: 'Workflow',
     items: [
       { href: '/dashboard/quotations', label: 'Quotations', d: '<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M9 12h6M9 16h6M9 8h3"/>' },
@@ -48,13 +56,6 @@ const NAV_SECTIONS = [
       { href: '/dashboard/referrals', label: 'Referrals', d: '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.8l7.6-3.6M8.2 13.2l7.6 3.6"/>' },
       { href: '/dashboard/promotions', label: 'Promotions', d: '<path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2.2a2 2 0 0 0 0 3.6V16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.2a2 2 0 0 0 0-3.6V8z"/><path d="M12 6.5v2M12 11v2M12 15.5v2"/>' },
       { href: '/dashboard/marketing', label: 'Campaigns', d: '<path d="M3 10v4h3.5L13 18V6L6.5 10H3z"/><path d="M16.5 9a4 4 0 0 1 0 6"/><path d="M19 6.5a7.5 7.5 0 0 1 0 11"/>' },
-    ],
-  },
-  {
-    label: 'Daily Iron',
-    items: [
-      { href: '/dashboard/iron/logs', label: 'Iron Logs', d: '<path d="M8.5 4l-4.5 2 1.8 3.2L8 8v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V8l2.2 1.2L20 6l-4.5-2s-.5 2-3.5 2-3.5-2-3.5-2z"/>' },
-      { href: '/dashboard/iron/applications', label: 'Applications', d: '<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M8.5 12.5l2.3 2.3L15.5 10"/>' },
     ],
   },
   {

@@ -1,0 +1,503 @@
+'use client'
+
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import type { CSSProperties } from 'react'
+import Link from 'next/link'
+import toast from 'react-hot-toast'
+import { CheckCircle2, ChevronDown, ChevronUp, Loader2, Minus, Plus, Save, Search, SlidersHorizontal } from 'lucide-react'
+import { format } from 'date-fns'
+import { ironAPI, servicesAPI } from '@/lib/api'
+import { sanitizeDecimalInput, sanitizeIntegerInput } from '@/lib/numeric-input'
+import { PageHeader } from '@/components/ui'
+import IronSectionTabs from '../_components/IronSectionTabs'
+
+const asArray = (value: any, keys: string[] = []) => {
+  if (Array.isArray(value)) return value
+  for (const key of keys) {
+    if (Array.isArray(value?.[key])) return value[key]
+  }
+  return []
+}
+
+const fmt = (value: number) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+const todayText = () => new Date().toISOString().slice(0, 10)
+const cellKey = (customerId: string, serviceId: string) => `${customerId}::${serviceId}`
+
+type ServiceItem = { id: string; name: string; price: number }
+type QtyCell = { pieces: string; ratePerPiece?: string; notes?: string }
+type ExtraLine = { id: string; serviceId: string; pieces: string; ratePerPiece: string; notes: string }
+
+const parseMoney = (value: any) => {
+  const amount = Number(value || 0)
+  return Number.isFinite(amount) ? amount : 0
+}
+
+const stepButton = (disabled = false): CSSProperties => ({
+  width: 26,
+  height: 26,
+  borderRadius: 8,
+  border: '1px solid #d7e5ef',
+  background: disabled ? '#f3f6f9' : '#fff',
+  color: disabled ? '#aac0d2' : '#023c62',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+})
+
+export default function DailyIronSheetPage() {
+  const [selectedDate, setSelectedDate] = useState(todayText())
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [subscriptions, setSubscriptions] = useState<any[]>([])
+  const [services, setServices] = useState<ServiceItem[]>([])
+  const [dayLogs, setDayLogs] = useState<any[]>([])
+  const [query, setQuery] = useState('')
+  const [qty, setQty] = useState<Record<string, QtyCell>>({})
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [extraLines, setExtraLines] = useState<Record<string, ExtraLine[]>>({})
+  const [addingMoreForLogged, setAddingMoreForLogged] = useState<Record<string, boolean>>({})
+  const [showOnlyPending, setShowOnlyPending] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [subRes, serviceRes, logRes] = await Promise.all([
+        ironAPI.listSubscriptions('ACTIVE'),
+        servicesAPI.getDailyIronRates(),
+        ironAPI.listLogs({ date: selectedDate }),
+      ])
+      const activeSubs = asArray(subRes?.data || subRes, ['subscriptions']).filter((sub: any) => sub.applicationStatus === 'ACTIVE')
+      const catalog = asArray(serviceRes?.data || serviceRes, ['catalog'])
+      const dailyItems = catalog.flatMap((section: any) => asArray(section?.items).map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        price: parseMoney(item.price ?? item.basePrice),
+      }))).filter((item: ServiceItem) => item.id && item.price > 0)
+      setSubscriptions(activeSubs)
+      setServices(dailyItems)
+      setDayLogs(asArray(logRes?.data || logRes, ['logs']))
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load Daily Iron sheet')
+    } finally {
+      setLoading(false)
+    }
+  }, [selectedDate])
+
+  useEffect(() => { load() }, [load])
+
+  const loggedByCustomer = useMemo(() => {
+    const map = new Map<string, { pieces: number; amount: number; count: number }>()
+    dayLogs.forEach((log: any) => {
+      const current = map.get(log.customerId) || { pieces: 0, amount: 0, count: 0 }
+      current.pieces += Number(log.pieces || 0)
+      current.amount += Number(log.amount || 0)
+      current.count += 1
+      map.set(log.customerId, current)
+    })
+    return map
+  }, [dayLogs])
+
+  const loggedByCustomerService = useMemo(() => {
+    const map = new Map<string, { pieces: number; amount: number; count: number }>()
+    dayLogs.forEach((log: any) => {
+      if (!log.customerId || !log.serviceId) return
+      const key = cellKey(log.customerId, log.serviceId)
+      const current = map.get(key) || { pieces: 0, amount: 0, count: 0 }
+      current.pieces += Number(log.pieces || 0)
+      current.amount += Number(log.amount || 0)
+      current.count += 1
+      map.set(key, current)
+    })
+    return map
+  }, [dayLogs])
+
+  const filteredSubscriptions = useMemo(() => {
+    const search = query.trim().toLowerCase()
+    return subscriptions.filter((sub: any) => {
+      const customer = sub.customer || {}
+      const matches = !search || [customer.name, customer.phone].some((value) => String(value || '').toLowerCase().includes(search))
+      const pending = !showOnlyPending || !loggedByCustomer.has(sub.customerId)
+      return matches && pending
+    })
+  }, [subscriptions, query, showOnlyPending, loggedByCustomer])
+
+  const setCellPieces = (customerId: string, serviceId: string, value: string) => {
+    const clean = sanitizeIntegerInput(value).slice(0, 3)
+    setQty((prev) => ({ ...prev, [cellKey(customerId, serviceId)]: { ...(prev[cellKey(customerId, serviceId)] || {}), pieces: clean } }))
+  }
+
+  const bumpCell = (customerId: string, serviceId: string, delta: number) => {
+    const key = cellKey(customerId, serviceId)
+    setQty((prev) => {
+      const current = Number(prev[key]?.pieces || 0)
+      const next = Math.max(0, Math.min(999, current + delta))
+      return { ...prev, [key]: { ...(prev[key] || {}), pieces: next ? String(next) : '' } }
+    })
+  }
+
+  const setCellRate = (customerId: string, serviceId: string, value: string) => {
+    const clean = sanitizeDecimalInput(value, 2).slice(0, 8)
+    setQty((prev) => ({ ...prev, [cellKey(customerId, serviceId)]: { ...(prev[cellKey(customerId, serviceId)] || {}), ratePerPiece: clean } }))
+  }
+
+  const setCellNotes = (customerId: string, serviceId: string, value: string) => {
+    setQty((prev) => ({ ...prev, [cellKey(customerId, serviceId)]: { ...(prev[cellKey(customerId, serviceId)] || {}), notes: value.slice(0, 160) } }))
+  }
+
+  const addExtraLine = (customerId: string) => {
+    setExtraLines((prev) => ({
+      ...prev,
+      [customerId]: [
+        ...(prev[customerId] || []),
+        { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, serviceId: services[0]?.id || '', pieces: '1', ratePerPiece: '', notes: '' },
+      ],
+    }))
+  }
+
+  const updateExtraLine = (customerId: string, lineId: string, patch: Partial<ExtraLine>) => {
+    setExtraLines((prev) => ({
+      ...prev,
+      [customerId]: (prev[customerId] || []).map((line) => line.id === lineId ? { ...line, ...patch } : line),
+    }))
+  }
+
+  const removeExtraLine = (customerId: string, lineId: string) => {
+    setExtraLines((prev) => ({ ...prev, [customerId]: (prev[customerId] || []).filter((line) => line.id !== lineId) }))
+  }
+
+  const draftRows = useMemo(() => {
+    return subscriptions.map((sub: any) => {
+      const customerId = sub.customerId
+      const items: any[] = []
+      services.forEach((service) => {
+        const cell = qty[cellKey(customerId, service.id)]
+        const pieces = Number(cell?.pieces || 0)
+        if (Number.isInteger(pieces) && pieces > 0) {
+          items.push({
+            serviceId: service.id,
+            pieces,
+            ...(cell?.ratePerPiece ? { ratePerPiece: Number(cell.ratePerPiece) } : {}),
+            ...(cell?.notes?.trim() ? { notes: cell.notes.trim() } : {}),
+          })
+        }
+      })
+      ;(extraLines[customerId] || []).forEach((line) => {
+        const pieces = Number(line.pieces || 0)
+        if (line.serviceId && Number.isInteger(pieces) && pieces > 0) {
+          items.push({
+            serviceId: line.serviceId,
+            pieces,
+            ...(line.ratePerPiece ? { ratePerPiece: Number(line.ratePerPiece) } : {}),
+            ...(line.notes.trim() ? { notes: line.notes.trim() } : {}),
+          })
+        }
+      })
+      return { customerId, items }
+    }).filter((row) => row.items.length)
+  }, [subscriptions, services, qty, extraLines])
+
+  const draftSummary = useMemo(() => {
+    let pieces = 0
+    let amount = 0
+    draftRows.forEach((row) => {
+      row.items.forEach((item: any) => {
+        const service = services.find((entry) => entry.id === item.serviceId)
+        const rate = Number(item.ratePerPiece || service?.price || 0)
+        pieces += item.pieces
+        amount += item.pieces * rate
+      })
+    })
+    return { customers: draftRows.length, lines: draftRows.reduce((sum, row) => sum + row.items.length, 0), pieces, amount }
+  }, [draftRows, services])
+
+  const customerHasDraft = useCallback((customerId: string) => {
+    const hasGridQty = services.some((service) => Number(qty[cellKey(customerId, service.id)]?.pieces || 0) > 0)
+    const hasExtraQty = (extraLines[customerId] || []).some((line) => Number(line.pieces || 0) > 0 && line.serviceId)
+    return hasGridQty || hasExtraQty
+  }, [services, qty, extraLines])
+
+  const customerDraftPieces = useCallback((customerId: string) => {
+    const gridPieces = services.reduce((sum, service) => sum + Number(qty[cellKey(customerId, service.id)]?.pieces || 0), 0)
+    const extraPieces = (extraLines[customerId] || []).reduce((sum, line) => sum + Number(line.pieces || 0), 0)
+    return gridPieces + extraPieces
+  }, [services, qty, extraLines])
+
+  const clearCustomerDraft = useCallback((customerId: string) => {
+    setQty((prev) => {
+      const next = { ...prev }
+      services.forEach((service) => { delete next[cellKey(customerId, service.id)] })
+      return next
+    })
+    setExtraLines((prev) => {
+      const next = { ...prev }
+      delete next[customerId]
+      return next
+    })
+    setExpanded((prev) => ({ ...prev, [customerId]: false }))
+    setAddingMoreForLogged((prev) => {
+      const next = { ...prev }
+      delete next[customerId]
+      return next
+    })
+  }, [services])
+
+  const validateDraft = () => {
+    for (const row of draftRows) {
+      const customer = subscriptions.find((sub: any) => sub.customerId === row.customerId)?.customer
+      for (const item of row.items) {
+        const service = services.find((entry) => entry.id === item.serviceId)
+        if (!service) return `${customer?.name || 'Customer'} has an invalid item selected`
+        if (item.ratePerPiece && Math.abs(Number(item.ratePerPiece) - service.price) > 0.009 && !String(item.notes || '').trim()) {
+          return `${customer?.name || 'Customer'} has a rate change for ${service.name}. Add a reason.`
+        }
+      }
+    }
+    return null
+  }
+
+  const saveSheet = async () => {
+    if (saving) return
+    if (!draftRows.length) {
+      toast.error('Enter quantity for at least one customer')
+      return
+    }
+    const validationError = validateDraft()
+    if (validationError) {
+      toast.error(validationError)
+      return
+    }
+    setSaving(true)
+    try {
+      const response = await ironAPI.createDaySheet({ date: selectedDate, rows: draftRows })
+      const summary = response?.data?.summary || response?.summary || {}
+      toast.success(`Saved ${summary.customers || draftRows.length} customers, ${summary.pieces || draftSummary.pieces} pcs`)
+      setQty({})
+      setExtraLines({})
+      setExpanded({})
+      setAddingMoreForLogged({})
+      await load()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save Daily Iron sheet')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ padding: '28px 32px 56px', maxWidth: 1500, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
+      <PageHeader
+        title="Daily Iron Sheet"
+        subtitle="Fast date-wise logging for active Daily Iron customers"
+        actions={<div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input type="date" value={selectedDate} max={todayText()} onChange={(event) => setSelectedDate(event.target.value)} style={{ border: '1px solid #d8e6f0', borderRadius: 10, padding: '10px 12px', background: '#fff', color: '#023c62', fontWeight: 700 }} />
+          <button onClick={load} disabled={loading || saving} style={{ border: '1px solid #d8e6f0', borderRadius: 10, padding: '10px 14px', background: '#fff', color: '#023c62', fontWeight: 800, cursor: loading || saving ? 'not-allowed' : 'pointer' }}>Refresh</button>
+          <button onClick={saveSheet} disabled={saving || !draftRows.length} style={{ border: 'none', borderRadius: 10, padding: '10px 16px', background: saving || !draftRows.length ? '#b8c8d7' : '#023c62', color: '#fff', fontWeight: 900, display: 'inline-flex', alignItems: 'center', gap: 8, cursor: saving || !draftRows.length ? 'not-allowed' : 'pointer' }}>
+            {saving ? <Loader2 size={15} className="crm-spin" /> : <Save size={15} />}
+            Save Day
+          </button>
+        </div>}
+      />
+
+      <IronSectionTabs />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 0.75fr', gap: 14, marginBottom: 16 }}>
+        <div style={{ background: '#fff', border: '1px solid #e1ebf4', borderRadius: 12, padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Search size={18} color="#6b7fa3" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search customer name or phone..." style={{ flex: 1, border: 'none', outline: 'none', fontSize: 15, color: '#142033', background: 'transparent' }} />
+          <button onClick={() => setShowOnlyPending((value) => !value)} style={{ border: '1px solid #d8e6f0', borderRadius: 999, padding: '8px 12px', background: showOnlyPending ? '#e8f7f0' : '#fff', color: showOnlyPending ? '#166534' : '#52657f', fontSize: 12, fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <SlidersHorizontal size={14} /> {showOnlyPending ? 'Pending only' : 'All active'}
+          </button>
+        </div>
+        <div style={{ background: '#023c62', borderRadius: 12, padding: '12px 16px', color: '#fff', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10 }}>
+          {[
+            ['Customers', draftSummary.customers],
+            ['Lines', draftSummary.lines],
+            ['Pieces', draftSummary.pieces],
+            ['Value', fmt(draftSummary.amount)],
+          ].map(([label, value]) => (
+            <div key={label}>
+              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(214,232,247,0.72)', marginBottom: 3 }}>{label}</div>
+              <div style={{ fontSize: 18, fontWeight: 900 }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #dfeaf3', borderRadius: 14, overflow: 'hidden', boxShadow: '0 14px 34px rgba(2,60,98,0.06)' }}>
+        <div style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 310px)', minHeight: 380 }}>
+          <table style={{ width: '100%', minWidth: Math.max(980, 330 + services.length * 132), borderCollapse: 'separate', borderSpacing: 0 }}>
+            <thead>
+              <tr>
+                <th style={{ position: 'sticky', left: 0, top: 0, zIndex: 3, width: 290, background: '#f7fafc', borderBottom: '1px solid #e3edf6', borderRight: '1px solid #e3edf6', padding: '12px 14px', textAlign: 'left', color: '#52657f', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Customer</th>
+                {services.map((service) => (
+                  <th key={service.id} style={{ position: 'sticky', top: 0, zIndex: 2, background: '#f7fafc', borderBottom: '1px solid #e3edf6', borderRight: '1px solid #eef4f8', padding: '10px 8px', textAlign: 'center', minWidth: 126 }}>
+                    <div style={{ color: '#023c62', fontSize: 12.5, fontWeight: 900, lineHeight: 1.2 }}>{service.name}</div>
+                    <div style={{ color: '#7c90a8', fontSize: 11, marginTop: 3 }}>{fmt(service.price)}</div>
+                  </th>
+                ))}
+                <th style={{ position: 'sticky', right: 0, top: 0, zIndex: 3, width: 150, background: '#f7fafc', borderBottom: '1px solid #e3edf6', borderLeft: '1px solid #e3edf6', padding: '12px 12px', textAlign: 'center', color: '#52657f', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' }}>More</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={services.length + 2} style={{ padding: 52, textAlign: 'center', color: '#6b7fa3' }}>Loading Daily Iron sheet...</td></tr>
+              ) : !services.length ? (
+                <tr><td colSpan={services.length + 2} style={{ padding: 52, textAlign: 'center', color: '#9dafc8' }}>No active priced Daily Iron items found in Pricing.</td></tr>
+              ) : !filteredSubscriptions.length ? (
+                <tr><td colSpan={services.length + 2} style={{ padding: 52, textAlign: 'center', color: '#9dafc8' }}>No active Daily Iron customers match this view.</td></tr>
+              ) : filteredSubscriptions.map((sub: any) => {
+                const customer = sub.customer || {}
+                const existing = loggedByCustomer.get(sub.customerId)
+                const isOpen = Boolean(expanded[sub.customerId])
+                const isLoggedLocked = Boolean(existing && !addingMoreForLogged[sub.customerId])
+                const draftPiecesForCustomer = customerDraftPieces(sub.customerId)
+                const hasDraftForCustomer = draftPiecesForCustomer > 0
+                const actionLabel = isLoggedLocked
+                  ? 'Add more'
+                  : existing
+                    ? isOpen && !hasDraftForCustomer ? 'Cancel add more' : hasDraftForCustomer ? `Review ${draftPiecesForCustomer} pcs` : 'Extra'
+                    : 'Extra'
+                return (
+                  <Fragment key={sub.id}>
+                    <tr key={sub.id} style={{ background: isOpen ? '#fbfdff' : '#fff' }}>
+                      <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isOpen ? '#fbfdff' : '#fff', borderBottom: '1px solid #eef4f8', borderRight: '1px solid #e3edf6', padding: '12px 14px', verticalAlign: 'top' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ color: '#023c62', fontSize: 14.5, fontWeight: 900, lineHeight: 1.2, overflowWrap: 'anywhere' }}>{customer.name || 'Unnamed Customer'}</div>
+                            <div style={{ color: '#6b7fa3', fontSize: 12, marginTop: 3 }}>{customer.phone ? `+91 ${customer.phone}` : 'No phone'}</div>
+                            <Link href={`/dashboard/customers/${sub.customerId}?tab=iron`} style={{ color: '#035a8f', fontSize: 12, fontWeight: 700, textDecoration: 'none', display: 'inline-block', marginTop: 5 }}>Open account</Link>
+                          </div>
+                          {existing && isLoggedLocked && <CheckCircle2 size={16} color="#16a34a" style={{ flexShrink: 0, marginTop: 1 }} />}
+                        </div>
+                        {existing && (
+                          <div style={{ marginTop: 8, borderRadius: 9, background: isLoggedLocked ? '#f0fdf4' : '#fffbeb', color: isLoggedLocked ? '#166534' : '#92400e', padding: '7px 9px', fontSize: 11.5, fontWeight: 800 }}>
+                            {isLoggedLocked ? 'Saved entries are locked. Use Add more only for additional clothes.' : `Adding more for this date. Already saved: ${existing.pieces} pcs.`}
+                          </div>
+                        )}
+                      </td>
+                      {services.map((service) => {
+                        const key = cellKey(sub.customerId, service.id)
+                        const cell = qty[key] || { pieces: '' }
+                        const savedCell = loggedByCustomerService.get(key)
+                        const pieces = Number(cell.pieces || 0)
+                        const hasRateOverride = cell.ratePerPiece && Math.abs(Number(cell.ratePerPiece) - service.price) > 0.009
+                        return (
+                          <td key={service.id} style={{ borderBottom: '1px solid #eef4f8', borderRight: '1px solid #f1f5f9', padding: '10px 8px', verticalAlign: 'top' }}>
+                            {savedCell && (
+                              <div style={{ marginBottom: 7, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', borderRadius: 8, padding: '5px 6px', textAlign: 'center', fontSize: 11.5, fontWeight: 900 }}>
+                                Saved {savedCell.pieces}
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                              <button
+                                type="button"
+                                data-testid={`daily-iron-minus-${sub.customerId}-${service.id}`}
+                                aria-label={`Decrease ${service.name} for ${customer.name || customer.phone || 'customer'}`}
+                                onClick={() => bumpCell(sub.customerId, service.id, -1)}
+                                disabled={!pieces || isLoggedLocked}
+                                style={stepButton(!pieces || isLoggedLocked)}
+                              ><Minus size={13} /></button>
+                              <input
+                                data-testid={`daily-iron-qty-${sub.customerId}-${service.id}`}
+                                aria-label={`${service.name} quantity for ${customer.name || customer.phone || 'customer'}`}
+                                inputMode="numeric"
+                                value={cell.pieces || ''}
+                                disabled={isLoggedLocked}
+                                onInput={(event) => {
+                                  setCellPieces(sub.customerId, service.id, event.currentTarget.value)
+                                }}
+                                onChange={(event) => setCellPieces(sub.customerId, service.id, event.target.value)}
+                                placeholder="0"
+                                style={{ width: 42, height: 28, border: '1px solid #d8e6f0', borderRadius: 8, textAlign: 'center', fontSize: 14, fontWeight: 900, color: isLoggedLocked ? '#9dafc8' : '#023c62', background: isLoggedLocked ? '#f5f8fb' : '#fff', outline: 'none' }}
+                              />
+                              <button
+                                type="button"
+                                data-testid={`daily-iron-plus-${sub.customerId}-${service.id}`}
+                                aria-label={`Increase ${service.name} for ${customer.name || customer.phone || 'customer'}`}
+                                onClick={() => bumpCell(sub.customerId, service.id, 1)}
+                                disabled={isLoggedLocked}
+                                style={stepButton(isLoggedLocked)}
+                              ><Plus size={13} /></button>
+                            </div>
+                            {(pieces > 0 || hasRateOverride) && (
+                              <div style={{ marginTop: 7, display: 'grid', gap: 5 }}>
+                                <input inputMode="decimal" value={cell.ratePerPiece || ''} disabled={isLoggedLocked} onInput={(event) => setCellRate(sub.customerId, service.id, event.currentTarget.value)} onChange={(event) => setCellRate(sub.customerId, service.id, event.target.value)} placeholder={`Rate ${service.price}`} style={{ width: '100%', border: '1px solid #e0eaf2', borderRadius: 7, padding: '5px 6px', fontSize: 11.5, color: isLoggedLocked ? '#9dafc8' : '#142033', background: isLoggedLocked ? '#f5f8fb' : '#fff', outline: 'none' }} />
+                                {hasRateOverride && <input value={cell.notes || ''} disabled={isLoggedLocked} onChange={(event) => setCellNotes(sub.customerId, service.id, event.target.value)} placeholder="Rate reason" style={{ width: '100%', border: '1px solid #e0eaf2', borderRadius: 7, padding: '5px 6px', fontSize: 11.5, color: isLoggedLocked ? '#9dafc8' : '#142033', background: isLoggedLocked ? '#f5f8fb' : '#fff', outline: 'none' }} />}
+                              </div>
+                            )}
+                          </td>
+                        )
+                      })}
+                      <td style={{ position: 'sticky', right: 0, zIndex: 1, background: isOpen ? '#fbfdff' : '#fff', borderBottom: '1px solid #eef4f8', borderLeft: '1px solid #e3edf6', padding: '12px 12px', textAlign: 'center', verticalAlign: 'top' }}>
+                        <div style={{ display: 'grid', gap: 7, justifyItems: 'center' }}>
+                          <button onClick={() => {
+                            if (isLoggedLocked) {
+                              setAddingMoreForLogged((prev) => ({ ...prev, [sub.customerId]: true }))
+                              setExpanded((prev) => ({ ...prev, [sub.customerId]: true }))
+                              toast(`Adding more clothes for ${customer.name || customer.phone || 'customer'}`)
+                              return
+                            }
+                            if (existing && isOpen && !customerHasDraft(sub.customerId)) {
+                              clearCustomerDraft(sub.customerId)
+                              return
+                            }
+                            const nextOpen = !isOpen
+                            setExpanded((prev) => ({ ...prev, [sub.customerId]: nextOpen }))
+                            if (existing && !nextOpen && !customerHasDraft(sub.customerId)) {
+                              setAddingMoreForLogged((prev) => {
+                                const next = { ...prev }
+                                delete next[sub.customerId]
+                                return next
+                              })
+                            }
+                          }} style={{ border: '1px solid #d8e6f0', background: isOpen ? '#023c62' : '#fff', color: isOpen ? '#fff' : '#023c62', borderRadius: 10, padding: '8px 10px', fontSize: 12, fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {actionLabel}
+                          </button>
+                          {existing && hasDraftForCustomer && (
+                            <button type="button" onClick={() => clearCustomerDraft(sub.customerId)} style={{ border: '1px solid #fecaca', background: '#fff1f2', color: '#be123c', borderRadius: 9, padding: '6px 9px', fontSize: 11.5, fontWeight: 900, cursor: 'pointer' }}>
+                              Discard
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr key={`${sub.id}-extra`}>
+                        <td colSpan={services.length + 2} style={{ padding: 0, borderBottom: '1px solid #e3edf6', background: '#fbfdff' }}>
+                          <div style={{ marginLeft: 290, padding: '12px 14px', display: 'grid', gap: 8 }}>
+                            {(extraLines[sub.customerId] || []).map((line) => (
+                              <div key={line.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) 90px 110px minmax(180px, 1fr) 76px', gap: 8, alignItems: 'center' }}>
+                                <select value={line.serviceId} onChange={(event) => updateExtraLine(sub.customerId, line.id, { serviceId: event.target.value })} style={{ border: '1px solid #d8e6f0', borderRadius: 8, padding: '8px 10px', color: '#023c62', fontWeight: 700, background: '#fff' }}>
+                                  {services.map((service) => <option key={service.id} value={service.id}>{service.name} - {fmt(service.price)}</option>)}
+                                </select>
+                                <input inputMode="numeric" value={line.pieces} onInput={(event) => updateExtraLine(sub.customerId, line.id, { pieces: sanitizeIntegerInput(event.currentTarget.value).slice(0, 3) })} onChange={(event) => updateExtraLine(sub.customerId, line.id, { pieces: sanitizeIntegerInput(event.target.value).slice(0, 3) })} placeholder="Qty" style={{ border: '1px solid #d8e6f0', borderRadius: 8, padding: '8px 10px', color: '#142033', fontWeight: 800 }} />
+                                <input inputMode="decimal" value={line.ratePerPiece} onInput={(event) => updateExtraLine(sub.customerId, line.id, { ratePerPiece: sanitizeDecimalInput(event.currentTarget.value, 2).slice(0, 8) })} onChange={(event) => updateExtraLine(sub.customerId, line.id, { ratePerPiece: sanitizeDecimalInput(event.target.value, 2).slice(0, 8) })} placeholder="Rate" style={{ border: '1px solid #d8e6f0', borderRadius: 8, padding: '8px 10px', color: '#142033', fontWeight: 800 }} />
+                                <input value={line.notes} onChange={(event) => updateExtraLine(sub.customerId, line.id, { notes: event.target.value.slice(0, 160) })} placeholder="Reason / notes" style={{ border: '1px solid #d8e6f0', borderRadius: 8, padding: '8px 10px', color: '#142033' }} />
+                                <button onClick={() => removeExtraLine(sub.customerId, line.id)} style={{ border: '1px solid #fecaca', background: '#fff1f2', color: '#be123c', borderRadius: 8, padding: '8px 10px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>Remove</button>
+                              </div>
+                            ))}
+                            {existing && addingMoreForLogged[sub.customerId] && (
+                              <button type="button" onClick={() => clearCustomerDraft(sub.customerId)} style={{ justifySelf: 'start', border: '1px solid #fbbf24', background: '#fff7ed', color: '#92400e', borderRadius: 8, padding: '7px 10px', fontSize: 11.5, fontWeight: 900, cursor: 'pointer' }}>
+                                {hasDraftForCustomer ? 'Discard added clothes' : 'Cancel add more'}
+                              </button>
+                            )}
+                            <button onClick={() => addExtraLine(sub.customerId)} style={{ justifySelf: 'start', border: '1px dashed #8bb6d8', background: '#f5fbff', color: '#035a8f', borderRadius: 9, padding: '8px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>+ Add duplicate / special-rate line</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ padding: '11px 14px', background: '#f8fbfd', borderTop: '1px solid #e3edf6', color: '#6b7fa3', fontSize: 12, display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <span>{filteredSubscriptions.length} of {subscriptions.length} active customers shown for {format(new Date(selectedDate), 'dd MMM yyyy')}</span>
+          <span>Saved rows are locked first. Use Add more only when extra clothes come later for the same date.</span>
+        </div>
+      </div>
+    </div>
+  )
+}

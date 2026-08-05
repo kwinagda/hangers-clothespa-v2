@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const TABS = [
+  { href: '/dashboard/iron/sheet', label: 'Today Sheet' },
   { href: '/dashboard/iron/logs', label: 'Logs' },
   { href: '/dashboard/iron/applications', label: 'Applications' },
 ]

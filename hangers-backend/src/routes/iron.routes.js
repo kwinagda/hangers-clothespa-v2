@@ -18,6 +18,7 @@ const {
   getLogsByPeriod,
   createLog,
   createLogsBatch,
+  createDaySheet,
   deleteLog,
   generateBill,
   listBillsForCustomer,
@@ -50,6 +51,7 @@ router.get('/logs/:customerId/period', staffAuth, crmAccess, ironStaffRoles, get
 router.get('/logs/:customerId', staffAuth, crmAccess, ironStaffRoles, getLogs);
 router.post('/logs', staffAuth, crmAccess, requirePermission('daily_iron.log'), idempotent({ scope: 'daily-iron.log.create' }), createLog);
 router.post('/logs/batch', staffAuth, crmAccess, requirePermission('daily_iron.log'), idempotent({ scope: 'daily-iron.log.batch' }), createLogsBatch);
+router.post('/logs/day-sheet', staffAuth, crmAccess, requirePermission('daily_iron.log'), idempotent({ scope: 'daily-iron.log.day-sheet' }), createDaySheet);
 router.delete('/logs/:id', staffAuth, crmAccess, requirePermission('daily_iron.void'), idempotent({ scope: 'daily-iron.log.void' }), deleteLog);
 
 router.post('/bills/generate', staffAuth, crmAccess, requirePermission('daily_iron.manage_billing'), idempotent({ scope: 'daily-iron.bill.generate' }), generateBill);

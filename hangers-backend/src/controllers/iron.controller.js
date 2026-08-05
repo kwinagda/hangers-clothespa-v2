@@ -834,6 +834,243 @@ const createLogsBatch = async (req, res) => {
   }
 };
 
+const createDaySheet = async (req, res) => {
+  const { date, rows } = req.body;
+  const inputRows = Array.isArray(rows) ? rows : [];
+
+  if (!inputRows.length) return badRequest(res, 'At least one customer row is required');
+
+  const normalizedRows = [];
+  const rowErrors = [];
+  for (let index = 0; index < inputRows.length; index += 1) {
+    const row = inputRows[index] || {};
+    const customerId = String(row.customerId || '').trim();
+    const inputItems = Array.isArray(row.items) ? row.items : [];
+    let items = [];
+
+    try {
+      items = normalizeIronBatchItems(inputItems, row.notes);
+    } catch (err) {
+      rowErrors.push({ row: index + 1, customerId: customerId || null, message: err.message });
+      continue;
+    }
+
+    if (!customerId) {
+      rowErrors.push({ row: index + 1, customerId: null, message: 'customerId is required' });
+      continue;
+    }
+    if (!items.length) {
+      rowErrors.push({ row: index + 1, customerId, message: 'At least one Daily Iron item is required' });
+      continue;
+    }
+    if (items.some((item) => !item.serviceId)) {
+      rowErrors.push({ row: index + 1, customerId, message: 'serviceId is required for every item' });
+      continue;
+    }
+    if (items.some((item) => !Number.isInteger(item.pieces) || item.pieces <= 0)) {
+      rowErrors.push({ row: index + 1, customerId, message: 'pieces must be a positive integer for every item' });
+      continue;
+    }
+
+    normalizedRows.push({ row: index + 1, customerId, notes: row.notes || null, items });
+  }
+
+  if (rowErrors.length) {
+    await writeAuditEvent(prisma, {
+      actorType: 'staff',
+      actorId: req.staff?.id,
+      actorName: req.staff?.name,
+      action: 'DAILY_IRON_DAY_SHEET_REJECTED',
+      status: 'FAILED',
+      resource: 'iron_sheet',
+      description: 'Daily Iron day sheet rejected before saving',
+      metadata: { rowErrors, rowCount: inputRows.length, serviceDate: date || null },
+      ...getRequestMeta(req),
+    });
+    return badRequest(res, 'Daily Iron sheet has invalid rows', rowErrors);
+  }
+
+  try {
+    const logDate = validateIronServiceDate(toDate(date) || new Date());
+    const customerIds = [...new Set(normalizedRows.map((row) => row.customerId))];
+    const serviceIds = [...new Set(normalizedRows.flatMap((row) => row.items.map((item) => item.serviceId)))];
+
+    const createdByCustomer = await prisma.$transaction(async (tx) => {
+      const subscriptions = await tx.ironSubscription.findMany({
+        where: { customerId: { in: customerIds } },
+        include: {
+          customer: {
+            select: { id: true, name: true, phone: true, preferredLanguage: true, notifWhatsApp: true },
+          },
+        },
+      });
+      const subscriptionByCustomerId = new Map(subscriptions.map((subscription) => [subscription.customerId, subscription]));
+
+      const subscriptionErrors = [];
+      for (const row of normalizedRows) {
+        const subscription = subscriptionByCustomerId.get(row.customerId);
+        if (!subscription) {
+          subscriptionErrors.push({ row: row.row, customerId: row.customerId, message: 'Iron subscription not found' });
+        } else if (!ACTIVE_IRON_SUB_STATUSES.includes(subscription.applicationStatus)) {
+          subscriptionErrors.push({ row: row.row, customerId: row.customerId, message: `Subscription is ${subscription.applicationStatus} and cannot accept new logs` });
+        }
+      }
+      if (subscriptionErrors.length) {
+        const err = Object.assign(new Error('Daily Iron sheet has subscription issues'), {
+          code: 'DAY_SHEET_SUBSCRIPTION_ERROR',
+          rowErrors: subscriptionErrors,
+        });
+        throw err;
+      }
+
+      for (const subscription of subscriptions) {
+        await tx.$queryRaw`SELECT "id" FROM iron_subscriptions WHERE "id" = ${subscription.id} FOR UPDATE`;
+      }
+
+      const services = await tx.service.findMany({
+        where: { id: { in: serviceIds } },
+        select: { id: true, name: true, category: true, basePrice: true, isActive: true },
+      });
+      const serviceById = new Map(services.map((service) => [service.id, service]));
+      const serviceErrors = [];
+      for (const row of normalizedRows) {
+        for (const item of row.items) {
+          if (!isBillableDailyIronService(serviceById.get(item.serviceId))) {
+            serviceErrors.push({ row: row.row, customerId: row.customerId, serviceId: item.serviceId, message: 'Every Daily Iron item must be active and priced before logging' });
+          }
+        }
+      }
+      if (serviceErrors.length) {
+        const err = Object.assign(new Error('Daily Iron sheet has service pricing issues'), {
+          code: 'DAY_SHEET_SERVICE_ERROR',
+          rowErrors: serviceErrors,
+        });
+        throw err;
+      }
+
+      const resultRows = [];
+      for (const row of normalizedRows) {
+        const subscription = subscriptionByCustomerId.get(row.customerId);
+        const logs = [];
+        for (const item of row.items) {
+          const service = serviceById.get(item.serviceId);
+          const resolvedRate = await resolveIronRate(item.serviceId, row.customerId, tx);
+          const appliedRate = resolveAppliedIronRate(resolvedRate, item.ratePerPiece, item.notes);
+          logs.push(await tx.ironLog.create({
+            data: {
+              subscriptionId: subscription.id,
+              customerId: row.customerId,
+              serviceId: item.serviceId,
+              serviceName: service.name,
+              date: logDate,
+              pieces: item.pieces,
+              ratePerPiece: appliedRate.rate,
+              amount: Number((item.pieces * appliedRate.rate).toFixed(2)),
+              rateSource: appliedRate.source,
+              pricingSnapshot: appliedRate.snapshot,
+              notes: item.notes,
+              loggedById: req.staff.id,
+            },
+            include: {
+              service: { select: { id: true, name: true, category: true } },
+              loggedBy: { select: { id: true, name: true } },
+            },
+          }));
+        }
+
+        await writeAuditEvent(tx, {
+          actorType: 'staff',
+          actorId: req.staff?.id,
+          actorName: req.staff?.name,
+          action: 'DAILY_IRON_DAY_SHEET_CUSTOMER_LOGGED',
+          resource: 'iron_subscription',
+          resourceId: subscription.id,
+          description: `${logs.length} Daily Iron service lines logged for ${subscription.customer.name || subscription.customer.phone}`,
+          metadata: {
+            customerId: row.customerId,
+            serviceDate: logDate,
+            logs: logs.map((log) => ({ id: log.id, serviceId: log.serviceId, pieces: log.pieces, rate: log.ratePerPiece, amount: log.amount })),
+          },
+          ...getRequestMeta(req),
+        });
+
+        if (subscription.customer.notifWhatsApp !== false) {
+          await enqueueOutboxEvent(tx, {
+            eventType: OUTBOX_EVENT.DAILY_IRON_LOG_BATCH,
+            aggregateType: 'iron_subscription',
+            aggregateId: subscription.id,
+            payload: { logIds: logs.map((log) => log.id) },
+            dedupeKey: `daily-iron-day-sheet:${subscription.id}:${logs.map((log) => log.id).join(':')}`,
+          });
+        }
+
+        resultRows.push({
+          customerId: row.customerId,
+          customer: subscription.customer,
+          logs,
+          notificationQueued: subscription.customer.notifWhatsApp !== false,
+        });
+      }
+
+      await writeAuditEvent(tx, {
+        actorType: 'staff',
+        actorId: req.staff?.id,
+        actorName: req.staff?.name,
+        action: 'DAILY_IRON_DAY_SHEET_CREATED',
+        resource: 'iron_sheet',
+        description: `${resultRows.length} Daily Iron customer rows saved`,
+        metadata: {
+          serviceDate: logDate,
+          customerCount: resultRows.length,
+          logCount: resultRows.reduce((sum, row) => sum + row.logs.length, 0),
+          customerIds,
+        },
+        ...getRequestMeta(req),
+      });
+
+      return resultRows;
+    }, { isolationLevel: 'Serializable' });
+
+    return created(res, {
+      rows: createdByCustomer,
+      summary: {
+        customers: createdByCustomer.length,
+        logs: createdByCustomer.reduce((sum, row) => sum + row.logs.length, 0),
+        pieces: createdByCustomer.reduce((sum, row) => sum + row.logs.reduce((lineSum, log) => lineSum + Number(log.pieces || 0), 0), 0),
+        amount: Number(createdByCustomer.reduce((sum, row) => sum + row.logs.reduce((lineSum, log) => lineSum + Number(log.amount || 0), 0), 0).toFixed(2)),
+        notificationsQueued: createdByCustomer.filter((row) => row.notificationQueued).length,
+      },
+    }, 'Daily Iron sheet saved');
+  } catch (err) {
+    console.error('createDaySheet error:', err);
+    const rowErrors = Array.isArray(err.rowErrors) ? err.rowErrors : null;
+    await writeAuditEvent(prisma, {
+      actorType: 'staff',
+      actorId: req.staff?.id,
+      actorName: req.staff?.name,
+      action: 'DAILY_IRON_DAY_SHEET_FAILED',
+      status: 'FAILED',
+      resource: 'iron_sheet',
+      description: err.message || 'Daily Iron day sheet failed',
+      metadata: {
+        code: err.code || null,
+        rowErrors,
+        rowCount: inputRows.length,
+        serviceDate: date || null,
+      },
+      ...getRequestMeta(req),
+    });
+    if (rowErrors) return badRequest(res, err.message, rowErrors);
+    if (['FUTURE_IRON_LOG_DATE', 'IRON_LOG_BACKDATE_LIMIT'].includes(err.message)) {
+      return badRequest(res, err.message === 'FUTURE_IRON_LOG_DATE'
+        ? 'Daily Iron service date cannot be in the future'
+        : `Daily Iron service date cannot be more than ${process.env.IRON_LOG_BACKDATE_DAYS || 7} days old`);
+    }
+    if (['INVALID_DAILY_IRON_SERVICE', 'INVALID_DAILY_IRON_RATE', 'IRON_RATE_REASON_REQUIRED'].includes(err.code)) return badRequest(res, err.message);
+    return error(res, 'Failed to save Daily Iron sheet');
+  }
+};
+
 const deleteLog = async (req, res) => {
   const reason = String(req.body?.reason || '').trim();
   if (reason.length < 3) return badRequest(res, 'A void reason is required');
@@ -1427,6 +1664,7 @@ module.exports = {
   getLogsByPeriod,
   createLog,
   createLogsBatch,
+  createDaySheet,
   deleteLog,
   generateBill,
   listBillsForCustomer,
