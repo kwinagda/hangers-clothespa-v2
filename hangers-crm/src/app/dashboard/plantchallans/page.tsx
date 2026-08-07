@@ -19,6 +19,12 @@ const SS: Record<string, { bg: string; color: string }> = {
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 const todayText = () => new Date().toISOString().slice(0, 10)
 const fmtDate = (value: any) => value ? new Date(value).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'
+const fmtDateTime = (value: any) => value ? new Date(value).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : '—'
+const isSameDay = (a: any, b: any) => {
+  if (!a || !b) return true
+  const da = new Date(a), db = new Date(b)
+  return da.toDateString() === db.toDateString()
+}
 const badge = (status: string) => (
   <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: SS[status]?.bg || '#f3f4f6', color: SS[status]?.color || '#374151' }}>
     {status}
@@ -552,7 +558,12 @@ export default function ChallansPage() {
                       <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{c.driverName || '—'}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5, fontWeight: 700, color: '#023c62' }}>{fmt(c.customerValue)}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5, fontWeight: 700, color: '#991b1b' }}>{fmt(c.vendorCost)}</td>
-                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{fmtDate(c.challanDate || c.createdAt)}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }} title={`Entered in system: ${fmtDateTime(c.createdAt)}`}>
+                        {fmtDate(c.challanDate || c.createdAt)}
+                        {!isSameDay(c.challanDate, c.createdAt) && (
+                          <div style={{ fontSize: 10, color: '#c2410c', fontWeight: 700, marginTop: 2 }}>entered {fmtDate(c.createdAt)}</div>
+                        )}
+                      </td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{badge(c.status)}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -928,7 +939,7 @@ export default function ChallansPage() {
                   <input type="checkbox" checked={selectedChallans.has(c.id)} readOnly style={{ width: 16, height: 16 }} />
                   <div style={{ flex: 1 }}>
                     <span style={{ fontFamily: 'monospace', color: '#023c62', fontWeight: 700, fontSize: 12 }}>{c.challanNo}</span>
-                    <span style={{ color: '#6b7fa3', fontSize: 11, marginLeft: 8 }}>{fmtDate(c.challanDate || c.createdAt)}</span>
+                    <span style={{ color: '#6b7fa3', fontSize: 11, marginLeft: 8 }} title={`Entered in system: ${fmtDateTime(c.createdAt)}`}>{fmtDate(c.challanDate || c.createdAt)}</span>
                   </div>
                   <span style={{ fontWeight: 600, color: '#991b1b' }}>{fmt(c.vendorCost)}</span>
                 </div>
