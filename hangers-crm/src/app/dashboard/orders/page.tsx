@@ -251,7 +251,7 @@ function OrdersPageContent() {
   // Bulk select state
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showChallanModal, setShowChallanModal] = useState(false)
-  const [challanForm, setChallanForm] = useState({ plant: '', driverName: '', vehicleNo: '' })
+  const [challanForm, setChallanForm] = useState({ plant: '', challanDate: new Date().toISOString().slice(0, 10), driverName: '', vehicleNo: '' })
   const [creatingChallan, setCreatingChallan] = useState(false)
   const [bulkUpdating, setBulkUpdating] = useState('')
   const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([])
@@ -401,6 +401,7 @@ function OrdersPageContent() {
       const selectedOrders = orders.filter((o:any) => selected.has(o.id))
       await challanAPI.create({
         plant: challanForm.plant,
+        challanDate: challanForm.challanDate,
         orderIds: selectedOrders.map((o:any) => o.id),
         driverName: challanForm.driverName,
         vehicleNo: challanForm.vehicleNo,
@@ -409,7 +410,7 @@ function OrdersPageContent() {
       toast.success(`${selected.size} challan${selected.size > 1 ? 's' : ''} created — orders sent to plant`)
       setSelected(new Set())
       setShowChallanModal(false)
-      setChallanForm({ plant: plantPartners[0]?.value || '', driverName: '', vehicleNo: '' })
+      setChallanForm({ plant: plantPartners[0]?.value || '', challanDate: new Date().toISOString().slice(0, 10), driverName: '', vehicleNo: '' })
       load()
     } catch(e:any) {
       toast.error(e.message || 'Failed to create challans')
@@ -1022,6 +1023,12 @@ function OrdersPageContent() {
                       style={{width:'100%',border:'1px solid #dce8f0',borderRadius:9,padding:'9px 11px',fontSize:13,background:'#fff'}}>
                       {plantPartners.map((plant) => <option key={plant.value} value={plant.value}>{plant.label}</option>)}
                     </select>
+                  </div>
+                  <div>
+                    <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6,fontWeight:800}}>Challan Date *</label>
+                    <input type="date" value={challanForm.challanDate} max={new Date().toISOString().slice(0, 10)}
+                      onChange={(e:any)=>setChallanForm({...challanForm,challanDate:e.target.value})}
+                      style={{width:'100%',border:'1px solid #dce8f0',borderRadius:9,padding:'9px 11px',fontSize:13,boxSizing:'border-box' as const,background:'#fff'}}/>
                   </div>
                   <div>
                     <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6,fontWeight:800}}>Driver Name</label>
