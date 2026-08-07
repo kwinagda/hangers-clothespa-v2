@@ -32,6 +32,16 @@ const parseMoney = (value: any) => {
   return Number.isFinite(amount) ? amount : 0
 }
 
+const timelineTone = (event: any) => {
+  const stage = String(event?.stage || '')
+  const status = String(event?.status || '')
+  if (stage.includes('FAILED') || status === 'FAILED') return { dot: '#dc2626', border: '#fecaca', bg: '#fff7f7', title: '#b91c1c', meta: '#b45353' }
+  if (stage.includes('SKIPPED')) return { dot: '#ea580c', border: '#fed7aa', bg: '#fff7ed', title: '#c2410c', meta: '#c2410c' }
+  if (stage.includes('SENT') || stage.includes('RECORDED') || stage.includes('COMPLETED') || status === 'PROCESSED') return { dot: '#16a34a', border: '#bbf7d0', bg: '#f0fdf4', title: '#166534', meta: '#4d7c0f' }
+  if (stage.includes('PENDING') || stage.includes('QUEUED')) return { dot: '#b45309', border: '#fde68a', bg: '#fffbeb', title: '#92400e', meta: '#b45309' }
+  return { dot: '#023c62', border: '#e3edf6', bg: '#f8fbfd', title: '#142033', meta: '#6b7fa3' }
+}
+
 const stepButton = (disabled = false): CSSProperties => ({
   width: 26,
   height: 26,
@@ -52,6 +62,7 @@ export default function DailyIronSheetPage() {
   const [subscriptions, setSubscriptions] = useState<any[]>([])
   const [services, setServices] = useState<ServiceItem[]>([])
   const [dayLogs, setDayLogs] = useState<any[]>([])
+  const [timelineEvents, setTimelineEvents] = useState<any[]>([])
   const [query, setQuery] = useState('')
   const [qty, setQty] = useState<Record<string, QtyCell>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -62,10 +73,11 @@ export default function DailyIronSheetPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [subRes, serviceRes, logRes] = await Promise.all([
+      const [subRes, serviceRes, logRes, timelineRes] = await Promise.all([
         ironAPI.listSubscriptions('ACTIVE'),
         servicesAPI.getDailyIronRates(),
         ironAPI.listLogs({ date: selectedDate }),
+        ironAPI.timeline({ date: selectedDate }),
       ])
       const activeSubs = asArray(subRes?.data || subRes, ['subscriptions']).filter((sub: any) => sub.applicationStatus === 'ACTIVE')
       const catalog = asArray(serviceRes?.data || serviceRes, ['catalog'])
@@ -77,6 +89,7 @@ export default function DailyIronSheetPage() {
       setSubscriptions(activeSubs)
       setServices(dailyItems)
       setDayLogs(asArray(logRes?.data || logRes, ['logs']))
+      setTimelineEvents(asArray(timelineRes?.data || timelineRes, ['events']))
     } catch (err: any) {
       toast.error(err.message || 'Failed to load Daily Iron sheet')
     } finally {
@@ -111,6 +124,18 @@ export default function DailyIronSheetPage() {
     })
     return map
   }, [dayLogs])
+
+  const timelineByCustomer = useMemo(() => {
+    const map = new Map<string, any[]>()
+    timelineEvents.forEach((event: any) => {
+      if (!event.customerId) return
+      const rows = map.get(event.customerId) || []
+      rows.push(event)
+      map.set(event.customerId, rows)
+    })
+    map.forEach((rows) => rows.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime()))
+    return map
+  }, [timelineEvents])
 
   const daySummary = useMemo(() => {
     const customerIds = new Set<string>()
@@ -339,7 +364,7 @@ export default function DailyIronSheetPage() {
 
       <div style={{ background: '#fff', border: '1px solid #dfeaf3', borderRadius: 14, overflow: 'hidden', boxShadow: '0 14px 34px rgba(2,60,98,0.06)' }}>
         <div style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 310px)', minHeight: 380 }}>
-          <table style={{ width: '100%', minWidth: Math.max(980, 330 + services.length * 132), borderCollapse: 'separate', borderSpacing: 0 }}>
+          <table style={{ width: '100%', minWidth: Math.max(1180, 540 + services.length * 132), borderCollapse: 'separate', borderSpacing: 0 }}>
             <thead>
               <tr>
                 <th style={{ position: 'sticky', left: 0, top: 0, zIndex: 3, width: 290, background: '#f7fafc', borderBottom: '1px solid #e3edf6', borderRight: '1px solid #e3edf6', padding: '12px 14px', textAlign: 'left', color: '#52657f', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Customer</th>
@@ -349,19 +374,21 @@ export default function DailyIronSheetPage() {
                     <div style={{ color: '#7c90a8', fontSize: 11, marginTop: 3 }}>{fmt(service.price)}</div>
                   </th>
                 ))}
-                <th style={{ position: 'sticky', right: 0, top: 0, zIndex: 3, width: 150, background: '#f7fafc', borderBottom: '1px solid #e3edf6', borderLeft: '1px solid #e3edf6', padding: '12px 12px', textAlign: 'center', color: '#52657f', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' }}>More</th>
+                <th style={{ position: 'sticky', right: 220, top: 0, zIndex: 3, width: 150, background: '#f7fafc', borderBottom: '1px solid #e3edf6', borderLeft: '1px solid #e3edf6', padding: '12px 12px', textAlign: 'center', color: '#52657f', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' }}>More</th>
+                <th style={{ position: 'sticky', right: 0, top: 0, zIndex: 3, width: 220, background: '#f7fafc', borderBottom: '1px solid #e3edf6', borderLeft: '1px solid #e3edf6', padding: '12px 12px', textAlign: 'left', color: '#52657f', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Logs</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={services.length + 2} style={{ padding: 52, textAlign: 'center', color: '#6b7fa3' }}>Loading Daily Iron sheet...</td></tr>
+                <tr><td colSpan={services.length + 3} style={{ padding: 52, textAlign: 'center', color: '#6b7fa3' }}>Loading Daily Iron sheet...</td></tr>
               ) : !services.length ? (
-                <tr><td colSpan={services.length + 2} style={{ padding: 52, textAlign: 'center', color: '#9dafc8' }}>No active priced Daily Iron items found in Pricing.</td></tr>
+                <tr><td colSpan={services.length + 3} style={{ padding: 52, textAlign: 'center', color: '#9dafc8' }}>No active priced Daily Iron items found in Pricing.</td></tr>
               ) : !filteredSubscriptions.length ? (
-                <tr><td colSpan={services.length + 2} style={{ padding: 52, textAlign: 'center', color: '#9dafc8' }}>No active Daily Iron customers match this view.</td></tr>
+                <tr><td colSpan={services.length + 3} style={{ padding: 52, textAlign: 'center', color: '#9dafc8' }}>No active Daily Iron customers match this view.</td></tr>
               ) : filteredSubscriptions.map((sub: any) => {
                 const customer = sub.customer || {}
                 const existing = loggedByCustomer.get(sub.customerId)
+                const customerTimeline = timelineByCustomer.get(sub.customerId) || []
                 const isOpen = Boolean(expanded[sub.customerId])
                 const isLoggedLocked = Boolean(existing && !addingMoreForLogged[sub.customerId])
                 const draftPiecesForCustomer = customerDraftPieces(sub.customerId)
@@ -442,7 +469,7 @@ export default function DailyIronSheetPage() {
                           </td>
                         )
                       })}
-                      <td style={{ position: 'sticky', right: 0, zIndex: 1, background: isOpen ? '#fbfdff' : '#fff', borderBottom: '1px solid #eef4f8', borderLeft: '1px solid #e3edf6', padding: '12px 12px', textAlign: 'center', verticalAlign: 'top' }}>
+                      <td style={{ position: 'sticky', right: 220, zIndex: 1, background: isOpen ? '#fbfdff' : '#fff', borderBottom: '1px solid #eef4f8', borderLeft: '1px solid #e3edf6', padding: '12px 12px', textAlign: 'center', verticalAlign: 'top' }}>
                         <div style={{ display: 'grid', gap: 7, justifyItems: 'center' }}>
                           <button onClick={() => {
                             if (isLoggedLocked) {
@@ -474,10 +501,40 @@ export default function DailyIronSheetPage() {
                           )}
                         </div>
                       </td>
+                      <td style={{ position: 'sticky', right: 0, zIndex: 1, background: isOpen ? '#fbfdff' : '#fff', borderBottom: '1px solid #eef4f8', borderLeft: '1px solid #e3edf6', padding: '10px 10px', verticalAlign: 'top' }}>
+                        <div style={{ maxHeight: 118, overflowY: 'auto', display: 'grid', gap: 6, paddingRight: 2 }}>
+                          {!customerTimeline.length ? (
+                            <div style={{ color: '#9dafc8', fontSize: 12, fontWeight: 700 }}>No logs yet</div>
+                          ) : customerTimeline.slice(0, 5).map((event: any, index: number) => {
+                            const tone = timelineTone(event)
+                            return (
+                            <div key={event.id} style={{ display: 'grid', gridTemplateColumns: '12px 1fr', gap: 7, minWidth: 0 }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 3 }}>
+                                <div style={{ width: 8, height: 8, borderRadius: 999, background: tone.dot }} />
+                                {index < Math.min(customerTimeline.length, 5) - 1 && <div style={{ width: 1, flex: 1, minHeight: 14, background: '#e3edf6', marginTop: 3 }} />}
+                              </div>
+                              <div style={{ minWidth: 0, border: `1px solid ${tone.border}`, background: tone.bg, borderRadius: 9, padding: '6px 8px' }}>
+                                <div style={{ color: tone.title, fontSize: 12, fontWeight: 900, lineHeight: 1.25 }}>
+                                  {event.title || 'Daily Iron event'}
+                                </div>
+                                <div style={{ color: tone.meta, fontSize: 10.5, marginTop: 2, overflowWrap: 'anywhere' as const, lineHeight: 1.35 }}>
+                                  {format(new Date(event.createdAt), 'h:mm a')}{event.eventType ? ` · ${event.eventType}` : ''}{event.actorName ? ` · ${event.actorName}` : ''}
+                                </div>
+                                {event.notes && (
+                                  <div style={{ color: '#6b7fa3', fontSize: 10.5, marginTop: 2, overflowWrap: 'anywhere' as const, lineHeight: 1.35 }}>
+                                    {String(event.notes)}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            )
+                          })}
+                        </div>
+                      </td>
                     </tr>
                     {isOpen && (
                       <tr key={`${sub.id}-extra`}>
-                        <td colSpan={services.length + 2} style={{ padding: 0, borderBottom: '1px solid #e3edf6', background: '#fbfdff' }}>
+                        <td colSpan={services.length + 3} style={{ padding: 0, borderBottom: '1px solid #e3edf6', background: '#fbfdff' }}>
                           <div style={{ marginLeft: 290, padding: '12px 14px', display: 'grid', gap: 8 }}>
                             {(extraLines[sub.customerId] || []).map((line) => (
                               <div key={line.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) 90px 110px minmax(180px, 1fr) 76px', gap: 8, alignItems: 'center' }}>

@@ -1324,6 +1324,7 @@ model DeliveryChallan {
   driverName     String?
   vehicleNo      String?
   status         String              @default("DISPATCHED")
+  challanDate    DateTime            @default(now())
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
   dispatchedAt   DateTime            @default(now())
@@ -1341,6 +1342,7 @@ model DeliveryChallan {
   vendorBill     VendorBill?         @relation(fields: [vendorBillId], references: [id])
   plantPartner   PlantPartner        @relation(fields: [plantPartnerId], references: [id], onDelete: Restrict)
 
+  @@index([challanDate])
   @@map("delivery_challans")
 }
 

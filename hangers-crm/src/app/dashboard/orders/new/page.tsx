@@ -989,6 +989,36 @@ function NewOrderPageContent() {
       setShowPayment(false)
       router.push(`/dashboard/customers/${customer.id}?tab=iron`)
     } catch (e: any) {
+      if (String(e?.message || '').toLowerCase().includes('subscription not found')) {
+        const enabled = await ensureActiveIronSubscription()
+        if (enabled) {
+          try {
+            await ironAPI.createLogsBatch({
+              customerId: customer.id,
+              date: dailyIronDate,
+              notes: notes || undefined,
+              items: dailyIronCart.map(item => ({
+                serviceId: item.serviceId,
+                pieces: item.quantity,
+                ratePerPiece: item.unitPrice,
+                notes: item.notes || undefined,
+              })),
+            })
+            toast.success(`${cart.length} Daily Iron log${cart.length === 1 ? '' : 's'} created`)
+            clearDraft()
+            setCart([])
+            setNotes('')
+            setShowPayment(false)
+            router.push(`/dashboard/customers/${customer.id}?tab=iron`)
+            setSubmitting(false)
+            return
+          } catch (retryError: any) {
+            toast.error(retryError.message || 'Failed to create Daily Iron logs')
+            setSubmitting(false)
+            return
+          }
+        }
+      }
       toast.error(e.message || 'Failed to create Daily Iron logs')
     }
     setSubmitting(false)
@@ -1092,10 +1122,40 @@ function NewOrderPageContent() {
             })),
           })
         } catch (e: any) {
-          toast.error(`Order ${createdOrder?.orderNumber || ''} created, but Daily Iron logs failed. Please retry from the customer Daily Iron tab.`.trim())
-          router.push('/dashboard/orders')
-          setSubmitting(false)
-          return
+          if (String(e?.message || '').toLowerCase().includes('subscription not found')) {
+            const enabled = await ensureActiveIronSubscription()
+            if (enabled) {
+              try {
+                await ironAPI.createLogsBatch({
+                  customerId: customer.id,
+                  sourceOrderId: createdOrder?.id || undefined,
+                  date: dailyIronDate,
+                  notes: notes || undefined,
+                  items: dailyIronCart.map(item => ({
+                    serviceId: item.serviceId,
+                    pieces: item.quantity,
+                    ratePerPiece: item.unitPrice,
+                    notes: item.notes || undefined,
+                  })),
+                })
+              } catch (retryError: any) {
+                toast.error(`Order ${createdOrder?.orderNumber || ''} created, but Daily Iron logs failed: ${retryError.message || 'Please retry from the customer Daily Iron tab.'}`.trim())
+                router.push('/dashboard/orders')
+                setSubmitting(false)
+                return
+              }
+            } else {
+              toast.error(`Order ${createdOrder?.orderNumber || ''} created, but Daily Iron subscription was not enabled.`.trim())
+              router.push('/dashboard/orders')
+              setSubmitting(false)
+              return
+            }
+          } else {
+            toast.error(`Order ${createdOrder?.orderNumber || ''} created, but Daily Iron logs failed. Please retry from the customer Daily Iron tab.`.trim())
+            router.push('/dashboard/orders')
+            setSubmitting(false)
+            return
+          }
         }
       }
 

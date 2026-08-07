@@ -3,6 +3,7 @@ const express   = require('express');
 const cors      = require('cors');
 const helmet    = require('helmet');
 const morgan    = require('morgan');
+const path      = require('path');
 
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const { randomUUID } = require('crypto');
@@ -113,6 +114,12 @@ app.get('/ready', async (_req, res) => {
     data: { ...status, ready, checks: { ...status.checks, database } },
   });
 });
+
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
+  immutable: true,
+  maxAge: '180d',
+  fallthrough: false,
+}));
 
 app.use('/api/v1', globalApiLimiter);
 

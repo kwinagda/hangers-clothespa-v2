@@ -25,6 +25,22 @@ const genVendorPaymentNo = (tx = prisma) => nextDocumentNumber({
   tx, documentType: 'VENDOR_PAYMENT', prefix: 'VP', padding: 6,
 });
 
+const parseChallanDate = (value) => {
+  if (!value) return new Date();
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) throw new Error('INVALID_CHALLAN_DATE');
+    return parsed;
+  }
+  const [, year, month, day] = match.map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+  if (parsed.getTime() > today.getTime()) throw new Error('FUTURE_CHALLAN_DATE');
+  return parsed;
+};
+
 const handlePlantPartnerError = (res, err) => {
   if (!(err instanceof PlantPartnerError)) return false;
   res.status(err.statusCode).json({ success: false, message: err.message, code: err.code });
@@ -230,7 +246,7 @@ const getChallans = async (req, res) => {
 
     const challans = await prisma.deliveryChallan.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ challanDate: 'desc' }, { createdAt: 'desc' }],
       take: 100,
       include: {
         challanOrders: {
@@ -286,6 +302,7 @@ const getChallan = async (req, res) => {
 const createChallan = async (req, res) => {
   try {
     const { plant, orderIds, driverName, vehicleNo, notes } = req.body;
+    const challanDate = parseChallanDate(req.body?.challanDate);
     if (!plant)             return badRequest(res, 'Plant is required');
     if (!orderIds?.length)  return badRequest(res, 'At least one order required');
     const normalizedOrderIds = [...new Set(orderIds.filter(Boolean))];
@@ -345,6 +362,8 @@ const createChallan = async (req, res) => {
           vehicleNo,
           notes,
           status:        'DISPATCHED',
+          challanDate,
+          dispatchedAt:  challanDate,
           customerValue: totalCustomerValue,
           vendorCost:    totalVendorCost,
           challanOrders: {
@@ -399,7 +418,8 @@ const createChallan = async (req, res) => {
             toStatus:    'SENT_TO_PLANT',
             reasonCode:  'PLANT_DISPATCH',
             changedById: req.staff?.id || null,
-            notes:       `Sent to ${partner.name} via challan ${challanNo}`,
+            notes:       `Sent to ${partner.name} via challan ${challanNo} dated ${challanDate.toISOString().slice(0, 10)}`,
+            metadata:    { challanId: c.id, challanNo, challanDate },
           },
         });
 
@@ -408,7 +428,7 @@ const createChallan = async (req, res) => {
           actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
           action: 'ORDER_SENT_TO_PLANT', resource: 'order', resourceId: order.id,
           description: `Order ${order.orderNumber}: ${order.status} -> SENT_TO_PLANT via challan ${challanNo}`,
-          metadata: { fromStatus: order.status, toStatus: 'SENT_TO_PLANT', challanId: c.id, challanNo, plant: partner.code, plantPartnerId: partner.id },
+          metadata: { fromStatus: order.status, toStatus: 'SENT_TO_PLANT', challanId: c.id, challanNo, challanDate, plant: partner.code, plantPartnerId: partner.id },
           ...getRequestMeta(req),
         });
         await enqueueOutboxEvent(tx, {
@@ -429,6 +449,8 @@ const createChallan = async (req, res) => {
     if (handlePlantPartnerError(res, e)) return undefined;
     if (e.message === 'ORDER_NOT_FOUND') return badRequest(res, 'One or more orders were not found');
     if (e.message === 'ORDER_NOT_SENDABLE') return badRequest(res, 'Only received or in-process orders can be sent to a plant');
+    if (e.message === 'INVALID_CHALLAN_DATE') return badRequest(res, 'Challan date must be a valid date');
+    if (e.message === 'FUTURE_CHALLAN_DATE') return badRequest(res, 'Challan date cannot be in the future');
     if (e.message === 'ACTIVE_CHALLAN_EXISTS' || e.code === 'P2002') return res.status(409).json({ success: false, message: 'One or more orders already belong to an active challan' });
     if (e.message === 'UNPRICED_VENDOR_SERVICES') return badRequest(res, `Vendor rates are required before dispatch: ${e.services.join(', ')}`);
     if (e.message === 'GARMENT_CUSTODY_MISMATCH') return badRequest(res, 'Garment-unit custody does not match the dispatched quantities; resolve voided or issue-held tags first');
@@ -648,7 +670,7 @@ const getVendorBills = async (req, res) => {
       orderBy: { createdAt: 'desc' },
       include: {
         challans: {
-          select: { id: true, challanNo: true, status: true, vendorCost: true, customerValue: true, createdAt: true }
+          select: { id: true, challanNo: true, status: true, vendorCost: true, customerValue: true, challanDate: true, createdAt: true }
         }
       }
     });
@@ -705,7 +727,7 @@ const createVendorBill = async (req, res) => {
         },
         include: {
           challans: {
-            select: { id: true, challanNo: true, vendorCost: true, customerValue: true, createdAt: true },
+            select: { id: true, challanNo: true, vendorCost: true, customerValue: true, challanDate: true, createdAt: true },
           },
         },
       });
@@ -842,7 +864,7 @@ const getVendorBillPDF = async (req, res) => {
   try {
     const bill = await prisma.vendorBill.findUnique({
       where: { id: req.params.id },
-      include: { challans: { select: { id: true, challanNo: true, vendorCost: true, customerValue: true, createdAt: true } } }
+      include: { challans: { select: { id: true, challanNo: true, vendorCost: true, customerValue: true, challanDate: true, createdAt: true } } }
     });
     if (!bill) return badRequest(res, 'Bill not found');
     const html = generateVendorBillHTML(bill);

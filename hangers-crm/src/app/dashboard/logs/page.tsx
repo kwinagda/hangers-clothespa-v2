@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
-import { logsAPI } from '@/lib/api'
+import { ironAPI, logsAPI } from '@/lib/api'
 
 const filterOptions = [
   { key: 'ALL', label: 'All Logs', params: {} },
@@ -18,6 +18,16 @@ const filterOptions = [
 ]
 
 const stageLabel = (stage: string) => {
+  if (stage === 'DAILY_IRON_WHATSAPP_PENDING') return 'WhatsApp Queued'
+  if (stage === 'DAILY_IRON_WHATSAPP_FAILED') return 'WhatsApp Failed'
+  if (stage === 'DAILY_IRON_WHATSAPP_SENT') return 'WhatsApp Sent'
+  if (stage === 'DAILY_IRON_WHATSAPP_SKIPPED') return 'WhatsApp Skipped'
+  if (stage === 'DAILY_IRON_LOG_CREATED') return 'Daily Iron Logged'
+  if (stage === 'DAILY_IRON_LOG_BATCH_CREATED') return 'Daily Iron Logged'
+  if (stage === 'DAILY_IRON_DAY_SHEET_CUSTOMER_LOGGED') return 'Day Sheet Saved'
+  if (stage === 'DAILY_IRON_DAY_SHEET_CREATED') return 'Day Sheet Completed'
+  if (stage === 'DAILY_IRON_LOG_CORRECTED') return 'Daily Iron Corrected'
+  if (stage === 'DAILY_IRON_LOG_VOIDED') return 'Daily Iron Voided'
   if (stage === 'WHATSAPP_FAILED') return 'WhatsApp Failed'
   if (stage === 'WHATSAPP_SENT') return 'WhatsApp Sent'
   if (stage === 'WHATSAPP_SKIPPED') return 'WhatsApp Skipped'
@@ -76,28 +86,62 @@ const groupLogsByOrder = (logs: any[]) => {
     .sort((a, b) => new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime())
 }
 
+const groupLogsByDailyIronCustomer = (logs: any[]) => {
+  const map = new Map<string, any>()
+  logs.forEach((log) => {
+    const key = log.customer?.id || log.customerId || `unknown-${log.id}`
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        order: null,
+        customer: log.customer,
+        latestAt: log.createdAt,
+        logs: [],
+      })
+    }
+    const group = map.get(key)
+    group.logs.push(log)
+    if (new Date(log.createdAt) > new Date(group.latestAt)) group.latestAt = log.createdAt
+  })
+  return Array.from(map.values())
+    .map((group) => ({ ...group, logs: group.logs.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) }))
+    .sort((a, b) => new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime())
+}
+
 export default function LogsPage() {
   const [logs, setLogs] = useState<any[]>([])
   const [pagination, setPagination] = useState<any>({ total: 0, page: 1, limit: 100, pages: 1 })
   const [filter, setFilter] = useState('ALL')
+  const [domain, setDomain] = useState<'ORDER' | 'DAILY_IRON'>('ORDER')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
 
   const activeFilter = useMemo(() => filterOptions.find((item) => item.key === filter) || filterOptions[0], [filter])
-  const groupedLogs = useMemo(() => groupLogsByOrder(logs), [logs])
+  const groupedLogs = useMemo(() => domain === 'DAILY_IRON' ? groupLogsByDailyIronCustomer(logs) : groupLogsByOrder(logs), [domain, logs])
 
   const loadLogs = async (page = 1) => {
     setLoading(true)
     try {
-      const response: any = await logsAPI.orderTimeline({
-        page,
-        limit: 100,
-        ...activeFilter.params,
-        ...(search.trim() ? { search: search.trim() } : {}),
-      })
+      const response: any = domain === 'DAILY_IRON'
+        ? await ironAPI.timeline({
+            ...(search.trim() ? { customerId: search.trim().startsWith('cust_') ? search.trim() : undefined } : {}),
+          })
+        : await logsAPI.orderTimeline({
+            page,
+            limit: 100,
+            ...activeFilter.params,
+            ...(search.trim() ? { search: search.trim() } : {}),
+          })
       const data = response?.data || response || {}
-      setLogs(data.logs || [])
-      setPagination(data.pagination || { total: 0, page, limit: 100, pages: 1 })
+      const nextLogs = domain === 'DAILY_IRON'
+        ? (data.events || []).filter((log: any) => {
+            const needle = search.trim().toLowerCase()
+            if (!needle) return true
+            return [log.customer?.name, log.customer?.phone, log.title, log.notes].some((value) => String(value || '').toLowerCase().includes(needle))
+          })
+        : data.logs || []
+      setLogs(nextLogs)
+      setPagination(data.pagination || { total: nextLogs.length, page, limit: 100, pages: 1 })
     } catch (e: any) {
       toast.error(e?.message || 'Failed to load logs')
     } finally {
@@ -105,14 +149,14 @@ export default function LogsPage() {
     }
   }
 
-  useEffect(() => { loadLogs(1) }, [filter])
+  useEffect(() => { loadLogs(1) }, [filter, domain])
 
   return (
     <div style={{ display: 'grid', gap: 18 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 28, color: '#023c62', fontFamily: 'var(--crm-font-display)' }}>Logs</h1>
-          <p style={{ margin: '6px 0 0', color: '#6b7fa3', fontSize: 13.5 }}>Order timeline, workflow, and WhatsApp notification activity in one place.</p>
+          <p style={{ margin: '6px 0 0', color: '#6b7fa3', fontSize: 13.5 }}>Order and Daily Iron timeline, workflow, and WhatsApp notification activity in one place.</p>
         </div>
         <button onClick={() => loadLogs(pagination.page || 1)} style={{ border: '1px solid #dce8f0', background: '#fff', color: '#023c62', borderRadius: 10, padding: '10px 16px', fontWeight: 800, cursor: 'pointer' }}>
           Refresh
@@ -121,7 +165,18 @@ export default function LogsPage() {
 
       <section style={{ background: '#fff', border: '1px solid #e4edf5', borderRadius: 16, padding: 16, display: 'grid', gap: 14 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {filterOptions.map((option) => (
+          {[
+            { key: 'ORDER', label: 'Orders' },
+            { key: 'DAILY_IRON', label: 'Daily Iron' },
+          ].map((option) => (
+            <button key={option.key} onClick={() => { setDomain(option.key as 'ORDER' | 'DAILY_IRON'); setFilter('ALL') }}
+              style={{ border: '1px solid #dce8f0', background: domain === option.key ? '#023c62' : '#fff', color: domain === option.key ? '#fff' : '#023c62', borderRadius: 999, padding: '8px 13px', fontSize: 12.5, fontWeight: 900, cursor: 'pointer' }}>
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {(domain === 'ORDER' ? filterOptions : filterOptions.filter((option) => ['ALL', 'WHATSAPP_FAILED', 'WHATSAPP_SENT', 'NOTIFICATION'].includes(option.key))).map((option) => (
             <button key={option.key} onClick={() => setFilter(option.key)}
               style={{ border: '1px solid #dce8f0', background: filter === option.key ? '#023c62' : '#fff', color: filter === option.key ? '#fff' : '#023c62', borderRadius: 999, padding: '8px 13px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
               {option.label}
@@ -129,7 +184,7 @@ export default function LogsPage() {
           ))}
         </div>
         <form onSubmit={(event) => { event.preventDefault(); loadLogs(1) }} style={{ display: 'flex', gap: 10 }}>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order #, customer, phone..." style={{ flex: 1, border: '1.5px solid #dce8f0', borderRadius: 12, padding: '11px 13px', fontSize: 13.5, outline: 'none' }} />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={domain === 'DAILY_IRON' ? 'Search customer, phone, log text...' : 'Search order #, customer, phone...'} style={{ flex: 1, border: '1.5px solid #dce8f0', borderRadius: 12, padding: '11px 13px', fontSize: 13.5, outline: 'none' }} />
           <button type="submit" style={{ border: 'none', background: '#023c62', color: '#fff', borderRadius: 12, padding: '0 18px', fontWeight: 800, cursor: 'pointer' }}>Search</button>
         </form>
       </section>
@@ -149,13 +204,17 @@ export default function LogsPage() {
                 <div key={group.key} style={{ background: '#fff', border: '1px solid #e4edf5', borderRadius: 14, overflow: 'hidden' }}>
                   <div style={{ padding: '14px 16px', borderBottom: '1px solid #edf3f8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                     <div>
-                      {group.order?.id ? (
+                      {domain === 'DAILY_IRON' ? (
+                        <span style={{ color: '#023c62', fontSize: 15, fontWeight: 900 }}>{group.customer?.name || 'Daily Iron Customer'}</span>
+                      ) : group.order?.id ? (
                         <Link href={`/dashboard/orders/${group.order.id}`} style={{ color: '#023c62', fontSize: 15, fontWeight: 900, textDecoration: 'none' }}>{group.order.orderNumber}</Link>
                       ) : (
                         <span style={{ color: '#023c62', fontSize: 15, fontWeight: 900 }}>Unknown order</span>
                       )}
                       <div style={{ marginTop: 3, color: '#6b7fa3', fontSize: 12.5 }}>
-                        {group.order?.customer?.name || 'Customer unavailable'}{group.order?.customer?.phone ? ` · ${group.order.customer.phone}` : ''}
+                        {domain === 'DAILY_IRON'
+                          ? (group.customer?.phone || 'Phone unavailable')
+                          : `${group.order?.customer?.name || 'Customer unavailable'}${group.order?.customer?.phone ? ` · ${group.order.customer.phone}` : ''}`}
                       </div>
                     </div>
                     <div style={{ color: '#9dafc8', fontSize: 12 }}>{group.logs.length} log{group.logs.length > 1 ? 's' : ''} · Latest {format(new Date(group.latestAt), 'd MMM, h:mm a')}</div>

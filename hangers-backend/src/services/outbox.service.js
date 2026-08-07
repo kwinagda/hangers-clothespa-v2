@@ -12,6 +12,7 @@ const {
 } = require('./whatomate.service');
 const { getOrderStatuses } = require('./masterData.service');
 const { formatDailyIronLogItems } = require('../utils/daily-iron-summary');
+const { writeAuditEvent } = require('./activity.service');
 
 const CAPTURED_PAYMENT_STATUSES = new Set(['CAPTURED', 'SUCCESS', 'PAID']);
 
@@ -30,6 +31,13 @@ const ORDER_NOTIFICATION_EVENTS = new Set([
   OUTBOX_EVENT.ORDER_STATUS,
   OUTBOX_EVENT.ORDER_UPDATED,
   OUTBOX_EVENT.PAYMENT_RECEIVED,
+]);
+
+const DAILY_IRON_NOTIFICATION_EVENTS = new Set([
+  OUTBOX_EVENT.DAILY_IRON_BILL,
+  OUTBOX_EVENT.DAILY_IRON_LOG,
+  OUTBOX_EVENT.DAILY_IRON_LOG_BATCH,
+  OUTBOX_EVENT.DAILY_IRON_PAYMENT,
 ]);
 
 const fallbackNotificationLabel = (eventType, payload = {}) => {
@@ -60,6 +68,57 @@ const logOrderWhatsAppPending = async (tx, { orderId, eventType, payload, outbox
       },
     },
   });
+};
+
+const dailyIronResourceForEvent = (eventType) => {
+  if (eventType === OUTBOX_EVENT.DAILY_IRON_BILL || eventType === OUTBOX_EVENT.DAILY_IRON_PAYMENT) return 'iron_bill';
+  if (eventType === OUTBOX_EVENT.DAILY_IRON_LOG) return 'iron_log';
+  if (eventType === OUTBOX_EVENT.DAILY_IRON_LOG_BATCH) return 'iron_subscription';
+  return 'daily_iron';
+};
+
+const dailyIronLabelForEvent = (eventType) => {
+  if (eventType === OUTBOX_EVENT.DAILY_IRON_BILL) return 'Daily Iron bill';
+  if (eventType === OUTBOX_EVENT.DAILY_IRON_LOG) return 'Daily Iron log';
+  if (eventType === OUTBOX_EVENT.DAILY_IRON_LOG_BATCH) return 'Daily Iron day sheet';
+  if (eventType === OUTBOX_EVENT.DAILY_IRON_PAYMENT) return 'Daily Iron payment';
+  return fallbackNotificationLabel(eventType);
+};
+
+const logDailyIronWhatsAppAudit = async ({ tx: txClient, event, outcome, error, extra = {} }) => {
+  if (!event || !DAILY_IRON_NOTIFICATION_EVENTS.has(event.eventType)) return;
+  const failed = outcome === 'FAILED';
+  const skipped = outcome === 'SKIPPED';
+  const label = dailyIronLabelForEvent(event.eventType);
+  const write = (client) => writeAuditEvent(client, {
+    actorType: 'system',
+    actorName: 'WhatsApp worker',
+    action: failed ? 'DAILY_IRON_WHATSAPP_FAILED' : skipped ? 'DAILY_IRON_WHATSAPP_SKIPPED' : outcome === 'PENDING' ? 'DAILY_IRON_WHATSAPP_PENDING' : 'DAILY_IRON_WHATSAPP_SENT',
+    status: failed ? 'FAILED' : 'SUCCESS',
+    resource: dailyIronResourceForEvent(event.eventType),
+    resourceId: event.aggregateId,
+    description: failed
+      ? `WhatsApp failed: ${label}${error ? ` - ${String(error).slice(0, 180)}` : ''}`
+      : skipped
+        ? `WhatsApp skipped: ${label}${error ? ` - ${String(error).slice(0, 180)}` : ''}`
+        : outcome === 'PENDING'
+          ? `WhatsApp queued: ${label}`
+          : `WhatsApp sent: ${label}`,
+    metadata: {
+      channel: 'WHATSAPP',
+      provider: 'WHATOMATE',
+      outcome,
+      outboxEventId: event.id,
+      outboxEventType: event.eventType,
+      aggregateType: event.aggregateType,
+      aggregateId: event.aggregateId,
+      payload: event.payload || {},
+      error: error ? String(error).slice(0, 500) : null,
+      ...extra,
+    },
+  });
+  if (txClient) return write(txClient);
+  return prisma.$transaction((tx) => write(tx));
 };
 
 const enqueueOutboxEvent = async (tx, {
@@ -105,6 +164,12 @@ const enqueueOutboxEvent = async (tx, {
       eventType,
       payload,
       outboxEventId: event.id,
+    });
+  } else if (DAILY_IRON_NOTIFICATION_EVENTS.has(eventType)) {
+    await logDailyIronWhatsAppAudit({
+      tx,
+      event,
+      outcome: 'PENDING',
     });
   }
   return event;
@@ -229,13 +294,18 @@ const handleOutboxEvent = async (event) => {
         where: { id: event.aggregateId },
         include: { customer: true },
       });
-      if (!bill || bill.customer?.notifWhatsApp === false) return;
+      if (!bill) return;
+      if (bill.customer?.notifWhatsApp === false) {
+        await logDailyIronWhatsAppAudit({ event, outcome: 'SKIPPED', error: 'customer WhatsApp disabled', extra: { customerId: bill.customerId, billNumber: bill.billNumber } });
+        return;
+      }
       const sent = await sendDailyIronBillMessage({
         customer: bill.customer,
         subscription: { id: bill.subscriptionId },
         bill,
       });
       if (!sent) throw new Error('Daily Iron bill provider did not accept the message');
+      await logDailyIronWhatsAppAudit({ event, outcome: 'SENT', extra: { customerId: bill.customerId, billNumber: bill.billNumber } });
       return;
     }
     case OUTBOX_EVENT.DAILY_IRON_LOG: {
@@ -243,7 +313,15 @@ const handleOutboxEvent = async (event) => {
         where: { id: event.aggregateId },
         include: { customer: true, subscription: true },
       });
-      if (!log || log.status !== 'ACTIVE' || log.customer?.notifWhatsApp === false) return;
+      if (!log) return;
+      if (log.status !== 'ACTIVE') {
+        await logDailyIronWhatsAppAudit({ event, outcome: 'SKIPPED', error: `log is ${log.status}`, extra: { customerId: log.customerId, logId: log.id } });
+        return;
+      }
+      if (log.customer?.notifWhatsApp === false) {
+        await logDailyIronWhatsAppAudit({ event, outcome: 'SKIPPED', error: 'customer WhatsApp disabled', extra: { customerId: log.customerId, logId: log.id } });
+        return;
+      }
       const monthStart = new Date(log.date);
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
@@ -260,6 +338,7 @@ const handleOutboxEvent = async (event) => {
       });
       if (!sent) throw new Error('Daily Iron log provider did not accept the message');
       await prisma.ironLog.update({ where: { id: log.id }, data: { whatsappSent: true } });
+      await logDailyIronWhatsAppAudit({ event, outcome: 'SENT', extra: { customerId: log.customerId, logId: log.id } });
       return;
     }
     case OUTBOX_EVENT.DAILY_IRON_LOG_BATCH: {
@@ -271,9 +350,15 @@ const handleOutboxEvent = async (event) => {
         orderBy: { createdAt: 'asc' },
       });
       const activeLogs = logs.filter((log) => log.status === 'ACTIVE');
-      if (!activeLogs.length) return;
+      if (!activeLogs.length) {
+        await logDailyIronWhatsAppAudit({ event, outcome: 'SKIPPED', error: 'no active logs found', extra: { logIds } });
+        return;
+      }
       const firstLog = activeLogs[0];
-      if (firstLog.customer?.notifWhatsApp === false) return;
+      if (firstLog.customer?.notifWhatsApp === false) {
+        await logDailyIronWhatsAppAudit({ event, outcome: 'SKIPPED', error: 'customer WhatsApp disabled', extra: { customerId: firstLog.customerId, logIds } });
+        return;
+      }
       const monthStart = new Date(firstLog.date);
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
@@ -296,6 +381,7 @@ const handleOutboxEvent = async (event) => {
       });
       if (!sent) throw new Error('Daily Iron batch log provider did not accept the message');
       await prisma.ironLog.updateMany({ where: { id: { in: activeLogs.map((log) => log.id) } }, data: { whatsappSent: true } });
+      await logDailyIronWhatsAppAudit({ event, outcome: 'SENT', extra: { customerId: firstLog.customerId, logIds: activeLogs.map((log) => log.id) } });
       return;
     }
     case OUTBOX_EVENT.DAILY_IRON_PAYMENT: {
@@ -303,7 +389,11 @@ const handleOutboxEvent = async (event) => {
         prisma.ironBill.findUnique({ where: { id: event.aggregateId }, include: { customer: true } }),
         prisma.payment.findUnique({ where: { id: payload.paymentId } }),
       ]);
-      if (!bill || !payment || bill.customer?.notifWhatsApp === false) return;
+      if (!bill || !payment) return;
+      if (bill.customer?.notifWhatsApp === false) {
+        await logDailyIronWhatsAppAudit({ event, outcome: 'SKIPPED', error: 'customer WhatsApp disabled', extra: { customerId: bill.customerId, billNumber: bill.billNumber, paymentId: payload.paymentId } });
+        return;
+      }
       const sent = await sendDailyIronPaymentMessage({
         customer: bill.customer,
         subscription: { id: bill.subscriptionId },
@@ -312,6 +402,7 @@ const handleOutboxEvent = async (event) => {
         method: payment.method,
       });
       if (!sent) throw new Error('Daily Iron payment provider did not accept the message');
+      await logDailyIronWhatsAppAudit({ event, outcome: 'SENT', extra: { customerId: bill.customerId, billNumber: bill.billNumber, paymentId: payload.paymentId } });
       return;
     }
     default:
@@ -359,6 +450,14 @@ const processOutboxBatch = async ({ limit = 25 } = {}) => {
           error: error?.message || error,
         }).catch((stageError) => {
           console.error('[outbox] failed to log WhatsApp failure stage:', stageError?.message || stageError);
+        });
+      } else if (DAILY_IRON_NOTIFICATION_EVENTS.has(event.eventType)) {
+        await logDailyIronWhatsAppAudit({
+          event,
+          outcome: 'FAILED',
+          error: error?.message || error,
+        }).catch((auditError) => {
+          console.error('[outbox] failed to log Daily Iron WhatsApp failure:', auditError?.message || auditError);
         });
       }
       const attempts = Number(event.attempts || 1);

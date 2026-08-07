@@ -146,12 +146,16 @@ export const ironAPI = {
     api.put(`/iron/subscriptions/${id}/status`, { status, notes }) as any,
   listLogs: (params?: { date?: string; start?: string; end?: string; customerId?: string }) =>
     api.get('/iron/logs', { params }) as any,
+  timeline: (params?: { date?: string; start?: string; end?: string; customerId?: string }) =>
+    api.get('/iron/logs/timeline', { params }) as any,
+  getLogRules: () => api.get('/iron/logs/rules') as any,
   getLogs: (customerId: string) => api.get(`/iron/logs/${customerId}`) as any,
   getLogsByPeriod: (customerId: string, start: string, end: string) =>
     api.get(`/iron/logs/${customerId}/period`, { params: { start, end } }) as any,
   createLog: (data: any) => api.post('/iron/logs', data, idempotencyConfig('crm-iron-log')) as any,
   createLogsBatch: (data: any) => api.post('/iron/logs/batch', data, idempotencyConfig('crm-iron-log-batch')) as any,
   createDaySheet: (data: any) => api.post('/iron/logs/day-sheet', data, idempotencyConfig('crm-iron-day-sheet')) as any,
+  correctLog: (id: string, data: any) => api.patch(`/iron/logs/${id}`, data, idempotencyConfig('crm-iron-log-correct')) as any,
   deleteLog: (id: string, reason: string) => api.delete(`/iron/logs/${id}`, { ...idempotencyConfig('crm-iron-log-void'), data: { reason } }) as any,
   generateBill: (data: any) => api.post('/iron/bills/generate', data, idempotencyConfig('crm-iron-bill')) as any,
   getBills: (customerId: string) => api.get(`/iron/bills/customer/${customerId}`) as any,

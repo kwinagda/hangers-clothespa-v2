@@ -25,6 +25,10 @@ export default function IronLogsPage() {
   const [summaryPage, setSummaryPage] = useState(1)
   const [logPage, setLogPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [correctingLog, setCorrectingLog] = useState<any>(null)
+  const [correctionPieces, setCorrectionPieces] = useState('')
+  const [correctionReason, setCorrectionReason] = useState('')
+  const [correctionSaving, setCorrectionSaving] = useState(false)
 
   const load = useCallback(async (date: string) => {
     setLoading(true)
@@ -52,6 +56,46 @@ export default function IronLogsPage() {
     () => logs.slice((logPage - 1) * pageSize, logPage * pageSize),
     [logs, logPage, pageSize]
   )
+
+  const openCorrection = (log: any) => {
+    if (log.billId || log.bill?.billNumber) {
+      toast.error('This Daily Iron log is already billed. Use bill correction/void-rebill.')
+      return
+    }
+    setCorrectingLog(log)
+    setCorrectionPieces(String(log.pieces || ''))
+    setCorrectionReason('')
+  }
+
+  const submitCorrection = async () => {
+    if (!correctingLog || correctionSaving) return
+    const pieces = Number(correctionPieces)
+    if (!Number.isInteger(pieces) || pieces <= 0) {
+      toast.error('Enter a valid quantity')
+      return
+    }
+    if (correctionReason.trim().length < 3) {
+      toast.error('Correction reason is required')
+      return
+    }
+    setCorrectionSaving(true)
+    try {
+      await ironAPI.correctLog(correctingLog.id, {
+        pieces,
+        reason: correctionReason.trim(),
+        notes: correctingLog.notes || undefined,
+      })
+      toast.success('Daily Iron log corrected')
+      setCorrectingLog(null)
+      setCorrectionPieces('')
+      setCorrectionReason('')
+      await load(selectedDate)
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to correct Daily Iron log')
+    } finally {
+      setCorrectionSaving(false)
+    }
+  }
 
   return (
     <div style={{ padding:'30px 36px 60px', maxWidth:1360, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
@@ -145,7 +189,7 @@ export default function IronLogsPage() {
             <table style={{ width:'100%', borderCollapse:'collapse' }}>
               <thead>
                 <tr style={{ background:'#f7f9fc' }}>
-                  {['Time', 'Customer', 'Garment', 'Pieces', 'Amount', 'Bill'].map((heading) => (
+                  {['Time', 'Customer', 'Garment', 'Pieces', 'Amount', 'Bill', 'Action'].map((heading) => (
                     <th key={heading} style={{ padding:'11px 18px', textAlign:'left', fontSize:10.5, color:'#6b7fa3', fontWeight:700, textTransform:'uppercase' as const, letterSpacing:'0.07em', borderBottom:'1px solid #e8f0f7', background:'#f7f9fc' }}>{heading}</th>
                   ))}
                 </tr>
@@ -162,6 +206,25 @@ export default function IronLogsPage() {
                     <td style={{ padding:'13px 16px', fontSize:13, fontWeight:700, color:'#166534' }}>{log.pieces}</td>
                     <td style={{ padding:'13px 16px', fontSize:13, fontWeight:700, color:'#6d28d9' }}>{fmt(log.amount)}</td>
                     <td style={{ padding:'13px 18px', fontSize:13.5, color:'#6b7fa3' }}>{log.bill?.billNumber || 'Open'}</td>
+                    <td style={{ padding:'13px 18px', fontSize:13.5 }}>
+                      <button
+                        onClick={() => openCorrection(log)}
+                        disabled={Boolean(log.billId || log.bill?.billNumber)}
+                        title={log.billId || log.bill?.billNumber ? 'Billed logs are locked' : 'Correct typo quantity'}
+                        style={{
+                          border:'1px solid #d8e6f0',
+                          background: log.billId || log.bill?.billNumber ? '#f5f8fb' : '#fff',
+                          color: log.billId || log.bill?.billNumber ? '#9dafc8' : '#023c62',
+                          borderRadius:8,
+                          padding:'7px 10px',
+                          fontSize:12,
+                          fontWeight:800,
+                          cursor: log.billId || log.bill?.billNumber ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        Correct
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -180,6 +243,46 @@ export default function IronLogsPage() {
           </div>
         </div>
       </div>
+      {correctingLog && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(2,20,34,0.38)', zIndex:80, display:'grid', placeItems:'center', padding:20 }}>
+          <div style={{ width:'min(520px, 100%)', background:'#fff', borderRadius:14, border:'1px solid #dce8f0', boxShadow:'0 24px 70px rgba(2,60,98,0.24)', overflow:'hidden' }}>
+            <div style={{ padding:'18px 20px', borderBottom:'1px solid #e8f0f7' }}>
+              <div style={{ fontWeight:900, color:'#023c62', fontSize:18 }}>Correct Daily Iron Log</div>
+              <div style={{ marginTop:4, color:'#6b7fa3', fontSize:13 }}>
+                {correctingLog.customer?.name || 'Customer'} · {correctingLog.serviceName} · current {correctingLog.pieces} pcs
+              </div>
+            </div>
+            <div style={{ padding:20, display:'grid', gap:14 }}>
+              <label style={{ display:'grid', gap:6, color:'#52657f', fontSize:12, fontWeight:800 }}>
+                Correct quantity
+                <input
+                  inputMode="numeric"
+                  value={correctionPieces}
+                  onChange={(event) => setCorrectionPieces(event.target.value.replace(/\D/g, '').slice(0, 3))}
+                  style={{ border:'1px solid #d8e6f0', borderRadius:10, padding:'10px 12px', fontSize:16, fontWeight:900, color:'#023c62', outline:'none' }}
+                />
+              </label>
+              <label style={{ display:'grid', gap:6, color:'#52657f', fontSize:12, fontWeight:800 }}>
+                Reason
+                <textarea
+                  value={correctionReason}
+                  onChange={(event) => setCorrectionReason(event.target.value.slice(0, 180))}
+                  placeholder="Example: Qty entered as 12 instead of 2"
+                  rows={3}
+                  style={{ border:'1px solid #d8e6f0', borderRadius:10, padding:'10px 12px', fontSize:14, color:'#142033', outline:'none', resize:'vertical' }}
+                />
+              </label>
+              <div style={{ background:'#f8fbfd', border:'1px solid #e3edf6', borderRadius:10, padding:'10px 12px', color:'#6b7fa3', fontSize:12, lineHeight:1.5 }}>
+                This keeps the same log record, recalculates the amount, writes an audit log, and sends the normal Daily Iron WhatsApp log again.
+              </div>
+            </div>
+            <div style={{ padding:'14px 20px', borderTop:'1px solid #e8f0f7', display:'flex', justifyContent:'flex-end', gap:10 }}>
+              <button onClick={() => setCorrectingLog(null)} disabled={correctionSaving} style={{ border:'1px solid #d8e6f0', background:'#fff', color:'#52657f', borderRadius:9, padding:'9px 13px', fontWeight:800, cursor:'pointer' }}>Cancel</button>
+              <button onClick={submitCorrection} disabled={correctionSaving} style={{ border:'none', background: correctionSaving ? '#9dafc8' : '#023c62', color:'#fff', borderRadius:9, padding:'9px 14px', fontWeight:900, cursor: correctionSaving ? 'not-allowed' : 'pointer' }}>{correctionSaving ? 'Saving...' : 'Save correction'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

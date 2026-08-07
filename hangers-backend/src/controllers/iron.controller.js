@@ -182,6 +182,8 @@ const validateIronServiceDate = (value) => {
   return serviceDate;
 };
 
+const isBeforeToday = (value) => startOfDay(value).getTime() < startOfDay(new Date()).getTime();
+
 const isBillableDailyIronService = (service) =>
   Boolean(service && service.category === 'DAILY_IRON' && service.isActive && Number(service.basePrice) > 0);
 
@@ -568,6 +570,213 @@ const listAllLogs = async (req, res) => {
   } catch (err) {
     console.error('listAllLogs error:', err);
     return error(res, 'Failed to fetch iron logs');
+  }
+};
+
+const dailyIronTimelineTitle = (action, status) => {
+  if (action === 'DAILY_IRON_WHATSAPP_PENDING') return 'WhatsApp Queued';
+  if (action === 'DAILY_IRON_WHATSAPP_SENT') return 'WhatsApp Sent';
+  if (action === 'DAILY_IRON_WHATSAPP_FAILED') return 'WhatsApp Failed';
+  if (action === 'DAILY_IRON_WHATSAPP_SKIPPED') return 'WhatsApp Skipped';
+  if (action === 'DAILY_IRON_LOG_CREATED') return 'Daily Iron Logged';
+  if (action === 'DAILY_IRON_LOG_BATCH_CREATED') return 'Daily Iron Logged';
+  if (action === 'DAILY_IRON_DAY_SHEET_CUSTOMER_LOGGED') return 'Day Sheet Saved';
+  if (action === 'DAILY_IRON_DAY_SHEET_CREATED') return 'Day Sheet Completed';
+  if (action === 'DAILY_IRON_LOG_CORRECTED') return 'Daily Iron Corrected';
+  if (action === 'DAILY_IRON_LOG_VOIDED') return 'Daily Iron Voided';
+  if (action === 'DAILY_IRON_BILL_GENERATED') return 'Daily Iron Bill Generated';
+  if (action === 'DAILY_IRON_BILL_SENT') return 'Daily Iron Bill Sent';
+  if (action === 'DAILY_IRON_PAYMENT_RECORDED') return 'Daily Iron Payment Recorded';
+  if (action === 'DAILY_IRON_PAYMENT_REVERSED') return 'Daily Iron Payment Reversed';
+  if (status === 'FAILED') return 'Daily Iron Action Failed';
+  return String(action || 'DAILY_IRON_EVENT').replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase());
+};
+
+const outboxTimelineTitle = (eventType, status) => {
+  if (status === 'PROCESSED') return 'WhatsApp Sent';
+  if (status === 'FAILED' || status === 'DEAD') return 'WhatsApp Failed';
+  if (status === 'PROCESSING') return 'WhatsApp Processing';
+  if (status === 'PENDING') return 'WhatsApp Queued';
+  return String(eventType || 'WHATSAPP').replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase());
+};
+
+const listDailyIronTimeline = async (req, res) => {
+  const requestedDate = toDate(req.query.date);
+  const requestedStart = toDate(req.query.start);
+  const requestedEnd = toDate(req.query.end);
+  const customerId = req.query.customerId ? String(req.query.customerId) : undefined;
+
+  const start = requestedDate || requestedStart || new Date();
+  const end = requestedDate || requestedEnd || start;
+  if (end < start) return badRequest(res, 'end must be on or after start');
+
+  try {
+    const logWhere = {
+      date: {
+        gte: startOfDay(start),
+        lte: endOfDay(end),
+      },
+      ...(customerId ? { customerId } : {}),
+    };
+    const logs = await prisma.ironLog.findMany({
+      where: logWhere,
+      select: {
+        id: true,
+        subscriptionId: true,
+        customerId: true,
+        serviceName: true,
+        date: true,
+        amount: true,
+        status: true,
+        createdAt: true,
+        customer: { select: { id: true, name: true, phone: true } },
+        loggedBy: { select: { id: true, name: true, role: true } },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+
+    const logIds = logs.map((log) => log.id);
+    const logById = new Map(logs.map((log) => [log.id, log]));
+    const customerBySubscription = new Map();
+    logs.forEach((log) => {
+      if (!customerBySubscription.has(log.subscriptionId)) customerBySubscription.set(log.subscriptionId, log.customer);
+    });
+
+    const [audits, outboxEvents] = await Promise.all([
+      prisma.auditLog.findMany({
+        where: {
+          action: { startsWith: 'DAILY_IRON' },
+          createdAt: {
+            gte: startOfDay(start),
+            lte: endOfDay(end),
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.outboxEvent.findMany({
+        where: {
+          eventType: { in: [OUTBOX_EVENT.DAILY_IRON_LOG, OUTBOX_EVENT.DAILY_IRON_LOG_BATCH, OUTBOX_EVENT.DAILY_IRON_BILL, OUTBOX_EVENT.DAILY_IRON_PAYMENT] },
+          createdAt: {
+            gte: startOfDay(start),
+            lte: endOfDay(end),
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const relatedLogIds = new Set(logIds);
+    audits.forEach((audit) => {
+      const metadata = audit.metadata || {};
+      if (metadata.logId) relatedLogIds.add(metadata.logId);
+      if (metadata.payload?.logId) relatedLogIds.add(metadata.payload.logId);
+      if (Array.isArray(metadata.payload?.logIds)) metadata.payload.logIds.forEach((id) => id && relatedLogIds.add(id));
+      if (Array.isArray(metadata.logIds)) metadata.logIds.forEach((id) => id && relatedLogIds.add(id));
+      if (Array.isArray(metadata.logs)) metadata.logs.forEach((log) => log?.id && relatedLogIds.add(log.id));
+      if (logById.has(audit.resourceId)) relatedLogIds.add(audit.resourceId);
+    });
+    outboxEvents.forEach((event) => {
+      if (event.eventType === OUTBOX_EVENT.DAILY_IRON_LOG) relatedLogIds.add(event.aggregateId);
+      if (Array.isArray(event.payload?.logIds)) event.payload.logIds.forEach((id) => id && relatedLogIds.add(id));
+    });
+    const missingLogIds = [...relatedLogIds].filter((id) => id && !logById.has(id));
+    if (missingLogIds.length) {
+      const relatedLogs = await prisma.ironLog.findMany({
+        where: { id: { in: missingLogIds } },
+        select: {
+          id: true,
+          subscriptionId: true,
+          customerId: true,
+          serviceName: true,
+          date: true,
+          amount: true,
+          status: true,
+          createdAt: true,
+          customer: { select: { id: true, name: true, phone: true } },
+          loggedBy: { select: { id: true, name: true, role: true } },
+        },
+      });
+      relatedLogs.forEach((log) => {
+        logById.set(log.id, log);
+        if (!customerBySubscription.has(log.subscriptionId)) customerBySubscription.set(log.subscriptionId, log.customer);
+      });
+    }
+
+    const auditedOutboxIds = new Set(audits.map((audit) => audit.metadata?.outboxEventId).filter(Boolean));
+    const events = [];
+
+    audits.forEach((audit) => {
+      const metadata = audit.metadata || {};
+      const relatedLogId = metadata.logId || metadata.payload?.logId || metadata.payload?.logIds?.[0] || metadata.logIds?.[0] || metadata.logs?.[0]?.id || (logById.has(audit.resourceId) ? audit.resourceId : null);
+      const relatedLog = relatedLogId ? logById.get(relatedLogId) : null;
+      const customer = relatedLog?.customer || customerBySubscription.get(audit.resourceId) || null;
+      events.push({
+        id: audit.id,
+        source: 'AUDIT_LOG',
+        createdAt: audit.createdAt,
+        customerId: metadata.customerId || relatedLog?.customerId || customer?.id || null,
+        customer,
+        title: dailyIronTimelineTitle(audit.action, audit.status),
+        stage: audit.action,
+        eventType: String(audit.action || '').includes('WHATSAPP') ? 'NOTIFICATION' : 'ACTIVITY',
+        status: audit.status,
+        notes: audit.description,
+        metadata,
+        actorName: audit.actorName,
+        resource: audit.resource,
+        resourceId: audit.resourceId,
+      });
+    });
+
+    outboxEvents
+      .filter((event) => !auditedOutboxIds.has(event.id))
+      .forEach((event) => {
+        const logId = event.eventType === OUTBOX_EVENT.DAILY_IRON_LOG
+          ? event.aggregateId
+          : Array.isArray(event.payload?.logIds) ? event.payload.logIds[0] : null;
+        const log = logId ? logById.get(logId) : null;
+        const customer = log?.customer || customerBySubscription.get(event.aggregateId) || null;
+        events.push({
+          id: `outbox:${event.id}`,
+          source: 'OUTBOX_EVENT',
+          createdAt: event.updatedAt || event.createdAt,
+          customerId: log?.customerId || customer?.id || null,
+          customer,
+          title: outboxTimelineTitle(event.eventType, event.status),
+          stage: event.status === 'FAILED' || event.status === 'DEAD' ? 'DAILY_IRON_WHATSAPP_FAILED' : event.status === 'PROCESSED' ? 'DAILY_IRON_WHATSAPP_SENT' : 'DAILY_IRON_WHATSAPP_PENDING',
+          eventType: 'NOTIFICATION',
+          status: event.status,
+          notes: event.lastError ? `WhatsApp failed: ${event.lastError}` : outboxTimelineTitle(event.eventType, event.status),
+          metadata: {
+            outboxEventId: event.id,
+            outboxEventType: event.eventType,
+            aggregateType: event.aggregateType,
+            aggregateId: event.aggregateId,
+            attempts: event.attempts,
+            payload: event.payload || {},
+          },
+          actorName: 'WhatsApp worker',
+          resource: event.aggregateType,
+          resourceId: event.aggregateId,
+        });
+      });
+
+    const filteredEvents = customerId ? events.filter((event) => event.customerId === customerId) : events;
+    filteredEvents.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return success(res, {
+      events: filteredEvents,
+      summary: {
+        total: filteredEvents.length,
+        failed: filteredEvents.filter((event) => event.stage.includes('FAILED') || event.status === 'FAILED').length,
+        sent: filteredEvents.filter((event) => event.stage.includes('SENT') || event.status === 'PROCESSED').length,
+        rangeStart: startOfDay(start),
+        rangeEnd: endOfDay(end),
+      },
+    });
+  } catch (err) {
+    console.error('listDailyIronTimeline error:', err);
+    return error(res, 'Failed to fetch Daily Iron timeline');
   }
 };
 
@@ -1102,6 +1311,138 @@ const deleteLog = async (req, res) => {
     return error(res, 'Failed to delete iron log');
   }
 };
+
+const correctLog = async (req, res) => {
+  const nextPieces = Number(req.body?.pieces);
+  const reason = String(req.body?.reason || '').trim();
+  const notes = req.body?.notes !== undefined ? String(req.body.notes || '').slice(0, 160) : undefined;
+  let manualRate = null;
+  const hasRateInput = req.body?.ratePerPiece !== undefined && req.body?.ratePerPiece !== null && req.body?.ratePerPiece !== '';
+
+  if (!Number.isInteger(nextPieces) || nextPieces <= 0) return badRequest(res, 'pieces must be a positive integer');
+  if (reason.length < 3) return badRequest(res, 'A correction reason is required');
+  try {
+    if (hasRateInput) manualRate = normalizeManualIronRate(req.body.ratePerPiece);
+  } catch (err) {
+    return badRequest(res, err.message);
+  }
+
+  try {
+    const corrected = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM iron_logs WHERE "id" = ${req.params.id} FOR UPDATE`;
+      const existing = await tx.ironLog.findUnique({
+        where: { id: req.params.id },
+        include: {
+          service: { select: { id: true, name: true, category: true, basePrice: true, isActive: true } },
+          customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } },
+          bill: { select: { id: true, billNumber: true, status: true } },
+        },
+      });
+      if (!existing) throw Object.assign(new Error('Iron log not found'), { code: 'LOG_NOT_FOUND' });
+      if (existing.status !== 'ACTIVE') throw Object.assign(new Error('Only active Daily Iron logs can be corrected'), { code: 'LOG_NOT_ACTIVE' });
+      if (existing.billId) throw Object.assign(new Error(`This log is already billed in ${existing.bill?.billNumber || 'a bill'}; use bill correction/void-rebill instead`), { code: 'LOG_BILLED' });
+      if (isBeforeToday(existing.date) && !['SUPER_ADMIN', 'MANAGER'].includes(req.staff?.role)) {
+        throw Object.assign(new Error('Older Daily Iron logs can be corrected only by a manager or super admin'), { code: 'OLD_LOG_RESTRICTED' });
+      }
+      if (isBeforeToday(existing.date) && reason.length < 10) {
+        throw Object.assign(new Error('Older Daily Iron corrections require a clear reason'), { code: 'OLD_LOG_REASON_REQUIRED' });
+      }
+
+      let appliedRate = {
+        rate: Number(existing.ratePerPiece),
+        source: existing.rateSource || 'CATALOG',
+        snapshot: existing.pricingSnapshot || null,
+      };
+      if (hasRateInput) {
+        const resolvedRate = await resolveIronRate(existing.serviceId, existing.customerId, tx);
+        appliedRate = resolveAppliedIronRate(resolvedRate, manualRate, reason);
+      }
+
+      const before = {
+        pieces: existing.pieces,
+        ratePerPiece: Number(existing.ratePerPiece),
+        amount: Number(existing.amount),
+        notes: existing.notes || null,
+      };
+      const amount = Number((nextPieces * appliedRate.rate).toFixed(2));
+      const updated = await tx.ironLog.update({
+        where: { id: existing.id },
+        data: {
+          pieces: nextPieces,
+          ratePerPiece: appliedRate.rate,
+          amount,
+          rateSource: appliedRate.source,
+          pricingSnapshot: appliedRate.snapshot || existing.pricingSnapshot,
+          notes: notes !== undefined ? notes : existing.notes,
+          whatsappSent: false,
+        },
+        include: {
+          customer: { select: { id: true, name: true, phone: true, preferredLanguage: true, ironSubStatus: true } },
+          service: { select: { id: true, name: true, category: true } },
+          loggedBy: { select: { id: true, name: true } },
+          bill: { select: { id: true, billNumber: true, status: true } },
+        },
+      });
+
+      await writeAuditEvent(tx, {
+        actorType: 'staff',
+        actorId: req.staff?.id,
+        actorName: req.staff?.name,
+        action: 'DAILY_IRON_LOG_CORRECTED',
+        resource: 'iron_log',
+        resourceId: updated.id,
+        description: `${updated.serviceName} corrected from ${before.pieces} pcs to ${updated.pieces} pcs`,
+        metadata: {
+          customerId: updated.customerId,
+          serviceId: updated.serviceId,
+          serviceDate: updated.date,
+          reason,
+          before,
+          after: {
+            pieces: updated.pieces,
+            ratePerPiece: Number(updated.ratePerPiece),
+            amount: Number(updated.amount),
+            notes: updated.notes || null,
+          },
+          olderDate: isBeforeToday(updated.date),
+        },
+        ...getRequestMeta(req),
+      });
+
+      if (updated.customer?.notifWhatsApp !== false) {
+        await enqueueOutboxEvent(tx, {
+          eventType: OUTBOX_EVENT.DAILY_IRON_LOG,
+          aggregateType: 'iron_log',
+          aggregateId: updated.id,
+          payload: { reason: 'CORRECTION' },
+          dedupeKey: `daily-iron-log-correction:${updated.id}:${Date.now()}`,
+        });
+      }
+
+      return updated;
+    }, { isolationLevel: 'Serializable' });
+
+    return success(res, { log: corrected }, 'Iron log corrected');
+  } catch (err) {
+    console.error('correctLog error:', err);
+    if (err.code === 'LOG_NOT_FOUND') return notFound(res, err.message);
+    if (['LOG_NOT_ACTIVE', 'LOG_BILLED', 'OLD_LOG_REASON_REQUIRED', 'INVALID_DAILY_IRON_RATE', 'IRON_RATE_REASON_REQUIRED'].includes(err.code)) return badRequest(res, err.message);
+    if (err.code === 'OLD_LOG_RESTRICTED') return forbidden(res, err.message);
+    return error(res, 'Failed to correct iron log');
+  }
+};
+
+const getLogRules = async (req, res) => success(res, {
+  today: startOfDay(new Date()),
+  backdateDays: Math.max(0, Number(process.env.IRON_LOG_BACKDATE_DAYS || 7)),
+  futureDatesAllowed: false,
+  correction: {
+    unbilledOnly: true,
+    reasonRequired: true,
+    olderDateManagerOnly: true,
+    billedLogMessage: 'Billed logs require bill correction/void-rebill; direct quantity edit is locked.',
+  },
+});
 
 const generateBill = async (req, res) => {
   const { customerId, billingPeriodStart, carryForwardNotes, notes } = req.body;
@@ -1660,12 +2001,15 @@ module.exports = {
   confirmSubscription,
   updateSubscriptionStatus,
   listAllLogs,
+  listDailyIronTimeline,
   getLogs,
   getLogsByPeriod,
   createLog,
   createLogsBatch,
   createDaySheet,
+  correctLog,
   deleteLog,
+  getLogRules,
   generateBill,
   listBillsForCustomer,
   getBillById,

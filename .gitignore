@@ -55,3 +55,6 @@ hangers-crm/ds-compiled-styles.css
 migration/fabklean/raw/
 migration/fabklean/local-backups/
 migration/fabklean/backups/
+
+# Runtime uploads are stored on the server and backed up separately, not in git.
+hangers-backend/uploads/

@@ -1,5 +1,8 @@
 // ── Settings Controller ───────────────────────────────────────────────────────
 const prisma = require('../config/database');
+const crypto = require('crypto');
+const fs = require('fs/promises');
+const path = require('path');
 const { updateSettingsSchema } = require('../validation/settings.schemas');
 const { log, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error } = require('../utils/response');
@@ -79,6 +82,44 @@ const serialiseSettingValue = (key, value) => {
   return String(Number(value));
 };
 
+const publicOriginFromRequest = (req) => {
+  const configured = String(process.env.PUBLIC_API_URL || '').trim().replace(/\/$/, '');
+  if (configured) return configured;
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.get('host') || '').split(',')[0].trim();
+  return host ? `${proto}://${host}` : '';
+};
+
+const persistPaymentQrUploads = async (settings, req) => {
+  if (!settings || typeof settings !== 'object' || !Array.isArray(settings.accounts)) return settings;
+  const origin = publicOriginFromRequest(req);
+  if (!origin) return settings;
+  const uploadDir = path.join(__dirname, '..', '..', 'uploads', 'payment-qr');
+  await fs.mkdir(uploadDir, { recursive: true });
+
+  const accounts = await Promise.all(settings.accounts.map(async (account) => {
+    const dataUrl = String(account.qrImageDataUrl || '').trim();
+    if (!dataUrl) return account;
+    const match = dataUrl.match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([a-zA-Z0-9+/=\s]+)$/);
+    if (!match) return account;
+    const contentType = match[1] === 'image/jpg' ? 'image/jpeg' : match[1];
+    const ext = contentType === 'image/jpeg' ? 'jpg' : contentType.replace('image/', '');
+    const buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+    if (!buffer.length) return account;
+    const hash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 20);
+    const safeAccountId = String(account.id || 'account').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'account';
+    const filename = `${safeAccountId}-${hash}.${ext}`;
+    await fs.writeFile(path.join(uploadDir, filename), buffer, { flag: 'w' });
+    return {
+      ...account,
+      qrImageUrl: `${origin}/uploads/payment-qr/${filename}`,
+      qrImageDataUrl: '',
+    };
+  }));
+
+  return { ...settings, accounts };
+};
+
 const ensureJsonSetting = async (key, value) => {
   const existing = await prisma.setting.findUnique({ where: { key } });
   if (existing) return existing;
@@ -117,7 +158,11 @@ const getSettings = async (req, res) => {
 // PATCH /api/v1/settings — update one or more settings
 const updateSettings = async (req, res) => {
   try {
-    const parsed = updateSettingsSchema.safeParse(req.body);
+    const payload = { ...req.body };
+    if (payload[PAYMENT_QR_SETTING_KEY]) {
+      payload[PAYMENT_QR_SETTING_KEY] = await persistPaymentQrUploads(payload[PAYMENT_QR_SETTING_KEY], req);
+    }
+    const parsed = updateSettingsSchema.safeParse(payload);
     if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid settings payload');
     const updates = parsed.data;
     const entries = Object.entries(updates);

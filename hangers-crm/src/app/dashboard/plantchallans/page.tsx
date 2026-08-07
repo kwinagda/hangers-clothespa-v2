@@ -17,6 +17,8 @@ const SS: Record<string, { bg: string; color: string }> = {
   PAID:       { bg: '#dcfce7', color: '#166534' },
 }
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+const todayText = () => new Date().toISOString().slice(0, 10)
+const fmtDate = (value: any) => value ? new Date(value).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'
 const badge = (status: string) => (
   <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: SS[status]?.bg || '#f3f4f6', color: SS[status]?.color || '#374151' }}>
     {status}
@@ -110,6 +112,7 @@ export default function ChallansPage() {
   // Challan creation
   const [showCreateChallan, setShowCreateChallan] = useState(false)
   const [challanPlant, setChallanPlant]     = useState('')
+  const [challanDate, setChallanDate]       = useState(todayText())
   const [challanDriver, setChallanDriver]   = useState('')
   const [challanVehicle, setChallanVehicle] = useState('')
   const [challanNotes, setChallanNotes]     = useState('')
@@ -242,6 +245,7 @@ export default function ChallansPage() {
     try {
       const r = await challanAPI.create({
         plant: challanPlant,
+        challanDate,
         orderIds: selectedOrders.map(o => o.id),
         driverName: challanDriver,
         vehicleNo: challanVehicle,
@@ -250,6 +254,7 @@ export default function ChallansPage() {
       toast.success(`Challan ${r.data.challanNo} created — ${selectedOrders.length} orders sent to plant`)
       setShowCreateChallan(false)
       setSelectedOrders([])
+      setChallanDate(todayText())
       setChallanDriver('')
       setChallanVehicle('')
       setChallanNotes('')
@@ -547,7 +552,7 @@ export default function ChallansPage() {
                       <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{c.driverName || '—'}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5, fontWeight: 700, color: '#023c62' }}>{fmt(c.customerValue)}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5, fontWeight: 700, color: '#991b1b' }}>{fmt(c.vendorCost)}</td>
-                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{new Date(c.createdAt).toLocaleDateString('en-IN')}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{fmtDate(c.challanDate || c.createdAt)}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{badge(c.status)}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -746,12 +751,19 @@ export default function ChallansPage() {
             <h2 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, marginBottom: 4 }}>New Delivery Challan</h2>
             <p style={{ fontSize: 13, color: '#6b7fa3', marginBottom: 20 }}>Search and add orders to send to the plant</p>
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
-              <div>
-                <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Send to Plant *</label>
-                <select value={challanPlant} onChange={(e: any) => setChallanPlant(e.target.value)}
-                  style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
-                  {plantPartners.map((plant) => <option key={plant.value} value={plant.value}>{plant.label}</option>)}
-                </select>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Send to Plant *</label>
+                  <select value={challanPlant} onChange={(e: any) => setChallanPlant(e.target.value)}
+                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
+                    {plantPartners.map((plant) => <option key={plant.value} value={plant.value}>{plant.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Challan Date *</label>
+                  <input type="date" value={challanDate} max={todayText()} onChange={e => setChallanDate(e.target.value)}
+                    style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, boxSizing: 'border-box' as const }} />
+                </div>
               </div>
               <div>
                 <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Add Orders *</label>
@@ -916,7 +928,7 @@ export default function ChallansPage() {
                   <input type="checkbox" checked={selectedChallans.has(c.id)} readOnly style={{ width: 16, height: 16 }} />
                   <div style={{ flex: 1 }}>
                     <span style={{ fontFamily: 'monospace', color: '#023c62', fontWeight: 700, fontSize: 12 }}>{c.challanNo}</span>
-                    <span style={{ color: '#6b7fa3', fontSize: 11, marginLeft: 8 }}>{new Date(c.createdAt).toLocaleDateString('en-IN')}</span>
+                    <span style={{ color: '#6b7fa3', fontSize: 11, marginLeft: 8 }}>{fmtDate(c.challanDate || c.createdAt)}</span>
                   </div>
                   <span style={{ fontWeight: 600, color: '#991b1b' }}>{fmt(c.vendorCost)}</span>
                 </div>

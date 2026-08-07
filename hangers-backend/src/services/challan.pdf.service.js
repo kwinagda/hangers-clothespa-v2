@@ -1,11 +1,18 @@
 // ── Challan PDF Service ───────────────────────────────────────────────────────
 const fmt = (n) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 const LOGO_URL = 'https://wadashboardapi.161apps.com/media-file/406df8a3-4651-46d8-9e0b-9ee9aa3b0173/Hangers%20logo%20unit%20transparent.png';
+const fmtDate = (value) => new Date(value).toLocaleDateString('en-IN', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'Asia/Kolkata',
+});
+const fmtShortDate = (value) => new Date(value).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
 
 const generateChallanHTML = (challan) => {
   const orders = challan.challanOrders || [];
   const items  = challan.challanItems  || [];
-  const date   = new Date(challan.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  const date   = fmtDate(challan.challanDate || challan.dispatchedAt || challan.createdAt);
 
   // Combine duplicate items by name
   const itemMap = {};
@@ -156,7 +163,7 @@ const generateVendorBillHTML = (bill) => {
     <tr>
       <td>${i + 1}</td>
       <td style="font-family:'Space Mono',monospace;color:#023c62;font-weight:700">${c.challanNo}</td>
-      <td>${new Date(c.createdAt).toLocaleDateString('en-IN')}</td>
+      <td>${fmtShortDate(c.challanDate || c.createdAt)}</td>
       <td style="text-align:right;font-weight:700">${fmt(c.vendorCost)}</td>
     </tr>`).join('');
 

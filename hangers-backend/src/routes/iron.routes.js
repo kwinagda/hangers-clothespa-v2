@@ -14,12 +14,15 @@ const {
   confirmSubscription,
   updateSubscriptionStatus,
   listAllLogs,
+  listDailyIronTimeline,
   getLogs,
   getLogsByPeriod,
   createLog,
   createLogsBatch,
   createDaySheet,
+  correctLog,
   deleteLog,
+  getLogRules,
   generateBill,
   listBillsForCustomer,
   getBillById,
@@ -47,11 +50,14 @@ router.put('/subscriptions/:id/confirm', staffAuth, crmAccess, ironStaffRoles, c
 router.put('/subscriptions/:id/status', staffAuth, crmAccess, ironStaffRoles, updateSubscriptionStatus);
 
 router.get('/logs', staffAuth, crmAccess, ironStaffRoles, listAllLogs);
+router.get('/logs/rules', staffAuth, crmAccess, ironStaffRoles, getLogRules);
+router.get('/logs/timeline', staffAuth, crmAccess, ironStaffRoles, listDailyIronTimeline);
 router.get('/logs/:customerId/period', staffAuth, crmAccess, ironStaffRoles, getLogsByPeriod);
 router.get('/logs/:customerId', staffAuth, crmAccess, ironStaffRoles, getLogs);
 router.post('/logs', staffAuth, crmAccess, requirePermission('daily_iron.log'), idempotent({ scope: 'daily-iron.log.create' }), createLog);
 router.post('/logs/batch', staffAuth, crmAccess, requirePermission('daily_iron.log'), idempotent({ scope: 'daily-iron.log.batch' }), createLogsBatch);
 router.post('/logs/day-sheet', staffAuth, crmAccess, requirePermission('daily_iron.log'), idempotent({ scope: 'daily-iron.log.day-sheet' }), createDaySheet);
+router.patch('/logs/:id', staffAuth, crmAccess, requirePermission('daily_iron.log'), idempotent({ scope: 'daily-iron.log.correct' }), correctLog);
 router.delete('/logs/:id', staffAuth, crmAccess, requirePermission('daily_iron.void'), idempotent({ scope: 'daily-iron.log.void' }), deleteLog);
 
 router.post('/bills/generate', staffAuth, crmAccess, requirePermission('daily_iron.manage_billing'), idempotent({ scope: 'daily-iron.bill.generate' }), generateBill);

@@ -809,6 +809,14 @@ function PrintCenterPageContent() {
     }
   }, [])
 
+  const reloadPaymentQrSettings = async () => {
+    const response: any = await settingsAPI.getAll()
+    const qrConfig = response?.data?.map?.[PAYMENT_QR_SETTING_KEY] || response?.map?.[PAYMENT_QR_SETTING_KEY] || null
+    setPaymentQrSettings(qrConfig)
+    setPaymentDraftSettings(qrConfig)
+    return qrConfig
+  }
+
   useEffect(() => {
     if (!printConfig) return
     setFields(getInitialFields(printConfig, type))
@@ -863,8 +871,7 @@ function PrintCenterPageContent() {
     paymentSaveSeq.current = saveId
     try {
       await settingsAPI.update({ [PAYMENT_QR_SETTING_KEY]: nextSettings })
-      setPaymentQrSettings(nextSettings)
-      setPaymentDraftSettings(nextSettings)
+      await reloadPaymentQrSettings()
       setPaymentDraftDirty(false)
       setEditingPaymentAccountIds(new Set())
       setDirtyPaymentAccountIds(new Set())
@@ -931,7 +938,7 @@ function PrintCenterPageContent() {
       if (account.gpayNumber && !/^\d{10}$/.test(account.gpayNumber)) addError(account.id, 'GPay number must be exactly 10 digits')
       if (account.vpa && !isValidUpiId(account.vpa)) addError(account.id, 'UPI ID format should look like name@bank')
       if (!String(account.vpa || '').trim() && !String(account.gpayNumber || '').trim()) addError(account.id, 'Add UPI ID or GPay number')
-      if (account.qrImageUrl && !/^https:\/\/.+/i.test(account.qrImageUrl.trim())) addError(account.id, 'QR image URL must start with https://')
+      if (account.qrImageUrl && !/^https:\/\/.+/i.test(account.qrImageUrl.trim()) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/.+/i.test(account.qrImageUrl.trim())) addError(account.id, 'QR image URL must start with https://')
     }
     if (settings.defaultAccountId && !accounts.some((account) => account.id === settings.defaultAccountId)) {
       errors.__root = ['Default payment account is missing']
@@ -993,22 +1000,7 @@ function PrintCenterPageContent() {
     paymentSaveSeq.current = saveId
     try {
       await settingsAPI.update({ [PAYMENT_QR_SETTING_KEY]: nextSavedSettings })
-      setPaymentQrSettings(nextSavedSettings)
-      setPaymentDraftSettings((current) => {
-        const active = normalizedPaymentSettings(current || nextSavedSettings)
-        return {
-          ...active,
-          defaultAccountId: nextDefaultId,
-          accounts: (active.accounts || []).map((account) => ({
-            ...account,
-            isDefault: account.id === nextDefaultId,
-          })),
-          provider: defaultAccount?.provider || 'UPI',
-          vpa: defaultAccount?.vpa || '',
-          gpayNumber: defaultAccount?.gpayNumber || '',
-          payeeName: defaultAccount?.payeeName || '',
-        }
-      })
+      await reloadPaymentQrSettings()
       toast.success('Payment account saved')
     } catch {
       toast.error('Could not save payment account')
@@ -1116,8 +1108,7 @@ function PrintCenterPageContent() {
     setSavingPaymentQr(true)
     try {
       await settingsAPI.update({ [PAYMENT_QR_SETTING_KEY]: nextSettings })
-      setPaymentQrSettings(nextSettings)
-      setPaymentDraftSettings(nextSettings)
+      await reloadPaymentQrSettings()
       toast.success('Payment account deleted')
     } catch {
       toast.error('Could not delete payment account')
