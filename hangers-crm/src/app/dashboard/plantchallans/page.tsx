@@ -1,9 +1,11 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { API_BASE_URL, challanAPI, ordersAPI, vendorBillAPI, vendorPriceAPI, servicesAPI, metadataAPI } from '@/lib/api'
+import { API_BASE_URL, challanAPI, ordersAPI, vendorBillAPI, vendorPriceAPI, plantPartnersAPI, servicesAPI, metadataAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import MissingVendorRatesModal from '@/components/MissingVendorRatesModal'
+import { deriveServiceCode } from '@/lib/serviceCode'
 
 type Tab = 'challans' | 'transfers' | 'vendor-bills' | 'vendor-prices'
 
@@ -109,7 +111,7 @@ export default function ChallansPage() {
   const [challans, setChallans]     = useState<any[]>([])
   const [vendorBills, setVendorBills] = useState<any[]>([])
   const [vendorPrices, setVendorPrices] = useState<any[]>([])
-  const [plantPartners, setPlantPartners] = useState<Array<{ value: string; label: string }>>([])
+  const [plantPartners, setPlantPartners] = useState<Array<{ id?: string; value: string; label: string; isDefault?: boolean }>>([])
   const [loading, setLoading]       = useState(false)
   const [challanPage, setChallanPage] = useState(1)
   const [billPage, setBillPage] = useState(1)
@@ -126,6 +128,7 @@ export default function ChallansPage() {
   const [orderResults, setOrderResults]     = useState<any[]>([])
   const [selectedOrders, setSelectedOrders] = useState<any[]>([])
   const [creating, setCreating]             = useState(false)
+  const [missingRates, setMissingRates]     = useState<{ plant: string; services: any[] } | null>(null)
 
   // Receive items
   const [showReceive, setShowReceive]           = useState(false)
@@ -159,7 +162,7 @@ export default function ChallansPage() {
       const nextPlantPartners = asArray(metadata.plantPartners)
       setPlantPartners(nextPlantPartners)
       if (nextPlantPartners.length) {
-        const defaultPlant = nextPlantPartners[0].value
+        const defaultPlant = nextPlantPartners.find((p: any) => p.isDefault)?.value || nextPlantPartners[0].value
         setChallanPlant((prev) => prev || defaultPlant)
         setBillPlant((prev) => prev || defaultPlant)
         setPricesPlant((prev) => prev || defaultPlant)
@@ -225,6 +228,17 @@ export default function ChallansPage() {
 
   useEffect(() => { if (tab === 'vendor-prices') loadVendorPrices(pricesPlant) }, [tab, pricesPlant])
 
+  const setDefaultPlant = async (partner: { id?: string; value: string; label: string }) => {
+    if (!partner.id) return
+    try {
+      await plantPartnersAPI.setDefault(partner.id)
+      setPlantPartners((prev) => prev.map((p) => ({ ...p, isDefault: p.value === partner.value })))
+      toast.success(`${partner.label} set as default plant`)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to set default plant')
+    }
+  }
+
   const searchOrders = async (q: string) => {
     if (q.length < 2) { setOrderResults([]); return }
     try {
@@ -265,7 +279,13 @@ export default function ChallansPage() {
       setChallanVehicle('')
       setChallanNotes('')
       loadAll()
-    } catch (e: any) { toast.error(e.message || 'Failed to create challan') }
+    } catch (e: any) {
+      if (e.details?.code === 'UNPRICED_VENDOR_SERVICES') {
+        setMissingRates({ plant: e.details.plant || challanPlant, services: e.details.services || [] })
+      } else {
+        toast.error(e.message || 'Failed to create challan')
+      }
+    }
     setCreating(false)
   }
 
@@ -669,12 +689,20 @@ export default function ChallansPage() {
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: '#6b7fa3', fontWeight: 600 }}>Plant:</span>
               {plantPartners.map((pl) => (
-                <button key={pl.value} onClick={() => setPricesPlant(pl.value)}
-                  style={{ padding: '6px 16px', borderRadius: 8, border: `2px solid ${pricesPlant === pl.value ? '#023c62' : '#e2e8f0'}`, background: pricesPlant === pl.value ? '#023c62' : '#fff', color: pricesPlant === pl.value ? '#fff' : '#374151', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                  {pl.label}
-                </button>
+                <div key={pl.value} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button onClick={() => setPricesPlant(pl.value)}
+                    style={{ padding: '6px 16px', borderRadius: 8, border: `2px solid ${pricesPlant === pl.value ? '#023c62' : '#e2e8f0'}`, background: pricesPlant === pl.value ? '#023c62' : '#fff', color: pricesPlant === pl.value ? '#fff' : '#374151', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    {pl.label}
+                  </button>
+                  <button
+                    onClick={() => !pl.isDefault && setDefaultPlant(pl)}
+                    title={pl.isDefault ? `${pl.label} is the default plant` : `Set ${pl.label} as default plant`}
+                    style={{ border: 'none', background: 'none', cursor: pl.isDefault ? 'default' : 'pointer', fontSize: 15, color: pl.isDefault ? '#f59e0b' : '#d7dee8', padding: 2, lineHeight: 1 }}>
+                    {pl.isDefault ? '★' : '☆'}
+                  </button>
+                </div>
               ))}
-              <span style={{ fontSize: 12, color: '#9dafc8' }}>Set what you pay {plantLabel(pricesPlant, plantPartners)} vendor-wise per item</span>
+              <span style={{ fontSize: 12, color: '#9dafc8' }}>Set what you pay {plantLabel(pricesPlant, plantPartners)} vendor-wise per item · ★ marks the default plant pre-selected on Create Challan</span>
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const }}>
               <button onClick={downloadRateCard}
@@ -728,7 +756,13 @@ export default function ChallansPage() {
                       const currentVal = priceEdits[key] !== undefined ? priceEdits[key] : String(vp.costPrice || '')
                       return (
                         <div key={vp.serviceId} style={{ background: '#f8fafc', borderRadius: 10, padding: 12, border: '1px solid #e3edf6' }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#1a2332', marginBottom: 8, lineHeight: 1.3, minHeight: 32 }}>{vp.serviceName}</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#1a2332', marginBottom: 8, lineHeight: 1.3, minHeight: 32 }}>
+                            {vp.serviceName}
+                            {(() => {
+                              const code = deriveServiceCode(vp.category)
+                              return code && !vp.serviceName.includes(code) ? ` (${code})` : ''
+                            })()}
+                          </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                             <span style={{ fontSize: 13, color: '#6b7fa3' }}>₹</span>
                             <input type="number" value={currentVal} min="0"
@@ -981,6 +1015,14 @@ export default function ChallansPage() {
         </div>
       )}
 
+      <MissingVendorRatesModal
+        open={!!missingRates}
+        plant={missingRates?.plant || challanPlant}
+        plantLabel={plantLabel(missingRates?.plant || challanPlant, plantPartners)}
+        services={missingRates?.services || []}
+        onClose={() => setMissingRates(null)}
+        onSaved={() => { setMissingRates(null); createChallan() }}
+      />
     </div>
   )
 }

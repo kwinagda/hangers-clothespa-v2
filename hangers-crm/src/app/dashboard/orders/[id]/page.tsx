@@ -12,6 +12,7 @@ import { authAPI, deliveryAPI, metadataAPI, ordersAPI, staffAPI, servicesAPI } f
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import PaymentPanel from '@/components/PaymentPanel'
+import { itemServiceCode } from '@/lib/serviceCode'
 import { AlertTriangle, Bike, CalendarRange, ClipboardList, Clock3, IndianRupee, Lock, MapPin, MessageSquareText, PackageCheck, Printer, Receipt, RotateCcw, ScrollText, Shirt, Smartphone, Tag, User, XCircle } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -991,15 +992,18 @@ export default function OrderDetailPage() {
               <div style={{padding:'28px 20px',textAlign:'center' as const,color:'#9dafc8',fontSize:13}}>No garments logged yet</div>
             ) : (
               <>
-                {order.items.map((it:any) => (
-                  <div key={it.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 20px',borderBottom:'1px solid #f3f7fa'}}>
-                    <div>
-                      <div style={{fontWeight:600,fontSize:13.5,color:'#1a2332'}}>{it.serviceName}</div>
-                      <div style={{fontSize:11.5,color:'#9dafc8',marginTop:2}}>Qty {it.quantity} · ₹{it.unitPrice} each</div>
+                {order.items.map((it:any) => {
+                  const code = itemServiceCode(it)
+                  return (
+                    <div key={it.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 20px',borderBottom:'1px solid #f3f7fa'}}>
+                      <div>
+                        <div style={{fontWeight:600,fontSize:13.5,color:'#1a2332'}}>{it.serviceName}{code && !it.serviceName?.includes(code) ? ` (${code})` : ''}</div>
+                        <div style={{fontSize:11.5,color:'#9dafc8',marginTop:2}}>Qty {it.quantity} · ₹{it.unitPrice} each</div>
+                      </div>
+                      <div style={{fontFamily:'var(--crm-font-mono)',fontWeight:700,color:'#023c62',fontSize:13.5}}>₹{(it.subtotal||it.unitPrice*it.quantity).toLocaleString('en-IN')}</div>
                     </div>
-                    <div style={{fontFamily:'var(--crm-font-mono)',fontWeight:700,color:'#023c62',fontSize:13.5}}>₹{(it.subtotal||it.unitPrice*it.quantity).toLocaleString('en-IN')}</div>
-                  </div>
-                ))}
+                  )
+                })}
                 <div style={{display:'flex',justifyContent:'space-between',padding:'12px 20px',fontSize:14}}>
                   <span style={{color:'#6b7fa3'}}>Subtotal</span>
                   <span style={{fontFamily:'var(--crm-font-mono)'}}>₹{(order.subtotal||order.totalAmount||0).toLocaleString('en-IN')}</span>

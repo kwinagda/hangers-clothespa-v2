@@ -41,7 +41,10 @@ api.interceptors.response.use(
         window.location.replace('/login')
       }
     }
-    throw new Error(err.response?.data?.message || 'Something went wrong')
+    const apiError: any = new Error(err.response?.data?.message || 'Something went wrong')
+    apiError.status = err.response?.status
+    apiError.details = err.response?.data?.errors || null
+    throw apiError
   }
 )
 
@@ -231,6 +234,11 @@ export const vendorPriceAPI = {
   getAll:  (plant?: string)           => api.get(`/vendor-prices${plant ? `?plant=${plant}` : ''}`),
   upsert:  (data: any)                => api.post('/vendor-prices', data, idempotencyConfig('crm-vendor-price')),
   bulkSave:(plant: string, prices: any[]) => api.post('/vendor-prices/bulk', { plant, prices }, idempotencyConfig('crm-vendor-price-bulk')),
+}
+
+export const plantPartnersAPI = {
+  getAll:     ()                        => api.get('/plant-partners') as any,
+  setDefault: (id: string)              => api.patch(`/plant-partners/${id}`, { isDefault: true }, idempotencyConfig('crm-plant-partner-default')) as any,
 }
 
 // A6 — Transfer Orders

@@ -8,6 +8,7 @@ import { API_BASE_URL, ordersAPI, settingsAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { Check, FileText, Pencil, Printer, Receipt, ScrollText, Tag, Trash2 } from 'lucide-react'
 import { LOGO_BLUE_URL, LOGO_WHITE_URL } from '@/lib/branding'
+import { itemServiceCode } from '@/lib/serviceCode'
 
 type PrintType = 'garment' | 'label' | 'bag' | 'receipt' | 'thermal'
 type FieldState = Record<string, boolean>
@@ -352,7 +353,7 @@ async function buildPrintHTML(
             ${f('brand') ? `<div class="tag-brand">${escapeHtml(STORE_LINE.replace(' Clothes Spa', ''))}</div>` : ''}
             ${f('orderNumber') ? `<div class="tag-order">${escapeHtml(order.orderNumber)}</div>` : ''}
             ${f('customerName') ? `<div class="tag-small">${escapeHtml(customerName)}</div>` : ''}
-            ${f('serviceName') ? `<div class="tag-main">${escapeHtml(item.serviceName)}</div>` : ''}
+            ${f('serviceName') ? `<div class="tag-main">${escapeHtml(item.serviceName)}${itemServiceCode(item) ? ` (${itemServiceCode(item)})` : ''}</div>` : ''}
             ${f('garmentType') ? `<div class="tag-small">${escapeHtml(item.garmentType || '')}</div>` : ''}
             ${f('orderDate') ? `<div class="tag-small">Date ${fmtDate(order.createdAt)}</div>` : ''}
             ${f('deliveryDate') && order.deliveryDate ? `<div class="tag-small">Due ${fmtDate(order.deliveryDate)}</div>` : ''}
@@ -383,7 +384,7 @@ async function buildPrintHTML(
             ${f('customerPhone') ? `<div class="tag-small">${escapeHtml(customerPhone)}</div>` : ''}
             ${f('receivedCount') ? `<div class="tag-main">${escapeHtml(labelNumber)}</div>` : ''}
             ${f('garmentType') ? `<div class="tag-small">${escapeHtml(item.garmentType || item.serviceName || 'Item')}</div>` : ''}
-            ${f('serviceName') ? `<div class="tag-small">${escapeHtml(item.serviceName || '')}</div>` : ''}
+            ${f('serviceName') ? `<div class="tag-small">${escapeHtml(item.serviceName || '')}${itemServiceCode(item) ? ` (${itemServiceCode(item)})` : ''}</div>` : ''}
             ${f('orderDate') ? `<div class="tag-small">Date ${fmtDate(order.createdAt)}</div>` : ''}
             ${f('deliveryDate') && order.deliveryDate ? `<div class="tag-small">Due ${fmtDate(order.deliveryDate)}</div>` : ''}
             ${f('notes') && (item.notes || order.notes) ? `<div class="tag-note">${escapeHtml(item.notes || order.notes)}</div>` : ''}

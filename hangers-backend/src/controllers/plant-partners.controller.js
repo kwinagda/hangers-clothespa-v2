@@ -66,16 +66,20 @@ const updatePlantPartner = async (req, res) => {
   try {
     const { code: _ignoredCode, ...data } = normalizePayload(req.body);
     if (data.name !== undefined && !data.name) return badRequest(res, 'Plant name cannot be empty');
+    if (req.body.isDefault !== undefined) data.isDefault = req.body.isDefault === true;
     const partner = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM plant_partners WHERE "id" = ${req.params.id} FOR UPDATE`;
       const existing = await tx.plantPartner.findUnique({ where: { id: req.params.id } });
       if (!existing) throw new Error('PLANT_NOT_FOUND');
+      if (data.isDefault === true) {
+        await tx.plantPartner.updateMany({ where: { isDefault: true, id: { not: existing.id } }, data: { isDefault: false } });
+      }
       const updated = await tx.plantPartner.update({ where: { id: existing.id }, data });
       await writeAuditEvent(tx, {
         actorType: 'staff', actorId: req.staff.id, actorName: req.staff.name,
         action: 'PLANT_PARTNER_UPDATED', resource: 'plant_partner', resourceId: existing.id,
         description: `${existing.code} plant partner updated`,
-        metadata: { changedFields: Object.keys(data), isActive: updated.isActive }, ...getRequestMeta(req),
+        metadata: { changedFields: Object.keys(data), isActive: updated.isActive, isDefault: updated.isDefault }, ...getRequestMeta(req),
       });
       return updated;
     });

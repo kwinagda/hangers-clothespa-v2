@@ -317,7 +317,10 @@ const createChallan = async (req, res) => {
       }
       const orders = await tx.order.findMany({
         where: { id: { in: normalizedOrderIds }, ...ORDER_ONLY_WHERE },
-        include: { items: true, customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } } },
+        include: {
+          items: { include: { service: { select: { category: true } } } },
+          customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } },
+        },
       });
       if (orders.length !== normalizedOrderIds.length) throw new Error('ORDER_NOT_FOUND');
       if (orders.some((order) => !sendableStatuses.has(order.status))) throw new Error('ORDER_NOT_SENDABLE');
@@ -333,12 +336,22 @@ const createChallan = async (req, res) => {
       let totalCustomerValue = 0;
       let totalVendorCost = 0;
       const challanItemsData = [];
-      const unpriced = [];
+      const unpriced = new Map();
       for (const order of orders) {
         totalCustomerValue += Number(order.totalAmount || 0);
         for (const item of order.items) {
           const vendorCost = resolveVendorCost(priceMap, { serviceName: item.serviceName, orderItem: item });
-          if (!(vendorCost > 0)) unpriced.push(`${item.serviceName} (${order.orderNumber})`);
+          if (!(vendorCost > 0)) {
+            const key = item.serviceId || item.serviceName;
+            if (!unpriced.has(key)) {
+              unpriced.set(key, {
+                serviceId: item.serviceId || null, serviceName: item.serviceName,
+                variant: item.variant || null, category: item.service?.category || null,
+                orderNumbers: new Set(),
+              });
+            }
+            unpriced.get(key).orderNumbers.add(order.orderNumber);
+          }
           totalVendorCost += vendorCost * item.quantity;
           challanItemsData.push({
             orderItemId: item.id, serviceName: item.serviceName, quantity: item.quantity,
@@ -346,9 +359,13 @@ const createChallan = async (req, res) => {
           });
         }
       }
-      if (unpriced.length) {
+      if (unpriced.size) {
         const err = new Error('UNPRICED_VENDOR_SERVICES');
-        err.services = [...new Set(unpriced)].slice(0, 20);
+        err.plant = partner.code;
+        err.services = [...unpriced.values()].slice(0, 50).map((v) => ({
+          serviceId: v.serviceId, serviceName: v.serviceName, variant: v.variant, category: v.category,
+          orderCount: v.orderNumbers.size,
+        }));
         throw err;
       }
 
@@ -452,7 +469,11 @@ const createChallan = async (req, res) => {
     if (e.message === 'INVALID_CHALLAN_DATE') return badRequest(res, 'Challan date must be a valid date');
     if (e.message === 'FUTURE_CHALLAN_DATE') return badRequest(res, 'Challan date cannot be in the future');
     if (e.message === 'ACTIVE_CHALLAN_EXISTS' || e.code === 'P2002') return res.status(409).json({ success: false, message: 'One or more orders already belong to an active challan' });
-    if (e.message === 'UNPRICED_VENDOR_SERVICES') return badRequest(res, `Vendor rates are required before dispatch: ${e.services.join(', ')}`);
+    if (e.message === 'UNPRICED_VENDOR_SERVICES') {
+      return badRequest(res, `Vendor rates are required before dispatch for ${e.services.length} service${e.services.length > 1 ? 's' : ''}`, {
+        code: 'UNPRICED_VENDOR_SERVICES', plant: e.plant, services: e.services,
+      });
+    }
     if (e.message === 'GARMENT_CUSTODY_MISMATCH') return badRequest(res, 'Garment-unit custody does not match the dispatched quantities; resolve voided or issue-held tags first');
     if (e instanceof GarmentUnitError) return badRequest(res, e.message);
     if (e.code === 'P2034') return res.status(409).json({ success: false, message: 'Challan creation conflicted with another dispatch; retry with the same idempotency key' });

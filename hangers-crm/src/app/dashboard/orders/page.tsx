@@ -9,6 +9,8 @@ import { ClipboardList, Lock, Plus } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
 import { InlineLoader, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import MissingVendorRatesModal from '@/components/MissingVendorRatesModal'
+import { itemServiceCode } from '@/lib/serviceCode'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -65,8 +67,10 @@ const orderItemSummaryText = (order: any) => {
   const items = order?.items || []
   if (!items.length) return 'No garments'
   const visible = items.slice(0, 4).map((item: any) => {
-    const name = item.garmentType || item.serviceName || item.service?.name || 'Item'
-    return `${Number(item.quantity) || 0}x ${name}`
+    const name = item.serviceName || item.garmentType || item.service?.name || 'Item'
+    const code = itemServiceCode(item)
+    const codeSuffix = code && !name.includes(code) ? ` (${code})` : ''
+    return `${Number(item.quantity) || 0}x ${name}${codeSuffix}`
   })
   return `${visible.join(', ')}${items.length > visible.length ? ` +${items.length - visible.length} more` : ''}`
 }
@@ -235,7 +239,7 @@ function OrdersPageContent() {
   const [orderViews, setOrderViews] = useState<OrderViewMeta[]>([DEFAULT_ORDER_VIEW])
   const [statusLabels, setStatusLabels] = useState<Record<string, string>>({})
   const [statusStyles, setStatusStyles] = useState<Record<string, { bg: string; text: string; border: string }>>({})
-  const [plantPartners, setPlantPartners] = useState<Array<{ value: string; label: string }>>([])
+  const [plantPartners, setPlantPartners] = useState<Array<{ id?: string; value: string; label: string; isDefault?: boolean }>>([])
   const [currentStaff, setCurrentStaff] = useState<any>(null)
   const [statusModal, setStatusModal] = useState<{ open: boolean; orderId: string; currentStatus: string; target: string; kind: string; reason: string }>({
     open: false,
@@ -253,6 +257,7 @@ function OrdersPageContent() {
   const [showChallanModal, setShowChallanModal] = useState(false)
   const [challanForm, setChallanForm] = useState({ plant: '', challanDate: new Date().toISOString().slice(0, 10), driverName: '', vehicleNo: '' })
   const [creatingChallan, setCreatingChallan] = useState(false)
+  const [missingRates, setMissingRates] = useState<{ plant: string; services: any[] } | null>(null)
   const [bulkUpdating, setBulkUpdating] = useState('')
   const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([])
   const [showBulkPayModal, setShowBulkPayModal] = useState(false)
@@ -321,7 +326,8 @@ function OrdersPageContent() {
         }
         setPlantPartners(nextPlantPartners)
         if (nextPlantPartners.length) {
-          setChallanForm((prev) => ({ ...prev, plant: prev.plant || nextPlantPartners[0].value }))
+          const defaultPlant = nextPlantPartners.find((p: any) => p.isDefault)?.value || nextPlantPartners[0].value
+          setChallanForm((prev) => ({ ...prev, plant: prev.plant || defaultPlant }))
         }
       })
       .catch(() => {
@@ -410,10 +416,14 @@ function OrdersPageContent() {
       toast.success(`${selected.size} challan${selected.size > 1 ? 's' : ''} created — orders sent to plant`)
       setSelected(new Set())
       setShowChallanModal(false)
-      setChallanForm({ plant: plantPartners[0]?.value || '', challanDate: new Date().toISOString().slice(0, 10), driverName: '', vehicleNo: '' })
+      setChallanForm({ plant: plantPartners.find((p: any) => p.isDefault)?.value || plantPartners[0]?.value || '', challanDate: new Date().toISOString().slice(0, 10), driverName: '', vehicleNo: '' })
       load()
     } catch(e:any) {
-      toast.error(e.message || 'Failed to create challans')
+      if (e.details?.code === 'UNPRICED_VENDOR_SERVICES') {
+        setMissingRates({ plant: e.details.plant || challanForm.plant, services: e.details.services || [] })
+      } else {
+        toast.error(e.message || 'Failed to create challans')
+      }
     }
     setCreatingChallan(false)
   }
@@ -734,11 +744,16 @@ function OrdersPageContent() {
                         </td>
                         {/* Items */}
                         <td style={{padding:'13px 18px',minWidth:220}}>
-                          {(o.items || []).slice(0,3).map((item: any, idx: number) => (
-                            <div key={idx} style={{fontSize:13,color:'#1a2332',lineHeight:1.6}}>
-                              {item.garmentType || item.serviceName || 'Item'} × {item.quantity}
-                            </div>
-                          ))}
+                          {(o.items || []).slice(0,3).map((item: any, idx: number) => {
+                            const itemName = item.serviceName || item.garmentType || 'Item'
+                            const code = itemServiceCode(item)
+                            const itemCode = code && !itemName.includes(code) ? ` (${code})` : ''
+                            return (
+                              <div key={idx} style={{fontSize:13,color:'#1a2332',lineHeight:1.6}}>
+                                {itemName}{itemCode} × {item.quantity}
+                              </div>
+                            )
+                          })}
                           {(o.items || []).length > 3 && <div style={{fontSize:11.5,color:'#9dafc8'}}>+{(o.items || []).length - 3} more</div>}
                           {totalQty > 0 && <div style={{fontSize:11.5,color:'#6b7fa3',marginTop:3}}>Qty <strong style={{color:'#023c62'}}>{totalQty}</strong></div>}
                           {!(o.items?.length) && <div style={{fontSize:12,color:'#9dafc8',fontStyle:'italic'}}>No garments</div>}
@@ -1096,6 +1111,15 @@ function OrdersPageContent() {
           </div>
         )
       })()}
+
+      <MissingVendorRatesModal
+        open={!!missingRates}
+        plant={missingRates?.plant || challanForm.plant}
+        plantLabel={plantPartners.find((p) => p.value === (missingRates?.plant || challanForm.plant))?.label}
+        services={missingRates?.services || []}
+        onClose={() => setMissingRates(null)}
+        onSaved={() => { setMissingRates(null); createChallan() }}
+      />
     </div>
   )
 }

@@ -8,7 +8,7 @@ const {
 const getDbPlantPartners = async () => {
   const partners = await prisma.plantPartner.findMany({
     where: { isActive: true },
-    select: { id: true, code: true, name: true, paymentTermsDays: true },
+    select: { id: true, code: true, name: true, paymentTermsDays: true, isDefault: true },
     orderBy: [{ name: 'asc' }, { code: 'asc' }],
   });
   return partners.map((partner) => ({
@@ -16,6 +16,7 @@ const getDbPlantPartners = async () => {
     value: partner.code,
     label: partner.name,
     paymentTermsDays: partner.paymentTermsDays,
+    isDefault: partner.isDefault,
   }));
 };
 
