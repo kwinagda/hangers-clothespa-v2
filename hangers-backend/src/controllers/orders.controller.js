@@ -23,6 +23,7 @@ const { OUTBOX_EVENT, enqueueOutboxEvent }          = require('../services/outbo
 const { sendOrderStatusMessage, sendOrderUpdatedMessage, sendPaymentReceivedMessage, sendPaymentReminderMessage } = require('../services/whatomate.service');
 const { BillingRuleError, ensureOrderInvoice, refreshOrderInvoice } = require('../services/billing.service');
 const { getCustomerReceivablesSummary }             = require('../services/receivables.service');
+const { createPublicShareToken }                    = require('../services/publicShare.service');
 const { nextDocumentNumber } = require('../services/document-number.service');
 const { GarmentUnitError, syncOrderGarmentUnits } = require('../services/garment-unit.service');
 const { getDefaultPaymentAccount, getPaymentAccountQrMediaUrl } = require('../services/payment-account-settings.service');
@@ -606,10 +607,16 @@ const sendManualOrderNotification = async (req, res) => {
       } else {
         const summary = await getCustomerOutstandingSummary(order.customerId);
         if (!(summary.outstandingAmount > 0)) return badRequest(res, 'This customer has no outstanding balance');
+        const buttonSlug = await createPublicShareToken({
+          resourceType: 'CUSTOMER',
+          resourceId: order.customerId,
+          purpose: 'INVOICE_VIEW',
+        });
         label = 'Outstanding payment summary';
         reminder = {
           mode: 'OUTSTANDING_SUMMARY',
           ...summary,
+          buttonSlug,
           paymentSettings,
         };
       }

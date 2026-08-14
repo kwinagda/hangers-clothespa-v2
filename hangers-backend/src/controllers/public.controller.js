@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const { success, notFound, error } = require('../utils/response');
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
 const { resolvePublicShareToken } = require('../services/publicShare.service');
+const { findOpenReceivableInvoices } = require('../services/receivables.service');
 
 const publicQuotationSelect = {
   id: true,
@@ -141,6 +142,42 @@ const normalizeCanonicalInvoice = (invoice) => {
   };
 };
 
+const getPublicPaymentSummary = async (customerId) => {
+  const receivables = await findOpenReceivableInvoices({ customerId });
+  const customer = receivables[0]?.customer || await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: { name: true, phone: true },
+  });
+  const totals = receivables.reduce((acc, invoice) => {
+    acc.totalAmount += Number(invoice.totalAmount || 0);
+    acc.paidAmount += Number(invoice.paidAmount || 0);
+    acc.balanceDue += Number(invoice.balanceDue || invoice.balance || 0);
+    return acc;
+  }, { totalAmount: 0, paidAmount: 0, balanceDue: 0 });
+  return {
+    customer,
+    generatedAt: new Date(),
+    invoiceCount: receivables.length,
+    totals: {
+      totalAmount: roundMoney(totals.totalAmount),
+      paidAmount: roundMoney(totals.paidAmount),
+      balanceDue: roundMoney(totals.balanceDue),
+    },
+    receivables: receivables.map((invoice) => ({
+      invoiceId: invoice.invoiceId,
+      invoiceNumber: invoice.invoiceNumber,
+      sourceType: invoice.sourceType,
+      sourceNumber: invoice.sourceNumber,
+      status: invoice.status,
+      issueDate: invoice.issueDate,
+      dueDate: invoice.dueDate,
+      totalAmount: invoice.totalAmount,
+      paidAmount: invoice.paidAmount,
+      balanceDue: invoice.balanceDue,
+    })),
+  };
+};
+
 const startOfMonth = (value) => new Date(value.getFullYear(), value.getMonth(), 1);
 
 const endOfMonth = (value) => {
@@ -255,6 +292,12 @@ const getPublicInvoice = async (req, res) => {
     if (!slug) return notFound(res, 'Invoice not found');
     const share = await resolvePublicShareToken({ token: slug, purpose: 'INVOICE_VIEW' });
     if (!share) return notFound(res, 'Invoice not found');
+
+    if (share.resourceType === 'CUSTOMER') {
+      const paymentSummary = await getPublicPaymentSummary(share.resourceId);
+      if (!paymentSummary.customer) return notFound(res, 'Payment summary not found');
+      return success(res, { paymentSummary });
+    }
 
     const where = share.resourceType === 'INVOICE'
       ? { id: share.resourceId }

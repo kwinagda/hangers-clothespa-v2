@@ -19,14 +19,26 @@ async function loadInvoice(slug: string) {
   })
   if (!res.ok) return null
   const payload = await res.json()
-  return payload?.data?.invoice || payload?.invoice || null
+  return payload?.data?.paymentSummary
+    ? { kind: 'PAYMENT_SUMMARY', paymentSummary: payload.data.paymentSummary }
+    : payload?.data?.invoice
+      ? { kind: 'INVOICE', invoice: payload.data.invoice }
+      : payload?.invoice
+        ? { kind: 'INVOICE', invoice: payload.invoice }
+        : null
+}
+
+const sourceLabel = (sourceType: string) => {
+  if (sourceType === 'FIELD_SERVICE') return 'Sofa Cleaning'
+  if (sourceType === 'DAILY_IRON') return 'Daily Iron'
+  return 'Order'
 }
 
 export default async function PublicInvoicePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
-  const invoice = await loadInvoice(slug)
+  const loaded = await loadInvoice(slug)
 
-  if (!invoice) {
+  if (!loaded) {
     return (
       <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#f4f7fb', padding: 24, fontFamily: 'var(--crm-font-ui)' }}>
         <section style={{ width: '100%', maxWidth: 440, background: '#fff', border: '1px solid #e3edf6', borderRadius: 14, padding: 28, textAlign: 'center' }}>
@@ -37,6 +49,119 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
       </main>
     )
   }
+
+  if (loaded.kind === 'PAYMENT_SUMMARY') {
+    const summary = loaded.paymentSummary
+    const rows = summary?.receivables || []
+    return (
+      <main className="public-invoice-page" style={{ minHeight: '100vh', background: '#f4f7fb', padding: '28px 16px 48px', fontFamily: 'var(--crm-font-ui)', color: '#1a2332' }}>
+        <style>{`
+          .summary-shell { max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #d7e4ee; border-radius: 16px; overflow: hidden; box-shadow: 0 18px 45px rgba(2,60,98,0.08); }
+          .summary-header { padding: 24px 26px; background: linear-gradient(135deg, #022d4d 0%, #023c62 58%, #2a6b97 100%); color: #fff; display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+          .summary-logo { height: 42px; object-fit: contain; margin-bottom: 12px; }
+          .summary-card { min-width: 230px; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.16); border-radius: 14px; background: rgba(255,255,255,0.12); text-align: right; }
+          .summary-meta { padding: 22px 26px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; border-bottom: 1px solid #edf3f8; }
+          .summary-meta-card { border: 1px solid #dce8f0; border-radius: 14px; padding: 14px 16px; background: #fff; }
+          .summary-label { color: #7d91a7; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
+          .summary-value { margin-top: 6px; color: #182538; font-weight: 900; overflow-wrap: anywhere; }
+          .summary-table-wrap { overflow-x: auto; padding: 22px 26px 26px; }
+          .summary-mobile { display: none; }
+          @media (max-width: 640px) {
+            main.public-invoice-page { padding: 12px 10px 28px !important; }
+            .summary-shell { border-radius: 12px; }
+            .summary-header { padding: 18px 16px; display: block; }
+            .summary-card { text-align: left; margin-top: 16px; min-width: 0; }
+            .summary-meta { padding: 16px; grid-template-columns: 1fr 1fr; gap: 10px; }
+            .summary-table-wrap { display: none; }
+            .summary-mobile { display: grid; gap: 10px; padding: 14px; }
+            .summary-item { border: 1px solid #e3edf6; border-radius: 10px; padding: 12px; background: #fff; }
+            .summary-item-title { font-weight: 900; color: #023c62; overflow-wrap: anywhere; }
+            .summary-item-sub { margin-top: 4px; color: #6b7fa3; font-size: 12px; }
+            .summary-item-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+            .summary-item-metric { background: #f7fafc; border-radius: 8px; padding: 8px; min-width: 0; }
+          }
+        `}</style>
+        <section className="summary-shell">
+          <header className="summary-header">
+            <div>
+              <img className="summary-logo" src={LOGO_WHITE_URL} alt="Hangers Clothes Spa" />
+              <div style={{ color: '#dcecf9', fontSize: 13 }}>Premium garment care</div>
+            </div>
+            <div className="summary-card">
+              <h1 style={{ margin: '0 0 6px', color: '#fff', fontSize: 27 }}>Outstanding Summary</h1>
+              <div style={{ color: '#e8f5ff', fontWeight: 800 }}>{summary.invoiceCount || 0} open bills/orders</div>
+              <div style={{ marginTop: 10, fontSize: 24, fontWeight: 900 }}>{money(summary?.totals?.balanceDue)}</div>
+            </div>
+          </header>
+
+          <div className="summary-meta">
+            <div className="summary-meta-card">
+              <div className="summary-label">Customer</div>
+              <div className="summary-value">{summary.customer?.name || 'Customer'}</div>
+              <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{summary.customer?.phone ? `+91 ${String(summary.customer.phone).replace(/^91/, '')}` : '—'}</div>
+            </div>
+            <div className="summary-meta-card">
+              <div className="summary-label">Total Billed</div>
+              <div className="summary-value">{money(summary?.totals?.totalAmount)}</div>
+            </div>
+            <div className="summary-meta-card">
+              <div className="summary-label">Paid</div>
+              <div className="summary-value" style={{ color: '#15803d' }}>{money(summary?.totals?.paidAmount)}</div>
+            </div>
+            <div className="summary-meta-card">
+              <div className="summary-label">Balance Due</div>
+              <div className="summary-value" style={{ color: '#b91c1c' }}>{money(summary?.totals?.balanceDue)}</div>
+            </div>
+          </div>
+
+          <div className="summary-table-wrap">
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 680, border: '1px solid #dce8f0', borderRadius: 14, overflow: 'hidden' }}>
+              <thead>
+                <tr style={{ background: '#f4f8fb', color: '#476581', textAlign: 'left', fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase' }}>
+                  <th style={{ padding: '13px 16px' }}>Bill / Order</th>
+                  <th style={{ padding: '13px 16px' }}>Type</th>
+                  <th style={{ padding: '13px 16px' }}>Due Date</th>
+                  <th style={{ padding: '13px 16px', textAlign: 'right' }}>Total</th>
+                  <th style={{ padding: '13px 16px', textAlign: 'right' }}>Paid</th>
+                  <th style={{ padding: '13px 16px', textAlign: 'right' }}>Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((item: any) => (
+                  <tr key={item.invoiceId} style={{ borderTop: '1px solid #edf3f8' }}>
+                    <td style={{ padding: '14px 16px', fontWeight: 900, color: '#023c62' }}>{item.sourceNumber || item.invoiceNumber}</td>
+                    <td style={{ padding: '14px 16px', color: '#52647e', fontWeight: 700 }}>{sourceLabel(item.sourceType)}</td>
+                    <td style={{ padding: '14px 16px', color: '#6b7fa3' }}>{dateLabel(item.dueDate)}</td>
+                    <td style={{ padding: '14px 16px', textAlign: 'right' }}>{money(item.totalAmount)}</td>
+                    <td style={{ padding: '14px 16px', textAlign: 'right', color: '#15803d' }}>{money(item.paidAmount)}</td>
+                    <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 900, color: '#b91c1c' }}>{money(item.balanceDue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="summary-mobile">
+            {rows.map((item: any) => (
+              <article className="summary-item" key={`${item.invoiceId}-mobile`}>
+                <div className="summary-item-title">{item.sourceNumber || item.invoiceNumber}</div>
+                <div className="summary-item-sub">{sourceLabel(item.sourceType)} · Due {dateLabel(item.dueDate)}</div>
+                <div className="summary-item-grid">
+                  <div className="summary-item-metric"><div className="summary-label">Total</div><div className="summary-value">{money(item.totalAmount)}</div></div>
+                  <div className="summary-item-metric"><div className="summary-label">Paid</div><div className="summary-value" style={{ color: '#15803d' }}>{money(item.paidAmount)}</div></div>
+                  <div className="summary-item-metric"><div className="summary-label">Balance</div><div className="summary-value" style={{ color: '#b91c1c' }}>{money(item.balanceDue)}</div></div>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <p style={{ margin: 0, padding: '0 26px 24px', color: '#6b7fa3', fontSize: 12, lineHeight: 1.6 }}>This summary shows currently unpaid bills and orders in your Hangers Clothes Spa account.</p>
+        </section>
+      </main>
+    )
+  }
+
+  const invoice = loaded.invoice
 
   const rows = [
     ['Subtotal', money(invoice.subtotal)],

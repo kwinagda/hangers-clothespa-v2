@@ -202,16 +202,13 @@ const selectedReceivableSummary = async ({ customerId, invoiceIds = [] }) => {
   if (!receivables.length) throw new PaymentRuleError('NO_OUTSTANDING_BALANCE', 'No outstanding selected bills/orders found');
   const customer = receivables[0].customer;
   const outstandingAmount = Number(receivables.reduce((sum, invoice) => sum + Number(invoice.balanceDue || invoice.balance || 0), 0).toFixed(2));
-  const firstInvoice = receivables[0];
   const buttonSlug = await createPublicShareToken({
-    resourceType: 'INVOICE',
-    resourceId: firstInvoice.invoiceId,
+    resourceType: 'CUSTOMER',
+    resourceId: customerId,
     purpose: 'INVOICE_VIEW',
   });
-  const paymentSettings = await getDefaultPaymentAccount();
-  if (paymentSettings) {
-    paymentSettings.qrMediaUrl = await getPaymentAccountQrMediaUrl(paymentSettings);
-  }
+  const { account } = await getDefaultPaymentAccount();
+  const paymentSettings = account ? { ...account, qrMediaUrl: getPaymentAccountQrMediaUrl(account) } : null;
   return {
     customer,
     receivables,
