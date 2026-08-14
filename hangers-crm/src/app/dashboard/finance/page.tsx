@@ -2,8 +2,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
-import { AlertTriangle, BarChart3, CalendarDays, CreditCard, IndianRupee, Landmark, Smartphone, Tag, WalletCards } from 'lucide-react'
-import api, { metadataAPI } from '@/lib/api'
+import { AlertTriangle, BarChart3, CalendarDays, CreditCard, Landmark, MessageCircle, Smartphone, Tag, WalletCards } from 'lucide-react'
+import api, { idempotencyConfig, metadataAPI } from '@/lib/api'
 import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 
@@ -36,6 +36,7 @@ export default function FinancePage() {
   const [summary, setSummary] = useState<any>(null)
   const [payments, setPayments] = useState<any[]>([])
   const [receivables, setReceivables] = useState<any[]>([])
+  const [receivableGroups, setReceivableGroups] = useState<any[]>([])
   const [receivableTotal, setReceivableTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [filterMethod, setFilterMethod] = useState('ALL')
@@ -45,6 +46,11 @@ export default function FinancePage() {
   const [dailyPage, setDailyPage] = useState(1)
   const [receivablesPage, setReceivablesPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
+  const [selectedReceivables, setSelectedReceivables] = useState<Record<string, string[]>>({})
+  const [arReminder, setArReminder] = useState<{ open: boolean; group: any | null; confirm: boolean }>({ open: false, group: null, confirm: false })
+  const [arPreview, setArPreview] = useState<any>(null)
+  const [arPreviewLoading, setArPreviewLoading] = useState(false)
+  const [arSending, setArSending] = useState(false)
 
   const loadDaily = useCallback(async () => {
     setLoading(true)
@@ -61,6 +67,7 @@ export default function FinancePage() {
     try {
       const r = await api.get('/payments/receivables')
       setReceivables(asArray(r.data, ['orders', 'receivables', 'items']))
+      setReceivableGroups(asArray(r.data, ['customerGroups', 'groups']))
       setReceivableTotal(r.data?.total || 0)
     } catch { toast.error('Failed to load receivables') }
     finally { setLoading(false) }
@@ -84,9 +91,64 @@ export default function FinancePage() {
 
   const filtered = filterMethod === 'ALL' ? payments : payments.filter(p => p.method === filterMethod)
   const pagedPayments = filtered.slice((dailyPage - 1) * pageSize, dailyPage * pageSize)
-  const pagedReceivables = receivables.slice((receivablesPage - 1) * pageSize, receivablesPage * pageSize)
+  const pagedReceivableGroups = receivableGroups.slice((receivablesPage - 1) * pageSize, receivablesPage * pageSize)
 
   const S = (v: number) => `₹${(v||0).toLocaleString('en-IN')}`
+  const groupKey = (group: any) => group?.customer?.id || group?.customer?.phone || group?.customer?.name || 'unknown'
+  const selectedForGroup = (group: any) => {
+    const key = groupKey(group)
+    const selected = selectedReceivables[key]
+    const ids = (group?.receivables || []).map((item: any) => item.invoiceId).filter(Boolean)
+    return selected && selected.length ? selected : ids
+  }
+  const selectedTotalForGroup = (group: any) => {
+    const selected = new Set(selectedForGroup(group))
+    return (group?.receivables || []).reduce((sum: number, item: any) => selected.has(item.invoiceId) ? sum + Number(item.balance || item.balanceDue || 0) : sum, 0)
+  }
+  const toggleGroupSelection = (group: any, invoiceId: string) => {
+    const key = groupKey(group)
+    const allIds: string[] = (group?.receivables || []).map((item: any) => item.invoiceId).filter(Boolean)
+    const current = selectedReceivables[key] && selectedReceivables[key].length ? selectedReceivables[key] : allIds
+    const next = current.includes(invoiceId) ? current.filter((id: string) => id !== invoiceId) : [...current, invoiceId]
+    setSelectedReceivables((prev) => ({ ...prev, [key]: next }))
+  }
+  const setGroupSelection = (group: any, checked: boolean) => {
+    const key = groupKey(group)
+    const allIds = (group?.receivables || []).map((item: any) => item.invoiceId).filter(Boolean)
+    setSelectedReceivables((prev) => ({ ...prev, [key]: checked ? allIds : [] }))
+  }
+  const openArReminder = async (group: any) => {
+    const invoiceIds = selectedForGroup(group)
+    if (!invoiceIds.length) {
+      toast.error('Select at least one bill/order')
+      return
+    }
+    setArReminder({ open: true, group, confirm: false })
+    setArPreview(null)
+    setArPreviewLoading(true)
+    try {
+      const r = await api.post('/payments/receivables/reminders/preview', { customerId: group.customer?.id, invoiceIds })
+      setArPreview(r.data || r)
+    } catch (e: any) {
+      setArPreview({ error: e?.message || 'Failed to load reminder preview' })
+    } finally {
+      setArPreviewLoading(false)
+    }
+  }
+  const sendArReminder = async () => {
+    if (!arReminder.group || !arReminder.confirm) return
+    const invoiceIds = selectedForGroup(arReminder.group)
+    setArSending(true)
+    try {
+      await api.post('/payments/receivables/reminders/send', { customerId: arReminder.group.customer?.id, invoiceIds }, idempotencyConfig('ar-reminder-send'))
+      toast.success('Outstanding reminder sent')
+      setArReminder({ open: false, group: null, confirm: false })
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to send reminder')
+    } finally {
+      setArSending(false)
+    }
+  }
   const methodTotals = summary?.byMethod || {}
   const summaryMethods = methodOptions.filter((method) => Number(methodTotals[method.value] || 0) > 0)
   const summaryCards = [
@@ -205,55 +267,112 @@ export default function FinancePage() {
             <div>
               <div style={{fontSize:12,color:'rgba(255,200,200,0.7)',fontWeight:600,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:8}}>Total Outstanding Balance</div>
               <div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:36}}>{S(receivableTotal)}</div>
-              <div style={{fontSize:13,color:'rgba(255,200,200,0.7)',marginTop:4}}>Across {receivables.length} open invoices</div>
+              <div style={{fontSize:13,color:'rgba(255,200,200,0.7)',marginTop:4}}>Across {receivables.length} open invoices for {receivableGroups.length} customers</div>
             </div>
             <AlertTriangle size={44} style={{opacity:0.35}} />
           </div>
 
-          <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
-            <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead><tr style={{background:'#f7f9fc'}}>
-                {['Invoice / Source','Customer','Phone','Invoice Total','Paid','Balance','Due'].map(h=>(
-                  <th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>
-                {loading?<tr><td colSpan={7} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>Loading...</td></tr>
-                :!receivables.length?<tr><td colSpan={7} style={{padding:48,textAlign:'center',color:'#22c55e',fontSize:15}}>No outstanding balances.</td></tr>
-                :pagedReceivables.map((o:any)=>(
-                  <tr key={o.invoiceId || o.id} style={{borderBottom:'1px solid #f0f4f8',cursor:o.orderId?'pointer':'default'}} onClick={()=>{ if(o.orderId) window.location.href=`/dashboard/orders/${o.orderId}` }}>
-                    <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>
-                      <div>{o.invoiceNumber || o.orderNumber}</div>
-                      <div style={{fontFamily:"var(--crm-font-ui)",fontSize:10,color:'#7b8ca8',marginTop:2}}>
-                        {o.orderNumber}
-                        {o.sourceType === 'DAILY_IRON' ? ' · Daily Iron' : ''}
-                        {o.sourceType === 'FIELD_SERVICE' ? ' · Sofa Cleaning' : ''}
-                      </div>
-                    </td>
-                    <td style={{padding:'13px 18px',fontSize:13.5,fontWeight:600}}>{o.customer?.name||'—'}</td>
-                    <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>+91 {o.customer?.phone}</td>
-                    <td style={{padding:'13px 18px',fontSize:13.5}}>{S(o.totalAmount)}</td>
-                    <td style={{padding:'13px 18px',fontSize:13.5,color:'#22c55e'}}>{S(o.paidAmount)}</td>
-                    <td style={{padding:'13px 18px',fontSize:13.5,fontWeight:700,color:'#dc2626'}}>{S(o.balance)}</td>
-                    <td style={{padding:'11px 16px',fontSize:12,color:o.isOverdue?'#b91c1c':'#52647e',fontWeight:o.isOverdue?700:500}}>
-                      {o.dueDate ? new Date(o.dueDate).toLocaleDateString('en-IN') : '—'}{o.isOverdue ? ` · ${o.daysOverdue}d overdue` : ''}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{display:'grid',gap:12}}>
+            {loading ? <div style={{padding:48,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:14,border:'1px solid #e3edf6'}}>Loading...</div>
+            : !receivableGroups.length ? <div style={{padding:48,textAlign:'center',color:'#22c55e',background:'#fff',borderRadius:14,border:'1px solid #e3edf6'}}>No outstanding balances.</div>
+            : pagedReceivableGroups.map((group: any) => {
+              const key = groupKey(group)
+              const selectedIds = selectedForGroup(group)
+              const allIds = (group.receivables || []).map((item: any) => item.invoiceId)
+              const allSelected = selectedIds.length === allIds.length && allIds.every((id: string) => selectedIds.includes(id))
+              return (
+                <div key={key} style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden',boxShadow:'0 1px 8px rgba(2,60,98,0.04)'}}>
+                  <div style={{padding:'14px 16px',display:'grid',gridTemplateColumns:'minmax(0,1fr) 120px 120px 170px',gap:12,alignItems:'center',background:'#fbfdff',borderBottom:'1px solid #e8f0f7'}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontWeight:900,color:'#023c62',fontSize:16,overflowWrap:'anywhere'}}>{group.customer?.name || 'Unknown customer'}</div>
+                      <div style={{fontSize:12,color:'#6b7fa3',marginTop:3}}>+91 {group.customer?.phone || '—'} · {group.invoiceCount} open bills/orders</div>
+                    </div>
+                    <div><div style={arMetricLabel}>Total</div><div style={arMetricValue}>{S(group.totalAmount)}</div></div>
+                    <div><div style={arMetricLabel}>Balance</div><div style={{...arMetricValue,color:'#dc2626'}}>{S(group.balance)}</div></div>
+                    <button onClick={() => openArReminder(group)} disabled={!selectedIds.length || group.customer?.notifWhatsApp === false} style={{...arWhatsAppButton, opacity: !selectedIds.length || group.customer?.notifWhatsApp === false ? 0.55 : 1}}>
+                      <MessageCircle size={15} /> Send Reminder
+                    </button>
+                  </div>
+                  <div style={{padding:'10px 16px 14px'}}>
+                    <label style={{display:'inline-flex',alignItems:'center',gap:8,fontSize:12,color:'#52647e',fontWeight:800,marginBottom:8}}>
+                      <input type="checkbox" checked={allSelected} onChange={(e) => setGroupSelection(group, e.target.checked)} />
+                      Select all for this customer · Selected {selectedIds.length} · {S(selectedTotalForGroup(group))}
+                    </label>
+                    <div style={{display:'grid',gap:7}}>
+                      {(group.receivables || []).map((o: any) => {
+                        const checked = selectedIds.includes(o.invoiceId)
+                        return (
+                          <div key={o.invoiceId} style={{display:'grid',gridTemplateColumns:'28px minmax(0,1.2fr) minmax(0,1fr) 96px 96px 120px',gap:10,alignItems:'center',padding:'9px 10px',border:'1px solid #eef4f8',borderRadius:10,background:checked?'#f7fbff':'#fff'}}>
+                            <input type="checkbox" checked={checked} onChange={() => toggleGroupSelection(group, o.invoiceId)} />
+                            <div style={{minWidth:0}}>
+                              <div style={{fontFamily:"var(--crm-font-mono)",fontWeight:800,color:'#023c62',fontSize:13}}>{o.invoiceNumber || o.orderNumber}</div>
+                              <div style={{fontSize:11,color:'#7b8ca8',marginTop:2}}>{o.orderNumber || o.sourceNumber}</div>
+                            </div>
+                            <div style={{fontSize:12,color:'#52647e',fontWeight:700}}>
+                              {o.sourceType === 'FIELD_SERVICE' ? 'Sofa Cleaning' : o.sourceType === 'DAILY_IRON' ? 'Daily Iron' : 'Order'}
+                            </div>
+                            <div style={{fontSize:12,color:'#52647e'}}>{S(o.totalAmount)}</div>
+                            <div style={{fontSize:12,color:'#16a34a'}}>{S(o.paidAmount)}</div>
+                            <div style={{fontSize:13,fontWeight:900,color:'#dc2626'}}>{S(o.balance || o.balanceDue)}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
           <PaginationControls
             page={receivablesPage}
             pageSize={pageSize}
-            totalItems={receivables.length}
-            itemLabel="receivables"
+            totalItems={receivableGroups.length}
+            itemLabel="customers"
             onPageChange={setReceivablesPage}
             onPageSizeChange={(size) => { setPageSize(size); setReceivablesPage(1) }}
             pageSizeOptions={[10, 20, 30, 50, 100]}
           />
         </>
       )}
+      {arReminder.open && (
+        <div style={modalBackdrop}>
+          <div style={arModal}>
+            <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',marginBottom:14}}>
+              <div>
+                <div style={{fontSize:18,fontWeight:900,color:'#023c62'}}>Send Outstanding Reminder</div>
+                <div style={{fontSize:12,color:'#6b7fa3',marginTop:4}}>{arReminder.group?.customer?.name} · {selectedForGroup(arReminder.group).length} selected · {S(selectedTotalForGroup(arReminder.group))}</div>
+              </div>
+              <button onClick={() => setArReminder({ open:false, group:null, confirm:false })} style={modalClose}>×</button>
+            </div>
+            {arPreviewLoading ? <div style={{padding:18,color:'#6b7fa3'}}>Loading preview...</div>
+            : arPreview?.error ? <div style={{padding:12,borderRadius:10,background:'#fef2f2',color:'#991b1b',fontWeight:700}}>{arPreview.error}</div>
+            : (
+              <>
+                {arPreview?.qrImage && <img src={arPreview.qrImage} alt="Payment QR" style={{width:112,height:112,objectFit:'contain',border:'1px solid #e3edf6',borderRadius:12,background:'#fff',padding:8,marginBottom:10}} />}
+                <pre style={previewBox}>{arPreview?.body || ''}</pre>
+                <label style={{display:'flex',gap:9,alignItems:'flex-start',fontSize:13,color:'#334155',fontWeight:700,marginTop:12}}>
+                  <input type="checkbox" checked={arReminder.confirm} onChange={(e) => setArReminder((current) => ({ ...current, confirm: e.target.checked }))} />
+                  I confirm this WhatsApp reminder should be sent for the selected bills/orders.
+                </label>
+                <div style={{display:'flex',justifyContent:'flex-end',gap:10,marginTop:16}}>
+                  <button onClick={() => setArReminder({ open:false, group:null, confirm:false })} disabled={arSending} style={modalSecondary}>Cancel</button>
+                  <button onClick={sendArReminder} disabled={arSending || !arReminder.confirm} style={{...modalPrimary, opacity: arSending || !arReminder.confirm ? 0.55 : 1}}>{arSending ? 'Sending...' : 'Send WhatsApp'}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
+const arMetricLabel = { fontSize: 10, color: '#7b8ca8', textTransform: 'uppercase' as const, letterSpacing: '0.07em', fontWeight: 800, marginBottom: 3 }
+const arMetricValue = { fontSize: 15, color: '#023c62', fontWeight: 900 }
+const arWhatsAppButton = { border: '1px solid #bfe6d2', background: '#e8f7ef', color: '#0d7a4e', borderRadius: 10, padding: '9px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }
+const modalBackdrop = { position: 'fixed' as const, inset: 0, background: 'rgba(2,22,38,0.42)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }
+const arModal = { width: 'min(560px, 96vw)', maxHeight: '88vh', overflow: 'auto', background: '#fff', borderRadius: 16, border: '1px solid #dce8f0', boxShadow: '0 24px 70px rgba(2,22,38,0.28)', padding: 18 }
+const modalClose = { border: '1px solid #dce8f0', background: '#fff', borderRadius: 9, width: 32, height: 32, cursor: 'pointer', fontSize: 20, color: '#52647e', lineHeight: 1 }
+const previewBox = { margin: 0, whiteSpace: 'pre-wrap' as const, background: '#f7f9fc', border: '1px solid #e3edf6', borderRadius: 12, padding: 13, color: '#334155', fontFamily: 'var(--crm-font-ui)', fontSize: 13, lineHeight: 1.5 }
+const modalSecondary = { border: '1px solid #dce8f0', background: '#fff', color: '#52647e', borderRadius: 10, padding: '10px 14px', fontWeight: 800, cursor: 'pointer' }
+const modalPrimary = { border: 'none', background: '#023c62', color: '#fff', borderRadius: 10, padding: '10px 15px', fontWeight: 900, cursor: 'pointer' }

@@ -9,6 +9,10 @@ const { getCapturedPaymentStatusValues, getCorePaymentMethods } = require('../se
 const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const { PaymentRuleError, recordOrderSettlement } = require('../services/payment.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
+const { createPublicShareToken } = require('../services/publicShare.service');
+const { getDefaultPaymentAccount, getPaymentAccountQrMediaUrl } = require('../services/payment-account-settings.service');
+const { findOpenReceivableInvoices, groupReceivablesByCustomer } = require('../services/receivables.service');
+const { sendPaymentReminderMessage } = require('../services/whatomate.service');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // ── POST /api/v1/payments — Record a payment for an order ─────────────────────
@@ -166,49 +170,111 @@ const getDailySummary = async (req, res) => {
 // ── GET /api/v1/payments/receivables — Outstanding balances ──────────────────
 const getReceivables = async (req, res) => {
   try {
-    const invoices = await prisma.invoice.findMany({
-      where: { status: { not: 'VOID' }, balanceDue: { gt: 0 } },
-      include: {
-        customer: { select: { name: true, phone: true } },
-        order: { select: { id: true, orderNumber: true, status: true } },
-        ironBill: { select: { id: true, billNumber: true, status: true } },
-        serviceAppointment: { select: { id: true, appointmentNumber: true, status: true } },
-      },
-      orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }],
-    });
+    const receivables = await findOpenReceivableInvoices();
     const now = new Date();
-    const receivables = invoices.map((invoice) => ({
-      id: invoice.orderId || invoice.ironBillId || invoice.serviceAppointmentId || invoice.id,
-      invoiceId: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
-      sourceType: invoice.sourceType,
-      orderId: invoice.orderId,
-      ironBillId: invoice.ironBillId,
-      serviceAppointmentId: invoice.serviceAppointmentId,
-      appointmentNumber: invoice.serviceAppointment?.appointmentNumber || null,
-      orderNumber: invoice.order?.orderNumber || invoice.ironBill?.billNumber || invoice.serviceAppointment?.appointmentNumber || invoice.invoiceNumber,
-      customer: invoice.customer,
-      totalAmount: Number(invoice.totalAmount || 0),
-      paidAmount: Number(invoice.paidAmount || 0),
-      balance: Number(invoice.balanceDue || 0),
+    const ledger = receivables.map((invoice) => ({
+      ...invoice,
+      id: invoice.sourceId,
+      orderNumber: invoice.sourceNumber,
       paymentStatus: Number(invoice.paidAmount || 0) > 0 ? 'PARTIAL' : 'UNPAID',
-      status: invoice.order?.status || invoice.ironBill?.status || invoice.serviceAppointment?.status || invoice.status,
-      issueDate: invoice.issueDate,
-      dueDate: invoice.dueDate,
       daysOverdue: Math.max(0, Math.floor((now - new Date(invoice.dueDate)) / 86400000)),
       isOverdue: new Date(invoice.dueDate) < now,
     }));
 
-    const total = receivables.reduce((sum, invoice) => sum + invoice.balance, 0);
+    const total = ledger.reduce((sum, invoice) => sum + invoice.balance, 0);
 
     return success(res, {
       total,
-      orders: receivables,
-      receivables,
+      orders: ledger,
+      receivables: ledger,
+      customerGroups: groupReceivablesByCustomer(ledger),
     });
   } catch (err) {
     return error(res, 'Failed to fetch receivables');
   }
 };
 
-module.exports = { recordPayment, getOrderPayments, getDailySummary, getReceivables };
+const selectedReceivableSummary = async ({ customerId, invoiceIds = [] }) => {
+  const selectedIds = Array.isArray(invoiceIds) ? invoiceIds.map(String).filter(Boolean) : [];
+  if (!customerId) throw new PaymentRuleError('CUSTOMER_REQUIRED', 'Customer is required');
+  const receivables = (await findOpenReceivableInvoices({ customerId }))
+    .filter((invoice) => !selectedIds.length || selectedIds.includes(invoice.invoiceId));
+  if (!receivables.length) throw new PaymentRuleError('NO_OUTSTANDING_BALANCE', 'No outstanding selected bills/orders found');
+  const customer = receivables[0].customer;
+  const outstandingAmount = Number(receivables.reduce((sum, invoice) => sum + Number(invoice.balanceDue || invoice.balance || 0), 0).toFixed(2));
+  const firstInvoice = receivables[0];
+  const buttonSlug = await createPublicShareToken({
+    resourceType: 'INVOICE',
+    resourceId: firstInvoice.invoiceId,
+    purpose: 'INVOICE_VIEW',
+  });
+  const paymentSettings = await getDefaultPaymentAccount();
+  if (paymentSettings) {
+    paymentSettings.qrMediaUrl = await getPaymentAccountQrMediaUrl(paymentSettings);
+  }
+  return {
+    customer,
+    receivables,
+    reminder: {
+      mode: 'OUTSTANDING_SUMMARY',
+      customer,
+      outstandingOrderCount: receivables.length,
+      outstandingAmount,
+      orderNumbers: receivables.map((invoice) => invoice.sourceNumber).filter(Boolean),
+      buttonSlug,
+      paymentSettings,
+    },
+  };
+};
+
+const previewReceivablesReminder = async (req, res) => {
+  try {
+    const { customerId, invoiceIds = [] } = req.body || {};
+    const { customer, receivables, reminder } = await selectedReceivableSummary({ customerId, invoiceIds });
+    return success(res, {
+      title: 'Outstanding summary',
+      customer,
+      receivables,
+      body: [
+        `Hi ${customer?.name || 'Customer'},`,
+        '',
+        'This is a payment reminder from Hangers Clothes Spa.',
+        `Selected bills/orders: ${reminder.outstandingOrderCount}`,
+        `Total outstanding: Rs ${reminder.outstandingAmount.toFixed(2)}`,
+        '',
+        'You can pay using:',
+        `UPI ID: ${reminder.paymentSettings?.vpa || ''}`,
+        `GPay: ${reminder.paymentSettings?.gpayNumber || ''}`,
+        '',
+        'Please use the payment link button to view payment details.',
+      ].join('\n'),
+      paymentAccount: reminder.paymentSettings,
+      qrImage: reminder.paymentSettings?.qrMediaUrl || reminder.paymentSettings?.qrImageUrl || reminder.paymentSettings?.qrImageDataUrl || '',
+      source: 'DB',
+    });
+  } catch (err) {
+    if (err instanceof PaymentRuleError) return badRequest(res, err.message);
+    console.error('previewReceivablesReminder error:', err);
+    return error(res, 'Failed to preview receivables reminder');
+  }
+};
+
+const sendReceivablesReminder = async (req, res) => {
+  try {
+    const { customerId, invoiceIds = [] } = req.body || {};
+    const { customer, receivables, reminder } = await selectedReceivableSummary({ customerId, invoiceIds });
+    if (customer?.notifWhatsApp === false) return badRequest(res, 'Customer WhatsApp notifications are disabled');
+    const sent = await sendPaymentReminderMessage({ id: `customer-${customerId}`, customer }, reminder, {
+      idempotencyKey: `ar-payment-reminder:${customerId}:${receivables.map((invoice) => invoice.invoiceId).join('-')}:${Date.now()}`,
+      throwOnFailure: true,
+    });
+    if (!sent) throw new Error('WhatsApp provider did not accept the message');
+    return success(res, { sent: true, receivables }, 'Outstanding payment summary sent on WhatsApp');
+  } catch (err) {
+    if (err instanceof PaymentRuleError) return badRequest(res, err.message);
+    console.error('sendReceivablesReminder error:', err);
+    return error(res, err?.message || 'Failed to send receivables reminder');
+  }
+};
+
+module.exports = { recordPayment, getOrderPayments, getDailySummary, getReceivables, previewReceivablesReminder, sendReceivablesReminder };

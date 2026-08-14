@@ -10,6 +10,8 @@ const {
   getOrderPayments,
   getDailySummary,
   getReceivables,
+  previewReceivablesReminder,
+  sendReceivablesReminder,
 } = require('../controllers/payments.controller');
 
 const financeRoles = requireRole('SUPER_ADMIN', 'MANAGER', 'ACCOUNTS');
@@ -21,6 +23,8 @@ router.use(requireTrustedWrite);
 router.post('/',                      staffAuth, financeAccess, requirePermission('finance.collect_payment'), idempotent(), recordPayment);
 router.get('/daily',                  staffAuth, financeAccess, financeRoles, getDailySummary);
 router.get('/receivables',            staffAuth, financeAccess, financeRoles, getReceivables);
+router.post('/receivables/reminders/preview', staffAuth, financeAccess, financeRoles, previewReceivablesReminder);
+router.post('/receivables/reminders/send', staffAuth, financeAccess, financeRoles, idempotent({ scope: 'receivables.reminder-send' }), sendReceivablesReminder);
 router.get('/order/:orderId',         staffAuth, financeAccess, financeRoles, getOrderPayments);
 
 module.exports = router;

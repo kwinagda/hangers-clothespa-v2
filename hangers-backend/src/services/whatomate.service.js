@@ -72,9 +72,9 @@ const orderBalance = (order) => {
   return Math.max(0, Number((total - paid - writeOff).toFixed(2)));
 };
 
-const invoiceSlugFor = async (order) => createPublicShareToken({
-  resourceType: 'ORDER',
-  resourceId: order?.id,
+const invoiceSlugFor = async (resource) => createPublicShareToken({
+  resourceType: resource?.resourceType || 'ORDER',
+  resourceId: resource?.resourceId || resource?.id,
   purpose: 'INVOICE_VIEW',
 });
 
@@ -330,7 +330,7 @@ const sendOrderUpdatedMessage = async (order, options = {}) => {
 };
 
 const sendPaymentReminderMessage = async (order, reminder, options = {}) => {
-  const phone = order?.customer?.phone;
+  const phone = order?.customer?.phone || reminder?.customer?.phone;
   if (!phone) {
     return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('Missing customer phone for payment reminder', {
       retryable: false,
@@ -347,7 +347,7 @@ const sendPaymentReminderMessage = async (order, reminder, options = {}) => {
       code: 'MISSING_TEMPLATE',
     }));
   }
-  const invoiceSlug = await invoiceSlugFor(order);
+  const invoiceSlug = reminder?.buttonSlug || await invoiceSlugFor(order);
   if (!invoiceSlug) {
     return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('Could not create public invoice token', {
       retryable: true,

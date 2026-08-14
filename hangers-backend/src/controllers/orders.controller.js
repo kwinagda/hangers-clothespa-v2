@@ -22,6 +22,7 @@ const { PaymentRuleError, recordOrderRefund, recordOrderSettlement, reverseOrder
 const { OUTBOX_EVENT, enqueueOutboxEvent }          = require('../services/outbox.service');
 const { sendOrderStatusMessage, sendOrderUpdatedMessage, sendPaymentReceivedMessage, sendPaymentReminderMessage } = require('../services/whatomate.service');
 const { BillingRuleError, ensureOrderInvoice, refreshOrderInvoice } = require('../services/billing.service');
+const { getCustomerReceivablesSummary }             = require('../services/receivables.service');
 const { nextDocumentNumber } = require('../services/document-number.service');
 const { GarmentUnitError, syncOrderGarmentUnits } = require('../services/garment-unit.service');
 const { getDefaultPaymentAccount, getPaymentAccountQrMediaUrl } = require('../services/payment-account-settings.service');
@@ -560,32 +561,7 @@ const getManualWhatsAppCooldownSeconds = async (orderId, type) => {
   return waitSeconds;
 };
 
-const getCustomerOutstandingSummary = async (customerId) => {
-  const orders = await prisma.order.findMany({
-    where: {
-      customerId,
-      documentType: 'ORDER',
-      status: { notIn: ['CANCELLED', 'RETURNED'] },
-    },
-    select: {
-      id: true,
-      orderNumber: true,
-      totalAmount: true,
-      paidAmount: true,
-      writeOffAmount: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: 'asc' },
-  });
-  const outstandingOrders = orders
-    .map((order) => ({ ...order, balanceDue: getOrderOutstanding(order) }))
-    .filter((order) => order.balanceDue > 0);
-  return {
-    outstandingOrderCount: outstandingOrders.length,
-    outstandingAmount: Number(outstandingOrders.reduce((sum, order) => sum + order.balanceDue, 0).toFixed(2)),
-    orderNumbers: outstandingOrders.map((order) => order.orderNumber),
-  };
-};
+const getCustomerOutstandingSummary = getCustomerReceivablesSummary;
 
 const sendManualOrderNotification = async (req, res) => {
   const parsed = manualOrderNotificationSchema.safeParse(req.body);
@@ -731,7 +707,7 @@ const previewManualOrderNotification = async (req, res) => {
           `Hi ${customerName},`,
           '',
           'This is a payment reminder from Hangers Clothes Spa.',
-          `Pending orders: ${summary.outstandingOrderCount}`,
+          `Pending bills/orders: ${summary.outstandingOrderCount}`,
           `Total outstanding: Rs ${summary.outstandingAmount.toFixed(2)}`,
           '',
           'You can pay using:',
