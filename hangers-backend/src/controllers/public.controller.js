@@ -2,7 +2,6 @@ const prisma = require('../config/database');
 const { success, notFound, error } = require('../utils/response');
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
 const { resolvePublicShareToken } = require('../services/publicShare.service');
-const { findOpenReceivableInvoices } = require('../services/receivables.service');
 
 const publicQuotationSelect = {
   id: true,
@@ -63,7 +62,7 @@ const canonicalInvoiceSelect = {
   totalAmount: true,
   paidAmount: true,
   balanceDue: true,
-  customer: { select: { name: true } },
+  customer: { select: { name: true, phone: true } },
   order: {
     select: {
       orderNumber: true,
@@ -143,7 +142,16 @@ const normalizeCanonicalInvoice = (invoice) => {
 };
 
 const getPublicPaymentSummary = async (customerId) => {
-  const receivables = await findOpenReceivableInvoices({ customerId });
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      customerId,
+      status: { not: 'VOID' },
+      balanceDue: { gt: 0 },
+    },
+    select: canonicalInvoiceSelect,
+    orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }],
+  });
+  const receivables = invoices.map(normalizeCanonicalInvoice);
   const customer = receivables[0]?.customer || await prisma.customer.findUnique({
     where: { id: customerId },
     select: { name: true, phone: true },
@@ -151,7 +159,7 @@ const getPublicPaymentSummary = async (customerId) => {
   const totals = receivables.reduce((acc, invoice) => {
     acc.totalAmount += Number(invoice.totalAmount || 0);
     acc.paidAmount += Number(invoice.paidAmount || 0);
-    acc.balanceDue += Number(invoice.balanceDue || invoice.balance || 0);
+    acc.balanceDue += Number(invoice.balanceDue || 0);
     return acc;
   }, { totalAmount: 0, paidAmount: 0, balanceDue: 0 });
   return {
@@ -164,16 +172,17 @@ const getPublicPaymentSummary = async (customerId) => {
       balanceDue: roundMoney(totals.balanceDue),
     },
     receivables: receivables.map((invoice) => ({
-      invoiceId: invoice.invoiceId,
+      invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
-      sourceType: invoice.sourceType,
-      sourceNumber: invoice.sourceNumber,
+      sourceType: invoice.invoiceType,
+      sourceNumber: invoice.orderNumber,
       status: invoice.status,
-      issueDate: invoice.issueDate,
+      issueDate: invoice.createdAt,
       dueDate: invoice.dueDate,
       totalAmount: invoice.totalAmount,
       paidAmount: invoice.paidAmount,
       balanceDue: invoice.balanceDue,
+      items: invoice.items,
     })),
   };
 };

@@ -1,4 +1,5 @@
 import { LOGO_BLUE_URL, LOGO_WHITE_URL } from '@/lib/branding'
+import { Fragment } from 'react'
 
 export const dynamic = 'force-dynamic'
 
@@ -65,6 +66,12 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .summary-label { color: #7d91a7; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
           .summary-value { margin-top: 6px; color: #182538; font-weight: 900; overflow-wrap: anywhere; }
           .summary-table-wrap { overflow-x: auto; padding: 22px 26px 26px; }
+          .summary-detail-row { background: #fbfdff; }
+          .summary-detail-box { margin: 0 16px 14px; border: 1px solid #e3edf6; border-radius: 12px; overflow: hidden; }
+          .summary-detail-line { display: grid; grid-template-columns: minmax(0, 1fr) 70px 90px 100px; gap: 10px; align-items: center; padding: 10px 12px; border-top: 1px solid #edf3f8; font-size: 12.5px; }
+          .summary-detail-line:first-child { border-top: 0; }
+          .summary-detail-name { font-weight: 800; color: #24364b; overflow-wrap: anywhere; }
+          .summary-detail-service { margin-top: 2px; color: #7b8ca8; font-size: 11px; font-weight: 600; }
           .summary-mobile { display: none; }
           @media (max-width: 640px) {
             main.public-invoice-page { padding: 12px 10px 28px !important; }
@@ -79,6 +86,8 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             .summary-item-sub { margin-top: 4px; color: #6b7fa3; font-size: 12px; }
             .summary-item-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
             .summary-item-metric { background: #f7fafc; border-radius: 8px; padding: 8px; min-width: 0; }
+            .summary-item-lines { margin-top: 10px; border-top: 1px solid #edf3f8; padding-top: 8px; display: grid; gap: 7px; }
+            .summary-item-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; font-size: 12px; }
           }
         `}</style>
         <section className="summary-shell">
@@ -128,14 +137,33 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
               </thead>
               <tbody>
                 {rows.map((item: any) => (
-                  <tr key={item.invoiceId} style={{ borderTop: '1px solid #edf3f8' }}>
-                    <td style={{ padding: '14px 16px', fontWeight: 900, color: '#023c62' }}>{item.sourceNumber || item.invoiceNumber}</td>
-                    <td style={{ padding: '14px 16px', color: '#52647e', fontWeight: 700 }}>{sourceLabel(item.sourceType)}</td>
-                    <td style={{ padding: '14px 16px', color: '#6b7fa3' }}>{dateLabel(item.dueDate)}</td>
-                    <td style={{ padding: '14px 16px', textAlign: 'right' }}>{money(item.totalAmount)}</td>
-                    <td style={{ padding: '14px 16px', textAlign: 'right', color: '#15803d' }}>{money(item.paidAmount)}</td>
-                    <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 900, color: '#b91c1c' }}>{money(item.balanceDue)}</td>
-                  </tr>
+                  <Fragment key={item.invoiceId}>
+                    <tr style={{ borderTop: '1px solid #edf3f8' }}>
+                      <td style={{ padding: '14px 16px', fontWeight: 900, color: '#023c62' }}>{item.sourceNumber || item.invoiceNumber}</td>
+                      <td style={{ padding: '14px 16px', color: '#52647e', fontWeight: 700 }}>{sourceLabel(item.sourceType)}</td>
+                      <td style={{ padding: '14px 16px', color: '#6b7fa3' }}>{dateLabel(item.dueDate)}</td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>{money(item.totalAmount)}</td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right', color: '#15803d' }}>{money(item.paidAmount)}</td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 900, color: '#b91c1c' }}>{money(item.balanceDue)}</td>
+                    </tr>
+                    <tr className="summary-detail-row">
+                      <td colSpan={6} style={{ padding: 0 }}>
+                        <div className="summary-detail-box">
+                          {(item.items || []).map((line: any, index: number) => (
+                            <div className="summary-detail-line" key={`${item.invoiceId}-line-${index}`}>
+                              <div>
+                                <div className="summary-detail-name">{line.serviceName || line.garmentType || 'Service'}</div>
+                                <div className="summary-detail-service">{line.garmentType && line.garmentType !== line.serviceName ? line.garmentType : sourceLabel(item.sourceType)}</div>
+                              </div>
+                              <div style={{ textAlign: 'right', fontWeight: 800 }}>Qty {line.quantity}</div>
+                              <div style={{ textAlign: 'right', color: '#52647e' }}>{money(line.unitPrice)}</div>
+                              <div style={{ textAlign: 'right', fontWeight: 900 }}>{money(line.subtotal)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -150,6 +178,17 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
                   <div className="summary-item-metric"><div className="summary-label">Total</div><div className="summary-value">{money(item.totalAmount)}</div></div>
                   <div className="summary-item-metric"><div className="summary-label">Paid</div><div className="summary-value" style={{ color: '#15803d' }}>{money(item.paidAmount)}</div></div>
                   <div className="summary-item-metric"><div className="summary-label">Balance</div><div className="summary-value" style={{ color: '#b91c1c' }}>{money(item.balanceDue)}</div></div>
+                </div>
+                <div className="summary-item-lines">
+                  {(item.items || []).map((line: any, index: number) => (
+                    <div className="summary-item-line" key={`${item.invoiceId}-mobile-line-${index}`}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, color: '#24364b', overflowWrap: 'anywhere' }}>{line.serviceName || line.garmentType || 'Service'}</div>
+                        <div style={{ color: '#7b8ca8', marginTop: 2 }}>{line.garmentType && line.garmentType !== line.serviceName ? line.garmentType : sourceLabel(item.sourceType)}</div>
+                      </div>
+                      <div style={{ textAlign: 'right', fontWeight: 900 }}>{line.quantity} x {money(line.unitPrice)}<br /><span style={{ color: '#b91c1c' }}>{money(line.subtotal)}</span></div>
+                    </div>
+                  ))}
                 </div>
               </article>
             ))}
