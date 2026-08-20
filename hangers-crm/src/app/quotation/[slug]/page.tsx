@@ -22,7 +22,7 @@ const LegalTerms = ({ terms }: { terms: any }) => {
       <div className="public-legal-grid">
         {sections.map((section: any, index: number) => (
           <div className="public-legal-item" key={`${section.title || 'term'}-${index}`}>
-            <b>{section.title}</b>
+            <b>{index + 1}. {section.title}</b>
             <p>{section.text}</p>
           </div>
         ))}

@@ -44,7 +44,7 @@ const LegalTerms = ({ terms }: { terms: any }) => {
       <div className="public-legal-grid">
         {sections.map((section: any, index: number) => (
           <div className="public-legal-item" key={`${section.title || 'term'}-${index}`}>
-            <b>{section.title}</b>
+            <b>{index + 1}. {section.title}</b>
             <p>{section.text}</p>
           </div>
         ))}
@@ -332,7 +332,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
         }
         .public-invoice-mobile-items { display: none; }
         .public-invoice-footer {
-          padding: 26px;
+          padding: 24px 26px 28px;
           display: flex;
           justify-content: flex-end;
           border-top: 1px solid #edf3f8;
@@ -340,27 +340,37 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
         }
         .public-invoice-total-card {
           width: 100%;
-          max-width: 360px;
+          max-width: 340px;
           border: 1px solid #dce8f0;
-          border-radius: 14px;
+          border-radius: 12px;
           overflow: hidden;
           background: #fff;
+          box-shadow: 0 10px 28px rgba(2,60,98,0.06);
         }
         .public-invoice-total-row {
           display: flex;
           justify-content: space-between;
-          padding: 11px 14px;
+          align-items: center;
+          gap: 18px;
+          padding: 10px 14px;
           border-bottom: 1px solid #edf3f8;
-          font-weight: 700;
+          font-size: 13px;
+          font-weight: 800;
           color: #53657d;
         }
         .public-invoice-total-row:last-child {
           border-bottom: 0;
         }
         .public-invoice-total-row.strong {
+          background: #f3f8fc;
+          color: #023c62;
+          font-weight: 900;
+        }
+        .public-invoice-total-row.balance {
           background: #023c62;
           color: #fff;
-          font-weight: 900;
+          padding: 13px 14px;
+          font-size: 15px;
         }
         .public-legal-terms { margin: 0 26px 24px; border: 1px solid #dce8f0; border-radius: 14px; background: #fbfdff; padding: 18px; }
         .public-legal-terms h2 { margin: 0 0 12px; color: #023c62; font-size: 16px; font-weight: 900; }
@@ -532,7 +542,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
         <footer className="public-invoice-footer">
           <div className="public-invoice-total-card">
             {rows.map(([label, value]) => (
-              <div key={label} className={`public-invoice-total-row ${label === 'Total' || label === 'Balance Due' ? 'strong' : ''}`}>
+              <div key={label} className={`public-invoice-total-row ${label === 'Total' ? 'strong' : ''} ${label === 'Balance Due' ? 'balance' : ''}`}>
                 <span>{label}</span>
                 <span>{value}</span>
               </div>
