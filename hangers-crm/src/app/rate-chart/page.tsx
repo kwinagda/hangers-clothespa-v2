@@ -1,9 +1,38 @@
 import { LOGO_BLUE_URL } from '@/lib/branding'
+import type { Metadata } from 'next'
 import RateChartClient from './RateChartClient'
 
 export const dynamic = 'force-dynamic'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://13-207-73-79.sslip.io'
+
+export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  title: 'Rate Chart | Hangers Clothes Spa',
+  description: 'Search garment care prices by service category at Hangers Clothes Spa.',
+  openGraph: {
+    title: 'Hangers Clothes Spa Rate Chart',
+    description: 'Search garment care prices by garment or service category.',
+    url: '/rate-chart',
+    siteName: 'Hangers Clothes Spa',
+    type: 'website',
+    images: [
+      {
+        url: '/rate-chart/opengraph-image',
+        width: 1200,
+        height: 630,
+        alt: 'Hangers Clothes Spa Rate Chart',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Hangers Clothes Spa Rate Chart',
+    description: 'Search garment care prices by garment or service category.',
+    images: ['/rate-chart/opengraph-image'],
+  },
+}
 
 async function loadRateChart() {
   const res = await fetch(`${API_BASE_URL}/public/rate-chart`, { cache: 'no-store' })
