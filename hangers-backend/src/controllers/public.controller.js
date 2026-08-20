@@ -2,7 +2,7 @@ const prisma = require('../config/database');
 const { success, notFound, error } = require('../utils/response');
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
 const { resolvePublicShareToken } = require('../services/publicShare.service');
-const { getLegalTerms } = require('../services/masterData.service');
+const { getLegalTerms, getServiceCategoryUi } = require('../services/masterData.service');
 
 const publicQuotationSelect = {
   id: true,
@@ -47,6 +47,23 @@ const normalizePublicQuotation = (quotation) => {
     subtotal,
     discount,
     totalAmount,
+  };
+};
+
+const normalizeCategoryDisplay = (category, categoryUi = {}) => {
+  const fallbackLabel = String(category || '')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+  const meta = categoryUi?.[category] || {};
+  return {
+    id: meta.id || String(category || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''),
+    key: category,
+    label: meta.label || fallbackLabel || 'Services',
+    color: meta.color || '#023c62',
+    lightColor: meta.lightColor || '#E8F0F7',
   };
 };
 
@@ -351,8 +368,66 @@ const getPublicQuotation = async (req, res) => {
   }
 };
 
+const getPublicRateChart = async (_req, res) => {
+  try {
+    const [services, categoryUi] = await Promise.all([
+      prisma.service.findMany({
+        where: {
+          isActive: true,
+          basePrice: { gt: 0 },
+        },
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          basePrice: true,
+          sortOrder: true,
+        },
+        orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+      }),
+      getServiceCategoryUi(),
+    ]);
+
+    const categoryRank = new Map(Object.keys(categoryUi || {}).map((category, index) => [category, index]));
+    const grouped = new Map();
+    services.forEach((service) => {
+      if (!grouped.has(service.category)) grouped.set(service.category, []);
+      grouped.get(service.category).push({
+        id: service.id,
+        name: service.name,
+        price: Number(service.basePrice || 0),
+        sortOrder: service.sortOrder,
+      });
+    });
+
+    const categories = Array.from(grouped.entries())
+      .map(([category, items]) => ({
+        ...normalizeCategoryDisplay(category, categoryUi),
+        items,
+      }))
+      .sort((a, b) => {
+        const aRank = categoryRank.has(a.key) ? categoryRank.get(a.key) : Number.MAX_SAFE_INTEGER;
+        const bRank = categoryRank.has(b.key) ? categoryRank.get(b.key) : Number.MAX_SAFE_INTEGER;
+        if (aRank !== bRank) return aRank - bRank;
+        return a.label.localeCompare(b.label);
+      });
+
+    return success(res, {
+      rateChart: {
+        generatedAt: new Date(),
+        categories,
+        totalItems: services.length,
+      },
+    });
+  } catch (err) {
+    console.error('getPublicRateChart error:', err);
+    return error(res, 'Failed to load rate chart');
+  }
+};
+
 module.exports = {
   getPublicInvoice,
   getPublicDailyIronLogs,
   getPublicQuotation,
+  getPublicRateChart,
 };

@@ -164,6 +164,7 @@ const getDeliveryFailReasons = () => getMasterSetting(MASTER_SETTING_KEYS.delive
 const getErrorCatalog = () => getMasterSetting(MASTER_SETTING_KEYS.errorCatalog);
 const getReportTypes = () => getMasterSetting(MASTER_SETTING_KEYS.reportTypes);
 const getServiceCodes = () => getMasterSetting(MASTER_SETTING_KEYS.serviceCodes);
+const getServiceCategoryUi = () => getMasterSetting(MASTER_SETTING_KEYS.serviceCategoryUi);
 const getRoleServiceAccess = () => getMasterSetting(MASTER_SETTING_KEYS.roleServiceAccess);
 const getWhatsAppTemplates = () => getMasterSetting(MASTER_SETTING_KEYS.whatsappTemplates);
 
@@ -264,6 +265,7 @@ module.exports = {
   getPaymentTransactionStatuses,
   getReportTypes,
   getRoleServiceAccess,
+  getServiceCategoryUi,
   getServiceCodes,
   getWhatsAppTemplates,
   syncMasterDataSettings,
