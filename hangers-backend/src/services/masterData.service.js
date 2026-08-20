@@ -12,6 +12,7 @@ const {
   FIELD_SERVICE_WORKFLOW,
   IRON_SUBSCRIPTION_STATUS_META,
   LANGUAGES,
+  LEGAL_TERMS,
   LAUNCH_CAPABILITIES,
   MARKETING_AUDIENCES,
   MARKETING_TRIGGERS,
@@ -47,6 +48,7 @@ const MASTER_SETTING_KEYS = {
   fieldServiceWorkflow: 'master.fieldServiceWorkflow',
   ironSubscriptionStatuses: 'master.ironSubscriptionStatuses',
   languages: 'master.languages',
+  legalTerms: 'master.legalTerms',
   launchCapabilities: 'master.launchCapabilities',
   marketingAudiences: 'master.marketingAudiences',
   marketingTriggers: 'master.marketingTriggers',
@@ -83,6 +85,7 @@ const BOOTSTRAP_MASTER_SETTINGS = {
   [MASTER_SETTING_KEYS.fieldServiceWorkflow]: FIELD_SERVICE_WORKFLOW,
   [MASTER_SETTING_KEYS.ironSubscriptionStatuses]: IRON_SUBSCRIPTION_STATUS_META,
   [MASTER_SETTING_KEYS.languages]: LANGUAGES,
+  [MASTER_SETTING_KEYS.legalTerms]: LEGAL_TERMS,
   [MASTER_SETTING_KEYS.launchCapabilities]: LAUNCH_CAPABILITIES,
   [MASTER_SETTING_KEYS.marketingAudiences]: MARKETING_AUDIENCES,
   [MASTER_SETTING_KEYS.marketingTriggers]: MARKETING_TRIGGERS,
@@ -156,6 +159,7 @@ const getPaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.paymentMeth
 const getCorePaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.corePaymentMethods);
 const getPaymentTransactionStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.paymentTransactionStatuses);
 const getLaunchCapabilities = () => getMasterSetting(MASTER_SETTING_KEYS.launchCapabilities);
+const getLegalTerms = () => getMasterSetting(MASTER_SETTING_KEYS.legalTerms);
 const getDeliveryFailReasons = () => getMasterSetting(MASTER_SETTING_KEYS.deliveryFailReasons);
 const getErrorCatalog = () => getMasterSetting(MASTER_SETTING_KEYS.errorCatalog);
 const getReportTypes = () => getMasterSetting(MASTER_SETTING_KEYS.reportTypes);
@@ -250,6 +254,7 @@ module.exports = {
   getFieldServiceWorkflow,
   getLaunchCapabilities,
   getLaunchCapability,
+  getLegalTerms,
   getMasterSetting,
   getMasterMetadata,
   getOrderStatuses,

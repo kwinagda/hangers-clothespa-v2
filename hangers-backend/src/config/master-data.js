@@ -14,6 +14,65 @@ const ORDER_STATUSES = [
   { key: 'RETURNED', label: 'Returned', customerLabel: 'Returned', plantLabel: 'Returned', icon: 'backup-restore', crmEditable: false, plantManaged: false, customerBucket: 'completed', customerTrackVisible: false, color: '#991b1b', bg: '#fee2e2', border: '#fecaca' },
 ];
 
+const LEGAL_TERMS = {
+  title: 'Terms and Conditions',
+  updatedAt: '2026-08-20',
+  sections: [
+    {
+      title: 'Inspection of Garments',
+      text: 'All garments are accepted subject to a standard inspection. Customers are requested to check pockets and remove valuables before handing over items. We are not responsible for items left in pockets.',
+    },
+    {
+      title: 'Fabric and Colour Disclaimer',
+      text: 'We are not responsible for colour bleeding, shrinkage, fading, or damage due to fabric defects, poor quality material, or manufacturer instructions not mentioned on the care label.',
+    },
+    {
+      title: 'Stain Removal',
+      text: 'While we use the best possible methods, stain removal is not guaranteed. Certain stains may be permanent due to fabric type or age of the stain.',
+    },
+    {
+      title: 'Ornamentation and Delicate Items',
+      text: 'We are not liable for damage to embellishments, buttons, beads, sequins, embroidery, or accessories that may not withstand the cleaning process.',
+    },
+    {
+      title: 'Curtains and Home Furnishings',
+      text: 'Curtain removal and installation services are available. We are not responsible for pre-existing damage, weak stitching, shrinkage, or fabric wear.',
+    },
+    {
+      title: 'Shoe and Accessory Cleaning',
+      text: 'Shoe cleaning is done on a best-effort basis. Results may vary depending on material, condition, and usage.',
+    },
+    {
+      title: 'Lost Garment Policy',
+      text: "In the rare event of a garment being lost while in our care, compensation shall be limited to a maximum of 3 times the service charge of the lost item or 50 percent of the garment's declared value, whichever is lower. No further claims shall be entertained.",
+    },
+    {
+      title: 'Delivery and Pickup',
+      text: 'Pickup and delivery timelines are approximate and may vary due to workload, weather, or unforeseen circumstances. Delays do not entitle customers to compensation.',
+    },
+    {
+      title: 'After Delivery and Handover Policy',
+      text: 'All garments must be checked by the customer at the time of delivery or pickup. Any concerns regarding service quality, damage, or missing items must be reported within 24 hours. No claims will be accepted thereafter.',
+    },
+    {
+      title: 'Unclaimed Garments',
+      text: 'Garments not collected within 15 days of completion may attract storage charges. Items unclaimed beyond 30 days may be disposed of without further notice.',
+    },
+    {
+      title: 'Payment Policy',
+      text: 'Full payment must be made at the time of delivery or pickup unless agreed otherwise. Prices are subject to change without prior notice.',
+    },
+    {
+      title: 'Compensation Policy',
+      text: 'In case of proven damage caused by us, compensation will be limited to a maximum of 3 times the service charge of the affected item. No liability beyond this shall be accepted.',
+    },
+    {
+      title: 'Customer Acceptance',
+      text: 'Handing over garments implies acceptance of all the above terms and conditions.',
+    },
+  ],
+};
+
 const ERROR_CATALOG = {
   DUPLICATE_BACKGROUND_EVENT: {
     code: 'DUPLICATE_BACKGROUND_EVENT',
@@ -690,6 +749,7 @@ module.exports = {
   LANGUAGE_VALUES,
   LAUNCH_CAPABILITIES,
   LOCKED_BILL_STATUSES,
+  LEGAL_TERMS,
   MARKETING_AUDIENCES,
   MARKETING_TRIGGERS,
   ORDER_STATUSES,

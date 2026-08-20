@@ -35,6 +35,24 @@ const sourceLabel = (sourceType: string) => {
   return 'Order'
 }
 
+const LegalTerms = ({ terms }: { terms: any }) => {
+  const sections = Array.isArray(terms?.sections) ? terms.sections : []
+  if (!sections.length) return null
+  return (
+    <section className="public-legal-terms">
+      <h2>{terms.title || 'Terms and Conditions'}</h2>
+      <div className="public-legal-grid">
+        {sections.map((section: any, index: number) => (
+          <div className="public-legal-item" key={`${section.title || 'term'}-${index}`}>
+            <b>{section.title}</b>
+            <p>{section.text}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export default async function PublicInvoicePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
   const loaded = await loadInvoice(slug)
@@ -72,6 +90,11 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .summary-detail-line:first-child { border-top: 0; }
           .summary-detail-name { font-weight: 800; color: #24364b; overflow-wrap: anywhere; }
           .summary-detail-service { margin-top: 2px; color: #7b8ca8; font-size: 11px; font-weight: 600; }
+          .public-legal-terms { margin: 0 26px 24px; border: 1px solid #dce8f0; border-radius: 14px; background: #fbfdff; padding: 18px; }
+          .public-legal-terms h2 { margin: 0 0 12px; color: #023c62; font-size: 16px; font-weight: 900; }
+          .public-legal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+          .public-legal-item b { display: block; color: #24364b; font-size: 12px; margin-bottom: 3px; }
+          .public-legal-item p { margin: 0; color: #52647e; font-size: 11.5px; line-height: 1.48; }
           .summary-mobile { display: none; }
           @media (max-width: 640px) {
             main.public-invoice-page { padding: 12px 10px 28px !important; }
@@ -88,6 +111,8 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             .summary-item-metric { background: #f7fafc; border-radius: 8px; padding: 8px; min-width: 0; }
             .summary-item-lines { margin-top: 10px; border-top: 1px solid #edf3f8; padding-top: 8px; display: grid; gap: 7px; }
             .summary-item-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; font-size: 12px; }
+            .public-legal-terms { margin: 0 14px 16px; padding: 14px; }
+            .public-legal-grid { grid-template-columns: 1fr; gap: 10px; }
           }
         `}</style>
         <section className="summary-shell">
@@ -195,6 +220,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           </div>
 
           <p style={{ margin: 0, padding: '0 26px 24px', color: '#6b7fa3', fontSize: 12, lineHeight: 1.6 }}>This summary shows currently unpaid bills and orders in your Hangers Clothes Spa account.</p>
+          <LegalTerms terms={summary.legalTerms} />
         </section>
       </main>
     )
@@ -333,6 +359,11 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           color: #fff;
           font-weight: 900;
         }
+        .public-legal-terms { margin: 0 26px 24px; border: 1px solid #dce8f0; border-radius: 14px; background: #fbfdff; padding: 18px; }
+        .public-legal-terms h2 { margin: 0 0 12px; color: #023c62; font-size: 16px; font-weight: 900; }
+        .public-legal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+        .public-legal-item b { display: block; color: #24364b; font-size: 12px; margin-bottom: 3px; }
+        .public-legal-item p { margin: 0; color: #52647e; font-size: 11.5px; line-height: 1.48; }
         @media (max-width: 640px) {
           main.public-invoice-page {
             padding: 12px 10px 28px !important;
@@ -409,6 +440,8 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .public-invoice-footer {
             padding: 16px;
           }
+          .public-legal-terms { margin: 0 16px 16px; padding: 14px; }
+          .public-legal-grid { grid-template-columns: 1fr; gap: 10px; }
         }
       `}</style>
       <section className="public-invoice-shell">
@@ -503,6 +536,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             ))}
           </div>
         </footer>
+        <LegalTerms terms={invoice.legalTerms} />
         <p style={{ margin: 0, padding: '0 26px 24px', color: '#6b7fa3', fontSize: 12, lineHeight: 1.6 }}>Thank you for choosing Hangers Clothes Spa.</p>
       </section>
     </main>

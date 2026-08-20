@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const { success, notFound, error } = require('../utils/response');
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
 const { resolvePublicShareToken } = require('../services/publicShare.service');
+const { getLegalTerms } = require('../services/masterData.service');
 
 const publicQuotationSelect = {
   id: true,
@@ -141,7 +142,7 @@ const normalizeCanonicalInvoice = (invoice) => {
   };
 };
 
-const getPublicPaymentSummary = async (customerId) => {
+const getPublicPaymentSummary = async (customerId, legalTerms) => {
   const invoices = await prisma.invoice.findMany({
     where: {
       customerId,
@@ -164,6 +165,7 @@ const getPublicPaymentSummary = async (customerId) => {
   }, { totalAmount: 0, paidAmount: 0, balanceDue: 0 });
   return {
     customer,
+    legalTerms,
     generatedAt: new Date(),
     invoiceCount: receivables.length,
     totals: {
@@ -303,7 +305,7 @@ const getPublicInvoice = async (req, res) => {
     if (!share) return notFound(res, 'Invoice not found');
 
     if (share.resourceType === 'CUSTOMER') {
-      const paymentSummary = await getPublicPaymentSummary(share.resourceId);
+      const paymentSummary = await getPublicPaymentSummary(share.resourceId, await getLegalTerms());
       if (!paymentSummary.customer) return notFound(res, 'Payment summary not found');
       return success(res, { paymentSummary });
     }
@@ -319,7 +321,7 @@ const getPublicInvoice = async (req, res) => {
 
     const invoice = await prisma.invoice.findFirst({ where, select: canonicalInvoiceSelect });
     if (!invoice || invoice.status === 'VOID') return notFound(res, 'Invoice not found');
-    return success(res, { invoice: normalizeCanonicalInvoice(invoice) });
+    return success(res, { invoice: { ...normalizeCanonicalInvoice(invoice), legalTerms: await getLegalTerms() } });
   } catch (err) {
     console.error('getPublicInvoice error:', err);
     return error(res, 'Failed to load invoice');
@@ -342,7 +344,7 @@ const getPublicQuotation = async (req, res) => {
     });
     if (!quotation) return notFound(res, 'Quotation not found');
 
-    return success(res, { quotation: normalizePublicQuotation(quotation) });
+    return success(res, { quotation: { ...normalizePublicQuotation(quotation), legalTerms: await getLegalTerms() } });
   } catch (err) {
     console.error('getPublicQuotation error:', err);
     return error(res, 'Failed to load quotation');

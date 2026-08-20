@@ -13,6 +13,24 @@ const dateLabel = (value: any) => {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+const LegalTerms = ({ terms }: { terms: any }) => {
+  const sections = Array.isArray(terms?.sections) ? terms.sections : []
+  if (!sections.length) return null
+  return (
+    <section className="public-legal-terms">
+      <h2>{terms.title || 'Terms and Conditions'}</h2>
+      <div className="public-legal-grid">
+        {sections.map((section: any, index: number) => (
+          <div className="public-legal-item" key={`${section.title || 'term'}-${index}`}>
+            <b>{section.title}</b>
+            <p>{section.text}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 async function loadQuotation(slug: string) {
   const res = await fetch(`${API_BASE_URL}/public/quotations/${encodeURIComponent(slug)}`, {
     cache: 'no-store',
@@ -80,6 +98,11 @@ export default async function PublicQuotationPage({ params }: { params: Promise<
           display: flex;
           justify-content: flex-end;
         }
+        .public-legal-terms { margin: 0 26px 24px; border: 1px solid #dce8f0; border-radius: 14px; background: #fbfdff; padding: 18px; }
+        .public-legal-terms h2 { margin: 0 0 12px; color: #023c62; font-size: 16px; font-weight: 900; }
+        .public-legal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+        .public-legal-item b { display: block; color: #24364b; font-size: 12px; margin-bottom: 3px; }
+        .public-legal-item p { margin: 0; color: #52647e; font-size: 11.5px; line-height: 1.48; }
         @media (max-width: 640px) {
           main.public-quotation-page { padding: 12px 10px 28px !important; }
           .public-quotation-shell { border-radius: 12px; }
@@ -140,6 +163,8 @@ export default async function PublicQuotationPage({ params }: { params: Promise<
             white-space: nowrap;
           }
           .public-quotation-footer { padding: 16px; }
+          .public-legal-terms { margin: 0 16px 16px; padding: 14px; }
+          .public-legal-grid { grid-template-columns: 1fr; gap: 10px; }
         }
       `}</style>
       <section className="public-quotation-shell">
@@ -236,6 +261,7 @@ export default async function PublicQuotationPage({ params }: { params: Promise<
             <p style={{ margin: '18px 0 0', color: '#6b7fa3', fontSize: 12, lineHeight: 1.6 }}>This quotation is an estimate and may change after garment inspection. Thank you for choosing Hangers Clothes Spa.</p>
           </div>
         </footer>
+        <LegalTerms terms={quotation.legalTerms} />
       </section>
     </main>
   )
