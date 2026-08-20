@@ -6,6 +6,7 @@ type RateItem = {
   id: string
   name: string
   price: number
+  sortOrder?: number
 }
 
 type RateCategory = {
@@ -30,12 +31,14 @@ export default function RateChartClient({ categories }: { categories: RateCatego
   const [page, setPage] = useState(1)
 
   const flatItems = useMemo(() => {
-    return categories.flatMap((category) => (category.items || []).map((item) => ({
+    return categories.flatMap((category, categoryIndex) => (category.items || []).map((item, itemIndex) => ({
       ...item,
       categoryKey: category.key || category.id || category.label,
       categoryLabel: category.label,
       categoryColor: category.color || '#023c62',
       categoryLightColor: category.lightColor || '#f7fbff',
+      categoryIndex,
+      itemIndex,
     })))
   }, [categories])
 
@@ -52,7 +55,7 @@ export default function RateChartClient({ categories }: { categories: RateCatego
       if (sort === 'name_desc') return b.name.localeCompare(a.name)
       if (sort === 'price_low') return Number(a.price || 0) - Number(b.price || 0) || a.name.localeCompare(b.name)
       if (sort === 'price_high') return Number(b.price || 0) - Number(a.price || 0) || a.name.localeCompare(b.name)
-      return a.categoryLabel.localeCompare(b.categoryLabel) || a.name.localeCompare(b.name)
+      return a.categoryIndex - b.categoryIndex || a.itemIndex - b.itemIndex || a.name.localeCompare(b.name)
     })
   }, [categoryKey, flatItems, query, sort])
 

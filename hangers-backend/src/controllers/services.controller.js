@@ -6,6 +6,7 @@
 
 const prisma = require('../config/database');
 const { success, badRequest, error, notFound } = require('../utils/response');
+const { compareServiceDisplay } = require('../utils/service-sort');
 
 const parsePositivePrice = (value) => {
   const parsed = Number(value);
@@ -109,7 +110,7 @@ const getServices = async (req, res) => {
       if (!grouped[s.category]) grouped[s.category] = [];
       grouped[s.category].push({ id: s.id, name: s.name, price: s.basePrice, sortOrder: s.sortOrder });
     }
-    const catalog = Object.entries(grouped).map(([category, items]) => ({ category, items }));
+    const catalog = Object.entries(grouped).map(([category, items]) => ({ category, items: [...items].sort(compareServiceDisplay) }));
 
     return success(res, { catalog, total: services.length });
   } catch (err) {

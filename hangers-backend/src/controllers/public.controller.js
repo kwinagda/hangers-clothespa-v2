@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const { success, notFound, error } = require('../utils/response');
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
+const { compareServiceDisplay } = require('../utils/service-sort');
 const { resolvePublicShareToken } = require('../services/publicShare.service');
 const { getLegalTerms, getServiceCategoryUi } = require('../services/masterData.service');
 
@@ -403,7 +404,7 @@ const getPublicRateChart = async (_req, res) => {
     const categories = Array.from(grouped.entries())
       .map(([category, items]) => ({
         ...normalizeCategoryDisplay(category, categoryUi),
-        items,
+        items: [...items].sort(compareServiceDisplay),
       }))
       .sort((a, b) => {
         const aRank = categoryRank.has(a.key) ? categoryRank.get(a.key) : Number.MAX_SAFE_INTEGER;
