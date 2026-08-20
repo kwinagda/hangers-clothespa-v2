@@ -228,12 +228,15 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
 
   const invoice = loaded.invoice
 
+  const discountAmount = Number(invoice.discount || 0) + Number(invoice.couponDiscount || 0)
+  const upchargeAmount = Number(invoice.upcharge || 0)
+  const paidAmount = Number(invoice.paidAmount || 0)
   const rows = [
     ['Subtotal', money(invoice.subtotal)],
-    ['Discount', `-${money(Number(invoice.discount || 0) + Number(invoice.couponDiscount || 0))}`],
-    ['Upcharge', money(invoice.upcharge)],
+    ...(discountAmount > 0 ? [['Discount', `-${money(discountAmount)}`]] : []),
+    ...(upchargeAmount > 0 ? [['Upcharge', money(upchargeAmount)]] : []),
     ['Total', money(invoice.totalAmount)],
-    ['Paid', money(invoice.paidAmount)],
+    ...(paidAmount > 0 ? [['Paid', money(paidAmount)]] : []),
     ['Balance Due', money(invoice.balanceDue)],
   ]
 
