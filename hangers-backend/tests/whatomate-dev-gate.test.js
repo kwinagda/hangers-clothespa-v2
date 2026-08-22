@@ -5,6 +5,7 @@ const {
   isDevPhoneAllowed,
   isEnabled,
   normalizePhone,
+  postTemplate,
 } = require('../src/services/whatomate.service');
 
 const withEnv = (patch, fn) => {
@@ -16,6 +17,23 @@ const withEnv = (patch, fn) => {
       else process.env[key] = value;
     }
     fn();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+};
+
+const withEnvAsync = async (patch, fn) => {
+  const previous = {};
+  for (const key of Object.keys(patch)) previous[key] = process.env[key];
+  try {
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    return await fn();
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];
@@ -62,5 +80,24 @@ test('Whatomate dev gate does not restrict production sends', () => {
   }, () => {
     assert.equal(isDevPhoneAllowed('919876543210'), true);
     assert.equal(isEnabled('919876543210'), true);
+  });
+});
+
+test('blocked local sends cannot be reported as successful delivery', async () => {
+  await withEnvAsync({
+    DEV_MODE: 'true',
+    WHATOMATE_SEND_IN_DEV: 'false',
+    WHATOMATE_DEV_ALLOWED_PHONES: '919930367267',
+    WHATOMATE_API_KEY: 'whm_valid_local_test_key',
+  }, async () => {
+    const result = await postTemplate({
+      phone: '919876543210',
+      templateName: 'test_template',
+    });
+    assert.equal(result, false);
+    await assert.rejects(
+      postTemplate({ phone: '919876543210', templateName: 'test_template', throwOnFailure: true }),
+      (error) => error?.code === 'DEV_SEND_BLOCKED' && error?.retryable === false,
+    );
   });
 });

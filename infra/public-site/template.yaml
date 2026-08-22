@@ -1,0 +1,338 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Hangers public website hosting and always-on pickup intake.
+
+Parameters:
+  PublicBucketName:
+    Type: String
+  LambdaCodeBucket:
+    Type: String
+  LambdaCodeKey:
+    Type: String
+  CertificateArn:
+    Type: String
+  DomainName:
+    Type: String
+    Default: hangers-cs.com
+  WwwDomainName:
+    Type: String
+    Default: www.hangers-cs.com
+  CrmOriginDomain:
+    Type: String
+    Default: crm.hangers-cs.com
+  WhatomateTemplateUrl:
+    Type: String
+    NoEcho: true
+  WhatomateApiKey:
+    Type: String
+    NoEcho: true
+  WhatomateAccountName:
+    Type: String
+    Default: Hangers
+  BusinessAlertPhone:
+    Type: String
+  CrmIngestUrl:
+    Type: String
+  CrmIngestSecret:
+    Type: String
+    NoEcho: true
+
+Resources:
+  PublicWebsiteBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref PublicBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  OtpTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: phone
+          AttributeType: S
+      KeySchema:
+        - AttributeName: phone
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  PickupQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      MessageRetentionPeriod: 1209600
+      VisibilityTimeout: 90
+      SqsManagedSseEnabled: true
+
+  PickupIntakeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: pickup-intake-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource: !GetAtt OtpTable.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:ChangeMessageVisibility
+                Resource: !GetAtt PickupQueue.Arn
+
+  PickupIntakeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Role: !GetAtt PickupIntakeRole.Arn
+      MemorySize: 256
+      Timeout: 30
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Ref LambdaCodeKey
+      Environment:
+        Variables:
+          OTP_TABLE_NAME: !Ref OtpTable
+          PICKUP_QUEUE_URL: !Ref PickupQueue
+          WHATOMATE_TEMPLATE_URL: !Ref WhatomateTemplateUrl
+          WHATOMATE_API_KEY: !Ref WhatomateApiKey
+          WHATOMATE_ACCOUNT_NAME: !Ref WhatomateAccountName
+          BUSINESS_ALERT_PHONE: !Ref BusinessAlertPhone
+          CRM_INGEST_URL: !Ref CrmIngestUrl
+          CRM_INGEST_SECRET: !Ref CrmIngestSecret
+          ALLOWED_ORIGINS: !Sub "https://${DomainName},https://${WwwDomainName}"
+
+  PickupHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${AWS::StackName}-pickup-intake"
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - !Sub "https://${DomainName}"
+          - !Sub "https://${WwwDomainName}"
+        AllowMethods:
+          - OPTIONS
+          - POST
+        AllowHeaders:
+          - content-type
+
+  PickupHttpIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PickupHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt PickupIntakeFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  PickupHttpRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PickupHttpApi
+      RouteKey: ANY /{proxy+}
+      Target: !Sub "integrations/${PickupHttpIntegration}"
+
+  PickupHttpStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref PickupHttpApi
+      StageName: $default
+      AutoDeploy: true
+
+  PickupApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PickupIntakeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${PickupHttpApi}/*/*"
+
+  PickupDrainRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt PickupIntakeFunction.Arn
+          Id: pickup-intake-drain
+
+  PickupDrainPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PickupIntakeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt PickupDrainRule.Arn
+
+  CleanUrlFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${AWS::StackName}-clean-urls"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Map extensionless public paths to static HTML.
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          if (uri.indexOf('.') === -1) {
+            request.uri = uri.endsWith('/') ? uri + 'index.html' : uri + '/index.html';
+          }
+          return request;
+        }
+
+  PublicOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-s3-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  PublicDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_200
+        DefaultRootObject: index.html
+        Aliases:
+          - !Ref DomainName
+          - !Ref WwwDomainName
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: public-s3
+            DomainName: !GetAtt PublicWebsiteBucket.RegionalDomainName
+            S3OriginConfig: {}
+            OriginAccessControlId: !GetAtt PublicOriginAccessControl.Id
+          - Id: crm-origin
+            DomainName: !Ref CrmOriginDomain
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+        DefaultCacheBehavior:
+          TargetOriginId: public-s3
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt CleanUrlFunction.FunctionARN
+        CacheBehaviors:
+          - PathPattern: dashboard/*
+            TargetOriginId: crm-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          - PathPattern: login
+            TargetOriginId: crm-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          - PathPattern: change-password
+            TargetOriginId: crm-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          - PathPattern: invoice/*
+            TargetOriginId: crm-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          - PathPattern: quotation/*
+            TargetOriginId: crm-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          - PathPattern: daily-iron/*
+            TargetOriginId: crm-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+
+  PublicBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PublicWebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${PublicWebsiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${PublicDistribution}"
+
+Outputs:
+  WebsiteBucket:
+    Value: !Ref PublicWebsiteBucket
+  CloudFrontDistributionId:
+    Value: !Ref PublicDistribution
+  CloudFrontDomainName:
+    Value: !GetAtt PublicDistribution.DomainName
+  PickupIntakeApiUrl:
+    Value: !GetAtt PickupHttpApi.ApiEndpoint

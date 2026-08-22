@@ -62,6 +62,16 @@ schemaShape[PAYMENT_QR_SETTING_KEY] = z.object({
   }
 }).optional();
 
+schemaShape.public_site_profile = z.object({
+  businessName: z.string().trim().min(1).max(120), phone: z.string().trim().regex(/^\+91\d{10}$/), email: z.string().trim().email(),
+  address: z.string().trim().min(10).max(500), mapUrl: z.string().trim().url(), instagramUrl: z.string().trim().url(),
+  googleRating: z.number().min(0).max(5), googleReviewCount: z.number().int().min(0), establishedYear: z.number().int().min(1900).max(new Date().getFullYear()),
+  openingHours: z.array(z.object({ label: z.string().trim().min(1), hours: z.string().trim().min(1) })).min(1),
+  pickupZones: z.array(z.string().trim().min(1)).min(1), pickupMinimumOrder: z.number().finite().min(0),
+  featuredServices: z.array(z.object({ key: z.string().trim().min(1).max(40), name: z.string().trim().min(1).max(80), description: z.string().trim().min(1).max(220) }).strict()).min(1).max(8),
+  turnaround: z.object({ dryCleaning: z.string().trim().min(1), curtains: z.string().trim().min(1) }), curtainRemovalInstallation: z.boolean(),
+}).strict().optional();
+
 const updateSettingsSchema = z.object(schemaShape).strict().refine(
   (value) => Object.keys(value).length > 0,
   'At least one setting is required'

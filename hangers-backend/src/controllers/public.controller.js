@@ -1,9 +1,329 @@
 const prisma = require('../config/database');
-const { success, notFound, error } = require('../utils/response');
+const { success, notFound, error, badRequest, created, forbidden } = require('../utils/response');
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
 const { compareServiceDisplay } = require('../utils/service-sort');
 const { resolvePublicShareToken } = require('../services/publicShare.service');
-const { getLegalTerms, getServiceCategoryUi } = require('../services/masterData.service');
+const { getLegalTerms, getServiceCategoryUi, getWebsitePickupRequestStatuses, getWebsitePickupTimeSlots } = require('../services/masterData.service');
+const { nextDocumentNumber } = require('../services/document-number.service');
+const { enqueueOutboxEvent, OUTBOX_EVENT } = require('../services/outbox.service');
+const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
+const { normalizeCustomerName, normalizeCustomerPhone, normalizeNullableText } = require('../utils/customer-normalization');
+const { createAuthChallenge, verifyAuthChallengeAndIssueToken, consumeAuthChallengeToken, AUTH_CHALLENGE_PURPOSE } = require('../services/authChallenge.service');
+const { sendPickupRequestOtp } = require('../services/whatomate.service');
+const { pickupOtpSendSchema, pickupOtpVerifySchema, publicPickupRequestSchema, queuedPickupRequestSchema } = require('../validation/public.schemas');
+const { randomInt } = require('crypto');
+
+const PUBLIC_SITE_PROFILE_KEY = 'public_site_profile';
+
+const getPublicSiteProfile = async (_req, res) => {
+  try {
+    const setting = await prisma.setting.findUnique({ where: { key: PUBLIC_SITE_PROFILE_KEY } });
+    if (!setting) return notFound(res, 'Public site profile is not configured');
+    const [profile, pickupTimeSlots] = await Promise.all([Promise.resolve(JSON.parse(setting.value)), getWebsitePickupTimeSlots()]);
+    return success(res, { profile: { ...profile, pickupTimeSlots } });
+  } catch {
+    return error(res, 'Failed to fetch public site profile');
+  }
+};
+
+const sendPublicPickupOtp = async (req, res) => {
+  const parsed = pickupOtpSendSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Enter a valid mobile number');
+  const phone = normalizeCustomerPhone(parsed.data.phone);
+  const code = process.env.DEV_MODE === 'true' ? '123456' : String(randomInt(100000, 1000000));
+  try {
+    const activeVerification = await prisma.authChallenge.findFirst({
+      where: {
+        subjectType: 'website_pickup',
+        subjectKey: phone,
+        purpose: AUTH_CHALLENGE_PURPOSE.WEBSITE_PICKUP_REQUEST,
+        status: 'VERIFIED',
+        verificationTokenHash: { not: null },
+        verificationTokenConsumedAt: null,
+        verificationTokenExpiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    if (activeVerification) return badRequest(res, 'This mobile number is already verified for the current pickup request.');
+
+    const challenge = await createAuthChallenge({
+      subjectType: 'website_pickup', subjectKey: phone, purpose: AUTH_CHALLENGE_PURPOSE.WEBSITE_PICKUP_REQUEST,
+      code, ttlMs: 10 * 60 * 1000, maxAttempts: 5, cooldownMs: 60 * 1000,
+      metadata: { channel: 'WHATSAPP' },
+    });
+    try {
+      await sendPickupRequestOtp({ phone, code, throwOnFailure: true });
+    } catch (providerError) {
+      await prisma.authChallenge.update({ where: { id: challenge.id }, data: { status: 'CANCELLED' } }).catch(() => {});
+      throw providerError;
+    }
+    await logPickupOtpEvent(req, {
+      actorId: null, phone, action: 'WEBSITE_PICKUP_OTP_SENT', status: 'SUCCESS',
+      description: `Pickup verification code sent to mobile ending ${phone.slice(-4)}`,
+      metadata: { challengeId: challenge.id, expiresAt: challenge.expiresAt },
+    });
+    return success(res, {
+      expiresIn: 600,
+      cooldownSeconds: 60,
+      ...(process.env.DEV_MODE === 'true' ? { devOtp: code } : {}),
+    }, 'Verification code sent on WhatsApp');
+  } catch (err) {
+    if (err.code === 'OTP_COOLDOWN') return badRequest(res, `Please wait ${err.secondsLeft} seconds before requesting another code`);
+    console.error('sendPublicPickupOtp error:', err);
+    await logPickupOtpEvent(req, {
+      actorId: null, phone, action: 'WEBSITE_PICKUP_OTP_FAILED', status: 'FAILURE',
+      description: 'Pickup verification code could not be sent', metadata: { error: String(err.message || err).slice(0, 300) },
+    });
+    return error(res, 'Verification code could not be sent. Please try again.');
+  }
+};
+
+const logPickupOtpEvent = (req, event) => prisma.$transaction((tx) => writeAuditEvent(tx, {
+  actorType: 'customer', resource: 'website_pickup_verification', resourceId: event.metadata?.challengeId || event.phone,
+  actorId: event.actorId, actorName: null, action: event.action, status: event.status,
+  description: event.description, metadata: { phoneLastFour: event.phone.slice(-4), ...event.metadata }, ...getRequestMeta(req),
+})).catch((auditError) => console.error('Pickup OTP audit error:', auditError.message));
+
+const verifyPublicPickupOtp = async (req, res) => {
+  const parsed = pickupOtpVerifySchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Enter the complete 6-digit code');
+  const phone = normalizeCustomerPhone(parsed.data.phone);
+
+  try {
+    const verification = await verifyAuthChallengeAndIssueToken({
+      subjectType: 'website_pickup', subjectKey: phone, purpose: AUTH_CHALLENGE_PURPOSE.WEBSITE_PICKUP_REQUEST,
+      code: parsed.data.otp, tokenTtlMs: 10 * 60 * 1000,
+    });
+    if (!verification.ok) {
+      const remaining = verification.remainingAttempts;
+      const message = verification.reason === 'LOCKED'
+        ? 'Too many incorrect attempts. Request a new code.'
+        : verification.reason === 'INVALID'
+          ? `Incorrect code${Number.isInteger(remaining) ? `. ${remaining} attempts remaining.` : '.'}`
+          : 'This code has expired. Request a new code.';
+      return badRequest(res, message);
+    }
+
+    await logPickupOtpEvent(req, {
+      actorId: null, phone, action: 'WEBSITE_PICKUP_OTP_VERIFIED', status: 'SUCCESS',
+      description: `Mobile ending ${phone.slice(-4)} verified for a pickup request`,
+      metadata: { challengeId: verification.challenge.id, tokenExpiresAt: verification.tokenExpiresAt },
+    });
+    return success(res, {
+      verificationToken: verification.verificationToken,
+      expiresAt: verification.tokenExpiresAt,
+    }, 'Mobile number verified');
+  } catch (err) {
+    console.error('verifyPublicPickupOtp error:', err);
+    await logPickupOtpEvent(req, {
+      actorId: null, phone, action: 'WEBSITE_PICKUP_OTP_VERIFICATION_FAILED', status: 'FAILURE',
+      description: 'Pickup mobile verification failed', metadata: { error: String(err.message || err).slice(0, 300) },
+    });
+    return error(res, 'Mobile verification could not be completed. Please request a new code.');
+  }
+};
+
+class PublicPickupInputError extends Error {
+  constructor(message, statusCode = 400) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+const loadPickupRequestConfig = async () => {
+  const [profileSetting, statuses, slots] = await Promise.all([
+    prisma.setting.findUnique({ where: { key: PUBLIC_SITE_PROFILE_KEY }, select: { value: true } }),
+    getWebsitePickupRequestStatuses(),
+    getWebsitePickupTimeSlots(),
+  ]);
+  return {
+    siteProfile: JSON.parse(profileSetting?.value || '{}'),
+    pickupStatuses: statuses,
+    pickupTimeSlots: slots,
+  };
+};
+
+const preparePickupRequestData = ({ input, siteProfile, pickupStatuses, pickupTimeSlots }) => {
+  const name = normalizeCustomerName(input.name);
+  const phone = normalizeCustomerPhone(input.phone);
+  const preferredDate = input.preferredDate ? new Date(`${input.preferredDate}T12:00:00+05:30`) : null;
+  const preferredSlot = normalizeNullableText(input.preferredSlot);
+  const notes = normalizeNullableText(input.notes);
+  const initialStatus = pickupStatuses.find((item) => item.initial)?.value;
+  const allowedSlots = new Set(pickupTimeSlots.map((item) => item.value));
+  if (!initialStatus) throw new PublicPickupInputError('Pickup request workflow is not configured. Please call or WhatsApp the store.', 500);
+  if (!name || !phone) throw new PublicPickupInputError('Please enter a valid name and 10-digit Indian mobile number');
+  if (preferredSlot && !allowedSlots.has(preferredSlot)) throw new PublicPickupInputError('Select a valid pickup time');
+  if (preferredDate && preferredDate < new Date(new Date().toDateString())) throw new PublicPickupInputError('Pickup date cannot be in the past');
+  const services = new Map((siteProfile.featuredServices || []).map((service) => [service.key, service]));
+  const items = input.items.map((item) => ({ serviceKey: item.serviceKey, serviceName: services.get(item.serviceKey)?.name, quantity: item.quantity }));
+  if (items.some((item) => !item.serviceName)) throw new PublicPickupInputError('One or more selected pickup services are unavailable');
+  const itemsSummary = items.map((item) => `${item.serviceName}: ${item.quantity} pcs`).join(', ');
+  const addressParts = [input.addressLine1, input.addressLine2, input.landmark, input.city, input.pincode].map(normalizeNullableText).filter(Boolean);
+  const address = addressParts.join(', ');
+  return { name, phone, preferredDate, preferredSlot, notes, initialStatus, items, itemsSummary, address };
+};
+
+const persistVerifiedPickupRequest = async ({ tx, req, input, prepared, verificationChallengeId = null, verifiedAt = new Date(), externalSource = null, externalRequestId = null, queuedAt = null, enqueueNotifications = true }) => {
+  if (externalSource && externalRequestId) {
+    const existing = await tx.websitePickupRequest.findFirst({
+      where: { externalSource, externalRequestId },
+    });
+    if (existing) return { request: existing, duplicate: true };
+  }
+
+  let customer = await tx.customer.findUnique({ where: { phone: prepared.phone } });
+      const customerWasCreated = !customer;
+      if (!customer) {
+    customer = await tx.customer.create({ data: { phone: prepared.phone, name: prepared.name } });
+      } else if (!customer.name) {
+    customer = await tx.customer.update({ where: { id: customer.id }, data: { name: prepared.name } });
+      }
+      const normalizedAddressLine2 = normalizeNullableText(input.addressLine2);
+      const normalizedLandmark = normalizeNullableText(input.landmark);
+      let addressRecord = await tx.address.findFirst({
+        where: { customerId: customer.id, addressLine1: input.addressLine1, addressLine2: normalizedAddressLine2, landmark: normalizedLandmark, city: input.city, pincode: input.pincode },
+      });
+      const addressWasCreated = !addressRecord;
+      if (!addressRecord) {
+        const addressCount = await tx.address.count({ where: { customerId: customer.id } });
+        addressRecord = await tx.address.create({ data: {
+          customerId: customer.id, label: 'Home', addressLine1: input.addressLine1,
+          addressLine2: normalizedAddressLine2, landmark: normalizedLandmark,
+          city: input.city, pincode: input.pincode, isDefault: addressCount === 0,
+        } });
+      }
+      const requestNumber = await nextDocumentNumber({ tx, documentType: 'WEBSITE_PICKUP_REQUEST', prefix: 'PR-', padding: 3 });
+      const createdRequest = await tx.websitePickupRequest.create({
+        data: {
+      requestNumber, name: prepared.name, phone: prepared.phone, address: prepared.address, addressLine1: input.addressLine1,
+          addressLine2: normalizeNullableText(input.addressLine2), landmark: normalizeNullableText(input.landmark),
+      city: input.city, pincode: input.pincode, items: prepared.items, itemsSummary: prepared.itemsSummary, preferredDate: prepared.preferredDate, preferredSlot: prepared.preferredSlot, notes: prepared.notes,
+      status: prepared.initialStatus, customerId: customer.id, verificationChallengeId, verifiedAt, externalSource, externalRequestId, queuedAt,
+        },
+      });
+      await writeAuditEvent(tx, {
+    actorType: 'customer', actorId: customer.id, actorName: prepared.name, action: 'WEBSITE_PICKUP_REQUEST_CREATED',
+        resource: 'website_pickup_request', resourceId: createdRequest.id,
+        description: `${requestNumber} verified and submitted from the website`,
+    metadata: { requestNumber, customerId: customer.id, verificationChallengeId, externalSource, externalRequestId, items: prepared.items, preferredDate: prepared.preferredDate, preferredSlot: prepared.preferredSlot },
+        ...getRequestMeta(req),
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'system', actorName: 'Website verification', action: 'WEBSITE_PICKUP_OTP_VERIFIED',
+        resource: 'website_pickup_request', resourceId: createdRequest.id,
+    description: `Mobile ending ${prepared.phone.slice(-4)} verified by WhatsApp code`,
+    metadata: { challengeId: verificationChallengeId, externalSource, externalRequestId }, ...getRequestMeta(req),
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'system', actorName: 'Customer records', action: customerWasCreated ? 'WEBSITE_PICKUP_CUSTOMER_CREATED' : 'WEBSITE_PICKUP_CUSTOMER_LINKED',
+        resource: 'website_pickup_request', resourceId: createdRequest.id,
+        description: customerWasCreated ? 'New CRM customer created from verified pickup request' : 'Pickup request linked to existing CRM customer',
+        metadata: { customerId: customer.id }, ...getRequestMeta(req),
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'system', actorName: 'Customer records', action: addressWasCreated ? 'WEBSITE_PICKUP_ADDRESS_CREATED' : 'WEBSITE_PICKUP_ADDRESS_LINKED',
+        resource: 'website_pickup_request', resourceId: createdRequest.id,
+        description: addressWasCreated ? 'Pickup address added to the customer address book' : 'Pickup address matched to the customer address book',
+        metadata: { customerId: customer.id, addressId: addressRecord.id }, ...getRequestMeta(req),
+      });
+  if (enqueueNotifications) {
+    for (const eventType of [OUTBOX_EVENT.PICKUP_REQUEST_CREATED, OUTBOX_EVENT.PICKUP_REQUEST_CUSTOMER_CONFIRMATION]) {
+      await enqueueOutboxEvent(tx, {
+        eventType, aggregateType: 'website_pickup_request', aggregateId: createdRequest.id,
+        payload: {}, dedupeKey: `${eventType.toLowerCase()}:${createdRequest.id}`,
+      });
+    }
+  } else {
+    await writeAuditEvent(tx, {
+      actorType: 'system', actorName: 'Public pickup intake', action: 'PICKUP_REQUEST_WHATSAPP_SENT',
+      resource: 'website_pickup_request', resourceId: createdRequest.id,
+      description: 'Customer confirmation and business alert were sent before CRM import',
+      metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome: 'SENT_BEFORE_IMPORT', externalSource, externalRequestId },
+      ...getRequestMeta(req),
+    });
+  }
+  return { request: createdRequest, customer };
+};
+
+const createPublicPickupRequest = async (req, res) => {
+  const parsed = publicPickupRequestSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Please complete all required pickup details');
+  const input = parsed.data;
+
+  let prepared;
+  try {
+    const config = await loadPickupRequestConfig();
+    prepared = preparePickupRequestData({ input, ...config });
+  } catch (err) {
+    if (err instanceof PublicPickupInputError) return error(res, err.message, err.statusCode);
+    console.error('createPublicPickupRequest master data error:', err);
+    return error(res, 'Pickup request settings are temporarily unavailable. Please call or WhatsApp the store.');
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const verification = await consumeAuthChallengeToken({
+        subjectType: 'website_pickup', subjectKey: prepared.phone, purpose: AUTH_CHALLENGE_PURPOSE.WEBSITE_PICKUP_REQUEST,
+        token: input.verificationToken, tx,
+      });
+      if (!verification.ok) return { verificationError: verification };
+      return persistVerifiedPickupRequest({
+        tx,
+        req,
+        input,
+        prepared,
+        verificationChallengeId: verification.challenge.id,
+        verifiedAt: new Date(),
+      });
+    });
+    if (result.verificationError) {
+      return badRequest(res, 'Mobile verification expired or was already used. Please request a new code.');
+    }
+    return created(res, result, 'Pickup request confirmed. Our team will contact you for the final collection time.');
+  } catch (err) {
+    console.error('createPublicPickupRequest error:', err);
+    return error(res, 'We could not save the pickup request. Please call or WhatsApp the store.');
+  }
+};
+
+const ingestQueuedPickupRequest = async (req, res) => {
+  const expectedSecret = process.env.PICKUP_QUEUE_INGEST_SECRET;
+  if (!expectedSecret || req.get('x-pickup-ingest-secret') !== expectedSecret) {
+    return forbidden(res, 'Pickup queue ingest is not allowed');
+  }
+  const parsed = queuedPickupRequestSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Please complete all required pickup details');
+  const input = parsed.data;
+
+  let prepared;
+  try {
+    const config = await loadPickupRequestConfig();
+    prepared = preparePickupRequestData({ input, ...config });
+  } catch (err) {
+    if (err instanceof PublicPickupInputError) return error(res, err.message, err.statusCode);
+    console.error('ingestQueuedPickupRequest master data error:', err);
+    return error(res, 'Pickup request settings are temporarily unavailable');
+  }
+
+  try {
+    const result = await prisma.$transaction((tx) => persistVerifiedPickupRequest({
+      tx,
+      req,
+      input,
+      prepared,
+      verifiedAt: input.verifiedAt ? new Date(input.verifiedAt) : new Date(),
+      externalSource: input.externalSource,
+      externalRequestId: input.externalRequestId,
+      queuedAt: new Date(),
+      enqueueNotifications: false,
+    }));
+    return success(res, result, result.duplicate ? 'Pickup request already imported' : 'Queued pickup request imported');
+  } catch (err) {
+    console.error('ingestQueuedPickupRequest error:', err);
+    return error(res, 'Queued pickup request could not be imported');
+  }
+};
 
 const publicQuotationSelect = {
   id: true,
@@ -427,6 +747,11 @@ const getPublicRateChart = async (_req, res) => {
 };
 
 module.exports = {
+  createPublicPickupRequest,
+  ingestQueuedPickupRequest,
+  sendPublicPickupOtp,
+  verifyPublicPickupOtp,
+  getPublicSiteProfile,
   getPublicInvoice,
   getPublicDailyIronLogs,
   getPublicQuotation,

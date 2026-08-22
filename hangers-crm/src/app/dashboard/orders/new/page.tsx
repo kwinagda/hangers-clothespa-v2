@@ -1,7 +1,7 @@
 'use client'
 import { Suspense, useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import api, { ordersAPI, quotationsAPI, customersAPI, servicesAPI, statsAPI, ironAPI, metadataAPI } from '@/lib/api'
+import api, { ordersAPI, quotationsAPI, customersAPI, servicesAPI, statsAPI, ironAPI, metadataAPI, pickupRequestsAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { AlertTriangle, Check, GripVertical, Shirt, Trash2, User } from 'lucide-react'
 import { sanitizeDecimalInput, sanitizeIntegerInput, isStrictMoneyText, isStrictPositiveIntText } from '@/lib/numeric-input'
@@ -252,6 +252,7 @@ function NewOrderPageContent() {
   const [walletSplit, setWalletSplit] = useState('')
   const [posSettings, setPosSettings] = useState<any>({})
   const [notes, setNotes] = useState('')
+  const [pickupRequestDetails, setPickupRequestDetails] = useState<any>(null)
   const [dailyIronDate, setDailyIronDate] = useState(new Date().toISOString().slice(0, 10))
   const [validUntil, setValidUntil] = useState(() => {
     const next = new Date()
@@ -404,6 +405,16 @@ function NewOrderPageContent() {
         toast.error('Failed to load selected customer')
         setShowCustomerModal(true)
       })
+    }
+    const pickupRequestId = searchParams.get('pickupRequestId')
+    if (pickupRequestId) {
+      pickupRequestsAPI.get(pickupRequestId).then((r: any) => {
+        const request = r.data?.request || r.request
+        if (!request) return
+        setPickupRequestDetails(request)
+        const context = [request.itemsSummary, request.serviceNeeded, request.notes].filter(Boolean).join(' | ')
+        if (context) setNotes((current) => current || context)
+      }).catch(() => toast.error('Failed to load pickup request details'))
     }
   }, [draftReady, searchParams, isQuotationMode, quotationId, validUntil])
 
@@ -1082,6 +1093,7 @@ function NewOrderPageContent() {
 
       const orderResponse = await ordersAPI.create({
         customerId: customer.id,
+        pickupRequestId: pickupRequestDetails?.id || undefined,
         items: regularCart.map(i => ({
           serviceId: i.serviceId || undefined,
           serviceName: i.name,
@@ -1103,6 +1115,9 @@ function NewOrderPageContent() {
         walletAmount: walletPortion > 0 ? walletPortion : undefined,
         paidAmount: paid,
         notes,
+        pickupDate: pickupRequestDetails?.preferredDate || undefined,
+        pickupAddress: pickupRequestDetails?.address || undefined,
+        pickupSlot: pickupRequestDetails?.preferredSlot || undefined,
         source: 'COUNTER',
       })
       const createdOrder = orderResponse?.data?.order || orderResponse?.order || null
@@ -2044,6 +2059,7 @@ function NewOrderPageContent() {
                     style={{ width: '100%', border: '1px solid #f59e0b', background: '#fffbeb', borderRadius: 12, padding: '10px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box', resize: 'vertical', marginBottom: 8, fontFamily: 'var(--crm-font-ui)' }} />
                 )}
 
+                {pickupRequestDetails && <div style={{ border: '1px solid #cfe0ed', background: '#f3f8fc', borderRadius: 8, padding: '9px 11px', marginBottom: 8, color: '#36546c', fontSize: 11.5, lineHeight: 1.45 }}><strong style={{ color: '#023c62' }}>{pickupRequestDetails.requestNumber}</strong><div>{pickupRequestDetails.address}</div><div>{[pickupRequestDetails.preferredDate ? new Date(pickupRequestDetails.preferredDate).toLocaleDateString('en-IN') : '', pickupRequestDetails.preferredSlot].filter(Boolean).join(' · ') || 'Pickup timing not specified'}</div></div>}
                 <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
                   placeholder={isQuotationMode ? 'Quotation notes (optional)...' : isPureDailyIron ? 'Log notes (optional)...' : 'Order notes (optional)...'}
                   style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />

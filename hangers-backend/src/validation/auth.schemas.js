@@ -80,4 +80,5 @@ module.exports = {
   staffCreateSchema,
   staffUpdateSchema,
   passwordSchema,
+  indianPhoneSchema,
 };

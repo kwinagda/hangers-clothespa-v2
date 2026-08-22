@@ -77,6 +77,8 @@ export default function RateChartClient({ categories }: { categories: RateCatego
     setPage(1)
   }
 
+  const selectCategory = (nextCategory: string) => resetPage(() => setCategoryKey(nextCategory))
+
   if (!categories.length) return <section className="rate-empty">No active rate chart items are available right now.</section>
 
   return (
@@ -90,7 +92,7 @@ export default function RateChartClient({ categories }: { categories: RateCatego
           aria-label="Search rate chart"
         />
         <div className="rate-controls">
-          <select className="rate-select" value={categoryKey} onChange={(event) => resetPage(() => setCategoryKey(event.target.value))} aria-label="Filter category">
+          <select className="rate-select rate-mobile-category-select" value={categoryKey} onChange={(event) => selectCategory(event.target.value)} aria-label="Filter category">
             <option value="ALL">All categories</option>
             {categories.map((category) => (
               <option key={category.key || category.id || category.label} value={category.key || category.id || category.label}>{category.label}</option>
@@ -111,17 +113,37 @@ export default function RateChartClient({ categories }: { categories: RateCatego
 
       {filteredItems.length ? (
         <>
-          {groupedItems.map((group, groupIndex) => (
-            <section className="rate-section rate-animate" style={{ animationDelay: `${Math.min(groupIndex * 45, 180)}ms` }} key={group.key}>
-              <div className="rate-section-head" style={{ background: group.first.categoryLightColor }}>
-                <h2 className="rate-section-title" style={{ color: group.first.categoryColor }}>{group.first.categoryLabel}</h2>
-                <div className="rate-section-count">{group.items.length} shown</div>
+          <div className="rate-mobile-results">
+            {groupedItems.map((group, groupIndex) => (
+              <section className="rate-section rate-animate" style={{ animationDelay: `${Math.min(groupIndex * 45, 180)}ms` }} key={group.key}>
+                <div className="rate-section-head" style={{ background: group.first.categoryLightColor }}>
+                  <h2 className="rate-section-title" style={{ color: group.first.categoryColor }}>{group.first.categoryLabel}</h2>
+                  <div className="rate-section-count">{group.items.length} shown</div>
+                </div>
+                <div className="rate-list">
+                  {group.items.map((item, index) => <RateRow item={item} key={item.id} index={index} />)}
+                </div>
+              </section>
+            ))}
+          </div>
+
+          <section className="rate-desktop-catalog rate-animate" aria-label="Rate chart catalogue">
+            <aside className="rate-category-rail">
+              <p className="rate-rail-label">Service category</p>
+              <button type="button" className={`rate-category-button ${categoryKey === 'ALL' ? 'is-active' : ''}`} onClick={() => selectCategory('ALL')}>All services <span>{flatItems.length}</span></button>
+              {categories.map((category) => {
+                const key = category.key || category.id || category.label
+                const count = (category.items || []).length
+                return <button type="button" key={key} className={`rate-category-button ${categoryKey === key ? 'is-active' : ''}`} onClick={() => selectCategory(key)}>{category.label}<span>{count}</span></button>
+              })}
+            </aside>
+            <div className="rate-catalog-table-wrap">
+              <div className="rate-catalog-heading"><span>Category</span><span>Service / item</span><span>Rate</span></div>
+              <div className="rate-catalog-rows">
+                {pagedItems.map((item, index) => <RateTableRow item={item} key={item.id} index={index} />)}
               </div>
-              <div className="rate-list">
-                {group.items.map((item, index) => <RateRow item={item} key={item.id} index={index} />)}
-              </div>
-            </section>
-          ))}
+            </div>
+          </section>
 
           <div className="rate-pager">
             <button className="rate-page-btn" disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
@@ -141,6 +163,16 @@ function RateRow({ item, index }: { item: any; index: number }) {
     <div className="rate-row rate-row-animate" style={{ animationDelay: `${Math.min(index * 18, 220)}ms` }}>
       <div className="rate-name">{item.name}</div>
       <div className="rate-price">{money(item.price)}</div>
+    </div>
+  )
+}
+
+function RateTableRow({ item, index }: { item: any; index: number }) {
+  return (
+    <div className="rate-catalog-row rate-row-animate" style={{ animationDelay: `${Math.min(index * 14, 220)}ms` }}>
+      <div className="rate-catalog-category"><span style={{ background: item.categoryColor }} />{item.categoryLabel}</div>
+      <div className="rate-catalog-item">{item.name}</div>
+      <div className="rate-catalog-price">{money(item.price)}</div>
     </div>
   )
 }

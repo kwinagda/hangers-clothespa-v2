@@ -14,6 +14,27 @@ const ORDER_STATUSES = [
   { key: 'RETURNED', label: 'Returned', customerLabel: 'Returned', plantLabel: 'Returned', icon: 'backup-restore', crmEditable: false, plantManaged: false, customerBucket: 'completed', customerTrackVisible: false, color: '#991b1b', bg: '#fee2e2', border: '#fecaca' },
 ];
 
+const WEBSITE_PICKUP_REQUEST_STATUSES = [
+  { value: 'NEW', label: 'New', color: '#023c62', bg: '#e8f0f7', allowedTransitions: ['CONTACTED', 'CONFIRMED', 'CANCELLED'], canCreateOrder: false, initial: true },
+  { value: 'CONTACTED', label: 'Contacted', actionLabel: 'Log contact', requiresContactMethod: true, color: '#7a5300', bg: '#fff7d6', allowedTransitions: ['CONFIRMED', 'CANCELLED'], canCreateOrder: false },
+  { value: 'CONFIRMED', label: 'Confirmed', actionLabel: 'Confirm pickup', requiresSchedule: true, color: '#166534', bg: '#dcfce7', allowedTransitions: ['CANCELLED'], canCreateOrder: true },
+  { value: 'ORDER_STARTED', label: 'Order started', color: '#075985', bg: '#e0f2fe', allowedTransitions: ['CANCELLED'], canCreateOrder: true, orderStartTarget: true },
+  { value: 'CONVERTED', label: 'Order created', color: '#1d4ed8', bg: '#dbeafe', allowedTransitions: [], canCreateOrder: false, conversionTarget: true, terminal: true },
+  { value: 'CANCELLED', label: 'Cancelled', color: '#991b1b', bg: '#fee2e2', allowedTransitions: [], canCreateOrder: false, terminal: true },
+];
+
+const WEBSITE_PICKUP_TIME_SLOTS = [
+  { value: 'Morning', label: 'Morning' },
+  { value: 'Afternoon', label: 'Afternoon' },
+  { value: 'Evening', label: 'Evening' },
+];
+
+const WEBSITE_PICKUP_CONTACT_METHODS = [
+  { value: 'CALL', label: 'Phone call' },
+  { value: 'WHATSAPP', label: 'WhatsApp' },
+  { value: 'IN_PERSON', label: 'In person' },
+];
+
 const LEGAL_TERMS = {
   title: 'Terms and Conditions',
   updatedAt: '2026-08-20',
@@ -350,6 +371,7 @@ const ROLE_PERMISSIONS = {
     'finance.vendor_invoice', 'finance.vendor_payment',
     'delivery.view', 'delivery.assign', 'delivery.execute',
     'whatsapp.send',
+    'pickup_requests.view', 'pickup_requests.manage',
     'print.all',
   ],
   COUNTER_STAFF: [
@@ -361,6 +383,7 @@ const ROLE_PERMISSIONS = {
     'daily_iron.log',
     'print.all',
     'plant.create_challan',
+    'pickup_requests.view', 'pickup_requests.manage',
   ],
   ACCOUNTS: [
     'dashboard.view',
@@ -373,6 +396,7 @@ const ROLE_PERMISSIONS = {
     'daily_iron.manage_billing',
     'finance.vendor_invoice', 'finance.vendor_payment',
     'reports.view', 'ops.view',
+    'pickup_requests.view',
   ],
   DELIVERY_MANAGER: [
     'dashboard.view',
@@ -653,6 +677,19 @@ const WHATSAPP_TEMPLATES = {
   accountName: 'Hangers',
   invoiceButtonIndex: '0',
   invoiceSlugField: 'orderNumber',
+  pickupRequestAlert: {
+    templateName: 'hangers_crm_pickup_request_alert',
+    params: ['requestNumber', 'customerName', 'customerPhone', 'itemsSummary', 'preferredSchedule', 'pickupAddress'],
+  },
+  pickupRequestOtp: {
+    templateName: 'hangers_otp',
+    params: ['otpCode'],
+    buttonIndex: '0',
+  },
+  pickupRequestCustomerConfirmation: {
+    templateName: 'hangers_crm_pickup_request_confirmed',
+    params: ['customerName', 'requestNumber', 'itemsSummary', 'preferredSchedule', 'pickupAddress'],
+  },
   orderStatus: {
     PENDING: {
       templateName: 'hangers_crm_order_created',
@@ -781,4 +818,7 @@ module.exports = {
   DISCOUNT_VALUE_TYPES,
   PROMO_BANNERS,
   WHATSAPP_TEMPLATES,
+  WEBSITE_PICKUP_REQUEST_STATUSES,
+  WEBSITE_PICKUP_TIME_SLOTS,
+  WEBSITE_PICKUP_CONTACT_METHODS,
 };

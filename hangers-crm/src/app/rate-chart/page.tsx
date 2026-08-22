@@ -1,16 +1,18 @@
 import { LOGO_BLUE_URL } from '@/lib/branding'
 import type { Metadata } from 'next'
 import RateChartClient from './RateChartClient'
+import { PublicContentPage } from '@/components/public/PublicContentPage'
+import { getPublicSiteProfile } from '@/lib/publicSite'
+import { SITE_URL } from '@/lib/seo'
 
 export const dynamic = 'force-dynamic'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://13-207-73-79.sslip.io'
-
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: 'Rate Chart | Hangers Clothes Spa',
+  title: { absolute: 'Rate Chart | Hangers Clothes Spa' },
   description: 'Search garment care prices by service category at Hangers Clothes Spa.',
+  alternates: { canonical: '/rate-chart' },
   openGraph: {
     title: 'Hangers Clothes Spa Rate Chart',
     description: 'Search garment care prices by garment or service category.',
@@ -42,7 +44,7 @@ async function loadRateChart() {
 }
 
 export default async function PublicRateChartPage() {
-  const rateChart = await loadRateChart()
+  const [rateChart, profile] = await Promise.all([loadRateChart(), getPublicSiteProfile()])
   const categories = Array.isArray(rateChart?.categories) ? rateChart.categories : []
 
   if (!rateChart) {
@@ -57,8 +59,8 @@ export default async function PublicRateChartPage() {
     )
   }
 
-  return (
-    <main className="rate-page">
+  const content = (
+    <div className="rate-page">
       <style>{`
         .rate-page {
           min-height: 100vh;
@@ -278,6 +280,9 @@ export default async function PublicRateChartPage() {
           line-height: 1.55;
           text-align: center;
         }
+        .rate-desktop-catalog {
+          display: none;
+        }
         @keyframes rate-fade-up {
           from { opacity: 0; transform: translateY(8px); }
           to { opacity: 1; transform: translateY(0); }
@@ -305,6 +310,75 @@ export default async function PublicRateChartPage() {
           .rate-title { font-size: 32px; }
           .rate-controls { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); }
         }
+        @media (min-width: 960px) {
+          .rate-page { padding: 34px 34px 58px; }
+          .rate-shell { max-width: 1180px; }
+          .rate-hero {
+            min-height: 178px;
+            display: grid;
+            grid-template-columns: 190px minmax(0, 1fr);
+            align-items: center;
+            gap: 34px;
+            padding: 30px 36px;
+            text-align: left;
+          }
+          .rate-logo-row { justify-content: flex-start; padding-right: 32px; border-right: 1px solid #e1ebf2; }
+          .rate-logo { height: 52px; }
+          .rate-title { margin: 0 0 7px; text-align: left; font-size: 40px; font-weight: 700; }
+          .rate-subtitle { max-width: 540px; text-align: left; font-size: 15px; }
+          .rate-toolbar {
+            display: grid;
+            grid-template-columns: minmax(280px, 1fr) auto;
+            column-gap: 12px;
+            row-gap: 0;
+            align-items: center;
+            margin-top: 15px;
+            padding: 12px 0;
+          }
+          .rate-search { height: 46px; padding: 0 15px; }
+          .rate-controls { display: flex; align-items: center; gap: 9px; margin: 0; }
+          .rate-mobile-category-select { display: none; }
+          .rate-select { height: 46px; min-width: 168px; padding: 0 12px; }
+          .rate-result-line { grid-column: 1 / -1; margin: 9px 2px 0; }
+          .rate-mobile-results { display: none; }
+          .rate-desktop-catalog {
+            display: grid;
+            grid-template-columns: 245px minmax(0, 1fr);
+            align-items: stretch;
+            overflow: hidden;
+            margin-top: 9px;
+            background: #fff;
+            border: 1px solid #dce8f0;
+            border-radius: 12px;
+            box-shadow: 0 12px 32px rgba(2,60,98,.055);
+          }
+          .rate-category-rail { padding: 18px 12px 16px; background: #f7fafc; border-right: 1px solid #e2ecf3; }
+          .rate-rail-label { margin: 0 9px 10px; color: #7290a5; font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+          .rate-category-button {
+            width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 10px 9px; border: 0; border-radius: 6px; background: transparent; color: #486279;
+            font-family: var(--crm-font-ui); font-size: 12.5px; font-weight: 600; line-height: 1.3; text-align: left; cursor: pointer;
+          }
+          .rate-category-button:hover { background: #edf5fa; color: #023c62; transform: none; }
+          .rate-category-button.is-active { background: #dceef8; color: #023c62; font-weight: 750; }
+          .rate-category-button span { flex: 0 0 auto; color: #7890a3; font-size: 10.5px; font-weight: 700; }
+          .rate-category-button.is-active span { color: #166a94; }
+          .rate-catalog-table-wrap { min-width: 0; }
+          .rate-catalog-heading, .rate-catalog-row {
+            display: grid; grid-template-columns: minmax(160px, .72fr) minmax(240px, 1.28fr) 120px; gap: 20px; align-items: center;
+          }
+          .rate-catalog-heading { padding: 14px 22px; background: #f7fafc; border-bottom: 1px solid #e2ecf3; color: #7890a3; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+          .rate-catalog-heading span:last-child { text-align: right; }
+          .rate-catalog-row { min-height: 55px; padding: 10px 22px; border-bottom: 1px solid #edf3f8; transition: background-color 160ms ease; }
+          .rate-catalog-row:last-child { border-bottom: 0; }
+          .rate-catalog-row:hover { background: #f8fcff; transform: none; }
+          .rate-catalog-category { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; color: #58718a; font-size: 12px; font-weight: 600; }
+          .rate-catalog-category span { display: block; flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; }
+          .rate-catalog-item { min-width: 0; overflow-wrap: anywhere; color: #20384d; font-size: 14px; font-weight: 600; }
+          .rate-catalog-price { color: #023c62; font-family: var(--crm-font-mono); font-size: 14px; font-weight: 650; text-align: right; white-space: nowrap; }
+          .rate-pager { max-width: 480px; margin: 16px auto 0; }
+          .rate-note { margin-top: 18px; }
+        }
         @media (max-width: 340px) {
           .rate-page { padding-left: 8px; padding-right: 8px; }
           .rate-hero { padding: 15px 12px; border-radius: 13px; }
@@ -318,18 +392,12 @@ export default async function PublicRateChartPage() {
       `}</style>
 
       <div className="rate-shell">
-        <section className="rate-hero">
-          <div className="rate-logo-row">
-            <img className="rate-logo" src={LOGO_BLUE_URL} alt="Hangers Clothes Spa" />
-          </div>
-          <h1 className="rate-title">Rate Chart</h1>
-          <p className="rate-subtitle">Search by garment or browse by service category.</p>
-        </section>
-
         <RateChartClient categories={categories} />
 
         <p className="rate-note">Final billing may vary for custom work, special handling, stain treatment, garment condition, or size.</p>
       </div>
-    </main>
+    </div>
   )
+
+  return profile ? <PublicContentPage profile={profile} eyebrow="Rate chart" title="Current rates for every active service." intro="Search by garment or browse by service category. Prices below come directly from the active Hangers pricing catalog.">{content}</PublicContentPage> : content
 }

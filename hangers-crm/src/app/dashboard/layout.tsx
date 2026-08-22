@@ -42,6 +42,7 @@ const NAV_SECTIONS = [
   {
     label: 'Workflow',
     items: [
+      { href: '/dashboard/pickup-requests', label: 'Pickup Requests', permission: 'pickup_requests.view', d: '<path d="M3 7h13v10H3z"/><path d="M16 10h3l2 3v4h-5"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>' },
       { href: '/dashboard/quotations', label: 'Quotations', d: '<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M9 12h6M9 16h6M9 8h3"/>' },
       { href: '/dashboard/service-appointments', label: 'Sofa / Field Service', d: '<path d="M4 13h16v5H4z"/><path d="M6 13V9a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v4"/><path d="M7 18v2M17 18v2"/>' },
       { href: '/dashboard/plantchallans', label: 'Plant Challans', d: '<path d="M2.5 16V8a1 1 0 0 1 1-1H14v9"/><path d="M14 10.5h3.6l3 3V16h-1.6"/><circle cx="7" cy="17.5" r="2"/><circle cx="17" cy="17.5" r="2"/>' },
@@ -163,7 +164,11 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
                   {section.label}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {section.items.map(n => {
+                  {section.items.filter((n: any) => {
+                    if (!n.permission) return true
+                    const permissions = staff?.effectivePermissions || []
+                    return staff?.role === 'SUPER_ADMIN' || permissions.includes('*') || permissions.includes(n.permission)
+                  }).map(n => {
                     const [itemPath, itemQuery = ''] = n.href.split('?')
                     const currentView = searchParams.get('view') || ''
                     const itemView = new URLSearchParams(itemQuery).get('view') || ''

@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og'
+import { SITE_URL } from '@/lib/seo'
 
 export const runtime = 'edge'
 export const alt = 'Hangers Clothes Spa Rate Chart'
@@ -7,8 +8,6 @@ export const size = {
   height: 630,
 }
 export const contentType = 'image/png'
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://13-207-73-79.sslip.io'
 
 export default function Image() {
   const logoUrl = new URL('/brand/hangers-logo-blue.png', SITE_URL).toString()

@@ -16,7 +16,7 @@ const { normalizePaymentMethod }                   = require('../utils/payment-m
 const { withDerivedPaymentState }                  = require('../utils/order-payment-state');
 const { normalizeOrderSource }                     = require('../utils/order-source');
 const { normalizeCustomerPhone, normalizeCustomerName } = require('../utils/customer-normalization');
-const { getCapturedPaymentStatusValues, getCorePaymentMethods, getErrorCatalog, getOrderSources, getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
+const { getCapturedPaymentStatusValues, getCorePaymentMethods, getErrorCatalog, getOrderSources, getOrderStatuses, getOrderWorkflow, getWebsitePickupRequestStatuses } = require('../services/masterData.service');
 const { CommercialRuleError, commitPricingBenefits, resolveOrderPricing } = require('../services/pricing.service');
 const { PaymentRuleError, recordOrderRefund, recordOrderSettlement, reverseOrderPaymentCorrection }  = require('../services/payment.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent }          = require('../services/outbox.service');
@@ -843,6 +843,7 @@ const createOrder = async (req, res) => {
     customerId,
     customerPhone,
     customerName,
+    pickupRequestId,
     items,
     pickupDate,
     deliveryDate,
@@ -866,15 +867,18 @@ const createOrder = async (req, res) => {
       return badRequest(res, 'deliveryDate cannot be before pickupDate');
     }
 
-    const [corePaymentMethods, orderSources] = await Promise.all([
+    const [corePaymentMethods, orderSources, pickupRequestStatuses] = await Promise.all([
       getCorePaymentMethods(),
       getOrderSources(),
+      getWebsitePickupRequestStatuses(),
     ]);
     const sourceMeta = normalizeOrderSource(rawSource, orderSources);
     if (!sourceMeta) return badRequest(res, 'Invalid order source');
     if (!sourceMeta.initialStatus) return badRequest(res, 'Order source is missing its initial status');
     const source = sourceMeta.value;
     const initialStatus = sourceMeta.initialStatus;
+    const pickupConversionStatus = pickupRequestStatuses.find((item) => item.conversionTarget)?.value;
+    if (pickupRequestId && !pickupConversionStatus) return error(res, 'Pickup request workflow is missing its conversion status');
 
     const externalAmount = Number(paidAmount || 0);
     const storedValueAmount = Number(walletAmount || 0);
@@ -884,6 +888,12 @@ const createOrder = async (req, res) => {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      const pickupRequest = pickupRequestId ? await tx.websitePickupRequest.findUnique({ where: { id: pickupRequestId } }) : null;
+      if (pickupRequestId && !pickupRequest) throw new CommercialRuleError('PICKUP_REQUEST_NOT_FOUND', 'Pickup request not found');
+      if (pickupRequest?.orderId) throw new CommercialRuleError('PICKUP_REQUEST_CONVERTED', 'This pickup request is already linked to an order');
+      if (pickupRequest && !pickupRequestStatuses.find((item) => item.value === pickupRequest.status)?.canCreateOrder) {
+        throw new CommercialRuleError('PICKUP_REQUEST_STATUS_BLOCKED', 'This pickup request status does not allow order creation');
+      }
       let customer;
       let customerCreated = false;
       if (customerId) {
@@ -996,6 +1006,29 @@ const createOrder = async (req, res) => {
         },
       });
 
+      if (pickupRequest) {
+        if (pickupRequest.customerId && pickupRequest.customerId !== customer.id) {
+          throw new CommercialRuleError('PICKUP_CUSTOMER_MISMATCH', 'The selected customer does not match this pickup request');
+        }
+        await tx.websitePickupRequest.update({
+          where: { id: pickupRequest.id },
+          data: {
+            customerId: customer.id,
+            orderId: newOrder.id,
+            status: pickupConversionStatus,
+            handledById: req.staff?.id || null,
+            handledAt: new Date(),
+          },
+        });
+        await writeAuditEvent(tx, {
+          actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+          action: 'WEBSITE_PICKUP_REQUEST_CONVERTED', resource: 'website_pickup_request', resourceId: pickupRequest.id,
+          description: `${pickupRequest.requestNumber} converted to order ${newOrder.orderNumber}`,
+          metadata: { requestNumber: pickupRequest.requestNumber, orderId: newOrder.id, orderNumber: newOrder.orderNumber, customerId: customer.id },
+          ...getRequestMeta(req),
+        });
+      }
+
       await syncOrderGarmentUnits(tx, newOrder.id);
       await ensureOrderInvoice(tx, newOrder.id, req.staff?.id);
       await commitPricingBenefits(tx, pricing, { customerId: customer.id, orderId: newOrder.id });
@@ -1038,6 +1071,7 @@ const createOrder = async (req, res) => {
           source,
           initialStatus,
           customerCreated,
+          pickupRequestId: pickupRequest?.id || null,
           pricing: {
             subtotal: pricing.subtotal,
             discount: pricing.discount,

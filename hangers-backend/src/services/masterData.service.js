@@ -34,6 +34,9 @@ const {
   STAFF_ROLES,
   WEEKDAY_OPTIONS,
   WHATSAPP_TEMPLATES,
+  WEBSITE_PICKUP_REQUEST_STATUSES,
+  WEBSITE_PICKUP_TIME_SLOTS,
+  WEBSITE_PICKUP_CONTACT_METHODS,
 } = require('../config/master-data');
 
 const MASTER_SETTING_KEYS = {
@@ -71,6 +74,9 @@ const MASTER_SETTING_KEYS = {
   roleServiceAccess: 'master.roleServiceAccess',
   weekdays: 'master.weekdays',
   whatsappTemplates: 'master.whatsappTemplates',
+  websitePickupRequestStatuses: 'master.websitePickupRequestStatuses',
+  websitePickupTimeSlots: 'master.websitePickupTimeSlots',
+  websitePickupContactMethods: 'master.websitePickupContactMethods',
 };
 
 const BOOTSTRAP_MASTER_SETTINGS = {
@@ -108,6 +114,9 @@ const BOOTSTRAP_MASTER_SETTINGS = {
   [MASTER_SETTING_KEYS.roleServiceAccess]: ROLE_SERVICE_ACCESS,
   [MASTER_SETTING_KEYS.weekdays]: WEEKDAY_OPTIONS,
   [MASTER_SETTING_KEYS.whatsappTemplates]: WHATSAPP_TEMPLATES,
+  [MASTER_SETTING_KEYS.websitePickupRequestStatuses]: WEBSITE_PICKUP_REQUEST_STATUSES,
+  [MASTER_SETTING_KEYS.websitePickupTimeSlots]: WEBSITE_PICKUP_TIME_SLOTS,
+  [MASTER_SETTING_KEYS.websitePickupContactMethods]: WEBSITE_PICKUP_CONTACT_METHODS,
 };
 
 const parseJsonSetting = (setting, key) => {
@@ -167,6 +176,9 @@ const getServiceCodes = () => getMasterSetting(MASTER_SETTING_KEYS.serviceCodes)
 const getServiceCategoryUi = () => getMasterSetting(MASTER_SETTING_KEYS.serviceCategoryUi);
 const getRoleServiceAccess = () => getMasterSetting(MASTER_SETTING_KEYS.roleServiceAccess);
 const getWhatsAppTemplates = () => getMasterSetting(MASTER_SETTING_KEYS.whatsappTemplates);
+const getWebsitePickupRequestStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.websitePickupRequestStatuses);
+const getWebsitePickupTimeSlots = () => getMasterSetting(MASTER_SETTING_KEYS.websitePickupTimeSlots);
+const getWebsitePickupContactMethods = () => getMasterSetting(MASTER_SETTING_KEYS.websitePickupContactMethods);
 
 const getMasterMetadata = async () => {
   const entries = await Promise.all(
@@ -268,5 +280,8 @@ module.exports = {
   getServiceCategoryUi,
   getServiceCodes,
   getWhatsAppTemplates,
+  getWebsitePickupRequestStatuses,
+  getWebsitePickupTimeSlots,
+  getWebsitePickupContactMethods,
   syncMasterDataSettings,
 };

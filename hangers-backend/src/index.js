@@ -47,6 +47,7 @@ const serviceAppointmentsRoutes = require('./routes/service-appointments.routes'
 const metadataRoutes      = require('./routes/metadata.routes');
 const quotationsRoutes    = require('./routes/quotations.routes');
 const publicRoutes        = require('./routes/public.routes');
+const websitePickupRequestsRoutes = require('./routes/website-pickup-requests.routes');
 const { syncPermissionCatalog } = require('./services/accessControl.service');
 const { syncMasterDataSettings } = require('./services/masterData.service');
 const { processOutboxBatch } = require('./services/outbox.service');
@@ -131,6 +132,7 @@ app.use('/api/v1/staff',                       staffRoutes);
 app.use('/api/v1/orders',                      ordersRoutes);
 app.use('/api/v1/quotations',                 quotationsRoutes);
 app.use('/api/v1/customers',                   customersRoutes);
+app.use('/api/v1/website-pickup-requests',      websitePickupRequestsRoutes);
 app.use('/api/v1/payments',                    paymentsRoutes);
 app.use('/api/v1',                             challanRoutes);
 app.use('/api/v1/wallet',                      staffWalletRoutes);

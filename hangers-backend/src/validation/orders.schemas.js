@@ -51,6 +51,7 @@ const createOrderSchema = z.object({
   customerId:   z.string().trim().min(1).optional(),
   customerPhone: z.string().trim().min(5).max(30).optional(),
   customerName: z.string().trim().min(1).max(120).optional().nullable(),
+  pickupRequestId: z.string().trim().min(1).optional(),
   documentType: z.enum(['ORDER', 'QUOTATION']).optional(),
   source:       z.string().trim().max(40).optional(),
   pickupDate:   z.coerce.date().optional().nullable(),

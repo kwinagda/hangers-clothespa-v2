@@ -9,10 +9,13 @@ const {
   sendOrderStatusMessage,
   sendOrderUpdatedMessage,
   sendPaymentReceivedMessage,
+  sendPickupRequestAlert,
+  sendPickupRequestCustomerConfirmation,
 } = require('./whatomate.service');
 const { getOrderStatuses } = require('./masterData.service');
 const { formatDailyIronLogItems } = require('../utils/daily-iron-summary');
 const { writeAuditEvent } = require('./activity.service');
+const { classifyOutboxFailure } = require('../utils/outbox-retry');
 
 const CAPTURED_PAYMENT_STATUSES = new Set(['CAPTURED', 'SUCCESS', 'PAID']);
 
@@ -25,6 +28,8 @@ const OUTBOX_EVENT = Object.freeze({
   DAILY_IRON_LOG: 'DAILY_IRON_LOG',
   DAILY_IRON_LOG_BATCH: 'DAILY_IRON_LOG_BATCH',
   DAILY_IRON_PAYMENT: 'DAILY_IRON_PAYMENT',
+  PICKUP_REQUEST_CREATED: 'PICKUP_REQUEST_CREATED',
+  PICKUP_REQUEST_CUSTOMER_CONFIRMATION: 'PICKUP_REQUEST_CUSTOMER_CONFIRMATION',
 });
 
 const ORDER_NOTIFICATION_EVENTS = new Set([
@@ -171,6 +176,13 @@ const enqueueOutboxEvent = async (tx, {
       event,
       outcome: 'PENDING',
     });
+  } else if ([OUTBOX_EVENT.PICKUP_REQUEST_CREATED, OUTBOX_EVENT.PICKUP_REQUEST_CUSTOMER_CONFIRMATION].includes(eventType)) {
+    await writeAuditEvent(tx, {
+      actorType: 'system', actorName: 'Notification outbox', action: 'PICKUP_REQUEST_WHATSAPP_PENDING',
+      resource: 'website_pickup_request', resourceId: aggregateId,
+      description: eventType === OUTBOX_EVENT.PICKUP_REQUEST_CREATED ? 'Business WhatsApp alert queued for the new pickup request' : 'Customer pickup confirmation queued',
+      metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome: 'PENDING', outboxEventId: event.id, recipient: eventType === OUTBOX_EVENT.PICKUP_REQUEST_CREATED ? 'BUSINESS' : 'CUSTOMER' },
+    });
   }
   return event;
 };
@@ -232,6 +244,32 @@ const logOrderWhatsAppStage = async ({ order, eventType, payload, outcome, error
 const handleOutboxEvent = async (event) => {
   const payload = event.payload || {};
   switch (event.eventType) {
+    case OUTBOX_EVENT.PICKUP_REQUEST_CREATED: {
+      const pickupRequest = await prisma.websitePickupRequest.findUnique({ where: { id: event.aggregateId } });
+      if (!pickupRequest) return;
+      const sent = await sendPickupRequestAlert(pickupRequest, { throwOnFailure: true });
+      if (!sent) throw new Error('Pickup request alert provider did not accept the message');
+      await prisma.$transaction((tx) => writeAuditEvent(tx, {
+        actorType: 'system', actorName: 'WhatsApp worker', action: 'PICKUP_REQUEST_WHATSAPP_SENT',
+        resource: 'website_pickup_request', resourceId: pickupRequest.id,
+        description: `Business WhatsApp alert sent for ${pickupRequest.requestNumber}`,
+        metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome: 'SENT', outboxEventId: event.id },
+      }));
+      return;
+    }
+    case OUTBOX_EVENT.PICKUP_REQUEST_CUSTOMER_CONFIRMATION: {
+      const pickupRequest = await prisma.websitePickupRequest.findUnique({ where: { id: event.aggregateId } });
+      if (!pickupRequest) return;
+      const sent = await sendPickupRequestCustomerConfirmation(pickupRequest, { throwOnFailure: true });
+      if (!sent) throw new Error('Customer pickup confirmation provider did not accept the message');
+      await prisma.$transaction((tx) => writeAuditEvent(tx, {
+        actorType: 'system', actorName: 'WhatsApp worker', action: 'PICKUP_REQUEST_CUSTOMER_WHATSAPP_SENT',
+        resource: 'website_pickup_request', resourceId: pickupRequest.id,
+        description: `Customer pickup confirmation sent for ${pickupRequest.requestNumber}`,
+        metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome: 'SENT', recipient: 'CUSTOMER', outboxEventId: event.id },
+      }));
+      return;
+    }
     case OUTBOX_EVENT.ORDER_STATUS: {
       const order = await getOrderForNotification(event.aggregateId);
       if (!order) return;
@@ -459,10 +497,16 @@ const processOutboxBatch = async ({ limit = 25 } = {}) => {
         }).catch((auditError) => {
           console.error('[outbox] failed to log Daily Iron WhatsApp failure:', auditError?.message || auditError);
         });
+      } else if ([OUTBOX_EVENT.PICKUP_REQUEST_CREATED, OUTBOX_EVENT.PICKUP_REQUEST_CUSTOMER_CONFIRMATION].includes(event.eventType)) {
+        await prisma.$transaction((tx) => writeAuditEvent(tx, {
+          actorType: 'system', actorName: 'WhatsApp worker', action: 'PICKUP_REQUEST_WHATSAPP_FAILED', status: 'FAILURE',
+          resource: 'website_pickup_request', resourceId: event.aggregateId,
+          description: `${event.eventType === OUTBOX_EVENT.PICKUP_REQUEST_CREATED ? 'Business alert' : 'Customer confirmation'} failed: ${String(error?.message || error).slice(0, 180)}`,
+          metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome: 'FAILED', recipient: event.eventType === OUTBOX_EVENT.PICKUP_REQUEST_CREATED ? 'BUSINESS' : 'CUSTOMER', outboxEventId: event.id, error: String(error?.message || error).slice(0, 500) },
+        })).catch((auditError) => console.error('[outbox] failed to log pickup alert failure:', auditError?.message || auditError));
       }
       const attempts = Number(event.attempts || 1);
-      const dead = attempts >= 10;
-      const delayMs = Math.min(60 * 60 * 1000, 1000 * (2 ** Math.min(attempts, 12)));
+      const { dead, delayMs } = classifyOutboxFailure({ error, attempts });
       await prisma.outboxEvent.update({
         where: { id: event.id },
         data: {

@@ -8,126 +8,128 @@ datasource db {
 }
 
 model Customer {
-  id                  String               @id @default(uuid())
-  phone               String               @unique
-  name                String?
-  sessionVersion      Int                  @default(0)
-  ironRateOverride    Decimal?             @db.Decimal(18, 2)
-  preferredLanguage   String               @default("ENGLISH")
-  ironSubStatus       String?
-  isActive            Boolean              @default(true)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  notifPush           Boolean              @default(true)
-  notifWhatsApp       Boolean              @default(true)
-  pushToken           String?
-  dob                 DateTime?
-  ordersDue           Decimal              @default(0) @db.Decimal(18, 2)
-  referralCode        String?              @unique
-  referredById        String?
-  walletBalance       Decimal              @default(0) @db.Decimal(18, 2)
-  loyaltyPoints       Int                  @default(0)
-  notes               String?
-  tag                 String?              @default("REGULAR")
-  mapLocation         String?
-  orders              Order[]
-  addresses           Address[]
-  sessions            CustomerSession[]
-  referrer            Customer?            @relation("ReferredBy", fields: [referredById], references: [id])
-  referred            Customer[]           @relation("ReferredBy")
-  loyaltyTransactions LoyaltyTransaction[]
-  otps                OtpVerification[]
-  recurringPickups    RecurringPickup[]
-  referralReceived    Referral?            @relation("ReferralReceived")
-  referralsMade       Referral[]           @relation("ReferralsMade")
-  walletTxns          WalletTransaction[]
-  ironSubscription    IronSubscription?
-  ironLogs            IronLog[]
-  ironBills           IronBill[]
-  invoices            Invoice[]
-  payments            Payment[]
-  creditNotes         CreditNote[]
-  receipts            Receipt[]
-  returnCases         ReturnCase[]
-  serviceAppointments ServiceAppointment[]
+  id                    String                 @id @default(uuid())
+  phone                 String                 @unique
+  name                  String?
+  sessionVersion        Int                    @default(0)
+  ironRateOverride      Decimal?               @db.Decimal(18, 2)
+  preferredLanguage     String                 @default("ENGLISH")
+  ironSubStatus         String?
+  isActive              Boolean                @default(true)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  notifPush             Boolean                @default(true)
+  notifWhatsApp         Boolean                @default(true)
+  pushToken             String?
+  dob                   DateTime?
+  ordersDue             Decimal                @default(0) @db.Decimal(18, 2)
+  referralCode          String?                @unique
+  referredById          String?
+  walletBalance         Decimal                @default(0) @db.Decimal(18, 2)
+  loyaltyPoints         Int                    @default(0)
+  notes                 String?
+  tag                   String?                @default("REGULAR")
+  mapLocation           String?
+  orders                Order[]
+  addresses             Address[]
+  sessions              CustomerSession[]
+  referrer              Customer?              @relation("ReferredBy", fields: [referredById], references: [id])
+  referred              Customer[]             @relation("ReferredBy")
+  loyaltyTransactions   LoyaltyTransaction[]
+  otps                  OtpVerification[]
+  recurringPickups      RecurringPickup[]
+  referralReceived      Referral?              @relation("ReferralReceived")
+  referralsMade         Referral[]             @relation("ReferralsMade")
+  walletTxns            WalletTransaction[]
+  ironSubscription      IronSubscription?
+  ironLogs              IronLog[]
+  ironBills             IronBill[]
+  invoices              Invoice[]
+  payments              Payment[]
+  creditNotes           CreditNote[]
+  receipts              Receipt[]
+  returnCases           ReturnCase[]
+  serviceAppointments   ServiceAppointment[]
+  websitePickupRequests WebsitePickupRequest[]
 
   @@map("customers")
 }
 
 model Address {
-  id           String   @id @default(uuid())
-  customerId   String
-  label        String   @default("Home")
-  addressLine1 String
-  addressLine2 String?
-  landmark     String?
-  city         String
-  pincode      String
-  latitude     Float?
-  longitude    Float?
-  isDefault    Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  id                  String               @id @default(uuid())
+  customerId          String
+  label               String               @default("Home")
+  addressLine1        String
+  addressLine2        String?
+  landmark            String?
+  city                String
+  pincode             String
+  latitude            Float?
+  longitude           Float?
+  isDefault           Boolean              @default(false)
+  createdAt           DateTime             @default(now())
+  customer            Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
   serviceAppointments ServiceAppointment[]
 
   @@map("addresses")
 }
 
 model Staff {
-  id                           String                  @id @default(uuid())
+  id                           String                    @id @default(uuid())
   name                         String
-  phone                        String                  @unique
-  email                        String?                 @unique
+  phone                        String                    @unique
+  email                        String?                   @unique
   passwordHash                 String
-  sessionVersion               Int                     @default(0)
-  mustChangePassword           Boolean                 @default(false)
+  sessionVersion               Int                       @default(0)
+  mustChangePassword           Boolean                   @default(false)
   role                         StaffRole
-  isActive                     Boolean                 @default(true)
+  isActive                     Boolean                   @default(true)
   pin                          String?
   createdBy                    String?
   lastLoginAt                  DateTime?
-  createdAt                    DateTime                @default(now())
-  updatedAt                    DateTime                @updatedAt
+  createdAt                    DateTime                  @default(now())
+  updatedAt                    DateTime                  @updatedAt
+  handledWebsitePickupRequests WebsitePickupRequest[]    @relation("WebsitePickupHandledBy")
   orders                       Order[]
   stageChanges                 OrderStage[]
   paymentsCollected            Payment[]
-  discountApprovals            Order[]                 @relation("OrderDiscountApprovedBy")
-  writeOffApprovals            Order[]                 @relation("OrderWriteOffApprovedBy")
-  priceOverrides               OrderItem[]             @relation("OrderItemPriceOverriddenBy")
-  financialAdjustmentsCreated  FinancialAdjustment[]   @relation("FinancialAdjustmentCreatedBy")
-  financialAdjustmentsApproved FinancialAdjustment[]   @relation("FinancialAdjustmentApprovedBy")
-  walletTransactionsCreated    WalletTransaction[]     @relation("WalletTransactionCreatedBy")
-  walletTransactionsApproved   WalletTransaction[]     @relation("WalletTransactionApprovedBy")
+  discountApprovals            Order[]                   @relation("OrderDiscountApprovedBy")
+  writeOffApprovals            Order[]                   @relation("OrderWriteOffApprovedBy")
+  priceOverrides               OrderItem[]               @relation("OrderItemPriceOverriddenBy")
+  financialAdjustmentsCreated  FinancialAdjustment[]     @relation("FinancialAdjustmentCreatedBy")
+  financialAdjustmentsApproved FinancialAdjustment[]     @relation("FinancialAdjustmentApprovedBy")
+  walletTransactionsCreated    WalletTransaction[]       @relation("WalletTransactionCreatedBy")
+  walletTransactionsApproved   WalletTransaction[]       @relation("WalletTransactionApprovedBy")
   cashEntries                  CashBook[]
-  expensesCreated              Expense[]               @relation("ExpenseCreatedBy")
-  expensesApproved             Expense[]               @relation("ExpenseApprovedBy")
-  expensesVoided               Expense[]               @relation("ExpenseVoidedBy")
-  invoicesCreated              Invoice[]               @relation("InvoiceCreatedBy")
-  invoicesPosted               Invoice[]               @relation("InvoicePostedBy")
-  invoiceRevisions             InvoiceRevision[]       @relation("InvoiceRevisionCreatedBy")
-  creditNotesCreated           CreditNote[]            @relation("CreditNoteCreatedBy")
-  creditNotesApproved          CreditNote[]            @relation("CreditNoteApprovedBy")
-  receiptsIssued               Receipt[]               @relation("ReceiptIssuedBy")
-  returnCasesCreated           ReturnCase[]            @relation("ReturnCaseCreatedBy")
-  returnCasesResolved          ReturnCase[]            @relation("ReturnCaseResolvedBy")
+  expensesCreated              Expense[]                 @relation("ExpenseCreatedBy")
+  expensesApproved             Expense[]                 @relation("ExpenseApprovedBy")
+  expensesVoided               Expense[]                 @relation("ExpenseVoidedBy")
+  invoicesCreated              Invoice[]                 @relation("InvoiceCreatedBy")
+  invoicesPosted               Invoice[]                 @relation("InvoicePostedBy")
+  invoiceRevisions             InvoiceRevision[]         @relation("InvoiceRevisionCreatedBy")
+  creditNotesCreated           CreditNote[]              @relation("CreditNoteCreatedBy")
+  creditNotesApproved          CreditNote[]              @relation("CreditNoteApprovedBy")
+  receiptsIssued               Receipt[]                 @relation("ReceiptIssuedBy")
+  returnCasesCreated           ReturnCase[]              @relation("ReturnCaseCreatedBy")
+  returnCasesResolved          ReturnCase[]              @relation("ReturnCaseResolvedBy")
   challanReceipts              ChallanReceipt[]
-  plantIssuesReported          PlantQualityIssue[]     @relation("PlantIssueReportedBy")
-  plantIssuesResolved          PlantQualityIssue[]     @relation("PlantIssueResolvedBy")
-  vendorBillsApproved          VendorBill[]            @relation("VendorBillApprovedBy")
-  vendorPaymentsRecorded       VendorPayment[]         @relation("VendorPaymentRecordedBy")
-  deliveryAssignments          DeliveryAssignment[]    @relation("DeliveryAssignee")
-  deliveryAssignmentsCreated   DeliveryAssignment[]    @relation("DeliveryAssignedBy")
-  deliveryAttempts             DeliveryAttempt[]       @relation("DeliveryAttemptedBy")
+  plantIssuesReported          PlantQualityIssue[]       @relation("PlantIssueReportedBy")
+  plantIssuesResolved          PlantQualityIssue[]       @relation("PlantIssueResolvedBy")
+  vendorBillsApproved          VendorBill[]              @relation("VendorBillApprovedBy")
+  vendorPaymentsRecorded       VendorPayment[]           @relation("VendorPaymentRecordedBy")
+  deliveryAssignments          DeliveryAssignment[]      @relation("DeliveryAssignee")
+  deliveryAssignmentsCreated   DeliveryAssignment[]      @relation("DeliveryAssignedBy")
+  deliveryAttempts             DeliveryAttempt[]         @relation("DeliveryAttemptedBy")
   attendance                   Attendance[]
   permissions                  StaffPermission[]
   serviceAllowances            StaffServiceAllowance[]
   sessions                     StaffSession[]
-  ironSubscriptionsConfirmed   IronSubscription[]      @relation("IronSubscriptionConfirmedBy")
-  ironLogsEntered              IronLog[]               @relation("IronLogEnteredBy")
-  ironLogsVoided               IronLog[]               @relation("IronLogVoidedBy")
-  serviceAppointmentsAssigned  ServiceAppointment[]    @relation("ServiceAppointmentAssignee")
-  serviceAppointmentsCreated   ServiceAppointment[]    @relation("ServiceAppointmentCreatedBy")
-  serviceAppointmentsCompleted ServiceAppointment[]    @relation("ServiceAppointmentCompletedBy")
+  ironSubscriptionsConfirmed   IronSubscription[]        @relation("IronSubscriptionConfirmedBy")
+  ironLogsEntered              IronLog[]                 @relation("IronLogEnteredBy")
+  ironLogsVoided               IronLog[]                 @relation("IronLogVoidedBy")
+  serviceAppointmentsAssigned  ServiceAppointment[]      @relation("ServiceAppointmentAssignee")
+  serviceAppointmentsCreated   ServiceAppointment[]      @relation("ServiceAppointmentCreatedBy")
+  serviceAppointmentsCompleted ServiceAppointment[]      @relation("ServiceAppointmentCompletedBy")
   serviceAppointmentEvents     ServiceAppointmentEvent[]
 
   @@map("staff")
@@ -289,22 +291,26 @@ model StaffServiceAllowance {
 }
 
 model AuthChallenge {
-  id            String               @id @default(uuid())
-  subjectType   String
-  subjectKey    String
-  purpose       AuthChallengePurpose
-  status        AuthChallengeStatus  @default(PENDING)
-  hashedCode    String
-  attemptCount  Int                  @default(0)
-  maxAttempts   Int                  @default(5)
-  resendCount   Int                  @default(0)
-  lastSentAt    DateTime             @default(now())
-  cooldownUntil DateTime?
-  expiresAt     DateTime
-  consumedAt    DateTime?
-  metadata      Json?
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  id                          String                @id @default(uuid())
+  subjectType                 String
+  subjectKey                  String
+  purpose                     AuthChallengePurpose
+  status                      AuthChallengeStatus   @default(PENDING)
+  hashedCode                  String
+  attemptCount                Int                   @default(0)
+  maxAttempts                 Int                   @default(5)
+  resendCount                 Int                   @default(0)
+  lastSentAt                  DateTime              @default(now())
+  cooldownUntil               DateTime?
+  expiresAt                   DateTime
+  consumedAt                  DateTime?
+  verificationTokenHash       String?               @unique
+  verificationTokenExpiresAt  DateTime?
+  verificationTokenConsumedAt DateTime?
+  metadata                    Json?
+  createdAt                   DateTime              @default(now())
+  updatedAt                   DateTime              @updatedAt
+  websitePickupRequest        WebsitePickupRequest?
 
   @@index([subjectType, subjectKey, purpose])
   @@index([status, expiresAt])
@@ -386,6 +392,7 @@ model Order {
   plantQualityIssues    PlantQualityIssue[]
   deliveryAssignments   DeliveryAssignment[]
   deliveryAttempts      DeliveryAttempt[]
+  websitePickupRequest  WebsitePickupRequest?
 
   @@index([customerId])
   @@index([status])
@@ -496,16 +503,16 @@ model OrderStage {
 }
 
 model Service {
-  id        String      @id @default(cuid())
-  name      String
-  category  String
-  basePrice Decimal     @default(0) @db.Decimal(18, 2)
-  isActive  Boolean     @default(true)
-  sortOrder Int         @default(0)
-  createdAt DateTime    @default(now())
-  items     OrderItem[]
-  ironLogs  IronLog[]
-  serviceAppointments ServiceAppointment[]
+  id                      String                   @id @default(cuid())
+  name                    String
+  category                String
+  basePrice               Decimal                  @default(0) @db.Decimal(18, 2)
+  isActive                Boolean                  @default(true)
+  sortOrder               Int                      @default(0)
+  createdAt               DateTime                 @default(now())
+  items                   OrderItem[]
+  ironLogs                IronLog[]
+  serviceAppointments     ServiceAppointment[]
   serviceAppointmentLines ServiceAppointmentLine[]
 
   @@index([category])
@@ -656,46 +663,46 @@ model PaymentAllocation {
 }
 
 model Invoice {
-  id                 String              @id @default(cuid())
-  invoiceNumber      String              @unique
-  customerId         String
-  orderId            String?             @unique
-  ironBillId         String?             @unique
-  serviceAppointmentId String?           @unique
-  sourceType         String
-  status             String              @default("OPEN")
-  currency           String              @default("INR")
-  issueDate          DateTime            @default(now())
-  dueDate            DateTime
-  subtotal           Decimal             @db.Decimal(18, 2)
-  discountAmount     Decimal             @default(0) @db.Decimal(18, 2)
-  taxAmount          Decimal             @default(0) @db.Decimal(18, 2)
-  totalAmount        Decimal             @db.Decimal(18, 2)
-  paidAmount         Decimal             @default(0) @db.Decimal(18, 2)
-  creditAmount       Decimal             @default(0) @db.Decimal(18, 2)
-  balanceDue         Decimal             @db.Decimal(18, 2)
-  paymentTermsDays   Int                 @default(7)
-  version            Int                 @default(1)
-  postedAt           DateTime?
-  voidedAt           DateTime?
-  voidReason         String?
-  createdById        String?
-  postedById         String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  customer           Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  order              Order?              @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  ironBill           IronBill?           @relation(fields: [ironBillId], references: [id], onDelete: Restrict)
-  serviceAppointment ServiceAppointment? @relation(fields: [serviceAppointmentId], references: [id], onDelete: Restrict)
-  createdBy          Staff?              @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  postedBy           Staff?              @relation("InvoicePostedBy", fields: [postedById], references: [id], onDelete: Restrict)
-  lines              InvoiceLine[]
-  allocations        PaymentAllocation[]
-  revisions          InvoiceRevision[]
-  creditNotes        CreditNote[]
-  refundAllocations  RefundAllocation[]
-  receipts           Receipt[]
-  receiptAllocations ReceiptAllocation[]
+  id                   String                @id @default(cuid())
+  invoiceNumber        String                @unique
+  customerId           String
+  orderId              String?               @unique
+  ironBillId           String?               @unique
+  serviceAppointmentId String?               @unique
+  sourceType           String
+  status               String                @default("OPEN")
+  currency             String                @default("INR")
+  issueDate            DateTime              @default(now())
+  dueDate              DateTime
+  subtotal             Decimal               @db.Decimal(18, 2)
+  discountAmount       Decimal               @default(0) @db.Decimal(18, 2)
+  taxAmount            Decimal               @default(0) @db.Decimal(18, 2)
+  totalAmount          Decimal               @db.Decimal(18, 2)
+  paidAmount           Decimal               @default(0) @db.Decimal(18, 2)
+  creditAmount         Decimal               @default(0) @db.Decimal(18, 2)
+  balanceDue           Decimal               @db.Decimal(18, 2)
+  paymentTermsDays     Int                   @default(7)
+  version              Int                   @default(1)
+  postedAt             DateTime?
+  voidedAt             DateTime?
+  voidReason           String?
+  createdById          String?
+  postedById           String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  customer             Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  order                Order?                @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  ironBill             IronBill?             @relation(fields: [ironBillId], references: [id], onDelete: Restrict)
+  serviceAppointment   ServiceAppointment?   @relation(fields: [serviceAppointmentId], references: [id], onDelete: Restrict)
+  createdBy            Staff?                @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  postedBy             Staff?                @relation("InvoicePostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  lines                InvoiceLine[]
+  allocations          PaymentAllocation[]
+  revisions            InvoiceRevision[]
+  creditNotes          CreditNote[]
+  refundAllocations    RefundAllocation[]
+  receipts             Receipt[]
+  receiptAllocations   ReceiptAllocation[]
   financialAdjustments FinancialAdjustment[]
 
   @@index([customerId, status, dueDate])
@@ -705,12 +712,12 @@ model Invoice {
 }
 
 model ServiceAppointment {
-  id                String    @id @default(cuid())
-  appointmentNumber String    @unique
+  id                String                    @id @default(cuid())
+  appointmentNumber String                    @unique
   customerId        String
   serviceId         String?
   serviceName       String
-  status            String    @default("SCHEDULED")
+  status            String                    @default("SCHEDULED")
   scheduledAt       DateTime
   startedAt         DateTime?
   completedAt       DateTime?
@@ -722,20 +729,20 @@ model ServiceAppointment {
   addressSnapshot   Json?
   notes             String?
   internalNotes     String?
-  subtotal          Decimal   @default(0) @db.Decimal(18, 2)
-  discountAmount    Decimal   @default(0) @db.Decimal(18, 2)
-  totalAmount       Decimal   @default(0) @db.Decimal(18, 2)
+  subtotal          Decimal                   @default(0) @db.Decimal(18, 2)
+  discountAmount    Decimal                   @default(0) @db.Decimal(18, 2)
+  totalAmount       Decimal                   @default(0) @db.Decimal(18, 2)
   pricingSnapshot   Json?
   createdById       String?
   completedById     String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  customer          Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  serviceAddress    Address?  @relation(fields: [addressId], references: [id], onDelete: SetNull)
-  service           Service?  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  assignedTo        Staff?    @relation("ServiceAppointmentAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
-  createdBy         Staff?    @relation("ServiceAppointmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  completedBy       Staff?    @relation("ServiceAppointmentCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  customer          Customer                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  serviceAddress    Address?                  @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  service           Service?                  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  assignedTo        Staff?                    @relation("ServiceAppointmentAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  createdBy         Staff?                    @relation("ServiceAppointmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  completedBy       Staff?                    @relation("ServiceAppointmentCompletedBy", fields: [completedById], references: [id], onDelete: Restrict)
   invoice           Invoice?
   lines             ServiceAppointmentLine[]
   events            ServiceAppointmentEvent[]
@@ -748,21 +755,21 @@ model ServiceAppointment {
 }
 
 model ServiceAppointmentLine {
-  id            String             @id @default(cuid())
-  appointmentId String
-  serviceId     String?
-  description   String
-  quantity      Decimal            @default(1) @db.Decimal(18, 3)
-  unitPrice     Decimal            @db.Decimal(18, 2)
-  lineDiscountType String?
-  lineDiscountValue Decimal          @default(0) @db.Decimal(18, 2)
-  discountAmount Decimal           @default(0) @db.Decimal(18, 2)
-  lineTotal     Decimal            @db.Decimal(18, 2)
-  notes         String?
-  metadata      Json?
-  createdAt     DateTime           @default(now())
-  appointment   ServiceAppointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  service       Service?           @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  id                String             @id @default(cuid())
+  appointmentId     String
+  serviceId         String?
+  description       String
+  quantity          Decimal            @default(1) @db.Decimal(18, 3)
+  unitPrice         Decimal            @db.Decimal(18, 2)
+  lineDiscountType  String?
+  lineDiscountValue Decimal            @default(0) @db.Decimal(18, 2)
+  discountAmount    Decimal            @default(0) @db.Decimal(18, 2)
+  lineTotal         Decimal            @db.Decimal(18, 2)
+  notes             String?
+  metadata          Json?
+  createdAt         DateTime           @default(now())
+  appointment       ServiceAppointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  service           Service?           @relation(fields: [serviceId], references: [id], onDelete: SetNull)
 
   @@index([appointmentId])
   @@index([serviceId])
@@ -770,17 +777,17 @@ model ServiceAppointmentLine {
 }
 
 model ServiceAppointmentEvent {
-  id             String             @id @default(cuid())
-  appointmentId  String
-  eventType      String
-  fromStatus     String?
-  toStatus       String?
-  notes          String?
-  metadata       Json?
-  changedById    String?
-  createdAt      DateTime           @default(now())
-  appointment    ServiceAppointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  changedBy      Staff?             @relation(fields: [changedById], references: [id], onDelete: Restrict)
+  id            String             @id @default(cuid())
+  appointmentId String
+  eventType     String
+  fromStatus    String?
+  toStatus      String?
+  notes         String?
+  metadata      Json?
+  changedById   String?
+  createdAt     DateTime           @default(now())
+  appointment   ServiceAppointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  changedBy     Staff?             @relation(fields: [changedById], references: [id], onDelete: Restrict)
 
   @@index([appointmentId, createdAt])
   @@map("service_appointment_events")
@@ -1641,6 +1648,48 @@ model Setting {
   @@map("settings")
 }
 
+model WebsitePickupRequest {
+  id                      String         @id @default(cuid())
+  requestNumber           String         @unique
+  name                    String
+  phone                   String
+  address                 String
+  addressLine1            String?
+  addressLine2            String?
+  landmark                String?
+  city                    String?
+  pincode                 String?
+  items                   Json?
+  itemsSummary            String?
+  preferredDate           DateTime?
+  serviceNeeded           String?
+  preferredSlot           String?
+  notes                   String?
+  status                  String         @default("NEW")
+  customerId              String?
+  orderId                 String?        @unique
+  handledById             String?
+  handledAt               DateTime?
+  cancelledReason         String?
+  verificationChallengeId String?        @unique
+  verifiedAt              DateTime?
+  externalSource          String?
+  externalRequestId       String?
+  queuedAt                DateTime?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  customer                Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  order                   Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  handledBy               Staff?         @relation("WebsitePickupHandledBy", fields: [handledById], references: [id], onDelete: SetNull)
+  verificationChallenge   AuthChallenge? @relation(fields: [verificationChallengeId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([customerId])
+  @@index([handledById])
+  @@unique([externalSource, externalRequestId])
+  @@map("website_pickup_requests")
+}
+
 enum StaffRole {
   SUPER_ADMIN
   MANAGER
@@ -1663,6 +1712,7 @@ enum OtpPurpose {
 enum AuthChallengePurpose {
   CUSTOMER_LOGIN
   DELIVERY_CONFIRMATION
+  WEBSITE_PICKUP_REQUEST
 }
 
 enum AuthChallengeStatus {

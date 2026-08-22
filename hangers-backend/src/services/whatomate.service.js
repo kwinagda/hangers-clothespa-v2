@@ -1,4 +1,5 @@
 const axios = require('axios');
+const prisma = require('../config/database');
 const { getWhatsAppTemplates } = require('./masterData.service');
 const { createPublicShareToken } = require('./publicShare.service');
 const { maskPhone, providerErrorSummary } = require('../utils/redact');
@@ -90,7 +91,7 @@ const ironBalance = (bill) => {
   return Math.max(0, Number((total - paid).toFixed(2)));
 };
 
-const resolveParam = ({ name, order, payment, iron, reminder }) => {
+const resolveParam = ({ name, order, payment, iron, reminder, pickupRequest, otpCode }) => {
   const customer = order?.customer || {};
   const ironCustomer = iron?.customer || {};
   const log = iron?.log || {};
@@ -121,7 +122,14 @@ const resolveParam = ({ name, order, payment, iron, reminder }) => {
     outstandingOrderCount: String(reminder?.outstandingOrderCount || 0),
     upiId: paymentSettings.vpa || '',
     gpayNumber: paymentSettings.gpayNumber || '',
+    requestNumber: pickupRequest?.requestNumber || '',
+    customerPhone: pickupRequest?.phone || '',
+    itemsSummary: pickupRequest?.itemsSummary || pickupRequest?.serviceNeeded || 'Not specified',
+    preferredSchedule: pickupRequest?.preferredSchedule || 'Not specified',
+    pickupAddress: pickupRequest?.address || '',
+    otpCode: otpCode || '',
   };
+  if (name === 'customerName' && pickupRequest?.name) return pickupRequest.name;
   if (name === 'customerName' && ironCustomer.name) return ironCustomer.name;
   if (name === 'balanceDue' && iron?.bill) return values.ironBalanceDue;
   return values[name] ?? '';
@@ -170,13 +178,17 @@ const postTemplate = async ({ phone, templateName, templateParams, buttonParams,
   };
 
   if (!isEnabled(phone)) {
-    console.log('[Whatomate DEV] Template send simulated:', {
+    const blocked = new WhatomateDeliveryError('WhatsApp send blocked by the local development allowlist', {
+      retryable: false,
+      code: 'DEV_SEND_BLOCKED',
+    });
+    console.log('[Whatomate DEV] Template send blocked:', {
       phone: maskPhone(phone),
       templateName,
       paramCount: Object.keys(templateParams || {}).length,
       buttonCount: Object.keys(buttonParams || {}).length,
     });
-    return true;
+    return maybeThrow(throwOnFailure, blocked);
   }
 
   try {
@@ -498,6 +510,65 @@ const sendDailyIronPaymentMessage = async ({ customer, subscription, bill, amoun
   });
 };
 
+const sendPickupRequestAlert = async (pickupRequest, { throwOnFailure = false } = {}) => {
+  const [config, profileSetting] = await Promise.all([
+    getWhatsAppTemplates(),
+    prisma.setting.findUnique({ where: { key: 'public_site_profile' }, select: { value: true } }),
+  ]);
+  let profile = {};
+  try { profile = JSON.parse(profileSetting?.value || '{}'); } catch { profile = {}; }
+  const template = config?.pickupRequestAlert;
+  if (!profile.phone) {
+    return maybeThrow(throwOnFailure, new WhatomateDeliveryError('Business alert phone is not configured in the public site profile', { retryable: false, code: 'MISSING_BUSINESS_PHONE' }));
+  }
+  if (!template?.templateName) {
+    return maybeThrow(throwOnFailure, new WhatomateDeliveryError('Pickup request alert template is not configured', { retryable: false, code: 'MISSING_TEMPLATE' }));
+  }
+  const preferredSchedule = [formatDate(pickupRequest?.preferredDate), pickupRequest?.preferredSlot].filter(Boolean).join(', ') || 'Not specified';
+  return postTemplate({
+    phone: profile.phone,
+    templateName: template.templateName,
+    templateParams: buildTemplateParams(template.params, { pickupRequest: { ...pickupRequest, preferredSchedule } }),
+    accountName: config.accountName,
+    idempotencyKey: `pickup-request-created:${pickupRequest?.id}`,
+    throwOnFailure,
+  });
+};
+
+const sendPickupRequestOtp = async ({ phone, code, throwOnFailure = false }) => {
+  const config = await getWhatsAppTemplates();
+  const template = config?.pickupRequestOtp;
+  if (!template?.templateName) {
+    return maybeThrow(throwOnFailure, new WhatomateDeliveryError('Pickup OTP template is not configured', { retryable: false, code: 'MISSING_TEMPLATE' }));
+  }
+  return postTemplate({
+    phone,
+    templateName: template.templateName,
+    templateParams: buildTemplateParams(template.params, { otpCode: code }),
+    buttonParams: template.buttonIndex !== undefined ? { [String(template.buttonIndex)]: code } : {},
+    accountName: config.accountName,
+    idempotencyKey: `pickup-request-otp:${normalizePhone(phone)}:${code}`,
+    throwOnFailure,
+  });
+};
+
+const sendPickupRequestCustomerConfirmation = async (pickupRequest, { throwOnFailure = false } = {}) => {
+  const config = await getWhatsAppTemplates();
+  const template = config?.pickupRequestCustomerConfirmation;
+  if (!template?.templateName) {
+    return maybeThrow(throwOnFailure, new WhatomateDeliveryError('Pickup confirmation template is not configured', { retryable: false, code: 'MISSING_TEMPLATE' }));
+  }
+  const preferredSchedule = [formatDate(pickupRequest?.preferredDate), pickupRequest?.preferredSlot].filter(Boolean).join(', ') || 'Our team will contact you';
+  return postTemplate({
+    phone: pickupRequest.phone,
+    templateName: template.templateName,
+    templateParams: buildTemplateParams(template.params, { pickupRequest: { ...pickupRequest, preferredSchedule } }),
+    accountName: config.accountName,
+    idempotencyKey: `pickup-request-customer-confirmation:${pickupRequest?.id}`,
+    throwOnFailure,
+  });
+};
+
 module.exports = {
   sendOrderStatusMessage,
   sendPaymentReceivedMessage,
@@ -507,6 +578,9 @@ module.exports = {
   sendDailyIronLogMessage,
   sendDailyIronBillMessage,
   sendDailyIronPaymentMessage,
+  sendPickupRequestAlert,
+  sendPickupRequestOtp,
+  sendPickupRequestCustomerConfirmation,
   postTemplate,
   normalizePhone,
   isDevPhoneAllowed,

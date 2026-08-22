@@ -131,6 +131,26 @@ export const metadataAPI = {
   getAll: () => api.get('/metadata') as any,
 }
 
+export const pickupRequestsAPI = {
+  list: (params?: any) => api.get('/website-pickup-requests', { params }) as any,
+  get: (id: string) => api.get(`/website-pickup-requests/${id}`) as any,
+  updateStatus: (id: string, data: { status: string; reason?: string; note?: string; contactMethod?: string; preferredDate?: string; preferredSlot?: string }) => api.patch(
+    `/website-pickup-requests/${id}/status`,
+    data,
+    idempotencyConfig('pickup-request-status')
+  ) as any,
+  prepareOrder: (id: string) => api.post(
+    `/website-pickup-requests/${id}/prepare-order`,
+    {},
+    idempotencyConfig('pickup-request-prepare-order')
+  ) as any,
+  retryWhatsApp: (id: string, activityId: string) => api.post(
+    `/website-pickup-requests/${id}/notifications/${activityId}/retry`,
+    {},
+    idempotencyConfig('pickup-request-notification-retry')
+  ) as any,
+}
+
 export const logsAPI = {
   orderTimeline: (params?: any) => api.get('/logs/order-timeline', { params }) as any,
 }
