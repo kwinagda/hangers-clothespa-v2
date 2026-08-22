@@ -66,7 +66,7 @@ const validatePickupBody = (body) => {
   return null;
 };
 
-const postTemplate = async ({ phone, templateName, templateParams, idempotencyKey }) => {
+const postTemplate = async ({ phone, templateName, templateParams, buttonParams, idempotencyKey }) => {
   const response = await fetch(process.env.WHATOMATE_TEMPLATE_URL, {
     method: 'POST',
     headers: {
@@ -78,7 +78,7 @@ const postTemplate = async ({ phone, templateName, templateParams, idempotencyKe
       phone_number: e164Phone(phone),
       template_name: templateName,
       template_params: templateParams,
-      button_params: {},
+      button_params: buttonParams || {},
       account_name: process.env.WHATOMATE_ACCOUNT_NAME || 'Hangers',
     }),
   });
@@ -119,6 +119,7 @@ const sendOtp = async (body) => {
     phone,
     templateName: process.env.OTP_TEMPLATE_NAME || 'hangers_otp',
     templateParams: { '1': code },
+    buttonParams: { '0': code },
     idempotencyKey: `public-pickup-otp:${phone}:${nonce}`,
   });
   return json(200, { success: true, message: 'Verification code sent on WhatsApp', data: { expiresIn: 600, cooldownSeconds: 60 } });
