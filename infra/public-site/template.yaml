@@ -231,6 +231,10 @@ Resources:
         function handler(event) {
           var request = event.request;
           var uri = request.uri;
+          var exactFilePaths = ['/opengraph-image', '/rate-chart/opengraph-image'];
+          if (exactFilePaths.indexOf(uri) !== -1) {
+            return request;
+          }
           if (uri.indexOf('.') === -1) {
             request.uri = uri.endsWith('/') ? uri + 'index.html' : uri + '/index.html';
           }
