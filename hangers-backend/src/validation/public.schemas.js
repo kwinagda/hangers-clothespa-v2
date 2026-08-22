@@ -34,6 +34,7 @@ const publicPickupRequestSchema = pickupRequestDetailsSchema.extend({
 const queuedPickupRequestSchema = pickupRequestDetailsSchema.extend({
   externalSource: z.string().trim().min(2).max(80),
   externalRequestId: z.string().trim().min(8).max(120),
+  requestNumber: z.string().trim().min(1).max(40).optional().nullable(),
   verifiedAt: z.string().trim().datetime().optional().nullable(),
 }).strict();
 

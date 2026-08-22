@@ -88,6 +88,19 @@ const postTemplate = async ({ phone, templateName, templateParams, buttonParams,
   }
 };
 
+const reservePickupRequestNumber = async () => {
+  const result = await dynamo.send(new UpdateItemCommand({
+    TableName: process.env.PICKUP_SEQUENCE_TABLE_NAME,
+    Key: { sequenceKey: ddbString('WEBSITE_PICKUP_REQUEST') },
+    UpdateExpression: 'SET nextValue = if_not_exists(nextValue, :start) + :incr',
+    ExpressionAttributeValues: { ':start': ddbNumber(1), ':incr': ddbNumber(1) },
+    ReturnValues: 'UPDATED_NEW',
+  }));
+  const nextValue = Number(result.Attributes.nextValue.N);
+  const value = nextValue - 1;
+  return `PR-${String(value).padStart(3, '0')}`;
+};
+
 const formatSchedule = (body) => [body.preferredDate, body.preferredSlot].filter(Boolean).join(', ') || 'Our team will contact you';
 const formatItems = (items) => items.map((item) => `${item.serviceName || item.serviceKey}: ${item.quantity} pcs`).join(', ');
 const formatAddress = (body) => [body.addressLine1, body.addressLine2, body.landmark, body.city, body.pincode].map((item) => String(item || '').trim()).filter(Boolean).join(', ');
@@ -146,10 +159,11 @@ const submitPickup = async (body) => {
   }
 
   const externalRequestId = crypto.randomUUID();
-  const requestNumber = `WEB-${externalRequestId.slice(0, 8).toUpperCase()}`;
+  const requestNumber = await reservePickupRequestNumber();
   const payload = {
     externalSource: 'AWS_PUBLIC_PICKUP_INTAKE',
     externalRequestId,
+    requestNumber,
     verifiedAt: new Date().toISOString(),
     phone,
     name: String(body.name || '').trim(),

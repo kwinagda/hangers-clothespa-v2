@@ -164,7 +164,7 @@ const preparePickupRequestData = ({ input, siteProfile, pickupStatuses, pickupTi
   return { name, phone, preferredDate, preferredSlot, notes, initialStatus, items, itemsSummary, address };
 };
 
-const persistVerifiedPickupRequest = async ({ tx, req, input, prepared, verificationChallengeId = null, verifiedAt = new Date(), externalSource = null, externalRequestId = null, queuedAt = null, enqueueNotifications = true }) => {
+const persistVerifiedPickupRequest = async ({ tx, req, input, prepared, verificationChallengeId = null, verifiedAt = new Date(), externalSource = null, externalRequestId = null, requestNumber: preAssignedRequestNumber = null, queuedAt = null, enqueueNotifications = true }) => {
   if (externalSource && externalRequestId) {
     const existing = await tx.websitePickupRequest.findFirst({
       where: { externalSource, externalRequestId },
@@ -193,7 +193,8 @@ const persistVerifiedPickupRequest = async ({ tx, req, input, prepared, verifica
           city: input.city, pincode: input.pincode, isDefault: addressCount === 0,
         } });
       }
-      const requestNumber = await nextDocumentNumber({ tx, documentType: 'WEBSITE_PICKUP_REQUEST', prefix: 'PR-', padding: 3 });
+      const requestNumber = preAssignedRequestNumber
+        || await nextDocumentNumber({ tx, documentType: 'WEBSITE_PICKUP_REQUEST', prefix: 'PR-', padding: 3 });
       const createdRequest = await tx.websitePickupRequest.create({
         data: {
       requestNumber, name: prepared.name, phone: prepared.phone, address: prepared.address, addressLine1: input.addressLine1,
@@ -315,6 +316,7 @@ const ingestQueuedPickupRequest = async (req, res) => {
       verifiedAt: input.verifiedAt ? new Date(input.verifiedAt) : new Date(),
       externalSource: input.externalSource,
       externalRequestId: input.externalRequestId,
+      requestNumber: input.requestNumber,
       queuedAt: new Date(),
       enqueueNotifications: false,
     }));
