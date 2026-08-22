@@ -268,6 +268,13 @@ Resources:
             - EventType: viewer-request
               FunctionARN: !GetAtt CleanUrlFunction.FunctionARN
         CacheBehaviors:
+          - PathPattern: _next/static/*
+            TargetOriginId: crm-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
           - PathPattern: dashboard
             TargetOriginId: crm-origin
             ViewerProtocolPolicy: redirect-to-https
