@@ -1,7 +1,7 @@
 'use client'
 
 import Script from 'next/script'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 
 declare global {
@@ -13,6 +13,7 @@ declare global {
 const GTM_ID = 'GTM-5M5WF5CV'
 const CRM_PATH_PREFIXES = ['/dashboard']
 const CRM_PATHS = ['/login', '/change-password']
+const MARKETING_HOSTS = new Set(['hangers-cs.com', 'www.hangers-cs.com'])
 
 function isPublicPath(pathname: string) {
   return !CRM_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix)) && !CRM_PATHS.includes(pathname)
@@ -20,7 +21,12 @@ function isPublicPath(pathname: string) {
 
 export default function PublicGoogleTagManager() {
   const pathname = usePathname()
-  const publicPath = isPublicPath(pathname)
+  const [isMarketingSite, setIsMarketingSite] = useState(false)
+  const publicPath = isMarketingSite && isPublicPath(pathname)
+
+  useEffect(() => {
+    setIsMarketingSite(MARKETING_HOSTS.has(window.location.hostname))
+  }, [])
 
   useEffect(() => {
     if (!publicPath) return
