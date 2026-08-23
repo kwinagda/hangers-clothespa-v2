@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import QueryProvider from '@/providers/QueryProvider'
 import TextInputCapitalizer from '@/components/TextInputCapitalizer'
-import PublicGoogleTagManager from '@/components/PublicGoogleTagManager'
 import { DEFAULT_DESCRIPTION, SITE_NAME, SITE_URL } from '@/lib/seo'
 
 export const metadata: Metadata = {
@@ -45,7 +44,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <PublicGoogleTagManager />
         <QueryProvider>
           <TextInputCapitalizer />
           {children}
