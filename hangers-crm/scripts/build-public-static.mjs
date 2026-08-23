@@ -30,8 +30,63 @@ const fileRoutes = [
   ['/rate-chart/opengraph-image', 'rate-chart/opengraph-image', false],
 ];
 
+// These routes are always served live by the CRM origin (see CacheBehaviors in
+// infra/public-site/template.yaml: dashboard, dashboard/*, login, change-password,
+// invoice/*, quotation/*, daily-iron/*) - their HTML is never read from S3. But
+// _next/static/* defaults to the S3 origin for every route, so each of these pages'
+// own JS/CSS bundles still need to exist in the S3 snapshot or their hydration
+// breaks with "Application error" the moment EC2 rebuilds. Fetched here purely to
+// harvest asset references; their HTML itself is discarded, never written to outDir.
+const assetOnlyRoutes = [
+  '/login',
+  '/change-password',
+  '/dashboard',
+  '/dashboard/ar-challans',
+  '/dashboard/attendance',
+  '/dashboard/cashbook',
+  '/dashboard/customers',
+  '/dashboard/customers/_probe',
+  '/dashboard/expenses',
+  '/dashboard/finance',
+  '/dashboard/iron/applications',
+  '/dashboard/iron/logs',
+  '/dashboard/iron/sheet',
+  '/dashboard/logs',
+  '/dashboard/marketing',
+  '/dashboard/orders',
+  '/dashboard/orders/_probe',
+  '/dashboard/orders/new',
+  '/dashboard/orders/return',
+  '/dashboard/pickup-requests',
+  '/dashboard/plantchallans',
+  '/dashboard/pricing',
+  '/dashboard/print',
+  '/dashboard/promotions',
+  '/dashboard/quotations',
+  '/dashboard/quotations/print',
+  '/dashboard/recurring',
+  '/dashboard/referrals',
+  '/dashboard/reports',
+  '/dashboard/search',
+  '/dashboard/service-appointments',
+  '/dashboard/staff',
+  '/invoice/_probe',
+  '/quotation/_probe',
+  '/daily-iron/_probe',
+];
+
 const staticAssetUrls = new Set();
 const ASSET_ATTR_RE = /(?:src|href)="(\/_next\/static\/[^"]+)"/g;
+
+const scanRouteAssets = async (route) => {
+  const response = await fetch(`${origin}${route}`);
+  if (!response.ok) {
+    console.warn(`Skipping asset scan for ${route}: ${response.status}`);
+    return;
+  }
+  const html = await response.text();
+  for (const match of html.matchAll(ASSET_ATTR_RE)) staticAssetUrls.add(match[1]);
+};
 
 const writeRoute = async (route, filePath, required = true) => {
   const response = await fetch(`${origin}${route}`);
@@ -78,8 +133,12 @@ for (const [route, filePath, required] of fileRoutes) {
   await writeRoute(route, filePath, required);
 }
 
+for (const route of assetOnlyRoutes) {
+  await scanRouteAssets(route);
+}
+
 for (const assetPath of staticAssetUrls) {
   await writeAsset(assetPath);
 }
 
-console.log(`Static public website written to ${outDir} (${staticAssetUrls.size} static assets fetched live from ${origin})`);
+console.log(`Static public website written to ${outDir} (${staticAssetUrls.size} static assets fetched live from ${origin}, covering ${htmlRoutes.length} public pages + ${assetOnlyRoutes.length} CRM-origin pages)`);
