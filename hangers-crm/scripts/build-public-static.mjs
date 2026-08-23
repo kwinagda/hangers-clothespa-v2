@@ -26,8 +26,13 @@ const fileRoutes = [
   ['/sitemap.xml', 'sitemap.xml', true],
   ['/manifest.webmanifest', 'manifest.webmanifest', true],
   ['/llms.txt', 'llms.txt', false],
-  ['/opengraph-image', 'opengraph-image', false],
-  ['/rate-chart/opengraph-image', 'rate-chart/opengraph-image', false],
+  // Every public page may have its own opengraph-image.tsx (Next.js file-based OG
+  // image convention: <route>/opengraph-image). Derived from htmlRoutes below rather
+  // than listed by hand so a new page's preview image is never silently missed.
+  ...htmlRoutes.map((route) => {
+    const ogRoute = route === '/' ? '/opengraph-image' : `${route}/opengraph-image`;
+    return [ogRoute, ogRoute.slice(1), false];
+  }),
 ];
 
 // These routes are always served live by the CRM origin (see CacheBehaviors in
