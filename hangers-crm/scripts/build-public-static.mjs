@@ -35,63 +35,27 @@ const fileRoutes = [
   }),
 ];
 
-// These routes are always served live by the CRM origin (see CacheBehaviors in
-// infra/public-site/template.yaml: dashboard, dashboard/*, login, change-password,
-// invoice/*, quotation/*, daily-iron/*) - their HTML is never read from S3. But
-// _next/static/* defaults to the S3 origin for every route, so each of these pages'
-// own JS/CSS bundles still need to exist in the S3 snapshot or their hydration
-// breaks with "Application error" the moment EC2 rebuilds. Fetched here purely to
-// harvest asset references; their HTML itself is discarded, never written to outDir.
-const assetOnlyRoutes = [
-  '/login',
-  '/change-password',
-  '/dashboard',
-  '/dashboard/ar-challans',
-  '/dashboard/attendance',
-  '/dashboard/cashbook',
-  '/dashboard/customers',
-  '/dashboard/customers/_probe',
-  '/dashboard/expenses',
-  '/dashboard/finance',
-  '/dashboard/iron/applications',
-  '/dashboard/iron/logs',
-  '/dashboard/iron/sheet',
-  '/dashboard/logs',
-  '/dashboard/marketing',
-  '/dashboard/orders',
-  '/dashboard/orders/_probe',
-  '/dashboard/orders/new',
-  '/dashboard/orders/return',
-  '/dashboard/pickup-requests',
-  '/dashboard/plantchallans',
-  '/dashboard/pricing',
-  '/dashboard/print',
-  '/dashboard/promotions',
-  '/dashboard/quotations',
-  '/dashboard/quotations/print',
-  '/dashboard/recurring',
-  '/dashboard/referrals',
-  '/dashboard/reports',
-  '/dashboard/search',
-  '/dashboard/service-appointments',
-  '/dashboard/staff',
-  '/invoice/_probe',
-  '/quotation/_probe',
-  '/daily-iron/_probe',
-];
-
+// CRM-origin pages (dashboard/*, login, change-password, invoice/*, quotation/*,
+// daily-iron/* - see CacheBehaviors in infra/public-site/template.yaml) are never
+// read from S3 for their HTML. But _next/static/* defaults to the S3 origin for
+// every route, so those pages' own JS/CSS bundles still need to exist in S3 too, or
+// their hydration breaks with "Application error" the moment EC2 rebuilds.
+//
+// Discovering those bundles by scraping each CRM page's HTML was tried and proved
+// incomplete: it only finds chunks referenced in a page's initial script tags, never
+// ones loaded on demand (next/dynamic, lazy modals, etc.), so pages kept breaking
+// piecemeal as new untracked chunks slipped through. The reliable fix is authoritative,
+// not discovered: after every `npm run build` on EC2, sync the ENTIRE .next/static
+// directory straight to S3 from EC2 itself, which is complete by construction:
+//
+//   aws s3 sync /opt/hangers/hangers-crm/.next/static \
+//     s3://hangers-cs-website-977714654070-ap-south-1-v2/_next/static --delete
+//
+// (EC2's instance role has a scoped HangersCRMWebsiteStaticSync policy for exactly
+// this prefix.) This script only needs to cover the public marketing pages' own HTML
+// + file routes below - it no longer scans CRM pages for asset references.
 const staticAssetUrls = new Set();
 const ASSET_ATTR_RE = /(?:src|href)="(\/_next\/static\/[^"]+)"/g;
-
-const scanRouteAssets = async (route) => {
-  const response = await fetch(`${origin}${route}`);
-  if (!response.ok) {
-    console.warn(`Skipping asset scan for ${route}: ${response.status}`);
-    return;
-  }
-  const html = await response.text();
-  for (const match of html.matchAll(ASSET_ATTR_RE)) staticAssetUrls.add(match[1]);
-};
 
 const writeRoute = async (route, filePath, required = true) => {
   const response = await fetch(`${origin}${route}`);
@@ -138,12 +102,9 @@ for (const [route, filePath, required] of fileRoutes) {
   await writeRoute(route, filePath, required);
 }
 
-for (const route of assetOnlyRoutes) {
-  await scanRouteAssets(route);
-}
-
 for (const assetPath of staticAssetUrls) {
   await writeAsset(assetPath);
 }
 
-console.log(`Static public website written to ${outDir} (${staticAssetUrls.size} static assets fetched live from ${origin}, covering ${htmlRoutes.length} public pages + ${assetOnlyRoutes.length} CRM-origin pages)`);
+console.log(`Static public website written to ${outDir} (${staticAssetUrls.size} static assets fetched live from ${origin}, covering ${htmlRoutes.length} public pages).`);
+console.log('Reminder: also run the EC2-side .next/static -> S3 sync (see comment above) so CRM-origin pages stay in sync.');
