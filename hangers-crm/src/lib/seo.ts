@@ -6,6 +6,11 @@ export const DEFAULT_DESCRIPTION = 'Professional dry cleaning, curtain care, iro
 
 export function buildPublicMetadata({ title, description, path }: { title: string; description: string; path: string }): Metadata {
   const canonicalPath = path.startsWith('/') ? path : `/${path}`
+  // Each public page owns its own <route>/opengraph-image.tsx (Next.js file-based OG
+  // image convention). Compute its URL from the page's own path rather than hardcoding
+  // the root image here, or every page silently shares one preview image regardless
+  // of whether it has its own opengraph-image.tsx sitting right next to it.
+  const ogImagePath = canonicalPath === '/' ? '/opengraph-image' : `${canonicalPath}/opengraph-image`
   return {
     title: { absolute: title },
     description,
@@ -17,13 +22,13 @@ export function buildPublicMetadata({ title, description, path }: { title: strin
       siteName: SITE_NAME,
       locale: 'en_IN',
       type: 'website',
-      images: [{ url: '/opengraph-image', width: 1200, height: 630, alt: `${SITE_NAME} - Care in Every Clean` }],
+      images: [{ url: ogImagePath, width: 1200, height: 630, alt: title }],
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
-      images: ['/opengraph-image'],
+      images: [ogImagePath],
     },
   }
 }
