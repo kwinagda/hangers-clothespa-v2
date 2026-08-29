@@ -14,7 +14,7 @@ export default async function Image() {
       kicker: 'Pickup Zones',
       title: 'Where we collect and deliver.',
       description: `Free pickup and delivery across ${pickupZones.join(', ')} on eligible orders above Rs. ${pickupMinimumOrder}.`,
-      photo: '/brand/curtain-care-hero.png',
+      photo: '/brand/curtain-care-hero.webp',
     }),
     size,
   )

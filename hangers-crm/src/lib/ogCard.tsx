@@ -1,7 +1,7 @@
 import { SITE_URL } from '@/lib/seo'
 
 export function buildOgCard({ kicker, title, description, photo, dark = false }: { kicker: string; title: string; description: string; photo: string; dark?: boolean }) {
-  const logoUrl = new URL(dark ? '/brand/hangers-logo-white.png' : '/brand/hangers-logo-blue.png', SITE_URL).toString()
+  const logoUrl = new URL(dark ? '/brand/hangers-logo-white.webp' : '/brand/hangers-logo-blue.webp', SITE_URL).toString()
   const photoUrl = new URL(photo, SITE_URL).toString()
   const bg = dark ? '#023c62' : '#f7f9fc'
   const titleColor = dark ? '#fff' : '#023c62'

@@ -12,7 +12,7 @@ export default function Image() {
       kicker: 'Services',
       title: 'Every Hangers service, with its live item rates.',
       description: 'Garment care, ironing, curtains, household textiles and footwear — priced directly from our live catalog.',
-      photo: '/brand/garment-care-hero.png',
+      photo: '/brand/garment-care-hero.webp',
     }),
     size,
   )

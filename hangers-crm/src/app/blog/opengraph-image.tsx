@@ -12,7 +12,7 @@ export default function Image() {
       kicker: 'Care Journal',
       title: 'Garment Care Journal',
       description: 'Practical guidance on stains, storage, curtains and footwear — the small decisions that can prevent permanent damage.',
-      photo: '/brand/curtain-care-hero.png',
+      photo: '/brand/curtain-care-hero.webp',
     }),
     size,
   )

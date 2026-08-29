@@ -12,7 +12,7 @@ export default function Image() {
       kicker: 'Monthly Plans',
       title: 'Monthly care for wardrobes that need us weekly.',
       description: 'Individual, household and custom recurring plans — built around your actual routine, never an invented package price.',
-      photo: '/brand/landing-garment-care.jpg',
+      photo: '/brand/landing-garment-care.webp',
     }),
     size,
   )

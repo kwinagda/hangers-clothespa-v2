@@ -12,7 +12,7 @@ export default function Image() {
       kicker: 'Corporate Accounts',
       title: 'Garment and linen care for businesses across Mumbai.',
       description: 'Tailored plans for hotels, restaurants, clinics, salons and offices — quoted after a real requirement review, never a generic package.',
-      photo: '/brand/curtain-care-hero.png',
+      photo: '/brand/curtain-care-hero.webp',
       dark: true,
     }),
     size,

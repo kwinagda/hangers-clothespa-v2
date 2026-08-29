@@ -12,7 +12,7 @@ export default function Image() {
       kicker: 'FAQ',
       title: 'Questions we get asked at the counter.',
       description: 'Turnaround, pickup, curtains, rates and garment tracking — everything to know before you hand over your items.',
-      photo: '/brand/garment-care-hero.png',
+      photo: '/brand/garment-care-hero.webp',
     }),
     size,
   )

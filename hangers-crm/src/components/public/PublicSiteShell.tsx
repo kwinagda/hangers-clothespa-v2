@@ -24,7 +24,7 @@ export default function PublicSiteShell({ profile, children }: { profile: Public
     name: profile.businessName,
     url: siteUrl,
     logo: `${siteUrl}${LOGO_BLUE_URL}`,
-    image: [`${siteUrl}/brand/curtain-care-hero.png`, `${siteUrl}/brand/garment-care-hero.png`],
+    image: [`${siteUrl}/brand/curtain-care-hero.webp`, `${siteUrl}/brand/garment-care-hero.webp`],
     telephone: profile.phone,
     email: profile.email,
     foundingDate: String(profile.establishedYear),

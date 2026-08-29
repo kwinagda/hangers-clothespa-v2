@@ -14,7 +14,7 @@ export default async function Image() {
       kicker: 'About Hangers',
       title: 'A neighbourhood garment-care shop built around clear service.',
       description: `Serving Mulund West since ${establishedYear} with hands-on item inspection, barcode tracking and WhatsApp order updates.`,
-      photo: '/brand/garment-care-hero.png',
+      photo: '/brand/garment-care-hero.webp',
     }),
     size,
   )

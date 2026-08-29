@@ -41,7 +41,7 @@ export default async function Image() {
     (
       <div style={{ width: '100%', height: '100%', display: 'flex', position: 'relative', background: '#f7f9fc', fontFamily: 'Arial, sans-serif' }}>
         <div style={{ position: 'relative', width: 660, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '58px 56px' }}>
-          <img src={new URL('/brand/hangers-logo-blue.png', SITE_URL).toString()} width="190" height="58" alt="" style={{ objectFit: 'contain', objectPosition: 'left center', marginBottom: 36 }} />
+          <img src={new URL('/brand/hangers-logo-blue.webp', SITE_URL).toString()} width="190" height="58" alt="" style={{ objectFit: 'contain', objectPosition: 'left center', marginBottom: 36 }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#e8f0f7', borderRadius: 999, padding: '8px 16px', alignSelf: 'flex-start', marginBottom: 26 }}>
             <div style={{ width: 8, height: 8, borderRadius: 999, background: '#166534', display: 'flex' }} />
             <span style={{ fontSize: 18, fontWeight: 700, color: '#023c62' }}>{profile.tag}</span>
@@ -68,7 +68,7 @@ export default async function Image() {
           </div>
         </div>
         <div style={{ position: 'relative', width: 540, display: 'flex' }}>
-          <img src={new URL('/brand/garment-care-hero.png', SITE_URL).toString()} width="540" height="630" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img src={new URL('/brand/garment-care-hero.webp', SITE_URL).toString()} width="540" height="630" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         </div>
       </div>
     ),

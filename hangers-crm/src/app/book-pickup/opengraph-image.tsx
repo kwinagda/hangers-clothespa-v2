@@ -14,7 +14,7 @@ export default async function Image() {
       kicker: 'Book a Pickup',
       title: 'Book a pickup in about two minutes.',
       description: `Free collection across ${pickupZones.join(', ')} for eligible orders above Rs. ${pickupMinimumOrder}.`,
-      photo: '/brand/garment-care-hero.png',
+      photo: '/brand/garment-care-hero.webp',
     }),
     size,
   )

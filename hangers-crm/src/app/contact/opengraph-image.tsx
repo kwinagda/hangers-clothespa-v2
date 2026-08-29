@@ -12,7 +12,7 @@ export default function Image() {
       kicker: 'Contact',
       title: 'Visit or speak with the Hangers team.',
       description: 'Call, WhatsApp, email or visit our Mulund West shop counter — photos of a fabric or stain are welcome before you book.',
-      photo: '/brand/landing-garment-care.jpg',
+      photo: '/brand/landing-garment-care.webp',
     }),
     size,
   )
