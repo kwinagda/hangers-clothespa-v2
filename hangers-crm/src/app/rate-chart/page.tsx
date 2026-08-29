@@ -392,6 +392,19 @@ export default async function PublicRateChartPage() {
       `}</style>
 
       <div className="rate-shell">
+        <section className="rate-seo-catalog" aria-label="Hangers service rates">
+          <h2>Hangers service rates</h2>
+          {categories.map((category: any) => (
+            <div key={category.id || category.key}>
+              <h3>{category.label || category.name}</h3>
+              {Array.isArray(category.items) && category.items.map((item: any) => (
+                <p key={item.id || `${category.key}-${item.name}`}>
+                  <span>{item.name}</span><strong>Rs. {Number(item.price || 0).toLocaleString('en-IN')}</strong>
+                </p>
+              ))}
+            </div>
+          ))}
+        </section>
         <RateChartClient categories={categories} />
 
         <p className="rate-note">Final billing may vary for custom work, special handling, stain treatment, garment condition, or size.</p>
