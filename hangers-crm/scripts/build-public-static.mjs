@@ -56,11 +56,14 @@ const fileRoutes = [
 // directory straight to S3 from EC2 itself, which is complete by construction:
 //
 //   aws s3 sync /opt/hangers/hangers-crm/.next/static \
-//     s3://hangers-cs-website-977714654070-ap-south-1-v2/_next/static --delete
+//     s3://hangers-cs-website-977714654070-ap-south-1-v2/_next/static \
+//     --cache-control "public,max-age=31536000,immutable"
 //
 // (EC2's instance role has a scoped HangersCRMWebsiteStaticSync policy for exactly
-// this prefix.) This script only needs to cover the public marketing pages' own HTML
-// + file routes below - it no longer scans CRM pages for asset references.
+// this prefix.) Old hashed chunks must be retained so tabs opened before a deploy do
+// not break. Lifecycle cleanup can remove old build assets after a safe retention
+// period. This script only needs to cover the public marketing pages' own HTML + file
+// routes below - it no longer scans CRM pages for asset references.
 const staticAssetUrls = new Set();
 const ASSET_ATTR_RE = /(?:src|href)="(\/_next\/static\/[^"]+)"/g;
 

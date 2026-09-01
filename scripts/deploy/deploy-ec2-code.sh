@@ -4,6 +4,7 @@ set -Eeuo pipefail
 REPO_ROOT="${HANGERS_REPO_ROOT:-/opt/hangers}"
 DEPLOY_USER="${HANGERS_DEPLOY_USER:-ubuntu}"
 PM2_HOME="${HANGERS_PM2_HOME:-/home/ubuntu/.pm2}"
+STATIC_BUCKET="${HANGERS_STATIC_BUCKET:-hangers-cs-website-977714654070-ap-south-1-v2}"
 TARGET_REVISION="${1:-origin/main}"
 LOCK_FILE="/var/lock/hangers-code-deploy.lock"
 
@@ -76,6 +77,15 @@ fi
 
 echo "Building CRM..."
 run_as_deploy_user npm run build --prefix hangers-crm
+
+# CloudFront serves /_next/static from S3, while CRM HTML comes from EC2. Publish
+# the complete new immutable build before exposing its HTML. Never delete older
+# hashed chunks here: already-open browser tabs may still need them.
+echo "Publishing Next.js static assets..."
+run_as_deploy_user aws s3 sync \
+  "$REPO_ROOT/hangers-crm/.next/static" \
+  "s3://$STATIC_BUCKET/_next/static" \
+  --cache-control "public,max-age=31536000,immutable"
 
 echo "Restarting application processes..."
 run_as_deploy_user env PM2_HOME="$PM2_HOME" pm2 restart \

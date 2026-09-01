@@ -13,10 +13,11 @@ The command:
 3. fetches Git and permits fast-forward deployments only;
 4. installs dependencies only when package manifests changed;
 5. generates Prisma Client when required, but never changes the database;
-6. builds Next.js before restarting any process;
-7. restarts the API, worker, and CRM through the existing Ubuntu PM2 service;
-8. verifies API liveness, API/database readiness, CRM login, and the deployed commit;
-9. prints an explicit completion marker for SSM and CI logs.
+6. builds Next.js and uploads its immutable `/_next/static` files to S3 before restart;
+7. retains older hashed chunks so already-open CRM tabs continue working;
+8. restarts the API, worker, and CRM through the existing Ubuntu PM2 service;
+9. verifies API liveness, API/database readiness, CRM login, and the deployed commit;
+10. prints an explicit completion marker for SSM and CI logs.
 
 Untracked production files such as `.env` remain untouched. Database migrations,
 seeding, restores, imports, and data synchronization are intentionally outside this

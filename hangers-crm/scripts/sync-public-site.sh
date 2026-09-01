@@ -33,5 +33,5 @@ done
 echo "==> Invalidating CloudFront cache"
 aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/*" --query 'Invalidation.Id' --output text
 
-echo "==> Done. Remember: also sync EC2's own .next/static after any CRM deploy:"
-echo "    aws s3 sync /opt/hangers/hangers-crm/.next/static s3://$BUCKET/_next/static --delete"
+echo "==> Done. The guarded EC2 deploy publishes .next/static before restarting CRM."
+echo "    Old hashed chunks are intentionally retained for already-open browser tabs."
