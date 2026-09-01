@@ -32,6 +32,9 @@ environment:
 - `AWS_PRODUCTION_INSTANCE_ID` (`i-05c749925b8391b99`)
 - `AWS_REGION` (`ap-south-1`)
 
+The AWS identity provider and least-privilege role are managed by
+`infra/deployment/github-actions-oidc.yaml`.
+
 The AWS role should trust only this repository's protected `production`
 environment and should have only the SSM permissions needed to send and inspect
 commands for the production instance. Do not store long-lived AWS access keys in

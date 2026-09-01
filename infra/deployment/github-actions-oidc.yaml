@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Least-privilege GitHub Actions OIDC access for Hangers production EC2 deployment
+
+Parameters:
+  GitHubOrganization:
+    Type: String
+    Default: kwinagda
+  GitHubRepository:
+    Type: String
+    Default: hangers-clothespa-v2
+  ProductionInstanceId:
+    Type: AWS::EC2::Instance::Id
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+      Tags:
+        - Key: Application
+          Value: Hangers CRM
+
+  ProductionDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: GitHub Actions role for guarded Hangers CRM code deployments through SSM
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrganization}/${GitHubRepository}:environment:production
+      Policies:
+        - PolicyName: SendGuardedProductionDeployment
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: SendCommandToProductionInstance
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${ProductionInstanceId}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
+              - Sid: ReadDeploymentCommandResult
+                Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                Resource: '*'
+
+Outputs:
+  ProductionDeployRoleArn:
+    Description: Set this as the GitHub production environment variable AWS_PRODUCTION_DEPLOY_ROLE_ARN
+    Value: !GetAtt ProductionDeployRole.Arn
