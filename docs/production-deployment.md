@@ -16,7 +16,8 @@ The command:
 6. builds Next.js and uploads its immutable `/_next/static` files to S3 before restart;
 7. retains older hashed chunks so already-open CRM tabs continue working;
 8. restarts the API, worker, and CRM through the existing Ubuntu PM2 service;
-9. verifies API liveness, API/database readiness, CRM login, and the deployed commit;
+9. verifies API liveness, API/database readiness, local CRM login, public CRM pages,
+   public Next.js asset availability, and the deployed commit;
 10. prints an explicit completion marker for SSM and CI logs.
 
 Untracked production files such as `.env` remain untouched. Database migrations,
@@ -52,6 +53,10 @@ from **Actions > Deploy Production CRM > Run workflow** after CI passes.
   orchestration steps; Git, npm, builds, and PM2 commands run as `ubuntu`.
 - Never edit tracked source directly on EC2. Commit to Git first, then deploy that
   commit.
+- CloudFront serves CRM `/_next/static` files from S3, so deployment always uploads
+  the new build assets before restarting the CRM. The deploy command intentionally
+  does not delete older hashed chunks during release, because open browser tabs may
+  still reference them.
 
 ## Database Releases
 

@@ -5,6 +5,7 @@ REPO_ROOT="${HANGERS_REPO_ROOT:-/opt/hangers}"
 DEPLOY_USER="${HANGERS_DEPLOY_USER:-ubuntu}"
 PM2_HOME="${HANGERS_PM2_HOME:-/home/ubuntu/.pm2}"
 STATIC_BUCKET="${HANGERS_STATIC_BUCKET:-hangers-cs-website-977714654070-ap-south-1-v2}"
+PUBLIC_CRM_URL="${HANGERS_PUBLIC_CRM_URL:-https://hangers-cs.com}"
 TARGET_REVISION="${1:-origin/main}"
 LOCK_FILE="/var/lock/hangers-code-deploy.lock"
 
@@ -109,6 +110,37 @@ wait_for_url() {
 wait_for_url "Backend liveness" "http://127.0.0.1:5001/health"
 wait_for_url "Backend readiness" "http://127.0.0.1:5001/ready"
 wait_for_url "CRM login" "http://127.0.0.1:5002/login"
+
+verify_public_next_assets() {
+  local route="$1"
+  local html_file
+  html_file="$(mktemp)"
+  if ! curl --fail --silent --show-error --max-time 20 \
+    "${PUBLIC_CRM_URL}${route}" >"$html_file"; then
+    rm -f "$html_file"
+    fail "public route ${PUBLIC_CRM_URL}${route} is not reachable"
+  fi
+
+  local asset_count=0
+  local missing_assets=0
+  while IFS= read -r asset; do
+    [[ -n "$asset" ]] || continue
+    asset_count=$((asset_count + 1))
+    if ! curl --fail --silent --max-time 15 \
+      "${PUBLIC_CRM_URL}${asset}" >/dev/null 2>&1; then
+      echo "Missing public asset: ${PUBLIC_CRM_URL}${asset}" >&2
+      missing_assets=$((missing_assets + 1))
+    fi
+  done < <(grep -oE '/_next/static/[^" ]+' "$html_file" | tr -d '\\' | sort -u)
+  rm -f "$html_file"
+
+  [[ "$asset_count" -gt 0 ]] || fail "public route $route did not expose any Next.js assets"
+  [[ "$missing_assets" -eq 0 ]] || fail "$missing_assets Next.js asset(s) missing for public route $route"
+  echo "Public route $route has $asset_count reachable Next.js assets."
+}
+
+verify_public_next_assets "/login"
+verify_public_next_assets "/dashboard/iron/monthly"
 
 deployed_commit="$(run_as_deploy_user git rev-parse HEAD)"
 [[ "$deployed_commit" == "$target_commit" ]] \
