@@ -171,15 +171,33 @@ const logDailyIronRejected = async (req, {
   }
 };
 
+const IRON_BACKDATE_OVERRIDE_ROLES = ['SUPER_ADMIN', 'MANAGER'];
+const getIronBackdateDays = () => Math.max(0, Number(process.env.IRON_LOG_BACKDATE_DAYS || 7));
+const canOverrideIronBackdateLimit = (staff) => IRON_BACKDATE_OVERRIDE_ROLES.includes(staff?.role);
+const normalizeBackdateReason = (value) => String(value || '').trim();
+
 const normalizeIronServiceDate = (value) => startOfDay(value);
-const validateIronServiceDate = (value) => {
+const validateIronServiceDate = (value, options = {}) => {
   const serviceDate = normalizeIronServiceDate(value);
   const today = startOfDay(new Date());
   const earliest = new Date(today);
-  earliest.setDate(earliest.getDate() - Math.max(0, Number(process.env.IRON_LOG_BACKDATE_DAYS || 7)));
+  earliest.setDate(earliest.getDate() - getIronBackdateDays());
   if (serviceDate > today) throw new Error('FUTURE_IRON_LOG_DATE');
-  if (serviceDate < earliest) throw new Error('IRON_LOG_BACKDATE_LIMIT');
+  if (serviceDate < earliest) {
+    if (!canOverrideIronBackdateLimit(options.staff)) throw new Error('IRON_LOG_BACKDATE_LIMIT');
+    if (normalizeBackdateReason(options.backdateReason).length < 3) {
+      throw Object.assign(new Error('Older Daily Iron entries require a clear reason'), { code: 'IRON_BACKDATE_REASON_REQUIRED' });
+    }
+  }
   return serviceDate;
+};
+
+const isBeyondIronBackdateLimit = (value) => {
+  const serviceDate = normalizeIronServiceDate(value);
+  const today = startOfDay(new Date());
+  const earliest = new Date(today);
+  earliest.setDate(earliest.getDate() - getIronBackdateDays());
+  return serviceDate < earliest;
 };
 
 const isBeforeToday = (value) => startOfDay(value).getTime() < startOfDay(new Date()).getTime();
@@ -886,7 +904,7 @@ const getLogsByPeriod = async (req, res) => {
 };
 
 const createLog = async (req, res) => {
-  const { customerId, serviceId, date, pieces, notes } = req.body;
+  const { customerId, serviceId, date, pieces, notes, backdateReason } = req.body;
   const piecesCount = Number(pieces);
   let manualRate = null;
 
@@ -899,7 +917,8 @@ const createLog = async (req, res) => {
   }
 
   try {
-    const logDate = validateIronServiceDate(toDate(date) || new Date());
+    const logDate = validateIronServiceDate(toDate(date) || new Date(), { staff: req.staff, backdateReason });
+    const backdatedBeyondLimit = isBeyondIronBackdateLimit(logDate);
     const logEntry = await prisma.$transaction(async (tx) => {
       const subscriptionRef = await tx.ironSubscription.findUnique({ where: { customerId }, select: { id: true } });
       if (!subscriptionRef) throw Object.assign(new Error('Iron subscription not found'), { code: 'SUBSCRIPTION_NOT_FOUND' });
@@ -930,7 +949,17 @@ const createLog = async (req, res) => {
         actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
         action: 'DAILY_IRON_LOG_CREATED', resource: 'iron_log', resourceId: createdLog.id,
         description: `${service.name} x${piecesCount} logged for ${subscription.customer.name || subscription.customer.phone}`,
-        metadata: { customerId, serviceId, serviceDate: logDate, pieces: piecesCount, rateSource: appliedRate.source, rate: appliedRate.rate, amount },
+        metadata: {
+          customerId,
+          serviceId,
+          serviceDate: logDate,
+          pieces: piecesCount,
+          rateSource: appliedRate.source,
+          rate: appliedRate.rate,
+          amount,
+          backdatedBeyondLimit,
+          backdateReason: backdatedBeyondLimit ? normalizeBackdateReason(backdateReason) : null,
+        },
         ...getRequestMeta(req),
       });
       if (subscription.customer.notifWhatsApp !== false) {
@@ -950,7 +979,7 @@ const createLog = async (req, res) => {
   } catch (err) {
     console.error('createLog error:', err);
     if (err.code === 'SUBSCRIPTION_NOT_FOUND') return notFound(res, err.message);
-    if (['SUBSCRIPTION_INACTIVE', 'INVALID_DAILY_IRON_SERVICE', 'INVALID_DAILY_IRON_RATE', 'IRON_RATE_REASON_REQUIRED'].includes(err.code)) return badRequest(res, err.message);
+    if (['SUBSCRIPTION_INACTIVE', 'INVALID_DAILY_IRON_SERVICE', 'INVALID_DAILY_IRON_RATE', 'IRON_RATE_REASON_REQUIRED', 'IRON_BACKDATE_REASON_REQUIRED'].includes(err.code)) return badRequest(res, err.message);
     if (err.message === 'FUTURE_IRON_LOG_DATE') return badRequest(res, 'Daily Iron service date cannot be in the future');
     if (err.message === 'IRON_LOG_BACKDATE_LIMIT') return badRequest(res, `Daily Iron service date cannot be more than ${process.env.IRON_LOG_BACKDATE_DAYS || 7} days old`);
     if (err.code === 'P2002') return res.status(409).json({ success: false, message: 'Daily Iron log conflicts with an existing unique record; retry after refreshing the page' });
@@ -960,7 +989,7 @@ const createLog = async (req, res) => {
 };
 
 const createLogsBatch = async (req, res) => {
-  const { customerId, date, notes, items, sourceOrderId } = req.body;
+  const { customerId, date, notes, items, sourceOrderId, backdateReason } = req.body;
   const inputItems = Array.isArray(items) ? items : [];
 
   if (!customerId) {
@@ -1013,7 +1042,8 @@ const createLogsBatch = async (req, res) => {
     return badRequest(res, 'pieces must be a positive integer for every item');
   }
   try {
-    const logDate = validateIronServiceDate(toDate(date) || new Date());
+    const logDate = validateIronServiceDate(toDate(date) || new Date(), { staff: req.staff, backdateReason });
+    const backdatedBeyondLimit = isBeyondIronBackdateLimit(logDate);
     const createdLogs = await prisma.$transaction(async (tx) => {
       const subscriptionRef = await tx.ironSubscription.findUnique({ where: { customerId }, select: { id: true } });
       if (!subscriptionRef) throw Object.assign(new Error('Iron subscription not found'), { code: 'SUBSCRIPTION_NOT_FOUND' });
@@ -1064,7 +1094,13 @@ const createLogsBatch = async (req, res) => {
         actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
         action: 'DAILY_IRON_LOG_BATCH_CREATED', resource: 'iron_subscription', resourceId: subscription.id,
         description: `${rows.length} Daily Iron service lines logged for ${subscription.customer.name || subscription.customer.phone}`,
-        metadata: { customerId, serviceDate: logDate, logs: rows.map((log) => ({ id: log.id, serviceId: log.serviceId, pieces: log.pieces, rate: log.ratePerPiece, amount: log.amount })) },
+        metadata: {
+          customerId,
+          serviceDate: logDate,
+          logs: rows.map((log) => ({ id: log.id, serviceId: log.serviceId, pieces: log.pieces, rate: log.ratePerPiece, amount: log.amount })),
+          backdatedBeyondLimit,
+          backdateReason: backdatedBeyondLimit ? normalizeBackdateReason(backdateReason) : null,
+        },
         ...getRequestMeta(req),
       });
       if (subscription.customer.notifWhatsApp !== false) {
@@ -1102,6 +1138,7 @@ const createLogsBatch = async (req, res) => {
         code: err.code || null,
         itemCount: inputItems.length,
         serviceDate: date || null,
+        backdateReason: normalizeBackdateReason(backdateReason) || null,
         items: normalizedItems.map((item) => ({
           serviceId: item.serviceId,
           pieces: item.pieces,
@@ -1110,7 +1147,7 @@ const createLogsBatch = async (req, res) => {
       },
     });
     if (err.code === 'SUBSCRIPTION_NOT_FOUND') return notFound(res, err.message);
-    if (['SUBSCRIPTION_INACTIVE', 'INVALID_DAILY_IRON_SERVICE', 'INVALID_DAILY_IRON_RATE', 'IRON_RATE_REASON_REQUIRED'].includes(err.code)) return badRequest(res, err.message);
+    if (['SUBSCRIPTION_INACTIVE', 'INVALID_DAILY_IRON_SERVICE', 'INVALID_DAILY_IRON_RATE', 'IRON_RATE_REASON_REQUIRED', 'IRON_BACKDATE_REASON_REQUIRED'].includes(err.code)) return badRequest(res, err.message);
     if (err.message === 'FUTURE_IRON_LOG_DATE') return badRequest(res, 'Daily Iron service date cannot be in the future');
     if (err.message === 'IRON_LOG_BACKDATE_LIMIT') return badRequest(res, `Daily Iron service date cannot be more than ${process.env.IRON_LOG_BACKDATE_DAYS || 7} days old`);
     if (err.code === 'P2002') return res.status(409).json({ success: false, message: 'Daily Iron log conflicts with an existing unique record; retry after refreshing the page' });
@@ -1119,7 +1156,7 @@ const createLogsBatch = async (req, res) => {
 };
 
 const createDaySheet = async (req, res) => {
-  const { date, rows } = req.body;
+  const { date, rows, backdateReason } = req.body;
   const inputRows = Array.isArray(rows) ? rows : [];
 
   if (!inputRows.length) return badRequest(res, 'At least one customer row is required');
@@ -1175,7 +1212,8 @@ const createDaySheet = async (req, res) => {
   }
 
   try {
-    const logDate = validateIronServiceDate(toDate(date) || new Date());
+    const logDate = validateIronServiceDate(toDate(date) || new Date(), { staff: req.staff, backdateReason });
+    const backdatedBeyondLimit = isBeyondIronBackdateLimit(logDate);
     const customerIds = [...new Set(normalizedRows.map((row) => row.customerId))];
     const serviceIds = [...new Set(normalizedRows.flatMap((row) => row.items.map((item) => item.serviceId)))];
 
@@ -1274,6 +1312,8 @@ const createDaySheet = async (req, res) => {
             customerId: row.customerId,
             serviceDate: logDate,
             logs: logs.map((log) => ({ id: log.id, serviceId: log.serviceId, pieces: log.pieces, rate: log.ratePerPiece, amount: log.amount })),
+            backdatedBeyondLimit,
+            backdateReason: backdatedBeyondLimit ? normalizeBackdateReason(backdateReason) : null,
           },
           ...getRequestMeta(req),
         });
@@ -1308,6 +1348,8 @@ const createDaySheet = async (req, res) => {
           customerCount: resultRows.length,
           logCount: resultRows.reduce((sum, row) => sum + row.logs.length, 0),
           customerIds,
+          backdatedBeyondLimit,
+          backdateReason: backdatedBeyondLimit ? normalizeBackdateReason(backdateReason) : null,
         },
         ...getRequestMeta(req),
       });
@@ -1341,6 +1383,7 @@ const createDaySheet = async (req, res) => {
         rowErrors,
         rowCount: inputRows.length,
         serviceDate: date || null,
+        backdateReason: normalizeBackdateReason(backdateReason) || null,
       },
       ...getRequestMeta(req),
     });
@@ -1350,7 +1393,7 @@ const createDaySheet = async (req, res) => {
         ? 'Daily Iron service date cannot be in the future'
         : `Daily Iron service date cannot be more than ${process.env.IRON_LOG_BACKDATE_DAYS || 7} days old`);
     }
-    if (['INVALID_DAILY_IRON_SERVICE', 'INVALID_DAILY_IRON_RATE', 'IRON_RATE_REASON_REQUIRED'].includes(err.code)) return badRequest(res, err.message);
+    if (['INVALID_DAILY_IRON_SERVICE', 'INVALID_DAILY_IRON_RATE', 'IRON_RATE_REASON_REQUIRED', 'IRON_BACKDATE_REASON_REQUIRED'].includes(err.code)) return badRequest(res, err.message);
     return error(res, 'Failed to save Daily Iron sheet');
   }
 };
@@ -1509,8 +1552,10 @@ const correctLog = async (req, res) => {
 
 const getLogRules = async (req, res) => success(res, {
   today: startOfDay(new Date()),
-  backdateDays: Math.max(0, Number(process.env.IRON_LOG_BACKDATE_DAYS || 7)),
+  backdateDays: getIronBackdateDays(),
   futureDatesAllowed: false,
+  canBackdateBeyondLimit: canOverrideIronBackdateLimit(req.staff),
+  backdateReasonRequired: true,
   correction: {
     unbilledOnly: true,
     reasonRequired: true,

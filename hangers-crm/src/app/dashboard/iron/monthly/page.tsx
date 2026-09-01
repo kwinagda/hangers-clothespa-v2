@@ -14,6 +14,48 @@ const money = (value: unknown) => `₹${Number(value || 0).toLocaleString('en-IN
 const currentMonth = () => new Date().toISOString().slice(0, 7)
 const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const statusLabel: Record<string, string> = { UNBILLED:'Unbilled', PARTIALLY_BILLED:'Partially billed', BILLED:'Billed', PARTIALLY_PAID:'Partially paid', PAID:'Paid', NO_ACTIVITY:'No activity' }
+type IronLogRules = {
+  today?: string
+  backdateDays: number
+  futureDatesAllowed?: boolean
+  canBackdateBeyondLimit?: boolean
+  backdateReasonRequired?: boolean
+}
+
+const parseDateOnly = (value: string) => {
+  if (!value) return null
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+const dateText = (value: Date) => {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+const getRuleDateBounds = (rules: IronLogRules | null) => {
+  const today = parseDateOnly(String(rules?.today || '').slice(0, 10)) || parseDateOnly(new Date().toISOString().slice(0, 10)) || new Date()
+  const earliest = new Date(today)
+  earliest.setDate(earliest.getDate() - Math.max(0, Number(rules?.backdateDays || 0)))
+  return { today: dateText(today), earliest: dateText(earliest) }
+}
+const isBeyondIronBackdateLimit = (date: string, rules: IronLogRules | null) => {
+  if (!rules) return false
+  const selected = parseDateOnly(date)
+  const earliest = parseDateOnly(getRuleDateBounds(rules).earliest)
+  return Boolean(selected && earliest && selected < earliest)
+}
+const ironDateRuleError = (date: string, rules: IronLogRules | null) => {
+  if (!rules) return null
+  const selected = parseDateOnly(date)
+  if (!selected) return 'Select a valid Daily Iron service date'
+  const { today, earliest } = getRuleDateBounds(rules)
+  const todayDate = parseDateOnly(today)
+  const earliestDate = parseDateOnly(earliest)
+  if (!rules.futureDatesAllowed && todayDate && selected > todayDate) return 'Daily Iron service date cannot be in the future'
+  if (earliestDate && selected < earliestDate && !rules.canBackdateBeyondLimit) return `Daily Iron service date cannot be more than ${rules.backdateDays} days old`
+  return null
+}
 
 export default function DailyIronMonthlyPage() {
   const [month, setMonth] = useState(currentMonth())
@@ -28,6 +70,8 @@ export default function DailyIronMonthlyPage() {
   const [addQty, setAddQty] = useState<Record<string, number>>({})
   const [savingClothes, setSavingClothes] = useState(false)
   const [billingWorkspace, setBillingWorkspace] = useState<{rows:any[];action?:'GENERATE'|'SEND'|'PAY'|'REMIND'}|null>(null)
+  const [logRules, setLogRules] = useState<IronLogRules | null>(null)
+  const [backdateReason, setBackdateReason] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -39,6 +83,11 @@ export default function DailyIronMonthlyPage() {
     finally { setLoading(false) }
   }, [month])
   useEffect(() => { load() }, [load])
+  useEffect(() => {
+    ironAPI.getLogRules()
+      .then((response: any) => setLogRules(response?.data || response))
+      .catch(() => setLogRules(null))
+  }, [])
 
   const rows = useMemo(() => (payload?.customers || []).filter((row: any) => {
     const matchesSearch = `${row.customer?.name || ''} ${row.customer?.phone || ''}`.toLowerCase().includes(search.toLowerCase())
@@ -65,6 +114,7 @@ export default function DailyIronMonthlyPage() {
   const openAdd = async (row: any, day: number) => {
     setAdding({ row, day, date: `${month}-${String(day).padStart(2, '0')}` })
     setAddQty({})
+    setBackdateReason('')
     if (services.length) return
     try {
       const response = await servicesAPI.getDailyIronRates()
@@ -75,11 +125,22 @@ export default function DailyIronMonthlyPage() {
   const saveClothes = async () => {
     const items = services.filter((service:any)=>Number(addQty[service.id])>0).map((service:any)=>({ serviceId:service.id, pieces:Number(addQty[service.id]) }))
     if (!items.length || savingClothes) return toast.error('Add at least one clothing item')
+    const dateError = ironDateRuleError(adding.date, logRules)
+    const needsOverride = isBeyondIronBackdateLimit(adding.date, logRules)
+    if (dateError) return toast.error(dateError)
+    if (needsOverride && logRules?.canBackdateBeyondLimit && logRules?.backdateReasonRequired && backdateReason.trim().length < 3) {
+      return toast.error('Add a reason for saving Daily Iron entries older than the normal window')
+    }
     setSavingClothes(true)
     try {
-      await ironAPI.createLogsBatch({ customerId:adding.row.customer.id, date:adding.date, items })
+      await ironAPI.createLogsBatch({
+        customerId:adding.row.customer.id,
+        date:adding.date,
+        items,
+        ...(needsOverride ? { backdateReason: backdateReason.trim() } : {}),
+      })
       toast.success(`Clothes added for ${adding.row.customer.name}`)
-      setAdding(null); setAddQty({}); await load()
+      setAdding(null); setAddQty({}); setBackdateReason(''); await load()
     } catch (error:any) { toast.error(error.message || 'Failed to add clothes') }
     finally { setSavingClothes(false) }
   }
@@ -106,7 +167,7 @@ export default function DailyIronMonthlyPage() {
       <div className="matrix-wrap"><table><thead><tr><th className="sticky-customer"><label className="select-all"><input type="checkbox" checked={allVisibleSelected} onChange={(e)=>setSelected(Object.fromEntries(rows.map((row:any)=>[row.customer.id,e.target.checked])))}/> Customer</label></th>{days.map(day=><th className="day-head" key={day}>{day}</th>)}<th>Total</th><th>Unbilled</th><th>Estimate</th><th>Status</th><th className="sticky-action">Billing</th></tr></thead><tbody>{rows.map((row:any)=><tr key={row.customer.id}><td className="sticky-customer"><label className="customer-cell"><input type="checkbox" checked={Boolean(selected[row.customer.id])} onChange={(e)=>setSelected(s=>({...s,[row.customer.id]:e.target.checked}))}/><span><Link href={`/dashboard/customers/${row.customer.id}?tab=iron`}>{row.customer.name}</Link><small>{row.customer.phone}</small></span></label></td>{days.map(day=>{const cell=row.days?.[day];return <td key={day}>{cell?<button className="day-cell" onClick={()=>setDetail({row,day,...cell})}>{cell.pieces}</button>:<button className="empty-day" title="No clothes logged. Click to add." aria-label="Add clothes" onClick={()=>openAdd(row,day)}><Plus size={12}/></button>}</td>})}<td className="number">{row.totalPieces}</td><td className="number">{row.unbilledPieces}</td><td className="money">{money(row.totalAmount)}</td><td><span className={`status ${row.billingStatus.toLowerCase()}`}>{statusLabel[row.billingStatus] || row.billingStatus}</span></td><td className="sticky-action"><button className="bill-button" onClick={()=>setBillingWorkspace({rows:[row]})}>{rowActionLabel(row)} <ChevronRight size={13}/></button></td></tr>)}</tbody></table></div>
       <div className="mobile-list">{rows.map((row:any)=><article key={row.customer.id}><div className="mobile-head"><label><input type="checkbox" checked={Boolean(selected[row.customer.id])} onChange={(e)=>setSelected(s=>({...s,[row.customer.id]:e.target.checked}))}/><div><Link href={`/dashboard/customers/${row.customer.id}?tab=iron`}>{row.customer.name}</Link><span>{row.totalPieces} clothes · {money(row.totalAmount)}</span></div></label><span className={`status ${row.billingStatus.toLowerCase()}`}>{statusLabel[row.billingStatus]}</span></div><div className="mobile-days">{days.filter(day=>row.days?.[day]).map(day=><button key={day} onClick={()=>setDetail({row,day,...row.days[day]})}><span>{day}</span><strong>{row.days[day].pieces} pcs</strong><ChevronRight size={14}/></button>)}</div><button className="mobile-bill" onClick={()=>setBillingWorkspace({rows:[row]})}>{rowActionLabel(row)} <ChevronRight size={14}/></button></article>)}</div>
     </>}
-    {adding&&typeof document!=='undefined'&&createPortal(<div className="modal-backdrop" onClick={()=>setAdding(null)}><section className="entry-modal" onClick={(e)=>e.stopPropagation()}><header><div><small>Add clothes for</small><h2>{adding.row.customer.name}</h2><p>{new Date(`${adding.date}T00:00:00`).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})} · currently 0 clothes</p></div><button onClick={()=>setAdding(null)}><X/></button></header><div className="service-picker">{!services.length?<div className="picker-loading"><Loader2 className="crm-spin"/> Loading active items…</div>:services.map((service:any)=>{const qty=addQty[service.id]||0;return <div key={service.id}><span><strong>{service.name}</strong><small>{money(service.price)} each</small></span><div className="stepper"><button disabled={!qty} onClick={()=>setAddQty(q=>({...q,[service.id]:Math.max(0,qty-1)}))}><Minus size={14}/></button><input inputMode="numeric" value={qty||''} placeholder="0" onChange={(e)=>setAddQty(q=>({...q,[service.id]:Math.min(999,Number(e.target.value.replace(/\D/g,''))||0)}))}/><button onClick={()=>setAddQty(q=>({...q,[service.id]:qty+1}))}><Plus size={14}/></button></div></div>})}</div><footer><div><span>{Object.values(addQty).reduce((sum,value)=>sum+Number(value||0),0)} clothes</span><strong>{money(services.reduce((sum:any,service:any)=>sum+(addQty[service.id]||0)*service.price,0))}</strong></div><button disabled={savingClothes||!Object.values(addQty).some(Boolean)} onClick={saveClothes}>{savingClothes?'Saving…':'Add clothes'}</button></footer></section></div>,document.body)}
+    {adding&&typeof document!=='undefined'&&createPortal(<div className="modal-backdrop" onClick={()=>setAdding(null)}><section className="entry-modal" onClick={(e)=>e.stopPropagation()}><header><div><small>Add clothes for</small><h2>{adding.row.customer.name}</h2><p>{new Date(`${adding.date}T00:00:00`).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})} · currently 0 clothes</p></div><button onClick={()=>setAdding(null)}><X/></button></header>{(() => { const needsOverride = isBeyondIronBackdateLimit(adding.date, logRules); const dateError = ironDateRuleError(adding.date, logRules); return dateError ? <div className="date-warning blocked">{dateError}</div> : needsOverride && logRules?.canBackdateBeyondLimit ? <div className="date-warning"><strong>Backdated entry</strong><span>Add a reason. It will be saved in the audit history.</span><input value={backdateReason} onChange={(e)=>setBackdateReason(e.target.value)} placeholder="Reason for older entry"/></div> : null })()}<div className="service-picker">{!services.length?<div className="picker-loading"><Loader2 className="crm-spin"/> Loading active items…</div>:services.map((service:any)=>{const qty=addQty[service.id]||0;return <div key={service.id}><span><strong>{service.name}</strong><small>{money(service.price)} each</small></span><div className="stepper"><button disabled={!qty} onClick={()=>setAddQty(q=>({...q,[service.id]:Math.max(0,qty-1)}))}><Minus size={14}/></button><input inputMode="numeric" value={qty||''} placeholder="0" onChange={(e)=>setAddQty(q=>({...q,[service.id]:Math.min(999,Number(e.target.value.replace(/\D/g,''))||0)}))}/><button onClick={()=>setAddQty(q=>({...q,[service.id]:qty+1}))}><Plus size={14}/></button></div></div>})}</div><footer><div><span>{Object.values(addQty).reduce((sum,value)=>sum+Number(value||0),0)} clothes</span><strong>{money(services.reduce((sum:any,service:any)=>sum+(addQty[service.id]||0)*service.price,0))}</strong></div><button disabled={savingClothes||!Object.values(addQty).some(Boolean)||Boolean(ironDateRuleError(adding.date, logRules))||(isBeyondIronBackdateLimit(adding.date, logRules)&&logRules?.canBackdateBeyondLimit&&logRules?.backdateReasonRequired&&backdateReason.trim().length<3)} onClick={saveClothes}>{savingClothes?'Saving…':'Add clothes'}</button></footer></section></div>,document.body)}
     {billingWorkspace&&<IronBillingWorkspace month={month} rows={billingWorkspace.rows} action={billingWorkspace.action} onClose={()=>setBillingWorkspace(null)} onChanged={load}/>}
     {detail&&typeof document!=='undefined'&&createPortal(<div className="drawer-backdrop" onClick={()=>setDetail(null)}><aside className="detail-drawer" onClick={(e)=>e.stopPropagation()}><header><div><span>{detail.day} {new Date(`${month}-01`).toLocaleString('en-IN',{month:'long',year:'numeric'})}</span><h2>{detail.row.customer.name}</h2></div><button onClick={()=>setDetail(null)}><X/></button></header><div className="drawer-summary"><span>{detail.pieces} clothes</span><strong>{money(detail.amount)}</strong></div><div className="log-list">{detail.logs.map((log:any)=><div key={log.id} className={log.status==='ACTIVE'?'':'voided'}><div><strong>{log.serviceName}</strong><span>{log.pieces} pcs × {money(log.ratePerPiece)}</span><small>{log.bill?.billNumber || 'Unbilled'} · {log.loggedBy?.name || 'Staff'}</small></div><b>{money(log.amount)}</b></div>)}</div><Link className="drawer-link" href={`/dashboard/customers/${detail.row.customer.id}?tab=iron`}>Open customer Daily Iron account <ChevronRight size={15}/></Link></aside></div>,document.body)}
     <style jsx>{`
@@ -115,6 +176,7 @@ export default function DailyIronMonthlyPage() {
     `}</style>
     <style jsx>{`
       .month-nav{display:grid;grid-template-columns:40px 230px 40px;align-items:center;border:1px solid #d8e6f0;border-radius:9px;background:#fff;overflow:hidden}.month-selects{display:grid;grid-template-columns:1.25fr .75fr;gap:4px;padding:0 5px}.month-selects select{height:32px;border:0;background:#f6f9fc;color:#023c62;font-weight:800;padding:0 7px;outline:0}.month-nav button{border:0!important;border-radius:0!important;padding:0!important;justify-content:center;background:#fff!important}.month-nav button:hover:not(:disabled){background:#f0f7fb!important}.month-nav button:disabled{opacity:.35}.refresh{background:#fff!important}.empty-day{width:30px;height:28px;border:1px dashed #d5e2eb;border-radius:6px;background:#fbfdff;color:#8fa4b6;display:inline-flex;align-items:center;justify-content:center;gap:1px;font-size:9px;cursor:pointer}.empty-day:hover{border-style:solid;border-color:#68a4c9;background:#eaf6fd;color:#075985}.modal-backdrop{position:fixed;inset:0;z-index:100;background:rgba(2,20,34,.48);display:grid;place-items:center;padding:20px}.entry-modal,.billing-modal{width:min(620px,100%);max-height:min(760px,92vh);display:flex;flex-direction:column;background:#fff;border-radius:10px;box-shadow:0 28px 80px rgba(0,20,40,.28);overflow:hidden}.entry-modal header,.billing-modal header{display:flex;justify-content:space-between;gap:18px;padding:20px 22px;border-bottom:1px solid #e5edf3}.entry-modal header small,.billing-modal header small{color:#7890a3;text-transform:uppercase;font-size:10px;font-weight:850;letter-spacing:.08em}.entry-modal h2,.billing-modal h2{margin:4px 0 2px;color:#023c62;font-size:20px}.entry-modal header p,.billing-modal header p{margin:0;color:#72879b;font-size:12px}.entry-modal header button,.billing-modal header button{border:0;background:none;align-self:flex-start}.service-picker,.billing-list{overflow:auto;padding:10px 18px}.service-picker>div,.billing-list>div{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #edf3f7}.service-picker span,.billing-list span{display:grid;gap:3px}.service-picker small,.billing-list small{color:#7890a3;font-size:11px}.stepper{display:grid;grid-template-columns:32px 48px 32px;align-items:stretch;height:32px}.stepper button{box-sizing:border-box;width:32px;height:32px;margin:0;padding:0;border:1px solid #cfe0eb;background:#f5fafc;color:#075985;display:flex;align-items:center;justify-content:center;line-height:1}.stepper button svg{display:block;flex:none}.stepper input{box-sizing:border-box;height:32px;width:48px;margin:0;padding:0;border-block:1px solid #cfe0eb;border-inline:0;text-align:center;font-weight:850;line-height:32px;outline:0}.picker-loading{justify-content:center!important;color:#7890a3}.entry-modal footer,.billing-modal footer{padding:15px 20px;border-top:1px solid #e5edf3;display:flex;align-items:center;justify-content:space-between;gap:14px}.entry-modal footer div,.billing-modal footer div{display:grid}.entry-modal footer span,.billing-modal footer span{font-size:11px;color:#7890a3}.entry-modal footer button,.billing-modal footer button{border:0;border-radius:8px;background:#023c62;color:#fff;padding:11px 17px;font-weight:850}.entry-modal footer button:disabled,.billing-modal footer button:disabled{background:#afc0ce}.billing-list b{color:#023c62}.billing-warning{margin:4px 18px 14px;padding:11px 12px;border:1px solid #bfdbfe;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:12px;line-height:1.5}
+      .date-warning{margin:12px 18px 0;padding:10px 12px;border:1px solid #facc15;border-radius:8px;background:#fffbeb;color:#92400e;display:grid;gap:6px;font-size:12px}.date-warning.blocked{border-color:#fed7aa;background:#fff7ed;color:#9a3412;font-weight:800}.date-warning strong{font-size:12px}.date-warning span{color:#a16207}.date-warning input{height:34px;border:1px solid #f3d58a;border-radius:7px;padding:0 10px;color:#142033;font-weight:700}
       @media(max-width:760px){.monthly-actions{width:100%}.month-nav{flex:1;grid-template-columns:38px 1fr 38px}.refresh{width:auto}.modal-backdrop{padding:10px;align-items:end}.entry-modal,.billing-modal{max-height:90vh;border-radius:10px 10px 0 0}}
     `}</style>
     <style jsx global>{`

@@ -26,10 +26,56 @@ const cellKey = (customerId: string, serviceId: string) => `${customerId}::${ser
 type ServiceItem = { id: string; name: string; price: number }
 type QtyCell = { pieces: string; ratePerPiece?: string; notes?: string }
 type ExtraLine = { id: string; serviceId: string; pieces: string; ratePerPiece: string; notes: string }
+type IronLogRules = {
+  today?: string
+  backdateDays: number
+  futureDatesAllowed?: boolean
+  canBackdateBeyondLimit?: boolean
+  backdateReasonRequired?: boolean
+}
 
 const parseMoney = (value: any) => {
   const amount = Number(value || 0)
   return Number.isFinite(amount) ? amount : 0
+}
+
+const parseDateOnly = (value: string) => {
+  if (!value) return null
+  const date = new Date(`${value}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const dateText = (value: Date) => {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const getRuleDateBounds = (rules: IronLogRules | null) => {
+  const today = parseDateOnly(String(rules?.today || '').slice(0, 10)) || parseDateOnly(todayText()) || new Date()
+  const earliest = new Date(today)
+  earliest.setDate(earliest.getDate() - Math.max(0, Number(rules?.backdateDays || 0)))
+  return { today: dateText(today), earliest: dateText(earliest) }
+}
+
+const ironDateRuleError = (date: string, rules: IronLogRules | null) => {
+  if (!rules) return null
+  const selected = parseDateOnly(date)
+  if (!selected) return 'Select a valid Daily Iron service date'
+  const { today, earliest } = getRuleDateBounds(rules)
+  const todayDate = parseDateOnly(today)
+  const earliestDate = parseDateOnly(earliest)
+  if (!rules.futureDatesAllowed && todayDate && selected > todayDate) return 'Daily Iron service date cannot be in the future'
+  if (earliestDate && selected < earliestDate && !rules.canBackdateBeyondLimit) return `Daily Iron service date cannot be more than ${rules.backdateDays} days old`
+  return null
+}
+
+const isBeyondIronBackdateLimit = (date: string, rules: IronLogRules | null) => {
+  if (!rules) return false
+  const selected = parseDateOnly(date)
+  const earliest = parseDateOnly(getRuleDateBounds(rules).earliest)
+  return Boolean(selected && earliest && selected < earliest)
 }
 
 const timelineTone = (event: any) => {
@@ -69,6 +115,8 @@ export default function DailyIronSheetPage() {
   const [extraLines, setExtraLines] = useState<Record<string, ExtraLine[]>>({})
   const [addingMoreForLogged, setAddingMoreForLogged] = useState<Record<string, boolean>>({})
   const [showOnlyPending, setShowOnlyPending] = useState(false)
+  const [logRules, setLogRules] = useState<IronLogRules | null>(null)
+  const [backdateReason, setBackdateReason] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -98,6 +146,12 @@ export default function DailyIronSheetPage() {
   }, [selectedDate])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    ironAPI.getLogRules()
+      .then((response: any) => setLogRules(response?.data || response))
+      .catch(() => setLogRules(null))
+  }, [])
 
   const loggedByCustomer = useMemo(() => {
     const map = new Map<string, { pieces: number; amount: number; count: number }>()
@@ -247,6 +301,12 @@ export default function DailyIronSheetPage() {
     })
     return { customers: draftRows.length, lines: draftRows.reduce((sum, row) => sum + row.items.length, 0), pieces, amount }
   }, [draftRows, services])
+  const selectedDateError = ironDateRuleError(selectedDate, logRules)
+  const selectedDateNeedsOverride = isBeyondIronBackdateLimit(selectedDate, logRules)
+  const backdateReasonError = selectedDateNeedsOverride && logRules?.canBackdateBeyondLimit && logRules?.backdateReasonRequired && backdateReason.trim().length < 3
+    ? 'Add a reason for saving Daily Iron entries older than the normal window'
+    : null
+  const dateBounds = getRuleDateBounds(logRules)
 
   const customerHasDraft = useCallback((customerId: string) => {
     const hasGridQty = services.some((service) => Number(qty[cellKey(customerId, service.id)]?.pieces || 0) > 0)
@@ -295,6 +355,14 @@ export default function DailyIronSheetPage() {
 
   const saveSheet = async () => {
     if (saving) return
+    if (selectedDateError) {
+      toast.error(selectedDateError)
+      return
+    }
+    if (backdateReasonError) {
+      toast.error(backdateReasonError)
+      return
+    }
     if (!draftRows.length) {
       toast.error('Enter quantity for at least one customer')
       return
@@ -306,16 +374,22 @@ export default function DailyIronSheetPage() {
     }
     setSaving(true)
     try {
-      const response = await ironAPI.createDaySheet({ date: selectedDate, rows: draftRows })
+      const response = await ironAPI.createDaySheet({
+        date: selectedDate,
+        rows: draftRows,
+        ...(selectedDateNeedsOverride ? { backdateReason: backdateReason.trim() } : {}),
+      })
       const summary = response?.data?.summary || response?.summary || {}
       toast.success(`Saved ${summary.customers || draftRows.length} customers, ${summary.pieces || draftSummary.pieces} pcs`)
       setQty({})
       setExtraLines({})
       setExpanded({})
       setAddingMoreForLogged({})
+      setBackdateReason('')
       await load()
     } catch (err: any) {
-      toast.error(err.message || 'Failed to save Daily Iron sheet')
+      const rowDetail = Array.isArray(err.details) && err.details[0]?.message ? err.details[0].message : ''
+      toast.error(rowDetail || err.message || 'Failed to save Daily Iron sheet')
     } finally {
       setSaving(false)
     }
@@ -327,9 +401,9 @@ export default function DailyIronSheetPage() {
         title="Daily Iron Sheet"
         subtitle="Fast date-wise logging for active Daily Iron customers"
         actions={<div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={selectedDate} max={todayText()} onChange={(event) => setSelectedDate(event.target.value)} style={{ border: '1px solid #d8e6f0', borderRadius: 10, padding: '10px 12px', background: '#fff', color: '#023c62', fontWeight: 700 }} />
+          <input type="date" value={selectedDate} min={logRules?.canBackdateBeyondLimit ? undefined : logRules ? dateBounds.earliest : undefined} max={logRules?.futureDatesAllowed ? undefined : dateBounds.today} onChange={(event) => setSelectedDate(event.target.value)} style={{ border: '1px solid #d8e6f0', borderRadius: 10, padding: '10px 12px', background: '#fff', color: '#023c62', fontWeight: 700 }} />
           <button onClick={load} disabled={loading || saving} style={{ border: '1px solid #d8e6f0', borderRadius: 10, padding: '10px 14px', background: '#fff', color: '#023c62', fontWeight: 800, cursor: loading || saving ? 'not-allowed' : 'pointer' }}>Refresh</button>
-          <button onClick={saveSheet} disabled={saving || !draftRows.length} style={{ border: 'none', borderRadius: 10, padding: '10px 16px', background: saving || !draftRows.length ? '#b8c8d7' : '#023c62', color: '#fff', fontWeight: 900, display: 'inline-flex', alignItems: 'center', gap: 8, cursor: saving || !draftRows.length ? 'not-allowed' : 'pointer' }}>
+          <button onClick={saveSheet} disabled={saving || !draftRows.length || Boolean(selectedDateError || backdateReasonError)} style={{ border: 'none', borderRadius: 10, padding: '10px 16px', background: saving || !draftRows.length || selectedDateError || backdateReasonError ? '#b8c8d7' : '#023c62', color: '#fff', fontWeight: 900, display: 'inline-flex', alignItems: 'center', gap: 8, cursor: saving || !draftRows.length || selectedDateError || backdateReasonError ? 'not-allowed' : 'pointer' }}>
             {saving ? <Loader2 size={15} className="crm-spin" /> : <Save size={15} />}
             Save Day
           </button>
@@ -337,6 +411,19 @@ export default function DailyIronSheetPage() {
       />
 
       <IronSectionTabs />
+
+      {selectedDateError && (
+        <div style={{ margin: '0 0 14px', border: '1px solid #fed7aa', background: '#fff7ed', color: '#9a3412', borderRadius: 10, padding: '11px 14px', fontSize: 13, fontWeight: 800 }}>
+          {selectedDateError}
+        </div>
+      )}
+      {selectedDateNeedsOverride && logRules?.canBackdateBeyondLimit && (
+        <div style={{ margin: '0 0 14px', border: '1px solid #facc15', background: '#fffbeb', color: '#92400e', borderRadius: 10, padding: 12, display: 'grid', gap: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 850 }}>Backdated Daily Iron entry. Add a reason and it will be saved in audit logs.</div>
+          <input value={backdateReason} onChange={(event) => setBackdateReason(event.target.value)} placeholder="Reason, for example: customer gave old clothes today" style={{ border: '1px solid #f3d58a', borderRadius: 8, padding: '10px 12px', color: '#142033', fontWeight: 700 }} />
+          {backdateReasonError && <small style={{ color: '#b45309', fontWeight: 800 }}>{backdateReasonError}</small>}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 0.75fr', gap: 14, marginBottom: 16 }}>
         <div style={{ background: '#fff', border: '1px solid #e1ebf4', borderRadius: 12, padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
