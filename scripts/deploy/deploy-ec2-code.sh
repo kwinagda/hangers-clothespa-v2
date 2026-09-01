@@ -97,7 +97,7 @@ wait_for_url() {
   local url="$2"
   local attempt
   for attempt in {1..30}; do
-    if curl --fail --silent --show-error --max-time 5 "$url" >/dev/null; then
+    if curl --fail --silent --max-time 5 "$url" >/dev/null 2>&1; then
       echo "$name is healthy."
       return 0
     fi
