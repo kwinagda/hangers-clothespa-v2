@@ -633,7 +633,10 @@ const getMonthlySummary = async (req, res) => {
       if (log.status !== 'ACTIVE') continue;
       row.totalPieces += log.pieces;
       row.totalAmount += Number(log.amount);
-      if (!log.billId) { row.unbilledPieces += log.pieces; row.unbilledAmount += Number(log.amount); }
+      if (!log.billId || String(log.bill?.status || '').toUpperCase() === 'VOID') {
+        row.unbilledPieces += log.pieces;
+        row.unbilledAmount += Number(log.amount);
+      }
       if (!row.days[day]) row.days[day] = { pieces: 0, amount: 0, logs: [] };
       row.days[day].pieces += log.pieces;
       row.days[day].amount += Number(log.amount);
@@ -1617,6 +1620,7 @@ const generateBill = async (req, res) => {
         status: 'ACTIVE',
         OR: [
           { billId: null },
+          { bill: { status: 'VOID' } },
           ...(existingBill ? [{ billId: existingBill.id }] : []),
         ],
       },

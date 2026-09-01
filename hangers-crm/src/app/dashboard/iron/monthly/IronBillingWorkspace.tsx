@@ -140,7 +140,7 @@ export default function IronBillingWorkspace({month,rows,action,onClose,onChange
   `}</style></div>
 
   function SingleView({row}:{row:any}){
-    const bills=monthBills(row)
+    const bills=monthBills(row).sort((a:any,b:any)=>Number(billVoid(a))-Number(billVoid(b)) || new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime())
     return <div className="body"><section className="summary"><div><span>Clothes</span><strong>{row.totalPieces}</strong></div><div><span>Month value</span><strong>{money(row.totalAmount)}</strong></div><div><span>Unbilled</span><strong>{money(row.unbilledAmount)}</strong></div></section>
       {row.unbilledPieces>0&&<section className="card generate-card"><div className="card-title"><h3>{bills.length?'Generate bill for unbilled clothes':'Generate monthly bill'}</h3><span className="badge">{row.unbilledPieces} unbilled</span></div><p className="flow-note">Generate creates a draft bill. Send it from the bill card below after reviewing.</p><div className="fields"><input value={notes.carryForwardNotes} onChange={e=>setNotes(n=>({...n,carryForwardNotes:e.target.value}))} placeholder="Carry-forward note (optional)"/><textarea value={notes.notes} onChange={e=>setNotes(n=>({...n,notes:e.target.value}))} placeholder="Internal note (optional)"/></div><div className="actions"><button className="primary" disabled={!!busy} onClick={()=>generate(row)}>{busy===`generate-${row.customer.id}`?'Generating…':bills.length?'Generate bill for unbilled clothes':'Generate bill'}</button></div></section>}
       {!bills.length&&row.unbilledPieces===0?<div className="empty">No billing activity for this month.</div>:bills.map((bill:any)=><div key={bill.id}>{BillCard({bill})}</div>)}</div>
