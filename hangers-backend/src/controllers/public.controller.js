@@ -544,13 +544,6 @@ const getPublicDailyIronLogs = async (req, res) => {
     const share = await resolvePublicShareToken({ token: slug, purpose: 'DAILY_IRON_LOGS' });
     if (!share || share.resourceType !== 'IRON_SUBSCRIPTION') return notFound(res, 'Daily Iron account not found');
 
-    const month = Number(req.query.month);
-    const year = Number(req.query.year);
-    const today = new Date();
-    const periodStart = month && year ? new Date(year, month - 1, 1) : startOfMonth(today);
-    if (Number.isNaN(periodStart.getTime())) return notFound(res, 'Daily Iron account not found');
-    const periodEnd = endOfMonth(periodStart);
-
     const subscription = await prisma.ironSubscription.findFirst({
       where: { id: share.resourceId },
       include: {
@@ -562,6 +555,28 @@ const getPublicDailyIronLogs = async (req, res) => {
       },
     });
     if (!subscription) return notFound(res, 'Daily Iron account not found');
+
+    const requestedMonth = Number(req.query.month);
+    const requestedYear = Number(req.query.year);
+    const hasRequestedPeriod = Number.isInteger(requestedMonth)
+      && requestedMonth >= 1
+      && requestedMonth <= 12
+      && Number.isInteger(requestedYear)
+      && requestedYear >= 2000
+      && requestedYear <= 2100;
+    let periodStart;
+    if (hasRequestedPeriod) {
+      periodStart = new Date(requestedYear, requestedMonth - 1, 1);
+    } else {
+      const latestLog = await prisma.ironLog.findFirst({
+        where: { customerId: subscription.customerId, status: 'ACTIVE' },
+        select: { date: true },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+      });
+      periodStart = startOfMonth(latestLog?.date || new Date());
+    }
+    if (Number.isNaN(periodStart.getTime())) return notFound(res, 'Daily Iron account not found');
+    const periodEnd = endOfMonth(periodStart);
 
     const [logs, bills] = await Promise.all([
       prisma.ironLog.findMany({

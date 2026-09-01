@@ -12,6 +12,7 @@ const { OUTBOX_EVENT } = require('../src/services/outbox.service');
 const { resolveIronBillStatusAfterInvoiceSync } = require('../src/services/billing.service');
 const { resolveDailyIronBillMode } = require('../src/utils/daily-iron-billing');
 const { formatDailyIronLogItems } = require('../src/utils/daily-iron-summary');
+const { dailyIronLinkSuffix } = require('../src/services/whatomate.service');
 
 test('only active Daily Iron subscriptions can accept new usage logs', () => {
   assert.deepEqual(ACTIVE_IRON_SUB_STATUSES, ['ACTIVE']);
@@ -103,4 +104,12 @@ test('Daily Iron invoice sync keeps generated bills as draft until explicit send
   assert.equal(resolveIronBillStatusAfterInvoiceSync('OPEN', 'SENT'), 'SENT');
   assert.equal(resolveIronBillStatusAfterInvoiceSync('PARTIAL', 'DRAFT'), 'PARTIAL');
   assert.equal(resolveIronBillStatusAfterInvoiceSync('PAID', 'SENT'), 'PAID');
+});
+
+test('Daily Iron bill links preserve the billed month and year', () => {
+  assert.equal(
+    dailyIronLinkSuffix('share-token', { billingPeriodStart: '2026-08-01T00:00:00.000Z' }),
+    'share-token?month=8&year=2026',
+  );
+  assert.equal(dailyIronLinkSuffix('share-token', null), 'share-token');
 });

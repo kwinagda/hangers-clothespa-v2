@@ -20,8 +20,12 @@ const monthLabel = (value: any) => {
   return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
 }
 
-async function loadDailyIron(slug: string) {
-  const res = await fetch(`${API_BASE_URL}/public/daily-iron/${encodeURIComponent(slug)}`, {
+async function loadDailyIron(slug: string, month?: string, year?: string) {
+  const query = new URLSearchParams()
+  if (month) query.set('month', month)
+  if (year) query.set('year', year)
+  const suffix = query.size ? `?${query.toString()}` : ''
+  const res = await fetch(`${API_BASE_URL}/public/daily-iron/${encodeURIComponent(slug)}${suffix}`, {
     cache: 'no-store',
   })
   if (!res.ok) return null
@@ -29,9 +33,10 @@ async function loadDailyIron(slug: string) {
   return payload?.data?.dailyIron || payload?.dailyIron || null
 }
 
-export default async function PublicDailyIronPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function PublicDailyIronPage({ params, searchParams }: { params: Promise<{ slug: string }>, searchParams: Promise<{ month?: string, year?: string }> }) {
   const { slug } = await params
-  const data = await loadDailyIron(slug)
+  const { month, year } = await searchParams
+  const data = await loadDailyIron(slug, month, year)
 
   if (!data) {
     return (

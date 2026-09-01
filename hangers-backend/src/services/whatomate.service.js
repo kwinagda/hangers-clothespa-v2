@@ -427,6 +427,13 @@ const dailyIronLogSlugFor = async (iron) => createPublicShareToken({
   purpose: 'DAILY_IRON_LOGS',
 });
 
+const dailyIronLinkSuffix = (slug, bill) => {
+  if (!slug || !bill?.billingPeriodStart) return slug;
+  const period = new Date(bill.billingPeriodStart);
+  if (Number.isNaN(period.getTime())) return slug;
+  return `${slug}?month=${period.getUTCMonth() + 1}&year=${period.getUTCFullYear()}`;
+};
+
 const sendDailyIronTemplate = async ({ customer, subscription, template, templateConfig, context, payment, throwOnFailure = false }) => {
   const phone = customer?.phone;
   if (!phone) {
@@ -461,7 +468,7 @@ const sendDailyIronTemplate = async ({ customer, subscription, template, templat
       },
       payment,
     }),
-    buttonParams: { [buttonIndex]: dailyIronSlug },
+    buttonParams: { [buttonIndex]: dailyIronLinkSuffix(dailyIronSlug, context?.bill) },
     accountName: templateConfig.accountName,
     idempotencyKey: context?.idempotencyKey || payment?.idempotencyKey || null,
     throwOnFailure,
@@ -586,4 +593,5 @@ module.exports = {
   isDevPhoneAllowed,
   isEnabled,
   WhatomateDeliveryError,
+  dailyIronLinkSuffix,
 };
