@@ -90,4 +90,9 @@ test('Daily Iron bill mode preserves locked bills and creates supplemental bills
   assert.equal(supplemental.existingDraftBill, null);
   assert.equal(supplemental.lockedBills.length, 1);
   assert.equal(supplemental.mode, 'SUPPLEMENTAL');
+
+  const freshAfterVoid = resolveDailyIronBillMode([{ id: 'voided', status: 'VOID' }]);
+  assert.equal(freshAfterVoid.existingDraftBill, null);
+  assert.equal(freshAfterVoid.lockedBills.length, 0);
+  assert.equal(freshAfterVoid.mode, 'NEW_PERIOD_BILL');
 });
