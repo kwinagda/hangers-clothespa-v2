@@ -69,6 +69,21 @@ interface CartItem {
 interface Customer { id: string; name: string; phone: string; walletBalance?: number; loyaltyPoints?: number; ordersDue?: number; ironSubStatus?: string | null; preferredLanguage?: string }
 interface CustomerStats { totalOrders: number; totalSpend: number; outstanding: number; loyaltyPoints: number; lastOrderDate: string | null; lastOrderStatus: string | null }
 
+const customerPhoneTextStyle = {
+  fontSize: 11.5,
+  color: '#9dafc8',
+  fontFamily: 'var(--crm-font-mono)',
+  fontWeight: 800,
+  letterSpacing: '0.01em',
+  lineHeight: 1.35,
+}
+
+const selectedCustomerPhoneTextStyle = {
+  ...customerPhoneTextStyle,
+  color: '#dbe9f4',
+  fontSize: 11.5,
+}
+
 type OrderDraft = {
   customer: Customer | null
   customerStats: CustomerStats | null
@@ -1354,7 +1369,7 @@ function NewOrderPageContent() {
                     onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
                     <div>
                       <div style={{ fontWeight: 600, color: '#1a2332' }}>{c.name || 'Unknown'}</div>
-                      <div style={{ fontSize: 12, color: '#9dafc8' }}>{c.phone}</div>
+                      <div style={customerPhoneTextStyle}>{c.phone || 'No mobile'}</div>
                     </div>
                     {(c.ordersDue || 0) > 0 && (
                       <span style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>
@@ -1665,7 +1680,7 @@ function NewOrderPageContent() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 7 }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 16 }}>{customer.name || 'Walk-in'}</div>
-                <div style={{ fontSize: 12, opacity: 0.72 }}>{customer.phone}</div>
+                <div style={selectedCustomerPhoneTextStyle}>{customer.phone || 'No mobile'}</div>
               </div>
               <button onClick={() => setShowCustomerModal(true)}
                 style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', padding: '5px 9px', borderRadius: 8, cursor: 'pointer', fontSize: 11 }}>
@@ -1712,7 +1727,7 @@ function NewOrderPageContent() {
                     style={{ width: '100%', textAlign: 'left', display: 'flex', justifyContent: 'space-between', gap: 8, padding: '8px 10px', border: 'none', borderBottom: '1px solid #f1f5f9', background: '#fff', cursor: 'pointer' }}>
                     <span style={{ minWidth: 0 }}>
                       <span style={{ display: 'block', fontSize: 13, fontWeight: 800, color: '#1a2332', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || 'Unknown'}</span>
-                      <span style={{ display: 'block', fontSize: 11, color: '#6b7fa3' }}>{c.phone}</span>
+                      <span style={{ ...customerPhoneTextStyle, display: 'block' }}>{c.phone || 'No mobile'}</span>
                     </span>
                     {(c.ordersDue || 0) > 0 && <span style={{ fontSize: 11, color: '#991b1b', fontWeight: 800 }}>{fmt(c.ordersDue || 0)}</span>}
                   </button>

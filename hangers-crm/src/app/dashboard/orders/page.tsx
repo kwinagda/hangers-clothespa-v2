@@ -74,6 +74,14 @@ const orderItemSummaryText = (order: any) => {
   })
   return `${visible.join(', ')}${items.length > visible.length ? ` +${items.length - visible.length} more` : ''}`
 }
+const phoneNumberStyle = {
+  fontSize: 11.5,
+  color: '#9dafc8',
+  fontFamily: 'var(--crm-font-mono)',
+  fontWeight: 800,
+  letterSpacing: '0.01em',
+  lineHeight: 1.35,
+}
 type OrderViewMeta = { key: string; label: string; title: string; description: string; metric?: string; statuses?: string[] }
 const DEFAULT_ORDER_VIEW: OrderViewMeta = {
   key: 'all',
@@ -740,7 +748,7 @@ function OrdersPageContent() {
                         {/* Customer */}
                         <td style={{padding:'13px 18px',minWidth:140}}>
                           <div style={{fontWeight:600,color:'#1a2332',fontSize:13.5}}>{o.customer?.name || '—'}</div>
-                          <div style={{fontSize:11.5,color:'#9dafc8',fontFamily:'var(--crm-font-mono)',marginTop:3}}>{o.customer?.phone}</div>
+                          <div style={{...phoneNumberStyle,marginTop:3}}>{o.customer?.phone || 'No mobile'}</div>
                         </td>
                         {/* Items */}
                         <td style={{padding:'13px 18px',minWidth:220}}>

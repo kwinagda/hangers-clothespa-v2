@@ -964,12 +964,19 @@ export default function OrderDetailPage() {
             </div>
             {[
               ['Name', order.customer?.name || '—'],
-              ['Phone', order.customer?.phone ? '+91 '+order.customer.phone : '—'],
+              ['Phone', order.customer?.phone || '—'],
               ['Address', order.pickupAddress || 'No address on file'],
             ].map(([label,val]:any) => (
               <div key={label} style={{display:'flex',justifyContent:'space-between',padding:'10px 20px',fontSize:13.5,borderBottom:'1px solid #f3f7fa'}}>
                 <span style={{color:'#6b7fa3'}}>{label}</span>
-                <span style={{color:'#1a2332',fontWeight:600,textAlign:'right' as const,maxWidth:'60%'}}>{val}</span>
+                <span style={{
+                  color: label === 'Phone' ? '#9dafc8' : '#1a2332',
+                  fontWeight: label === 'Phone' ? 800 : 600,
+                  fontFamily: label === 'Phone' ? 'var(--crm-font-mono)' : 'var(--crm-font-ui)',
+                  letterSpacing: label === 'Phone' ? '0.01em' : 0,
+                  textAlign:'right' as const,
+                  maxWidth:'60%',
+                }}>{val}</span>
               </div>
             ))}
           </div>
