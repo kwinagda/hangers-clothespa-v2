@@ -40,6 +40,10 @@ For the strict master-data migration audit context, read:
 
 - [`MASTER_DATA_AUDIT.md`](./MASTER_DATA_AUDIT.md)
 
+For the guarded EC2 code release process, read:
+
+- [`docs/production-deployment.md`](./docs/production-deployment.md)
+
 ## Tech Stack
 
 - React Native + Expo
