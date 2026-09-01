@@ -58,9 +58,10 @@ export default async function PublicQuotationPage({ params }: { params: Promise<
 
   const rows = [
     ['Subtotal', money(quotation.subtotal)],
-    ['Discount', `-${money(quotation.discount)}`],
+    ...(Number(quotation.discount || 0) > 0 ? [['Discount', `-${money(quotation.discount)}`]] : []),
     ['Total Estimate', money(quotation.totalAmount)],
   ]
+  const totalPieces = (quotation.items || []).reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0)
 
   const itemDetail = (item: any) => `${item.serviceName}${item.variant ? ` · ${item.variant}` : ''}`
 
@@ -93,6 +94,11 @@ export default async function PublicQuotationPage({ params }: { params: Promise<
         }
         .public-quotation-table-wrap { overflow-x: auto; }
         .public-quotation-mobile-items { display: none; }
+        .public-quotation-highlights { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #edf3f8; background: #f8fbfd; }
+        .public-quotation-highlight { padding: 15px 26px; border-right: 1px solid #dce8f0; }
+        .public-quotation-highlight:last-child { border-right: 0; }
+        .public-quotation-highlight span { display: block; color: #6b7fa3; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; }
+        .public-quotation-highlight b { display: block; margin-top: 5px; color: #023c62; font-size: 19px; }
         .public-quotation-footer {
           padding: 26px;
           display: flex;
@@ -163,8 +169,18 @@ export default async function PublicQuotationPage({ params }: { params: Promise<
             white-space: nowrap;
           }
           .public-quotation-footer { padding: 16px; }
+          .public-quotation-highlights { grid-template-columns: 1fr 1fr; }
+          .public-quotation-highlight { padding: 13px 16px; }
           .public-legal-terms { margin: 0 16px 16px; padding: 14px; }
           .public-legal-grid { grid-template-columns: 1fr; gap: 10px; }
+        }
+        @media (max-width: 380px) {
+          main.public-quotation-page { padding: 0 !important; }
+          .public-quotation-shell { border: 0; border-radius: 0; box-shadow: none; }
+          .public-quotation-meta { grid-template-columns: 1fr; }
+          .public-quotation-item-grid { gap: 5px; }
+          .public-quotation-item-metric { padding: 7px 6px; }
+          .public-quotation-item-value { font-size: 11.5px; }
         }
       `}</style>
       <section className="public-quotation-shell">
@@ -179,6 +195,11 @@ export default async function PublicQuotationPage({ params }: { params: Promise<
             <div style={{ marginTop: 8, display: 'inline-block', padding: '5px 10px', borderRadius: 999, background: '#eef6fb', color: '#023c62', fontSize: 12, fontWeight: 700 }}>{quotation.quotationStatus || 'DRAFT'}</div>
           </div>
         </header>
+
+        <div className="public-quotation-highlights">
+          <div className="public-quotation-highlight"><span>Total Clothes</span><b>{totalPieces}</b></div>
+          <div className="public-quotation-highlight"><span>Estimated Total</span><b>{money(quotation.totalAmount)}</b></div>
+        </div>
 
         <div className="public-quotation-meta">
           <div>

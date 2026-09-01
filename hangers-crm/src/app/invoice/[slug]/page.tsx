@@ -107,12 +107,18 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             .summary-item { border: 1px solid #e3edf6; border-radius: 10px; padding: 12px; background: #fff; }
             .summary-item-title { font-weight: 900; color: #023c62; overflow-wrap: anywhere; }
             .summary-item-sub { margin-top: 4px; color: #6b7fa3; font-size: 12px; }
-            .summary-item-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+            .summary-item-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
             .summary-item-metric { background: #f7fafc; border-radius: 8px; padding: 8px; min-width: 0; }
             .summary-item-lines { margin-top: 10px; border-top: 1px solid #edf3f8; padding-top: 8px; display: grid; gap: 7px; }
             .summary-item-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; font-size: 12px; }
             .public-legal-terms { margin: 0 14px 16px; padding: 14px; }
             .public-legal-grid { grid-template-columns: 1fr; gap: 10px; }
+          }
+          @media (max-width: 380px) {
+            main.public-invoice-page { padding: 0 !important; }
+            .summary-shell { border: 0; border-radius: 0; box-shadow: none; }
+            .summary-meta { grid-template-columns: 1fr 1fr; }
+            .summary-item-grid { grid-template-columns: 1fr 1fr; }
           }
         `}</style>
         <section className="summary-shell">
@@ -200,6 +206,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
                 <div className="summary-item-title">{item.sourceNumber || item.invoiceNumber}</div>
                 <div className="summary-item-sub">{sourceLabel(item.sourceType)} · Due {dateLabel(item.dueDate)}</div>
                 <div className="summary-item-grid">
+                  <div className="summary-item-metric"><div className="summary-label">Clothes</div><div className="summary-value">{item.totalPieces || 0}</div></div>
                   <div className="summary-item-metric"><div className="summary-label">Total</div><div className="summary-value">{money(item.totalAmount)}</div></div>
                   <div className="summary-item-metric"><div className="summary-label">Paid</div><div className="summary-value" style={{ color: '#15803d' }}>{money(item.paidAmount)}</div></div>
                   <div className="summary-item-metric"><div className="summary-label">Balance</div><div className="summary-value" style={{ color: '#b91c1c' }}>{money(item.balanceDue)}</div></div>
@@ -231,6 +238,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
   const discountAmount = Number(invoice.discount || 0) + Number(invoice.couponDiscount || 0)
   const upchargeAmount = Number(invoice.upcharge || 0)
   const paidAmount = Number(invoice.paidAmount || 0)
+  const totalPieces = Number(invoice.totalPieces ?? (invoice.items || []).reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0))
   const rows = [
     ['Subtotal', money(invoice.subtotal)],
     ...(discountAmount > 0 ? [['Discount', `-${money(discountAmount)}`]] : []),
@@ -299,6 +307,17 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           gap: 18px;
           border-bottom: 1px solid #edf3f8;
         }
+        .public-invoice-highlights {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          border-bottom: 1px solid #dce8f0;
+          background: #f8fbfd;
+        }
+        .public-invoice-highlight { padding: 16px 20px; border-right: 1px solid #dce8f0; min-width: 0; }
+        .public-invoice-highlight:last-child { border-right: 0; }
+        .public-invoice-highlight-label { color: #6b7fa3; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; }
+        .public-invoice-highlight-value { margin-top: 5px; color: #023c62; font-size: 20px; font-weight: 900; overflow-wrap: anywhere; }
+        .public-invoice-highlight-value.due { color: #9f2d16; }
         .public-invoice-meta-card {
           border: 1px solid #dce8f0;
           border-radius: 14px;
@@ -395,8 +414,13 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .public-invoice-meta {
             padding: 16px;
             grid-template-columns: 1fr 1fr;
-            gap: 14px;
+            gap: 10px;
           }
+          .public-invoice-highlights { grid-template-columns: 1fr 1fr; }
+          .public-invoice-highlight { padding: 13px 14px; border-bottom: 1px solid #dce8f0; }
+          .public-invoice-highlight:nth-child(2) { border-right: 0; }
+          .public-invoice-highlight:nth-last-child(-n + 2) { border-bottom: 0; }
+          .public-invoice-highlight-value { font-size: 17px; }
           .public-invoice-table-wrap { display: none; }
           .public-invoice-mobile-items {
             display: grid;
@@ -453,8 +477,17 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .public-invoice-footer {
             padding: 16px;
           }
+          .public-invoice-total-card { max-width: none; box-shadow: none; }
           .public-legal-terms { margin: 0 16px 16px; padding: 14px; }
           .public-legal-grid { grid-template-columns: 1fr; gap: 10px; }
+        }
+        @media (max-width: 380px) {
+          main.public-invoice-page { padding: 0 !important; }
+          .public-invoice-shell { border: 0; border-radius: 0; box-shadow: none; }
+          .public-invoice-meta { grid-template-columns: 1fr; }
+          .public-invoice-item-grid { gap: 5px; }
+          .public-invoice-item-metric { padding: 7px 6px; }
+          .public-invoice-item-value { font-size: 11.5px; }
         }
       `}</style>
       <section className="public-invoice-shell">
@@ -469,6 +502,25 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             <div className="public-invoice-status-pill">{invoice.paymentStatus}</div>
           </div>
         </header>
+
+        <div className="public-invoice-highlights">
+          <div className="public-invoice-highlight">
+            <div className="public-invoice-highlight-label">Total Clothes</div>
+            <div className="public-invoice-highlight-value">{totalPieces}</div>
+          </div>
+          <div className="public-invoice-highlight">
+            <div className="public-invoice-highlight-label">Invoice Total</div>
+            <div className="public-invoice-highlight-value">{money(invoice.totalAmount)}</div>
+          </div>
+          <div className="public-invoice-highlight">
+            <div className="public-invoice-highlight-label">Paid</div>
+            <div className="public-invoice-highlight-value">{money(invoice.paidAmount)}</div>
+          </div>
+          <div className="public-invoice-highlight">
+            <div className="public-invoice-highlight-label">Balance Due</div>
+            <div className="public-invoice-highlight-value due">{money(invoice.balanceDue)}</div>
+          </div>
+        </div>
 
         <div className="public-invoice-meta">
           <div className="public-invoice-meta-card">

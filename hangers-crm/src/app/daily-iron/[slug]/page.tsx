@@ -88,13 +88,26 @@ export default async function PublicDailyIronPage({ params, searchParams }: { pa
         }
         .daily-iron-section { padding: 24px 26px; border-bottom: 1px solid #edf3f8; }
         .daily-iron-table-wrap { overflow-x: auto; }
+        .daily-iron-mobile-logs { display: none; }
         @media (max-width: 640px) {
           main.daily-iron-page { padding: 12px 10px 28px !important; }
           .daily-iron-shell { border-radius: 12px; }
           .daily-iron-header { padding: 18px 16px; display: block; }
-          .daily-iron-summary { padding: 14px; grid-template-columns: 1fr; }
+          .daily-iron-summary { padding: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+          .daily-iron-card:first-child { grid-column: 1 / -1; }
           .daily-iron-section { padding: 18px 14px; }
-          .daily-iron-table-wrap table { min-width: 560px; }
+          .daily-iron-table-wrap { display: none; }
+          .daily-iron-mobile-logs { display: grid; gap: 8px; }
+          .daily-iron-mobile-log { border: 1px solid #e3edf6; border-radius: 8px; padding: 11px 12px; }
+          .daily-iron-mobile-log-top { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+          .daily-iron-mobile-log-name { color: #142033; font-weight: 800; overflow-wrap: anywhere; }
+          .daily-iron-mobile-log-date { color: #6b7fa3; font-size: 11.5px; margin-top: 3px; }
+          .daily-iron-mobile-log-amount { color: #023c62; font-weight: 900; white-space: nowrap; }
+          .daily-iron-mobile-log-meta { margin-top: 9px; padding-top: 8px; border-top: 1px solid #edf3f8; color: #53657d; font-size: 12px; }
+        }
+        @media (max-width: 380px) {
+          main.daily-iron-page { padding: 0 !important; }
+          .daily-iron-shell { border: 0; border-radius: 0; box-shadow: none; }
         }
       `}</style>
       <section className="daily-iron-shell">
@@ -133,6 +146,7 @@ export default async function PublicDailyIronPage({ params, searchParams }: { pa
           {!logs.length ? (
             <div style={{ padding: 28, textAlign: 'center', color: '#9dafc8', background: '#f7fafc', borderRadius: 10 }}>No Daily Iron logs for this month yet.</div>
           ) : (
+            <>
             <div className="daily-iron-table-wrap">
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
                 <thead>
@@ -157,6 +171,21 @@ export default async function PublicDailyIronPage({ params, searchParams }: { pa
                 </tbody>
               </table>
             </div>
+            <div className="daily-iron-mobile-logs">
+              {logs.map((log: any) => (
+                <article className="daily-iron-mobile-log" key={`${log.id}-mobile`}>
+                  <div className="daily-iron-mobile-log-top">
+                    <div>
+                      <div className="daily-iron-mobile-log-name">{log.serviceName}</div>
+                      <div className="daily-iron-mobile-log-date">{dateLabel(log.date)}</div>
+                    </div>
+                    <div className="daily-iron-mobile-log-amount">{money(log.amount)}</div>
+                  </div>
+                  <div className="daily-iron-mobile-log-meta">{log.pieces} pieces at {money(log.ratePerPiece)} each</div>
+                </article>
+              ))}
+            </div>
+            </>
           )}
         </section>
 

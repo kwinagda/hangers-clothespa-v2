@@ -448,6 +448,15 @@ const canonicalInvoiceSelect = {
 
 const normalizeCanonicalInvoice = (invoice) => {
   const source = invoice.order || invoice.ironBill || invoice.serviceAppointment || {};
+  const items = invoice.lines.map((line) => ({
+    serviceName: line.description,
+    garmentType: line.lineType,
+    variant: null,
+    quantity: Number(line.quantity || 0),
+    unitPrice: line.unitPrice,
+    lineDiscountAmount: line.discountAmount,
+    subtotal: line.lineTotal,
+  }));
   return {
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
@@ -469,15 +478,8 @@ const normalizeCanonicalInvoice = (invoice) => {
     createdAt: invoice.issueDate,
     dueDate: invoice.dueDate,
     customer: invoice.customer,
-    items: invoice.lines.map((line) => ({
-      serviceName: line.description,
-      garmentType: line.lineType,
-      variant: null,
-      quantity: Number(line.quantity || 0),
-      unitPrice: line.unitPrice,
-      lineDiscountAmount: line.discountAmount,
-      subtotal: line.lineTotal,
-    })),
+    totalPieces: items.reduce((total, item) => total + item.quantity, 0),
+    items,
     balanceDue: invoice.balanceDue,
   };
 };
@@ -524,6 +526,7 @@ const getPublicPaymentSummary = async (customerId, legalTerms) => {
       totalAmount: invoice.totalAmount,
       paidAmount: invoice.paidAmount,
       balanceDue: invoice.balanceDue,
+      totalPieces: invoice.totalPieces,
       items: invoice.items,
     })),
   };
