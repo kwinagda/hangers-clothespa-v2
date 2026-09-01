@@ -187,6 +187,7 @@ export const ironAPI = {
   getBills: (customerId: string) => api.get(`/iron/bills/customer/${customerId}`) as any,
   getBill: (billId: string) => api.get(`/iron/bills/${billId}`) as any,
   sendBill: (billId: string) => api.put(`/iron/bills/${billId}/send`, {}, idempotencyConfig('crm-iron-bill-send')) as any,
+  voidBill: (billId: string, data: { reason: string }) => api.post(`/iron/bills/${billId}/void`, data, idempotencyConfig('crm-iron-bill-void')) as any,
   recordPayment: (billId: string, data: { amount?: number; paymentMethod?: string; reference?: string; notes?: string; writeOffAmount?: number; writeOffReason?: string; effectiveAt?: string }) =>
     api.put(`/iron/bills/${billId}/pay`, data, idempotencyConfig('crm-iron-payment')) as any,
   reversePayment: (billId: string, paymentId: string, data: { reason: string }) =>

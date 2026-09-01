@@ -7,7 +7,7 @@ const {
 const { getCorePaymentMethods } = require('../services/masterData.service');
 const { normalizePaymentMethod } = require('../utils/payment-method');
 const { nextDocumentNumber } = require('../services/document-number.service');
-const { BillingRuleError, ensureIronBillInvoice, refreshIronBillInvoice } = require('../services/billing.service');
+const { BillingRuleError, ensureIronBillInvoice, refreshIronBillInvoice, voidIronBillInvoice } = require('../services/billing.service');
 const { PaymentRuleError, recordInvoiceSettlement, reverseInvoicePaymentCorrection } = require('../services/payment.service');
 const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
@@ -642,9 +642,10 @@ const getMonthlySummary = async (req, res) => {
     for (const bill of bills) if (byCustomer.has(bill.customerId)) byCustomer.get(bill.customerId).bills.push(bill);
 
     const customers = Array.from(byCustomer.values()).map((row) => {
-      const billed = row.bills.length > 0;
-      const paid = billed && row.bills.every((bill) => String(bill.status).toUpperCase() === 'PAID');
-      const partiallyPaid = row.bills.some((bill) => Number(bill.paidAmount) > 0 && String(bill.status).toUpperCase() !== 'PAID');
+      const activeBills = row.bills.filter((bill) => String(bill.status || '').toUpperCase() !== 'VOID');
+      const billed = activeBills.length > 0;
+      const paid = billed && activeBills.every((bill) => String(bill.status).toUpperCase() === 'PAID');
+      const partiallyPaid = activeBills.some((bill) => Number(bill.paidAmount) > 0 && String(bill.status).toUpperCase() !== 'PAID');
       return {
         ...row,
         totalAmount: Number(row.totalAmount.toFixed(2)),
@@ -678,6 +679,7 @@ const dailyIronTimelineTitle = (action, status) => {
   if (action === 'DAILY_IRON_LOG_CORRECTED') return 'Daily Iron Corrected';
   if (action === 'DAILY_IRON_LOG_VOIDED') return 'Daily Iron Voided';
   if (action === 'DAILY_IRON_BILL_GENERATED') return 'Daily Iron Bill Generated';
+  if (action === 'DAILY_IRON_BILL_VOIDED') return 'Daily Iron Bill Voided';
   if (action === 'DAILY_IRON_BILL_SENT') return 'Daily Iron Bill Sent';
   if (action === 'DAILY_IRON_PAYMENT_RECORDED') return 'Daily Iron Payment Recorded';
   if (action === 'DAILY_IRON_PAYMENT_REVERSED') return 'Daily Iron Payment Reversed';
@@ -1794,6 +1796,9 @@ const sendBill = async (req, res) => {
         },
       });
       if (!bill) throw new BillingRuleError('IRON_BILL_NOT_FOUND', 'Iron bill not found', 404);
+      if (String(bill.status || '').toUpperCase() === 'VOID') {
+        throw new BillingRuleError('IRON_BILL_VOID', 'This Daily Iron bill is voided and cannot be sent');
+      }
       if (!(Number(bill.totalAmount) > 0)) throw new BillingRuleError('ZERO_VALUE_BILL', 'Cannot send a zero-value bill');
       if (bill.status === 'PAID') throw new BillingRuleError('BILL_ALREADY_PAID', 'A paid bill does not need to be sent again');
 
@@ -1830,6 +1835,45 @@ const sendBill = async (req, res) => {
       return badRequest(res, err.message);
     }
     return error(res, 'Failed to send iron bill');
+  }
+};
+
+const voidBill = async (req, res) => {
+  const reason = String(req.body?.reason || '').trim();
+  if (reason.length < 3) return badRequest(res, 'A void reason is required');
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const voided = await voidIronBillInvoice(tx, req.params.billId, req.staff?.id, reason);
+      await writeAuditEvent(tx, {
+        actorType: 'staff',
+        actorId: req.staff?.id,
+        actorName: req.staff?.name,
+        action: 'DAILY_IRON_BILL_VOIDED',
+        resource: 'invoice',
+        resourceId: voided.invoiceId || voided.bill.id,
+        description: `${voided.bill.billNumber} voided: ${reason}`,
+        metadata: {
+          billId: voided.bill.id,
+          billNumber: voided.bill.billNumber,
+          invoiceId: voided.invoiceId,
+          invoiceNumber: voided.invoiceNumber,
+          releasedLogCount: voided.releasedLogCount,
+          reason,
+        },
+        ...getRequestMeta(req),
+      });
+      return voided;
+    }, { isolationLevel: 'Serializable' });
+
+    return success(res, result, 'Daily Iron bill voided');
+  } catch (err) {
+    console.error('voidBill error:', err);
+    if (err instanceof BillingRuleError) {
+      if (err.statusCode === 404) return notFound(res, err.message);
+      return badRequest(res, err.message);
+    }
+    return error(res, 'Failed to void Daily Iron bill');
   }
 };
 
@@ -2073,7 +2117,10 @@ const getOwnLogsByMonth = async (req, res) => {
 const getOwnBills = async (req, res) => {
   try {
     const bills = await prisma.ironBill.findMany({
-      where: { customerId: req.customer.id },
+      where: {
+        customerId: req.customer.id,
+        status: { not: 'VOID' },
+      },
       include: {
         logs: {
           select: { id: true },
@@ -2135,6 +2182,7 @@ module.exports = {
   listBillsForCustomer,
   getBillById,
   sendBill,
+  voidBill,
   recordBillPayment,
   reverseBillPayment,
   applyForSubscription,

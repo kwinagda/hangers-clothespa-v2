@@ -336,6 +336,9 @@ const ensureIronBillInvoice = async (tx, billId, actorId = null) => {
     },
   });
   if (!bill) throw new BillingRuleError('IRON_BILL_NOT_FOUND', 'Daily Iron bill not found', 404);
+  if (String(bill.status || '').toUpperCase() === 'VOID') {
+    throw new BillingRuleError('IRON_BILL_VOID', 'This Daily Iron bill is voided and cannot be used for payment or sending');
+  }
   if (bill.invoice) return bill.invoice;
   return createIronBillInvoice(tx, bill, actorId);
 };
@@ -349,6 +352,9 @@ const refreshIronBillInvoice = async (tx, billId, actorId, reason = 'DAILY_IRON_
     },
   });
   if (!bill) throw new BillingRuleError('IRON_BILL_NOT_FOUND', 'Daily Iron bill not found', 404);
+  if (String(bill.status || '').toUpperCase() === 'VOID') {
+    throw new BillingRuleError('IRON_BILL_VOID', 'This Daily Iron bill is voided and cannot be regenerated');
+  }
   if (!bill.invoice) return createIronBillInvoice(tx, bill, actorId);
   const settlement = await getInvoiceSettlement(tx, bill.invoice);
   if (settlement.paidAmount > 0) {
@@ -369,6 +375,87 @@ const refreshIronBillInvoice = async (tx, billId, actorId, reason = 'DAILY_IRON_
     },
   });
   return syncInvoiceBalance(tx, bill.invoice.id);
+};
+
+const voidIronBillInvoice = async (tx, billId, actorId, reason) => {
+  const cleanReason = String(reason || '').trim();
+  if (cleanReason.length < 3) {
+    throw new BillingRuleError('BILL_VOID_REASON_REQUIRED', 'A void reason is required');
+  }
+
+  await tx.$queryRaw`SELECT "id" FROM "iron_bills" WHERE "id" = ${billId} FOR UPDATE`;
+  const bill = await tx.ironBill.findUnique({
+    where: { id: billId },
+    include: {
+      invoice: {
+        include: {
+          lines: true,
+          allocations: { where: { status: 'POSTED' } },
+          creditNotes: { where: { status: 'POSTED' } },
+          refundAllocations: { where: { status: 'POSTED' } },
+          financialAdjustments: { where: { status: 'POSTED' } },
+        },
+      },
+      logs: { select: { id: true, status: true } },
+    },
+  });
+  if (!bill) throw new BillingRuleError('IRON_BILL_NOT_FOUND', 'Daily Iron bill not found', 404);
+  if (String(bill.status || '').toUpperCase() === 'VOID') {
+    throw new BillingRuleError('IRON_BILL_ALREADY_VOID', 'Daily Iron bill is already voided');
+  }
+
+  const invoice = bill.invoice;
+  const hasSettlement = Number(bill.paidAmount || 0) > 0
+    || Number(invoice?.paidAmount || 0) > 0
+    || Number(invoice?.creditAmount || 0) > 0
+    || (invoice?.allocations || []).length > 0
+    || (invoice?.creditNotes || []).length > 0
+    || (invoice?.refundAllocations || []).length > 0
+    || (invoice?.financialAdjustments || []).length > 0;
+
+  if (hasSettlement) {
+    throw new BillingRuleError(
+      'IRON_BILL_HAS_SETTLEMENT',
+      'Void the payment, credit, or write-off entries first, then void this Daily Iron bill'
+    );
+  }
+
+  if (invoice) {
+    await storeRevision(tx, invoice, 'DAILY_IRON_BILL_VOIDED', actorId);
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        status: 'VOID',
+        voidedAt: new Date(),
+        voidReason: cleanReason,
+        balanceDue: 0,
+        version: { increment: 1 },
+      },
+    });
+  }
+
+  await tx.ironLog.updateMany({
+    where: { billId: bill.id },
+    data: { billId: null },
+  });
+
+  const voidedBill = await tx.ironBill.update({
+    where: { id: bill.id },
+    data: {
+      status: 'VOID',
+      paidAmount: 0,
+      paidAt: null,
+      notes: [bill.notes, `Voided: ${cleanReason}`].filter(Boolean).join('\n'),
+    },
+    include: { invoice: true, logs: true },
+  });
+
+  return {
+    bill: voidedBill,
+    invoiceId: invoice?.id || null,
+    invoiceNumber: invoice?.invoiceNumber || null,
+    releasedLogCount: bill.logs.length,
+  };
 };
 
 const createServiceAppointmentInvoice = async (tx, appointment, actorId) => {
@@ -429,4 +516,5 @@ module.exports = {
   refreshIronBillInvoice,
   refreshOrderInvoice,
   syncInvoiceBalance,
+  voidIronBillInvoice,
 };

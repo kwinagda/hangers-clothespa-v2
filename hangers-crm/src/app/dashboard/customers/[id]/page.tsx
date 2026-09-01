@@ -495,6 +495,23 @@ export default function CustomerProfilePage() {
     setIronBusy(null)
   }
 
+  const voidIronBill = async (bill: any) => {
+    const reason = window.prompt(`Reason for voiding ${bill.billNumber}`)?.trim()
+    if (!reason || reason.length < 3) {
+      toast.error('A void reason is required')
+      return
+    }
+    setIronBusy(`bill-void-${bill.id}`)
+    try {
+      await ironAPI.voidBill(bill.id, { reason })
+      toast.success('Bill voided; clothes are unbilled again')
+      await loadIron()
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to void bill')
+    }
+    setIronBusy(null)
+  }
+
   if (loading) return <div style={{ padding: 40, color: '#6b7fa3', ...s }}>Loading...</div>
   if (!customer) return <div style={{ padding: 40, color: '#e53e3e', ...s }}>Customer not found</div>
 
@@ -1132,6 +1149,7 @@ export default function CustomerProfilePage() {
                       const invoiceBalance = bill.invoice ? Number(bill.invoice.balanceDue || 0) : null
                       const billBalance = Math.max(0, invoiceBalance ?? (billTotal - billPaid))
                       const billStatus = String(bill.status || '').toUpperCase()
+                      const isBillVoid = billStatus === 'VOID'
                       const isBillPaid = billStatus === 'PAID' || billBalance <= 0.005
                       const paymentEntries = (bill.invoice?.allocations || [])
                         .filter((allocation: any) => allocation.payment)
@@ -1147,8 +1165,8 @@ export default function CustomerProfilePage() {
                             <div style={{ fontWeight: 700, color: '#023c62', marginBottom: 2 }}>{bill.billNumber}</div>
                             <div style={{ fontSize: 12, color: '#6b7fa3' }}>{format(new Date(bill.billingPeriodStart), 'dd MMM')} to {format(new Date(bill.billingPeriodEnd), 'dd MMM yyyy')}</div>
                           </div>
-                          <span style={{ minHeight: 24, padding: '0 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: isBillPaid ? '#dcfce7' : billStatus === 'SENT' ? '#dbeafe' : billStatus === 'PARTIAL' ? '#ede9fe' : '#fef3c7', color: isBillPaid ? '#166534' : billStatus === 'SENT' ? '#1d4ed8' : billStatus === 'PARTIAL' ? '#6d28d9' : '#92400e' }}>
-                            {isBillPaid ? 'PAID' : billStatus}
+                          <span style={{ minHeight: 24, padding: '0 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: isBillVoid ? '#fee2e2' : isBillPaid ? '#dcfce7' : billStatus === 'SENT' ? '#dbeafe' : billStatus === 'PARTIAL' ? '#ede9fe' : '#fef3c7', color: isBillVoid ? '#991b1b' : isBillPaid ? '#166534' : billStatus === 'SENT' ? '#1d4ed8' : billStatus === 'PARTIAL' ? '#6d28d9' : '#92400e' }}>
+                            {isBillVoid ? 'VOID' : isBillPaid ? 'PAID' : billStatus}
                           </span>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 10 }}>
@@ -1169,12 +1187,21 @@ export default function CustomerProfilePage() {
                             <div style={{ fontWeight: 700, color: isBillPaid ? '#166534' : '#9a3412' }}>{fmt(billBalance)}</div>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                        {!isBillVoid && <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' as const }}>
                           <button onClick={() => sendIronBill(bill.id)} disabled={ironBusy === `bill-send-${bill.id}` || isBillPaid} style={{ padding: '8px 12px', background: isBillPaid ? '#cbd5e1' : '#023c62', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: isBillPaid ? 'not-allowed' : 'pointer' }}>
                             {ironBusy === `bill-send-${bill.id}` ? 'Sending…' : 'Send Bill'}
                           </button>
-                        </div>
-                        {isBillPaid ? (
+                          {!isBillPaid && (
+                            <button onClick={() => voidIronBill(bill)} disabled={Boolean(ironBusy)} style={{ padding: '8px 12px', background: '#fff7ed', color: '#9a3412', border: '1px solid #fed7aa', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: ironBusy ? 'not-allowed' : 'pointer' }}>
+                              {ironBusy === `bill-void-${bill.id}` ? 'Voiding...' : 'Void Bill'}
+                            </button>
+                          )}
+                        </div>}
+                        {isBillVoid ? (
+                          <div style={{ border: '1px solid #fecaca', background: '#fff7f7', color: '#991b1b', borderRadius: 10, padding: '10px 12px', fontSize: 12, fontWeight: 700 }}>
+                            Bill voided. Linked clothes are available for fresh billing.
+                          </div>
+                        ) : isBillPaid ? (
                           <div style={{ border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', borderRadius: 10, padding: '10px 12px', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                             <span>Bill settled. No further payment can be recorded.</span>
                             {bill.paidAt && <span style={{ fontWeight: 600, color: '#15803d' }}>{format(new Date(bill.paidAt), 'dd MMM yyyy')}</span>}

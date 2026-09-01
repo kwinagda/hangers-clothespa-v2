@@ -28,6 +28,7 @@ const {
   listBillsForCustomer,
   getBillById,
   sendBill,
+  voidBill,
   recordBillPayment,
   reverseBillPayment,
   applyForSubscription,
@@ -66,6 +67,7 @@ router.post('/bills/generate', staffAuth, crmAccess, requirePermission('daily_ir
 router.get('/bills/customer/:customerId', staffAuth, crmAccess, ironStaffRoles, listBillsForCustomer);
 router.get('/bills/:billId', staffAuth, crmAccess, ironStaffRoles, getBillById);
 router.put('/bills/:billId/send', staffAuth, crmAccess, requirePermission('daily_iron.manage_billing'), idempotent({ scope: 'daily-iron.bill.send' }), sendBill);
+router.post('/bills/:billId/void', staffAuth, crmAccess, requirePermission('daily_iron.manage_billing'), idempotent({ scope: 'daily-iron.bill.void' }), voidBill);
 router.put('/bills/:billId/pay', staffAuth, crmAccess, requirePermission('finance.collect_payment'), idempotent({ scope: 'daily-iron.bill.payment' }), recordBillPayment);
 router.post('/bills/:billId/payments/:paymentId/reversal', staffAuth, crmAccess, requirePermission('finance.refund'), idempotent({ scope: 'daily-iron.bill.payment-reversal' }), reverseBillPayment);
 
