@@ -9,6 +9,7 @@ const {
   resolveAppliedIronRate,
 } = require('../src/controllers/iron.controller');
 const { OUTBOX_EVENT } = require('../src/services/outbox.service');
+const { resolveIronBillStatusAfterInvoiceSync } = require('../src/services/billing.service');
 const { resolveDailyIronBillMode } = require('../src/utils/daily-iron-billing');
 const { formatDailyIronLogItems } = require('../src/utils/daily-iron-summary');
 
@@ -95,4 +96,11 @@ test('Daily Iron bill mode preserves locked bills and creates supplemental bills
   assert.equal(freshAfterVoid.existingDraftBill, null);
   assert.equal(freshAfterVoid.lockedBills.length, 0);
   assert.equal(freshAfterVoid.mode, 'NEW_PERIOD_BILL');
+});
+
+test('Daily Iron invoice sync keeps generated bills as draft until explicit send', () => {
+  assert.equal(resolveIronBillStatusAfterInvoiceSync('OPEN', 'DRAFT'), 'DRAFT');
+  assert.equal(resolveIronBillStatusAfterInvoiceSync('OPEN', 'SENT'), 'SENT');
+  assert.equal(resolveIronBillStatusAfterInvoiceSync('PARTIAL', 'DRAFT'), 'PARTIAL');
+  assert.equal(resolveIronBillStatusAfterInvoiceSync('PAID', 'SENT'), 'PAID');
 });

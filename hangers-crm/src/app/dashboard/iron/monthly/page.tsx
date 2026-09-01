@@ -175,22 +175,7 @@ export default function DailyIronMonthlyPage() {
     return activeBills(row).length ? 'Manage billing' : 'Review billing'
   }
   const handleRowBillingAction = async (row:any) => {
-    const drafts = rowDraftBills(row)
-    if (!drafts.length) {
-      setBillingWorkspace({ rows: [row] })
-      return
-    }
-    if (!window.confirm(`Send ${drafts.length === 1 ? drafts[0].billNumber : `${drafts.length} Daily Iron bills`} to ${row.customer.name} on WhatsApp?`)) return
-    setRowBusy(row.customer.id)
-    try {
-      for (const bill of drafts) await ironAPI.sendBill(bill.id)
-      toast.success(drafts.length === 1 ? 'Bill queued on WhatsApp' : `${drafts.length} bills queued on WhatsApp`)
-      await load()
-    } catch (error:any) {
-      toast.error(error.message || 'Failed to send bill')
-    } finally {
-      setRowBusy('')
-    }
+    setBillingWorkspace({ rows: [row] })
   }
 
   return <div className="monthly-page">

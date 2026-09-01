@@ -170,6 +170,16 @@ const getInvoiceSettlement = async (tx, invoice) => {
   };
 };
 
+const resolveIronBillStatusAfterInvoiceSync = (invoiceStatus, currentBillStatus) => {
+  const normalizedInvoiceStatus = String(invoiceStatus || '').toUpperCase();
+  const normalizedBillStatus = String(currentBillStatus || '').toUpperCase();
+
+  if (normalizedInvoiceStatus === 'OPEN') {
+    return normalizedBillStatus === 'DRAFT' ? 'DRAFT' : 'SENT';
+  }
+  return normalizedInvoiceStatus;
+};
+
 const syncInvoiceBalance = async (tx, invoiceId) => {
   const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
   if (!invoice) throw new BillingRuleError('INVOICE_NOT_FOUND', 'Invoice not found', 404);
@@ -197,12 +207,16 @@ const syncInvoiceBalance = async (tx, invoiceId) => {
   });
 
   if (invoice.ironBillId) {
+    const ironBill = await tx.ironBill.findUnique({
+      where: { id: invoice.ironBillId },
+      select: { status: true },
+    });
     await tx.ironBill.update({
       where: { id: invoice.ironBillId },
       data: {
         paidAmount: settlement.paidAmount,
         paidAt: status === 'PAID' ? new Date() : null,
-        status: status === 'OPEN' ? 'SENT' : status,
+        status: resolveIronBillStatusAfterInvoiceSync(status, ironBill?.status),
       },
     });
   }
@@ -515,6 +529,7 @@ module.exports = {
   ensureServiceAppointmentInvoice,
   refreshIronBillInvoice,
   refreshOrderInvoice,
+  resolveIronBillStatusAfterInvoiceSync,
   syncInvoiceBalance,
   voidIronBillInvoice,
 };
