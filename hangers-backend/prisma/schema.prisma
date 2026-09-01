@@ -736,7 +736,7 @@ model ServiceAppointment {
   createdById       String?
   completedById     String?
   createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
+  updatedAt         DateTime                  @default(now()) @updatedAt
   customer          Customer                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
   serviceAddress    Address?                  @relation(fields: [addressId], references: [id], onDelete: SetNull)
   service           Service?                  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
