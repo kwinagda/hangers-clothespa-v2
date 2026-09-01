@@ -8,6 +8,7 @@ STATIC_BUCKET="${HANGERS_STATIC_BUCKET:-hangers-cs-website-977714654070-ap-south
 PUBLIC_CRM_URL="${HANGERS_PUBLIC_CRM_URL:-https://hangers-cs.com}"
 TARGET_REVISION="${1:-origin/main}"
 LOCK_FILE="/var/lock/hangers-code-deploy.lock"
+DEPLOY_LOG="${HANGERS_DEPLOY_LOG:-/var/log/hangers-deployments.log}"
 
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -25,6 +26,7 @@ run_as_deploy_user() {
 }
 
 fail() {
+  echo "$(date -Is) failed target=${TARGET_REVISION} reason=\"$*\"" >>"$DEPLOY_LOG" 2>/dev/null || true
   echo "DEPLOYMENT_FAILED: $*" >&2
   exit 1
 }
@@ -62,6 +64,7 @@ run_as_deploy_user git merge-base --is-ancestor HEAD "$target_commit" \
 
 previous_commit="$(run_as_deploy_user git rev-parse HEAD)"
 echo "Deploying $previous_commit -> $target_commit"
+echo "$(date -Is) started previous=${previous_commit} target=${target_commit}" >>"$DEPLOY_LOG" 2>/dev/null || true
 run_as_deploy_user git merge --ff-only "$target_commit"
 
 changed_files="$(run_as_deploy_user git diff --name-only "$previous_commit" "$target_commit")"
@@ -86,7 +89,8 @@ echo "Publishing Next.js static assets..."
 run_as_deploy_user aws s3 sync \
   "$REPO_ROOT/hangers-crm/.next/static" \
   "s3://$STATIC_BUCKET/_next/static" \
-  --cache-control "public,max-age=31536000,immutable"
+  --cache-control "public,max-age=31536000,immutable" \
+  --only-show-errors
 
 echo "Restarting application processes..."
 run_as_deploy_user env PM2_HOME="$PM2_HOME" pm2 restart \
@@ -151,3 +155,4 @@ install -m 0755 "$REPO_ROOT/scripts/deploy/deploy-ec2-code.sh" \
 
 echo "DEPLOYMENT_COMPLETE commit=$deployed_commit"
 echo "No database migration, seed, restore, or data sync was run."
+echo "$(date -Is) complete commit=${deployed_commit}" >>"$DEPLOY_LOG" 2>/dev/null || true
