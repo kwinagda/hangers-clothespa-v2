@@ -20,6 +20,18 @@ dist/
 **/.env.local
 **/.env.*.local
 
+# Local credentials and secrets
+*Creds*.rtf
+*creds*.rtf
+*credential*.rtf
+*credentials*.rtf
+*.secret
+*.secrets
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Logs
 *.log
 npm-debug.log*
