@@ -601,7 +601,10 @@ const getPublicDailyIronLogs = async (req, res) => {
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       }),
       prisma.ironBill.findMany({
-        where: { customerId: subscription.customerId },
+        where: {
+          customerId: subscription.customerId,
+          status: { not: 'VOID' },
+        },
         select: {
           id: true,
           billNumber: true,
