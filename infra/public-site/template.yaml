@@ -231,8 +231,10 @@ Resources:
         function handler(event) {
           var request = event.request;
           var uri = request.uri;
-          var exactFilePaths = ['/opengraph-image', '/rate-chart/opengraph-image'];
-          if (exactFilePaths.indexOf(uri) !== -1) {
+          // Next.js file-based OG image convention (<route>/opengraph-image) has no
+          // extension in its URL but maps to a flat file, not a directory - never
+          // list these by hand here, or a future page's preview image 403s silently.
+          if (uri === '/opengraph-image' || uri.endsWith('/opengraph-image')) {
             return request;
           }
           if (uri.indexOf('.') === -1) {

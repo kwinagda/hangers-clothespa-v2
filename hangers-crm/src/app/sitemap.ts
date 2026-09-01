@@ -16,12 +16,14 @@ const pages: Array<{ path: string; changeFrequency: 'weekly' | 'monthly'; priori
 ]
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const lastModified = new Date('2026-08-22T00:00:00+05:30')
+  const lastModified = new Date()
   return pages.map((page) => ({
     url: `${SITE_URL}${page.path}`,
     lastModified,
     changeFrequency: page.changeFrequency,
     priority: page.priority,
-    ...(page.path === '' ? { images: [`${SITE_URL}/brand/curtain-care-hero.png`, `${SITE_URL}/brand/garment-care-hero.png`] } : {}),
+    images: page.path === ''
+      ? [`${SITE_URL}/brand/curtain-care-hero.webp`, `${SITE_URL}/brand/garment-care-hero.webp`]
+      : [`${SITE_URL}${page.path}/opengraph-image`],
   }))
 }

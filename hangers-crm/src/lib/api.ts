@@ -116,6 +116,8 @@ export const paymentsAPI = {
   dailySummary:(params?: any)                 => api.get('/payments/daily', { params }) as any,
   refund:      (orderId: string, data: any)   => api.post(`/orders/${orderId}/refunds`, data, idempotencyConfig('crm-refund')) as any,
   reverse:     (orderId: string, paymentId: string, data: { reason: string }) => api.post(`/orders/${orderId}/payments/${paymentId}/reversal`, data, idempotencyConfig('crm-payment-reversal')) as any,
+  previewReceivablesReminder: (data: { customerId: string; invoiceIds?: string[] }) => api.post('/payments/receivables/reminders/preview', data) as any,
+  sendReceivablesReminder: (data: { customerId: string; invoiceIds?: string[] }) => api.post('/payments/receivables/reminders/send', data, idempotencyConfig('crm-receivables-reminder')) as any,
 }
 export const servicesAPI = {
   getPriceList: ()           => api.get('/services') as any,
@@ -161,6 +163,7 @@ export const settingsAPI = {
 }
 
 export const ironAPI = {
+  getMonthlySummary: (month: string) => api.get('/iron/monthly-summary', { params: { month } }) as any,
   listSubscriptions: (status?: string) => api.get('/iron/subscriptions', { params: status ? { status } : undefined }) as any,
   getSubscription: (customerId: string) => api.get(`/iron/subscriptions/${customerId}`) as any,
   createSubscription: (data: any) => api.post('/iron/subscriptions', data) as any,

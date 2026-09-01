@@ -100,6 +100,14 @@ app.use((req, res, next) => {
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 app.get('/health', (_req, res) => res.json({ success: true, message: 'Hangers API process is alive', version: '4.0.0' }));
+app.get('/', (_req, res) => res.json({
+  success: true,
+  message: 'Hangers API',
+  version: '4.0.0',
+  health: '/health',
+  ready: '/ready',
+  basePath: '/api/v1',
+}));
 app.get('/ready', async (_req, res) => {
   const status = app.locals.readiness;
   let database = 'ok';

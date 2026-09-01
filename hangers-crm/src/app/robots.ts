@@ -6,10 +6,20 @@ const privatePaths = ['/api', '/dashboard', '/login', '/change-password', '/invo
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
-      { userAgent: '*', allow: '/', disallow: privatePaths },
-      { userAgent: 'OAI-SearchBot', allow: '/', disallow: privatePaths },
-      { userAgent: 'ChatGPT-User', allow: '/', disallow: privatePaths },
+      { userAgent: 'Googlebot', allow: '/' },
+      { userAgent: 'Bingbot', allow: '/' },
+      { userAgent: 'OAI-SearchBot', allow: '/' },
+      { userAgent: 'ChatGPT-User', allow: '/' },
+      { userAgent: 'Claude-SearchBot', allow: '/' },
+      { userAgent: 'Claude-User', allow: '/' },
+      { userAgent: 'PerplexityBot', allow: '/' },
       { userAgent: 'GPTBot', disallow: '/' },
+      { userAgent: 'ClaudeBot', disallow: '/' },
+      { userAgent: 'Google-Extended', disallow: '/' },
+      { userAgent: 'Applebot-Extended', disallow: '/' },
+      { userAgent: 'CCBot', disallow: '/' },
+      { userAgent: 'Bytespider', disallow: '/' },
+      { userAgent: '*', allow: '/', disallow: privatePaths },
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,
     host: SITE_URL,

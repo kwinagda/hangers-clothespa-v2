@@ -573,6 +573,81 @@ const listAllLogs = async (req, res) => {
   }
 };
 
+const getMonthlySummary = async (req, res) => {
+  const month = String(req.query.month || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(month)) return badRequest(res, 'month must use YYYY-MM format');
+  const periodStart = startOfMonth(new Date(`${month}-01T00:00:00`));
+  const periodEnd = endOfMonth(periodStart);
+
+  try {
+    const [subscriptions, logs, bills] = await Promise.all([
+      prisma.ironSubscription.findMany({
+        where: { applicationStatus: 'ACTIVE' },
+        include: { customer: { select: { id: true, name: true, phone: true, ironSubStatus: true } } },
+        orderBy: { customer: { name: 'asc' } },
+      }),
+      prisma.ironLog.findMany({
+        where: { date: { gte: periodStart, lte: periodEnd } },
+        include: {
+          service: { select: { id: true, name: true } },
+          bill: { select: { id: true, billNumber: true, status: true } },
+          loggedBy: { select: { id: true, name: true } },
+        },
+        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+      }),
+      prisma.ironBill.findMany({
+        where: { billingPeriodStart: periodStart },
+        select: { id: true, billNumber: true, customerId: true, totalPieces: true, totalAmount: true, paidAmount: true, status: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const byCustomer = new Map(subscriptions.map((subscription) => [subscription.customerId, {
+      subscriptionId: subscription.id,
+      customer: subscription.customer,
+      days: {}, logs: [], bills: [], totalPieces: 0, totalAmount: 0, unbilledPieces: 0, unbilledAmount: 0,
+    }]));
+    for (const log of logs) {
+      if (!byCustomer.has(log.customerId)) continue;
+      const row = byCustomer.get(log.customerId);
+      const day = new Date(log.date).getDate();
+      row.logs.push(log);
+      if (log.status !== 'ACTIVE') continue;
+      row.totalPieces += log.pieces;
+      row.totalAmount += Number(log.amount);
+      if (!log.billId) { row.unbilledPieces += log.pieces; row.unbilledAmount += Number(log.amount); }
+      if (!row.days[day]) row.days[day] = { pieces: 0, amount: 0, logs: [] };
+      row.days[day].pieces += log.pieces;
+      row.days[day].amount += Number(log.amount);
+      row.days[day].logs.push(log);
+    }
+    for (const bill of bills) if (byCustomer.has(bill.customerId)) byCustomer.get(bill.customerId).bills.push(bill);
+
+    const customers = Array.from(byCustomer.values()).map((row) => {
+      const billed = row.bills.length > 0;
+      const paid = billed && row.bills.every((bill) => String(bill.status).toUpperCase() === 'PAID');
+      const partiallyPaid = row.bills.some((bill) => Number(bill.paidAmount) > 0 && String(bill.status).toUpperCase() !== 'PAID');
+      return {
+        ...row,
+        totalAmount: Number(row.totalAmount.toFixed(2)),
+        unbilledAmount: Number(row.unbilledAmount.toFixed(2)),
+        billingStatus: row.unbilledPieces > 0 ? (billed ? 'PARTIALLY_BILLED' : 'UNBILLED') : paid ? 'PAID' : partiallyPaid ? 'PARTIALLY_PAID' : billed ? 'BILLED' : 'NO_ACTIVITY',
+      };
+    });
+    const activeRows = customers.filter((row) => row.totalPieces > 0 || row.bills.length > 0);
+    const summary = activeRows.reduce((acc, row) => ({
+      customers: acc.customers + 1,
+      totalPieces: acc.totalPieces + row.totalPieces,
+      totalAmount: acc.totalAmount + row.totalAmount,
+      unbilledAmount: acc.unbilledAmount + row.unbilledAmount,
+    }), { customers: 0, totalPieces: 0, totalAmount: 0, unbilledAmount: 0 });
+    return success(res, { month, daysInMonth: periodEnd.getDate(), summary: { ...summary, totalAmount: Number(summary.totalAmount.toFixed(2)), unbilledAmount: Number(summary.unbilledAmount.toFixed(2)) }, customers });
+  } catch (err) {
+    console.error('getMonthlySummary error:', err);
+    return error(res, 'Failed to fetch Daily Iron monthly summary');
+  }
+};
+
 const dailyIronTimelineTitle = (action, status) => {
   if (action === 'DAILY_IRON_WHATSAPP_PENDING') return 'WhatsApp Queued';
   if (action === 'DAILY_IRON_WHATSAPP_SENT') return 'WhatsApp Sent';
@@ -2001,6 +2076,7 @@ module.exports = {
   confirmSubscription,
   updateSubscriptionStatus,
   listAllLogs,
+  getMonthlySummary,
   listDailyIronTimeline,
   getLogs,
   getLogsByPeriod,

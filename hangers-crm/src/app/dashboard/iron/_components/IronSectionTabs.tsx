@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 
 const TABS = [
   { href: '/dashboard/iron/sheet', label: 'Today Sheet' },
+  { href: '/dashboard/iron/monthly', label: 'Monthly Summary' },
   { href: '/dashboard/iron/logs', label: 'Logs' },
   { href: '/dashboard/iron/applications', label: 'Applications' },
 ]

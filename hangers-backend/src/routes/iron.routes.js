@@ -14,6 +14,7 @@ const {
   confirmSubscription,
   updateSubscriptionStatus,
   listAllLogs,
+  getMonthlySummary,
   listDailyIronTimeline,
   getLogs,
   getLogsByPeriod,
@@ -50,6 +51,7 @@ router.put('/subscriptions/:id/confirm', staffAuth, crmAccess, ironStaffRoles, c
 router.put('/subscriptions/:id/status', staffAuth, crmAccess, ironStaffRoles, updateSubscriptionStatus);
 
 router.get('/logs', staffAuth, crmAccess, ironStaffRoles, listAllLogs);
+router.get('/monthly-summary', staffAuth, crmAccess, ironStaffRoles, getMonthlySummary);
 router.get('/logs/rules', staffAuth, crmAccess, ironStaffRoles, getLogRules);
 router.get('/logs/timeline', staffAuth, crmAccess, ironStaffRoles, listDailyIronTimeline);
 router.get('/logs/:customerId/period', staffAuth, crmAccess, ironStaffRoles, getLogsByPeriod);
