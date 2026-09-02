@@ -444,6 +444,11 @@ textarea:focus {
 }
 
 @media (max-width: 599px) {
+  .crm-whatsapp-backdrop { padding: 0 !important; align-items: flex-end !important; }
+  .crm-whatsapp-dialog { width: 100% !important; max-height: calc(100dvh - env(safe-area-inset-top)) !important; border-inline: 0 !important; border-bottom: 0 !important; border-radius: 12px 12px 0 0 !important; }
+  .crm-whatsapp-body { padding: 14px 16px !important; }
+  .crm-whatsapp-footer { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)) !important; display: grid !important; grid-template-columns: 1fr 1fr; }
+  .crm-whatsapp-footer button { width: 100%; min-width: 0; min-height: 44px; }
   .customer-iron-card { border-radius: 9px !important; padding: 14px !important; }
   .customer-iron-history,.customer-iron-bills { padding: 0 !important; }
   .customer-iron-subscription-head { align-items: flex-start !important; margin-bottom: 13px !important; }

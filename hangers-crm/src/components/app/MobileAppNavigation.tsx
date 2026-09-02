@@ -60,7 +60,16 @@ export function MobileAppNavigation({
 
   const flatItems = useMemo(() => sections.flatMap((section) => section.items), [sections])
   const availableById = useMemo(() => new Map(availableItems.map((item) => [item.id, item.href])), [availableItems])
-  const primary = primaryIds.map((id) => {
+  const resolvedPrimaryIds = Array.from(new Set([
+    ...primaryIds,
+    'orders',
+    'daily_iron',
+    ...availableItems.map((item) => item.id),
+  ])).filter((id) => {
+    const href = availableById.get(id)
+    return Boolean(href && flatItems.some((item) => item.href.split('?')[0] === href))
+  }).slice(0, 2)
+  const primary = resolvedPrimaryIds.map((id) => {
     const href = availableById.get(id)
     return href ? flatItems.find((item) => item.href.split('?')[0] === href) : undefined
   }).filter(Boolean) as NavItem[]

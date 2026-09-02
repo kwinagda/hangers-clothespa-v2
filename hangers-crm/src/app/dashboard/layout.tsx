@@ -81,7 +81,7 @@ const NAV_SECTIONS = [
 ]
 
 const DEFAULT_UI_PREFERENCES = {
-  primaryNavItems: ['orders', 'new_order'],
+  primaryNavItems: ['orders', 'daily_iron'],
   availableNavItems: [
     { id: 'orders', href: '/dashboard/orders' },
     { id: 'new_order', href: '/dashboard/orders/new' },
@@ -187,7 +187,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         sections={visibleNavSections}
         pathname={pathname}
         pageLabel={pageLabel}
-        primaryIds={uiPreferences.primaryNavItems || ['orders', 'new_order']}
+        primaryIds={uiPreferences.primaryNavItems || ['orders', 'daily_iron']}
         availableItems={uiPreferences.availableNavItems || []}
         onSavePrimary={savePrimaryNavigation}
       />

@@ -911,15 +911,15 @@ function OrdersPageContent() {
       </div>
 
       {whatsAppModal.open && whatsAppModal.order && (
-        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.42)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:60,padding:'18px',boxSizing:'border-box'}}>
-          <div style={{width:'min(720px,100%)',maxHeight:'min(760px,calc(100vh - 36px))',background:'#fff',borderRadius:18,border:'1px solid #e4edf5',boxShadow:'0 28px 64px rgba(2,60,98,0.22)',overflow:'hidden',display:'flex',flexDirection:'column'}}>
+        <div className="crm-whatsapp-backdrop" style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.42)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:'18px',boxSizing:'border-box'}}>
+          <div className="crm-whatsapp-dialog" style={{width:'min(720px,100%)',maxHeight:'min(760px,calc(100vh - 36px))',background:'#fff',borderRadius:18,border:'1px solid #e4edf5',boxShadow:'0 28px 64px rgba(2,60,98,0.22)',overflow:'hidden',display:'flex',flexDirection:'column'}}>
             <div style={{padding:'18px 22px',borderBottom:'1px solid #edf3f8',flexShrink:0}}>
               <div style={{fontSize:18,fontWeight:900,color:'#023c62'}}>Send WhatsApp</div>
               <div style={{fontSize:12.5,color:'#6b7fa3',marginTop:4}}>
                 {whatsAppModal.order.orderNumber} · {whatsAppModal.order.customer?.name || 'Customer'} · Balance {formatCurrency(orderBalanceDue(whatsAppModal.order))}
               </div>
             </div>
-            <div style={{padding:22,display:'grid',gap:12,overflowY:'auto',minHeight:0}}>
+            <div className="crm-whatsapp-body" style={{padding:22,display:'grid',gap:12,overflowY:'auto',minHeight:0}}>
               {[
                 { type: 'ORDER_DETAILS', title: 'Resend order details', detail: 'Sends the current order status/details with invoice link.' },
                 { type: 'PAYMENT_REMINDER_ORDER', title: 'Payment reminder for this order', detail: 'Sends this order outstanding amount with payment details.' },
@@ -946,7 +946,7 @@ function OrdersPageContent() {
                   <div style={{fontSize:12,color:'#b91c1c',fontWeight:700}}>{whatsAppPreview.error}</div>
                 ) : (
                   <>
-                    {whatsAppPreview?.qrImage && <img src={whatsAppPreview.qrImage} alt="Payment QR preview" style={{width:96,height:96,objectFit:'contain',border:'1px solid #dce8f0',borderRadius:10,background:'#fff',marginBottom:10}} />}
+                    {(whatsAppPreview?.paymentAccount?.qrImageDataUrl || whatsAppPreview?.qrImage) && <img src={whatsAppPreview.paymentAccount?.qrImageDataUrl || whatsAppPreview.qrImage} alt="Payment QR preview" style={{width:96,height:96,objectFit:'contain',border:'1px solid #dce8f0',borderRadius:10,background:'#fff',marginBottom:10}} />}
                     {whatsAppCooldownRemaining > 0 && (
                       <div style={{border:'1px solid #fde68a',background:'#fffbeb',borderRadius:10,padding:10,marginBottom:10}}>
                         <div style={{display:'flex',justifyContent:'space-between',gap:10,fontSize:12,color:'#92400e',fontWeight:900}}>
@@ -965,7 +965,7 @@ function OrdersPageContent() {
                 )}
               </div>
             </div>
-            <div style={{display:'flex',justifyContent:'flex-end',gap:10,padding:'14px 22px',borderTop:'1px solid #edf3f8',background:'#f8fafc',flexShrink:0}}>
+            <div className="crm-whatsapp-footer" style={{display:'flex',justifyContent:'flex-end',gap:10,padding:'14px 22px',borderTop:'1px solid #edf3f8',background:'#f8fafc',flexShrink:0}}>
               <button onClick={() => setWhatsAppModal({ open:false, order:null, type:'ORDER_DETAILS', confirm:false })} disabled={whatsAppBusy}
                 style={{padding:'9px 14px',borderRadius:10,border:'1px solid #dce8f0',background:'#fff',color:'#51657f',fontWeight:700,cursor:whatsAppBusy?'wait':'pointer'}}>
                 Cancel

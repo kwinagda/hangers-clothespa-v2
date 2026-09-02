@@ -16,7 +16,7 @@ const NAV_DESTINATIONS = Object.freeze({
   reports: { href: '/dashboard/reports', permission: null, service: 'REPORTS' },
 });
 
-const DEFAULT_ITEMS = ['orders', 'new_order'];
+const DEFAULT_ITEMS = ['orders', 'daily_iron'];
 
 const permittedDestinationIds = (access) => Object.entries(NAV_DESTINATIONS)
   .filter(([, destination]) => {
