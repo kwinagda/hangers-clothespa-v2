@@ -186,10 +186,10 @@ export default function CustomerProfilePage() {
     setIronLoading(true)
     try {
       const [subscriptionRes, logsRes, billsRes, ratesRes] = await Promise.all([
-        ironAPI.getSubscription(id as string).catch(() => ({ data: { subscription: null } })),
-        ironAPI.getLogs(id as string).catch(() => ({ data: { logs: [] } })),
-        ironAPI.getBills(id as string).catch(() => ({ data: { bills: [] } })),
-        servicesAPI.getDailyIronRates().catch(() => ({ data: { catalog: [] } })),
+        ironAPI.getSubscription(id as string),
+        ironAPI.getLogs(id as string),
+        ironAPI.getBills(id as string),
+        servicesAPI.getDailyIronRates(),
       ])
 
       const nextSubscription = subscriptionRes?.data?.subscription || null
@@ -944,10 +944,10 @@ export default function CustomerProfilePage() {
         ironLoading && !ironLoaded ? (
           <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 40, textAlign: 'center', color: '#9dafc8' }}>Loading Daily Iron…</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.05fr 0.95fr', gap: 16 }}>
-            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
-              <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 16 }}>
+          <div className="customer-iron-layout" style={{ display: 'grid', gridTemplateColumns: '1.05fr 0.95fr', gap: 16 }}>
+            <div className="customer-iron-column" style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
+              <div className="customer-iron-card" style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
+                <div className="customer-iron-subscription-head" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 16 }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13, color: '#6b7fa3', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 6 }}>Subscription</div>
                     <div style={{ fontFamily: "var(--crm-font-ui)", fontSize: 22, fontWeight: 800, color: '#023c62' }}>Daily Iron</div>
@@ -960,7 +960,7 @@ export default function CustomerProfilePage() {
 
                 {ironSubscription ? (
                   <>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
+                    <div className="customer-iron-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
                       {[
                         { label: 'Applied', value: ironSubscription.appliedAt ? format(new Date(ironSubscription.appliedAt), 'dd MMM yy') : '—' },
                         { label: 'Confirmed', value: ironSubscription.confirmedAt ? format(new Date(ironSubscription.confirmedAt), 'dd MMM yy') : '—' },
@@ -1003,7 +1003,7 @@ export default function CustomerProfilePage() {
                     </div>
                   </>
                 ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#f8fafc', borderRadius: 10, padding: 16, border: '1px solid #eef4f8' }}>
+                  <div className="customer-iron-empty" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#f8fafc', borderRadius: 10, padding: 16, border: '1px solid #eef4f8' }}>
                     <div>
                       <div style={{ fontWeight: 700, color: '#023c62', marginBottom: 4 }}>Customer is not enrolled yet</div>
                       <div style={{ fontSize: 13, color: '#6b7fa3' }}>Create the subscription directly from CRM or wait for an app application.</div>
@@ -1015,8 +1015,8 @@ export default function CustomerProfilePage() {
                 )}
               </div>
 
-              <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
-                <div style={{ padding: '18px 20px', borderBottom: '1px solid #e8f0f7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="customer-iron-card customer-iron-history" style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
+                <div className="customer-iron-section-head" style={{ padding: '18px 20px', borderBottom: '1px solid #e8f0f7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ fontWeight: 700, color: '#023c62' }}>Log History</div>
                     <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 3 }}>Grouped here newest first for quick review.</div>
@@ -1026,7 +1026,7 @@ export default function CustomerProfilePage() {
                 {!ironLogs.length ? (
                   <div style={{ padding: 32, textAlign: 'center', color: '#9dafc8' }}>No Daily Iron logs yet</div>
                 ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <table className="customer-iron-log-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead><tr style={{ background: '#f8fafc' }}>
                       {['Date', 'Garment', 'Pieces', 'Rate', 'Amount', 'Bill', ''].map((h) => (
                         <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.06em', borderBottom: '1px solid #e8f0f7' }}>{h}</th>
@@ -1037,8 +1037,8 @@ export default function CustomerProfilePage() {
                         const isVoid = String(log.status || '').toUpperCase() === 'VOID'
                         return (
                         <tr key={log.id} style={{ borderBottom: '1px solid #f8fafc', opacity: isVoid ? 0.68 : 1 }}>
-                          <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{format(new Date(log.date), 'dd MMM yyyy')}</td>
-                          <td style={{ padding: '10px 16px', fontWeight: 600, color: '#023c62' }}>
+                          <td data-label="Date" style={{ padding: '10px 16px', color: '#6b7fa3' }}>{format(new Date(log.date), 'dd MMM yyyy')}</td>
+                          <td data-label="Garment" style={{ padding: '10px 16px', fontWeight: 600, color: '#023c62' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
                               <span style={{ textDecoration: isVoid ? 'line-through' : 'none' }}>{log.serviceName}</span>
                               {isVoid && (
@@ -1051,11 +1051,11 @@ export default function CustomerProfilePage() {
                               <div style={{ marginTop: 3, color: '#991b1b', fontSize: 11, fontWeight: 500 }}>Reason: {log.voidReason}</div>
                             )}
                           </td>
-                          <td style={{ padding: '10px 16px', textDecoration: isVoid ? 'line-through' : 'none' }}>{log.pieces}</td>
-                          <td style={{ padding: '10px 16px', textDecoration: isVoid ? 'line-through' : 'none' }}>{fmt(log.ratePerPiece)}</td>
-                          <td style={{ padding: '10px 16px', fontWeight: 700, textDecoration: isVoid ? 'line-through' : 'none' }}>{fmt(log.amount)}</td>
-                          <td style={{ padding: '10px 16px', color: '#6b7fa3', fontSize: 12 }}>{log.bill?.billNumber || 'Open'}</td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                          <td data-label="Pieces" style={{ padding: '10px 16px', textDecoration: isVoid ? 'line-through' : 'none' }}>{log.pieces}</td>
+                          <td data-label="Rate" style={{ padding: '10px 16px', textDecoration: isVoid ? 'line-through' : 'none' }}>{fmt(log.ratePerPiece)}</td>
+                          <td data-label="Amount" style={{ padding: '10px 16px', fontWeight: 700, textDecoration: isVoid ? 'line-through' : 'none' }}>{fmt(log.amount)}</td>
+                          <td data-label="Bill" style={{ padding: '10px 16px', color: '#6b7fa3', fontSize: 12 }}>{log.bill?.billNumber || 'Open'}</td>
+                          <td data-label="Action" style={{ padding: '10px 16px', textAlign: 'right' }}>
                             {!log.billId && !isVoid ? (
                               <button onClick={() => deleteIronLog(log.id)} disabled={ironBusy === `log-delete-${log.id}`} style={{ background: 'transparent', border: 'none', color: '#991b1b', cursor: 'pointer', fontSize: 12 }}>
                                 Void
@@ -1075,8 +1075,8 @@ export default function CustomerProfilePage() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
-              <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
+            <div className="customer-iron-column" style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
+              <div className="customer-iron-card" style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
                 <div style={{ fontWeight: 700, fontSize: 13, color: '#6b7fa3', marginBottom: 16, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Quick Log Entry</div>
                 <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
                   <div>
@@ -1104,7 +1104,7 @@ export default function CustomerProfilePage() {
                 </div>
               </div>
 
-              <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
+              <div className="customer-iron-card" style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 20 }}>
                 <div style={{ fontWeight: 700, fontSize: 13, color: '#6b7fa3', marginBottom: 16, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Generate Bill</div>
                 <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
                   <div>
@@ -1134,7 +1134,7 @@ export default function CustomerProfilePage() {
                 </div>
               </div>
 
-              <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
+              <div className="customer-iron-card customer-iron-bills" style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
                 <div style={{ padding: '18px 20px', borderBottom: '1px solid #e8f0f7' }}>
                   <div style={{ fontWeight: 700, color: '#023c62' }}>Bills</div>
                   <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 3 }}>Send on WhatsApp or mark payments here.</div>
@@ -1306,12 +1306,15 @@ export default function CustomerProfilePage() {
 
       {/* ── WALLET MODAL ─────────────────────────────────────────── */}
       {showWalletModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h2 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, marginBottom: 4 }}>
+        <div className="crm-dialog-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div className="crm-responsive-dialog crm-dialog-sm" style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+            <div className="crm-dialog-header">
+            <h2 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, margin: 0 }}>
               {walletAction === 'credit' ? '+ Add Wallet Credit' : '− Deduct Wallet Balance'}
             </h2>
-            <p style={{ fontSize: 13, color: '#6b7fa3', marginBottom: 20 }}>Current balance: <strong>{fmt(wallet?.balance || 0)}</strong></p>
+            <p style={{ fontSize: 13, color: '#6b7fa3', margin: '4px 0 0' }}>Current balance: <strong>{fmt(wallet?.balance || 0)}</strong></p>
+            </div>
+            <div className="crm-dialog-body">
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
               <div>
                 <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Amount (₹) *</label>
@@ -1342,7 +1345,8 @@ export default function CustomerProfilePage() {
                 </select>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+            </div>
+            <div className="crm-dialog-footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowWalletModal(false)} style={{ padding: '8px 16px', fontSize: 13, color: '#6b7fa3', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleWalletAction} disabled={walletLoading}
                 style={{ padding: '10px 20px', background: walletAction === 'credit' ? '#166534' : '#991b1b', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', opacity: walletLoading ? 0.5 : 1 }}>
@@ -1355,9 +1359,10 @@ export default function CustomerProfilePage() {
 
       {/* ── ADDRESS MODAL ────────────────────────────────────────── */}
       {showAddressModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' as const }}>
-            <h2 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, marginBottom: 20 }}>Add Address</h2>
+        <div className="crm-dialog-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div className="crm-responsive-dialog crm-dialog-md" style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.15)', maxHeight: '90vh' }}>
+            <div className="crm-dialog-header"><h2 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, margin: 0 }}>Add Address</h2></div>
+            <div className="crm-dialog-body">
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
               <div>
                 <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Label</label>
@@ -1385,7 +1390,8 @@ export default function CustomerProfilePage() {
                 <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Info size={12} />Tip: Open Google Maps, drop a pin, click Share → copy coordinates (lat, lng) for precise location.</span>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+            </div>
+            <div className="crm-dialog-footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowAddressModal(false)} style={{ padding: '8px 16px', fontSize: 13, color: '#6b7fa3', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
               <button onClick={saveAddress} disabled={addrLoading}
                 style={{ padding: '10px 20px', background: '#023c62', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', opacity: addrLoading ? 0.5 : 1 }}>

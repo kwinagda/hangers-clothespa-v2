@@ -322,8 +322,7 @@ const listSubscriptions = async (req, res) => {
 
 const getSubscription = async (req, res) => {
   try {
-    const subscription = await findStaffSubscriptionOr404(req.params.customerId, res);
-    if (!subscription) return null;
+    const subscription = await getCustomerSubscription(req.params.customerId);
     return success(res, { subscription });
   } catch (err) {
     console.error('getSubscription error:', err);
@@ -467,8 +466,8 @@ const updateSubscriptionStatus = async (req, res) => {
 
 const getLogs = async (req, res) => {
   try {
-    const subscription = await findStaffSubscriptionOr404(req.params.customerId, res);
-    if (!subscription) return null;
+    const subscription = await getCustomerSubscription(req.params.customerId);
+    if (!subscription) return success(res, { subscription: null, logs: [] });
 
     const logs = await prisma.ironLog.findMany({
       where: { customerId: req.params.customerId },

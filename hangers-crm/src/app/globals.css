@@ -396,6 +396,7 @@ textarea:focus {
   .crm-dialog-backdrop {
     padding: 0;
     place-items: end stretch;
+    z-index: 1000 !important;
   }
 
   .crm-responsive-dialog,
@@ -436,6 +437,36 @@ textarea:focus {
 @media (hover:none),(pointer:coarse) { button:not(:disabled):hover,a:hover { transform: none; } }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; } }
 @keyframes crm-app-view-in { from { opacity:.7; transform:translateY(8px); } to { opacity:1; transform:none; } }
+
+@media (max-width: 1023px) {
+  .customer-iron-layout { grid-template-columns: minmax(0,1fr) !important; gap: 12px !important; }
+  .customer-iron-column { min-width: 0; gap: 12px !important; }
+}
+
+@media (max-width: 599px) {
+  .customer-iron-card { border-radius: 9px !important; padding: 14px !important; }
+  .customer-iron-history,.customer-iron-bills { padding: 0 !important; }
+  .customer-iron-subscription-head { align-items: flex-start !important; margin-bottom: 13px !important; }
+  .customer-iron-subscription-head > div { min-width: 0; }
+  .customer-iron-subscription-head > span { flex: none; padding: 5px 9px !important; }
+  .customer-iron-metrics { grid-template-columns: repeat(2,minmax(0,1fr)) !important; gap: 7px !important; }
+  .customer-iron-metrics > div { min-width: 0; padding: 10px !important; }
+  .customer-iron-empty { align-items: stretch !important; flex-direction: column !important; padding: 13px !important; }
+  .customer-iron-empty button { width: 100%; min-height: 44px; }
+  .customer-iron-section-head { padding: 13px !important; gap: 10px; }
+  .customer-iron-section-head > div { min-width: 0; }
+  .customer-iron-section-head button { flex: none; min-height: 40px; }
+  .customer-iron-card :is(input,select,textarea) { min-width: 0; font-size: 16px !important; }
+  .customer-iron-card button { min-height: 42px; }
+  .customer-iron-log-table { display: block; padding: 8px 12px 12px; }
+  .customer-iron-log-table thead { display: none; }
+  .customer-iron-log-table tbody { display: grid; gap: 8px; }
+  .customer-iron-log-table tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); padding: 10px 12px; border: 1px solid #e3edf6 !important; border-radius: 8px; background: #fff; }
+  .customer-iron-log-table td { min-width: 0; padding: 6px 0 !important; text-align: left !important; overflow-wrap: anywhere; }
+  .customer-iron-log-table td::before { content: attr(data-label); display: block; margin-bottom: 2px; color: #8294aa; font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+  .customer-iron-log-table td:nth-child(2) { grid-column: 1/-1; grid-row: 1; }
+  .customer-iron-log-table td:last-child { display: flex; flex-direction: column; align-items: flex-start; }
+}
 
 .crm-orders-mobile { display: none; }
 @media (max-width: 767px) {
