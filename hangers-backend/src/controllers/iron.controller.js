@@ -652,6 +652,8 @@ const getMonthlySummary = async (req, res) => {
       return {
         ...row,
         totalAmount: Number(row.totalAmount.toFixed(2)),
+        billedPieces: Math.max(0, row.totalPieces - row.unbilledPieces),
+        billedAmount: Number(Math.max(0, row.totalAmount - row.unbilledAmount).toFixed(2)),
         unbilledAmount: Number(row.unbilledAmount.toFixed(2)),
         billingStatus: row.unbilledPieces > 0 ? (billed ? 'PARTIALLY_BILLED' : 'UNBILLED') : paid ? 'PAID' : partiallyPaid ? 'PARTIALLY_PAID' : billed ? 'BILLED' : 'NO_ACTIVITY',
       };
@@ -661,8 +663,9 @@ const getMonthlySummary = async (req, res) => {
       customers: acc.customers + 1,
       totalPieces: acc.totalPieces + row.totalPieces,
       totalAmount: acc.totalAmount + row.totalAmount,
+      unbilledPieces: acc.unbilledPieces + row.unbilledPieces,
       unbilledAmount: acc.unbilledAmount + row.unbilledAmount,
-    }), { customers: 0, totalPieces: 0, totalAmount: 0, unbilledAmount: 0 });
+    }), { customers: 0, totalPieces: 0, totalAmount: 0, unbilledPieces: 0, unbilledAmount: 0 });
     return success(res, { month, daysInMonth: periodEnd.getDate(), summary: { ...summary, totalAmount: Number(summary.totalAmount.toFixed(2)), unbilledAmount: Number(summary.unbilledAmount.toFixed(2)) }, customers });
   } catch (err) {
     console.error('getMonthlySummary error:', err);
