@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import api, { ordersAPI, quotationsAPI, customersAPI, servicesAPI, statsAPI, ironAPI, metadataAPI, pickupRequestsAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
-import { AlertTriangle, Check, GripVertical, Shirt, Trash2, User } from 'lucide-react'
+import { AlertTriangle, Check, GripVertical, Loader2, Shirt, Trash2, User } from 'lucide-react'
 import { sanitizeDecimalInput, sanitizeIntegerInput, isStrictMoneyText, isStrictPositiveIntText } from '@/lib/numeric-input'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -189,6 +189,8 @@ function NewOrderPageContent() {
   const quotationId = searchParams.get('quotationId')
   const draftStorageKey = isQuotationMode ? 'crm:new-quotation-draft:v1' : 'crm:new-order-draft:v1'
   const [draftReady, setDraftReady] = useState(false)
+  const [mobileStep, setMobileStep] = useState<1 | 2 | 3 | 4>(1)
+  const mobileCustomerPrompted = useRef(false)
 
   // Customer
   const [showCustomerModal, setShowCustomerModal] = useState(false)
@@ -204,6 +206,15 @@ function NewOrderPageContent() {
   const [creatingCustomer, setCreatingCustomer] = useState(false)
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [customerStats, setCustomerStats] = useState<CustomerStats | null>(null)
+
+  useEffect(() => {
+    if (!draftReady || customer || showCustomerModal || mobileCustomerPrompted.current) return
+    if (!window.matchMedia('(max-width: 767px)').matches) return
+    mobileCustomerPrompted.current = true
+    setMobileStep(1)
+    setShowCustomerModal(true)
+  }, [customer, draftReady, showCustomerModal])
+
   const searchTimeout = useRef<any>(null)
   const [dailyIronPrompt, setDailyIronPrompt] = useState<{ title: string; message: string; confirmLabel: string } | null>(null)
   const dailyIronPromptResolver = useRef<((value: boolean) => void) | null>(null)
@@ -246,6 +257,9 @@ function NewOrderPageContent() {
 
   // Payment
   const [showPayment, setShowPayment] = useState(false)
+  useEffect(() => {
+    if (mobileStep === 4 && !showPayment) setMobileStep(3)
+  }, [mobileStep, showPayment])
   const [paymentMethod, setPaymentMethod] = useState('Pay Later')
   const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([])
   const [paidAmount, setPaidAmount] = useState('')
@@ -544,11 +558,13 @@ function NewOrderPageContent() {
       setCustomerResults([])
       setShowCustomerModal(false)
       setShowQuickCreate(false)
+      setMobileStep(2)
     } catch {
       setCustomer(c)
       setCustomerStats(null)
       toast.error('Loaded customer with partial data')
       setShowCustomerModal(false)
+      setMobileStep(2)
     }
   }
 
@@ -1301,9 +1317,26 @@ function NewOrderPageContent() {
     writeOffAmount, commercialReason, walletSplit, notes, dailyIronDate, validUntil, hasDraftContent, draftStorageKey,
   ])
 
+  const beginCheckout = () => {
+    if (!customer) return toast.error('Select a customer first')
+    if (!cart.length) return toast.error('Add at least one item')
+    if (isQuotationMode) {
+      handleSaveQuotation()
+      return
+    }
+    if (isPureDailyIron) {
+      handleConfirmDailyIron()
+      return
+    }
+    setMobileStep(4)
+    setShowPayment(true)
+  }
+
   return (
     <div
       ref={splitContainerRef}
+      className="crm-new-order-app"
+      data-mobile-step={mobileStep}
       style={{
         display: 'flex',
         width: '100%',
@@ -1342,8 +1375,8 @@ function NewOrderPageContent() {
       )}
 
       {showCustomerModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,28,60,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
-          <div style={{ background: '#fff', borderRadius: 20, padding: 32, width: '100%', maxWidth: 520, boxShadow: '0 32px 80px rgba(0,0,0,0.25)' }}>
+        <div className="crm-customer-picker-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(2,28,60,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
+          <div className="crm-customer-picker" style={{ background: '#fff', borderRadius: 20, padding: 32, width: '100%', maxWidth: 520, boxShadow: '0 32px 80px rgba(0,0,0,0.25)' }}>
             <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 22, color: '#023c62', marginBottom: 6 }}>{isQuotationMode ? 'New Quotation' : 'New Order'}</div>
             <p style={{ fontSize: 14, color: '#6b7fa3', marginBottom: 24 }}>{isQuotationMode ? 'Search for an existing customer or create a new customer before drafting the quotation' : 'Search for an existing customer or create a new customer without leaving this page'}</p>
 
@@ -1397,7 +1430,7 @@ function NewOrderPageContent() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 0.9fr auto', gap: 10, alignItems: 'end' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7fa3', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 5 }}>Mobile *</label>
-                    <input value={newCustomerPhone} onChange={e => setNewCustomerPhone(e.target.value)} placeholder="9876543210" type="tel"
+                    <input value={newCustomerPhone} onChange={e => setNewCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="9876543210" type="tel" inputMode="numeric" maxLength={10}
                       style={{ width: '100%', border: '1.5px solid #dce8f0', borderRadius: 10, padding: '11px 14px', fontSize: 14, outline: 'none', boxSizing: 'border-box' as const }} />
                   </div>
                   <div>
@@ -1435,10 +1468,10 @@ function NewOrderPageContent() {
                 style={{ flex: 1, padding: 12, border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 14, background: '#fff', cursor: 'pointer', color: '#6b7fa3' }}>
                 Cancel
               </button>
-              <button onClick={() => setShowCustomerModal(false)}
-                disabled={isQuotationMode && !customer}
-                style={{ flex: 2, padding: 12, background: '#023c62', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: isQuotationMode && !customer ? 'not-allowed' : 'pointer', opacity: isQuotationMode && !customer ? 0.6 : 1 }}>
-                {customer ? `Continue with ${customer.name}` : isQuotationMode ? 'Customer Required for Quotation' : 'Continue without Customer'}
+              <button onClick={() => { if (customer) { setShowCustomerModal(false); setMobileStep(2) } }}
+                disabled={!customer}
+                style={{ flex: 2, padding: 12, background: '#023c62', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: !customer ? 'not-allowed' : 'pointer', opacity: !customer ? 0.55 : 1 }}>
+                {customer ? `Continue with ${customer.name}` : 'Select a customer to continue'}
               </button>
             </div>
           </div>
@@ -1446,10 +1479,10 @@ function NewOrderPageContent() {
       )}
 
       {/* ── LEFT: Catalog ─────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="crm-new-order-catalog" style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* Top bar */}
-        <div style={{ background: '#023c62', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="crm-new-order-desktop-bar" style={{ background: '#023c62', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <button onClick={() => router.back()}
             style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
             ← Back
@@ -1646,7 +1679,7 @@ function NewOrderPageContent() {
         </div>
       </div>
 
-      <div
+      <div className="crm-new-order-resizer"
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize order summary panel"
@@ -1672,11 +1705,11 @@ function NewOrderPageContent() {
       </div>
 
       {/* ── RIGHT: Customer Info + Cart ────────────────────────────────────── */}
-      <div style={{ width: effectiveRightPanelWidth, minWidth: rightPanelMinWidth, maxWidth: rightPanelMaxWidth, minHeight: 0, background: '#fff', borderLeft: '1px solid #e8f0f7', boxShadow: '-16px 0 32px rgba(2,60,98,0.06)', display: 'flex', flexDirection: 'column', transition: isResizingRightPanel ? 'none' : 'width 0.18s var(--crm-ease)' }}>
+      <div className="crm-new-order-review" style={{ width: effectiveRightPanelWidth, minWidth: rightPanelMinWidth, maxWidth: rightPanelMaxWidth, minHeight: 0, background: '#fff', borderLeft: '1px solid #e8f0f7', boxShadow: '-16px 0 32px rgba(2,60,98,0.06)', display: 'flex', flexDirection: 'column', transition: isResizingRightPanel ? 'none' : 'width 0.18s var(--crm-ease)' }}>
 
         {/* Customer info panel */}
         {customer ? (
-          <div style={{ padding: '12px 14px 10px', background: '#023c62', color: '#fff', flexShrink: 0 }}>
+          <div className="crm-new-order-customer-summary" style={{ padding: '12px 14px 10px', background: '#023c62', color: '#fff', flexShrink: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 7 }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 16 }}>{customer.name || 'Walk-in'}</div>
@@ -1753,7 +1786,7 @@ function NewOrderPageContent() {
         )}
 
         {/* Cart items */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 0 16px' }}>
+        <div className="crm-new-order-cart" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 0 16px' }}>
           {cart.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8', fontSize: 13 }}>
               <div style={{ marginBottom: 8, display:'flex', justifyContent:'center' }}><Shirt size={32} /></div>
@@ -2084,7 +2117,7 @@ function NewOrderPageContent() {
         </div>
 
         {/* Total + Confirm */}
-        <div style={{ padding: '10px 14px 12px', borderTop: '2px solid #e8f0f7', background: '#f8fafc', flexShrink: 0 }}>
+        <div className="crm-new-order-total-panel" style={{ padding: '10px 14px 12px', borderTop: '2px solid #e8f0f7', background: '#f8fafc', flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
             <span style={{ color: '#6b7fa3' }}>Items</span>
             <span style={{ color: '#6b7fa3' }}>{totalQty} pcs</span>
@@ -2117,18 +2150,7 @@ function NewOrderPageContent() {
             <span style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 18, color: '#023c62' }}>{isPureDailyIron ? 'Estimated Value' : isMixedCart ? 'Payable Now' : 'Total'}</span>
             <span style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 22, color: '#023c62' }}>{fmt(total)}</span>
           </div>
-          <button onClick={() => {
-            if (!cart.length || !customer) return
-            if (isQuotationMode) {
-              handleSaveQuotation()
-              return
-            }
-            if (isPureDailyIron) {
-              handleConfirmDailyIron()
-              return
-            }
-            setShowPayment(true)
-          }}
+          <button onClick={beginCheckout}
             disabled={!cart.length || !customer || submitting}
             style={{ width: '100%', padding: '14px 16px', background: cart.length && customer ? '#023c62' : '#e2e8f0', color: cart.length && customer ? '#fff' : '#9dafc8', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: cart.length && customer ? 'pointer' : 'not-allowed', fontFamily: "var(--crm-font-ui)", opacity: submitting ? 0.6 : 1 }}>
             {!customer
@@ -2144,6 +2166,21 @@ function NewOrderPageContent() {
               : `Confirm Order — ${fmt(total)}`}
           </button>
         </div>
+      </div>
+
+      <div className="crm-new-order-mobile-progress">
+        {[['1','Customer'],['2','Services'],['3','Review'],['4','Payment']].map(([number,label]) => <button key={number} className={mobileStep === Number(number) ? 'active' : mobileStep > Number(number) ? 'complete' : ''} onClick={() => {
+          const step = Number(number) as 1 | 2 | 3 | 4
+          if (step === 1) setShowCustomerModal(true)
+          else if (step >= 3 && (!customer || !cart.length)) return
+          else if (step === 4) { beginCheckout(); return }
+          setMobileStep(step)
+        }}><span>{mobileStep > Number(number) ? '✓' : number}</span><small>{label}</small></button>)}
+      </div>
+      <div className="crm-new-order-mobile-footer">
+        {mobileStep > 1 && mobileStep < 4 && <button onClick={() => setMobileStep((mobileStep - 1) as 1 | 2 | 3)}>Back</button>}
+        <div><span>{cart.reduce((sum,item) => sum + item.quantity,0)} pcs</span><strong>{fmt(total)}</strong></div>
+        {mobileStep === 1 ? <button className="primary" onClick={() => customer ? setMobileStep(2) : setShowCustomerModal(true)}>{customer ? 'Choose services' : 'Select customer'}</button> : mobileStep === 2 ? <button className="primary" disabled={!customer || !cart.length} onClick={() => setMobileStep(3)}>Review order</button> : mobileStep === 3 ? <button className="primary" disabled={!customer || !cart.length || submitting} onClick={beginCheckout}>{isQuotationMode ? 'Save quotation' : isPureDailyIron ? 'Create logs' : 'Continue to payment'}</button> : null}
       </div>
 
       {/* ── Variant Popup ──────────────────────────────────────────────────── */}
@@ -2193,8 +2230,8 @@ function NewOrderPageContent() {
 
       {/* ── Payment Modal ──────────────────────────────────────────────────── */}
       {!isQuotationMode && showPayment && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 90 }}>
-          <div style={{ background: '#fff', borderRadius: 20, padding: 28, width: '100%', maxWidth: 420, boxShadow: '0 32px 80px rgba(0,0,0,0.25)' }}>
+        <div className="crm-payment-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 90 }}>
+          <div className="crm-payment-sheet" style={{ background: '#fff', borderRadius: 20, padding: 28, width: '100%', maxWidth: 420, boxShadow: '0 32px 80px rgba(0,0,0,0.25)' }}>
             <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 22, color: '#023c62', marginBottom: 4 }}>Payment</div>
             <p style={{ fontSize: 13, color: '#6b7fa3', marginBottom: 20 }}>Customer: <strong>{customer?.name}</strong></p>
 
@@ -2285,7 +2322,7 @@ function NewOrderPageContent() {
               </button>
               <button onClick={handleConfirmOrder} disabled={submitting}
                 style={{ flex: 2, padding: 12, background: '#023c62', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: submitting ? 0.5 : 1, fontFamily: "var(--crm-font-ui)" }}>
-                {submitting ? 'Creating...' : `Confirm & Create Order ${writeOff ? '(+WriteOff ₹'+writeOffAmount+')' : ''}`}
+                {submitting ? <span style={{display:'inline-flex',alignItems:'center',gap:7}}><Loader2 size={16} className="crm-spin"/> Creating...</span> : `Confirm & Create Order ${writeOff ? '(+WriteOff ₹'+writeOffAmount+')' : ''}`}
               </button>
             </div>
           </div>

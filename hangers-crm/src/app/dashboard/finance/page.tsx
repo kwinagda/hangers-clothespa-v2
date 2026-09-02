@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
-import { AlertTriangle, BarChart3, CalendarDays, CreditCard, Landmark, MessageCircle, Smartphone, Tag, WalletCards } from 'lucide-react'
+import { AlertTriangle, BarChart3, CalendarDays, CreditCard, Landmark, Loader2, MessageCircle, Smartphone, Tag, WalletCards } from 'lucide-react'
 import api, { idempotencyConfig, metadataAPI } from '@/lib/api'
 import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
@@ -163,11 +163,11 @@ export default function FinancePage() {
   ]
 
   return (
-    <div style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
+    <div className="finance-page" style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
       <PageHeader title="Finance" subtitle="Collections, outstanding balances and payment activity" />
 
       {/* Tabs */}
-      <div style={{display:'flex',gap:8,marginBottom:24}}>
+      <div className="finance-tabs" style={{display:'flex',gap:8,marginBottom:24}}>
         {[{k:'daily',l:'Daily Register',Icon:CalendarDays},{k:'receivables',l:'Accounts Receivable',Icon:AlertTriangle}].map(t=>(
           <button key={t.k} onClick={()=>setTab(t.k as any)}
             style={{padding:'10px 20px',borderRadius:10,border:`1.5px solid ${tab===t.k?'#023c62':'#dce8f0'}`,background:tab===t.k?'#023c62':'#fff',color:tab===t.k?'#fff':'#6b7fa3',fontWeight:600,cursor:'pointer',fontSize:14,display:'inline-flex',alignItems:'center',gap:8}}>
@@ -180,14 +180,14 @@ export default function FinancePage() {
       {tab === 'daily' && (
         <>
           {/* Date picker + summary cards */}
-          <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+          <div className="finance-date-tools" style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
             <input type="date" value={date} onChange={e=>setDate(e.target.value)}
               style={{border:'1.5px solid #dce8f0',borderRadius:10,padding:'9px 14px',fontSize:14,color:'#023c62',fontWeight:600,outline:'none'}}/>
             <button onClick={loadDaily} style={{background:'#023c62',color:'#fff',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:600,cursor:'pointer',fontSize:14}}>Refresh</button>
           </div>
 
           {summary && (
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:14,marginBottom:24}}>
+            <div className="finance-summary-cards" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:14,marginBottom:24}}>
               {summaryCards.map(card=>(
                 <div key={card.value} style={{background:card.big?'linear-gradient(135deg,#023c62,#035a8f)':'#fff',borderRadius:16,padding:20,border:'1px solid #e8f0f7',boxShadow:'0 2px 12px rgba(2,60,98,0.06)'}}>
                   <div style={{fontSize:11,fontWeight:600,color:card.big?'rgba(184,208,232,0.7)':'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>{card.label}</div>
@@ -199,8 +199,8 @@ export default function FinancePage() {
           )}
 
           {/* Filter + transactions */}
-          <div style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
-            <div style={{padding:'16px 20px',borderBottom:'1px solid #e8f0f7',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <div className="finance-register" style={{background:'#fff',borderRadius:14,border:'1px solid #e3edf6',overflow:'hidden'}}>
+            <div className="finance-register-head" style={{padding:'16px 20px',borderBottom:'1px solid #e8f0f7',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
               <span style={{fontFamily:"var(--crm-font-ui)",fontWeight:700,fontSize:15,color:'#023c62',flex:1}}>Transactions ({filtered.length})</span>
               {[{ value: 'ALL', label: 'ALL' }, ...methodOptions].map(m=>(
                 <button key={m.value} onClick={()=>setFilterMethod(m.value)}
@@ -212,7 +212,7 @@ export default function FinancePage() {
                 </button>
               ))}
             </div>
-            <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <table className="finance-table" style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{background:'#f7f9fc'}}>
                 {['Time','Order','Customer','Method','Ref','Amount','By'].map(h=>(
                   <th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>
@@ -248,6 +248,9 @@ export default function FinancePage() {
                 </tr></tfoot>
               )}
             </table>
+            <div className="finance-mobile-transactions">
+              {loading ? Array.from({length:5},(_,index)=><div className="finance-mobile-skeleton" key={index}><i/><span/><b/></div>) : !filtered.length ? <div className="finance-mobile-empty">No transactions for this date.</div> : pagedPayments.map((p:any)=>{const Icon=METHOD_ICON[(p.method||'OTHER') as keyof typeof METHOD_ICON]||Tag;return <article key={p.id}><div><strong>{paymentCustomerName(p)}</strong><small>{paymentSourceNumber(p)} · {format(new Date(p.createdAt),'h:mm a')}</small></div><span><b>{S(p.amount)}</b><small><Icon size={11}/>{methodLabels[p.method]||p.method}</small></span>{p.reference&&<p>Reference: {p.reference}</p>}<em>Collected by {p.collectedByStaff?.name||'—'}</em></article>})}
+            </div>
           </div>
           <PaginationControls
             page={dailyPage}
@@ -263,7 +266,7 @@ export default function FinancePage() {
 
       {tab === 'receivables' && (
         <>
-          <div style={{background:'linear-gradient(135deg,#7f1d1d,#991b1b)',borderRadius:16,padding:24,color:'#fff',marginBottom:20,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div className="ar-total-card" style={{background:'linear-gradient(135deg,#7f1d1d,#991b1b)',borderRadius:16,padding:24,color:'#fff',marginBottom:20,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <div>
               <div style={{fontSize:12,color:'rgba(255,200,200,0.7)',fontWeight:600,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:8}}>Total Outstanding Balance</div>
               <div style={{fontFamily:"var(--crm-font-ui)",fontWeight:800,fontSize:36}}>{S(receivableTotal)}</div>
@@ -281,8 +284,8 @@ export default function FinancePage() {
               const allIds = (group.receivables || []).map((item: any) => item.invoiceId)
               const allSelected = selectedIds.length === allIds.length && allIds.every((id: string) => selectedIds.includes(id))
               return (
-                <div key={key} style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden',boxShadow:'0 1px 8px rgba(2,60,98,0.04)'}}>
-                  <div style={{padding:'14px 16px',display:'grid',gridTemplateColumns:'minmax(0,1fr) 120px 120px 170px',gap:12,alignItems:'center',background:'#fbfdff',borderBottom:'1px solid #e8f0f7'}}>
+                <div className="ar-customer-card" key={key} style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden',boxShadow:'0 1px 8px rgba(2,60,98,0.04)'}}>
+                  <div className="ar-customer-head" style={{padding:'14px 16px',display:'grid',gridTemplateColumns:'minmax(0,1fr) 120px 120px 170px',gap:12,alignItems:'center',background:'#fbfdff',borderBottom:'1px solid #e8f0f7'}}>
                     <div style={{minWidth:0}}>
                       <div style={{fontWeight:900,color:'#023c62',fontSize:16,overflowWrap:'anywhere'}}>{group.customer?.name || 'Unknown customer'}</div>
                       <div style={{fontSize:12,color:'#6b7fa3',marginTop:3}}>+91 {group.customer?.phone || '—'} · {group.invoiceCount} open bills/orders</div>
@@ -302,7 +305,7 @@ export default function FinancePage() {
                       {(group.receivables || []).map((o: any) => {
                         const checked = selectedIds.includes(o.invoiceId)
                         return (
-                          <div key={o.invoiceId} style={{display:'grid',gridTemplateColumns:'28px minmax(0,1.2fr) minmax(0,1fr) 96px 96px 120px',gap:10,alignItems:'center',padding:'9px 10px',border:'1px solid #eef4f8',borderRadius:10,background:checked?'#f7fbff':'#fff'}}>
+                          <div className="ar-invoice-row" key={o.invoiceId} style={{display:'grid',gridTemplateColumns:'28px minmax(0,1.2fr) minmax(0,1fr) 96px 96px 120px',gap:10,alignItems:'center',padding:'9px 10px',border:'1px solid #eef4f8',borderRadius:10,background:checked?'#f7fbff':'#fff'}}>
                             <input type="checkbox" checked={checked} onChange={() => toggleGroupSelection(group, o.invoiceId)} />
                             <div style={{minWidth:0}}>
                               <div style={{fontFamily:"var(--crm-font-mono)",fontWeight:800,color:'#023c62',fontSize:13}}>{o.invoiceNumber || o.orderNumber}</div>
@@ -335,8 +338,8 @@ export default function FinancePage() {
         </>
       )}
       {arReminder.open && (
-        <div style={modalBackdrop}>
-          <div style={arModal}>
+        <div className="ar-modal-backdrop" style={modalBackdrop}>
+          <div className="ar-reminder-modal" style={arModal}>
             <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',marginBottom:14}}>
               <div>
                 <div style={{fontSize:18,fontWeight:900,color:'#023c62'}}>Send Outstanding Reminder</div>
@@ -344,7 +347,7 @@ export default function FinancePage() {
               </div>
               <button onClick={() => setArReminder({ open:false, group:null, confirm:false })} style={modalClose}>×</button>
             </div>
-            {arPreviewLoading ? <div style={{padding:18,color:'#6b7fa3'}}>Loading preview...</div>
+            {arPreviewLoading ? <div className="ar-preview-loading"><Loader2 className="crm-spin" size={18}/> Loading preview...</div>
             : arPreview?.error ? <div style={{padding:12,borderRadius:10,background:'#fef2f2',color:'#991b1b',fontWeight:700}}>{arPreview.error}</div>
             : (
               <>

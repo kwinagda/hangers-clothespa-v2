@@ -16,6 +16,8 @@ const { pinLoginController, changePinController, resetPinController } =
 
 const { listStaff, updateStaff, deactivateStaff, reactivateStaff } =
   require('../controllers/staffManagement.controller');
+const { getUiPreferences, updateUiPreferences } =
+  require('../controllers/staffUiPreferences.controller');
 
 router.use(privateNoStore);
 router.use(requireTrustedWrite);
@@ -29,6 +31,8 @@ router.get ('/auth/me',         staffAuth, staffMeController);
 router.post('/auth/logout',     staffAuth, staffLogoutController);
 router.post('/auth/change-password', staffAuth, staffChangePasswordController);
 router.post('/auth/change-pin', staffAuth, staffAppAccess, changePinController);
+router.get('/me/ui-preferences', staffAuth, crmAccess, getUiPreferences);
+router.put('/me/ui-preferences', staffAuth, crmAccess, updateUiPreferences);
 
 // ── Create & manage staff ─────────────────────────────────────────────────────
 router.post('/create',         staffAuth, crmAccess, superAdminOnly,                           createStaffController);

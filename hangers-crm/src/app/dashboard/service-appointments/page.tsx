@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
-import { CalendarClock, CreditCard, Plus, Search, Trash2, UserPlus, XCircle } from 'lucide-react'
+import { CalendarClock, CreditCard, Loader2, Plus, Search, Trash2, UserPlus, X, XCircle } from 'lucide-react'
 import { customersAPI, ironAPI, metadataAPI, serviceAppointmentsAPI, servicesAPI, staffAPI, statsAPI } from '@/lib/api'
 import { isStrictMoneyText, sanitizeDecimalInput, sanitizeIntegerInput } from '@/lib/numeric-input'
 
@@ -105,6 +105,7 @@ export default function ServiceAppointmentsPage() {
   const [customQty, setCustomQty] = useState('1')
   const [customRate, setCustomRate] = useState('')
   const [paymentForm, setPaymentForm] = useState<Record<string, { amount: string; paymentMethod: string }>>({})
+  const [mobileScheduling, setMobileScheduling] = useState(false)
 
   const sofaServices = useMemo(() => services.filter((item) => item.category === 'SOFA CLEANING'), [services])
   const statusMeta = useMemo<Record<string, any>>(() => fieldStatuses.reduce((acc: Record<string, any>, item: any) => {
@@ -401,6 +402,7 @@ export default function ServiceAppointmentsPage() {
       setNotes('')
       setAssignedToId('')
       await load()
+      setMobileScheduling(false)
     } catch (e: any) {
       toast.error(e.message || 'Failed to schedule sofa cleaning')
     }
@@ -474,17 +476,18 @@ export default function ServiceAppointmentsPage() {
   }
 
   return (
-    <div style={page}>
-      <div style={topBand}>
+    <div className="field-page" style={page}>
+      <div className="field-top-band" style={topBand}>
         <div>
           <h1 style={title}>Sofa Cleaning</h1>
           <div style={subtitle}>Appointment, line-item pricing, invoice, and payment in one workflow.</div>
         </div>
-        <button onClick={load} style={ghostBtn}>Refresh</button>
+        <div className="field-top-actions"><button className="field-mobile-schedule" onClick={() => setMobileScheduling(true)}><Plus size={17}/> Schedule</button><button onClick={load} style={ghostBtn}>Refresh</button></div>
       </div>
 
-      <div style={workGrid}>
-        <section style={panel}>
+      <div className={`field-scheduler ${mobileScheduling ? 'open' : ''}`} style={workGrid}>
+        <div className="field-mobile-scheduler-head"><button onClick={() => setMobileScheduling(false)}><X size={20}/></button><div><small>Field service</small><strong>Schedule sofa cleaning</strong></div><span/></div>
+        <section className="field-schedule-panel" style={panel}>
           <div style={sectionHead}><CalendarClock size={18} /> Schedule</div>
           <div style={compactGrid}>
             <div style={{ position: 'relative' }}>
@@ -652,7 +655,7 @@ export default function ServiceAppointmentsPage() {
           </div>
         </section>
 
-        <aside style={summaryPanel}>
+        <aside className="field-summary-panel" style={summaryPanel}>
           <div style={sectionHead}>Summary</div>
           <Total label="Subtotal" value={fmt(subtotal)} />
           <Total label="Discount" value={fmt(discount)} />
@@ -715,18 +718,18 @@ export default function ServiceAppointmentsPage() {
             <label style={label}>Notes</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Fabric, room, access notes" style={{ ...input, minHeight: 74, resize: 'vertical' }} />
           </div>
-          <button onClick={createAppointment} disabled={busy === 'create'} style={submitBtn}>{busy === 'create' ? 'Scheduling...' : 'Schedule Sofa Cleaning'}</button>
+          <button onClick={createAppointment} disabled={busy === 'create'} style={submitBtn}>{busy === 'create' ? <><Loader2 size={16} className="crm-spin"/> Scheduling...</> : 'Schedule Sofa Cleaning'}</button>
         </aside>
       </div>
 
-      <section style={panel}>
+      <section className="field-appointments" style={panel}>
         <div style={appointmentTop}>
           <div style={sectionHead}>Appointments</div>
           <div style={tabs}>
             {filters.map((status) => <button key={status} onClick={() => setFilterStatus(status)} style={{ ...tab, ...(filterStatus === status ? activeTab : {}) }}>{status === 'ALL' ? 'All' : statusMeta[status]?.label || status}</button>)}
           </div>
         </div>
-        {loading ? <div style={empty}>Loading...</div> : appointments.length === 0 ? <div style={empty}>No sofa appointments.</div> : (
+        {loading ? <div className="field-loading-list">{Array.from({length:4},(_,index)=><div key={index}><i/><span/><b/></div>)}</div> : appointments.length === 0 ? <div style={empty}>No sofa appointments.</div> : (
           <div style={{ display: 'grid', gap: 8 }}>
             {appointments.map((appointment) => <AppointmentRow
               key={appointment.id}
@@ -761,8 +764,8 @@ function AppointmentRow({ appointment, statusMeta, workflow, staff, busy, setSta
   const actions = Array.isArray(workflow?.actions?.[appointment.status]) ? workflow.actions[appointment.status] : []
   const payments = (invoice?.allocations || []).filter((a: any) => a.payment).map((a: any) => ({ ...a.payment, allocationStatus: a.status }))
   return (
-    <div style={appointmentCard}>
-      <div style={appointmentGrid}>
+    <div className="field-appointment-card" style={appointmentCard}>
+      <div className="field-appointment-grid" style={appointmentGrid}>
         <div><b style={apptNo}>{appointment.appointmentNumber}</b><span style={{ ...pill, color: meta.color, background: meta.bg }}>{meta.label}</span></div>
         <div>
           <b>{appointment.customer?.name || appointment.customer?.phone}</b>
@@ -771,7 +774,7 @@ function AppointmentRow({ appointment, statusMeta, workflow, staff, busy, setSta
           <div style={lineSummary}>{(appointment.lines || []).map((line: any) => `${Number(line.quantity)} x ${line.description}`).join(', ') || appointment.serviceName}</div>
         </div>
         <div><b style={amount}>{fmt(appointment.totalAmount)}</b><div style={muted}>{invoice?.invoiceNumber || 'No invoice'}</div><div style={{ ...muted, color: balance > 0 ? '#9a3412' : '#166534', fontWeight: 900 }}>Balance {fmt(balance)}</div></div>
-        <div style={actionsBox}>
+        <div className="field-appointment-actions" style={actionsBox}>
           {actions.map((action: any) => {
             const style = action.tone === 'danger' ? dangerBtn : action.tone === 'primary' ? primaryBtn : ghostBtn
             if (action.action === 'ASSIGNED') {
@@ -790,7 +793,7 @@ function AppointmentRow({ appointment, statusMeta, workflow, staff, busy, setSta
         </div>
       </div>
       {invoice && balance > 0.005 && (
-        <div style={payRow}>
+        <div className="field-payment-row" style={payRow}>
           <input inputMode="decimal" value={paymentForm[appointment.id]?.amount || ''} onChange={(e) => setPaymentForm({ ...paymentForm, [appointment.id]: { amount: sanitizeDecimalInput(e.target.value), paymentMethod: paymentForm[appointment.id]?.paymentMethod || defaultPaymentMethod } })} placeholder={`Collect ${fmt(balance)}`} style={input} />
           <select value={paymentForm[appointment.id]?.paymentMethod || defaultPaymentMethod} onChange={(e) => setPaymentForm({ ...paymentForm, [appointment.id]: { amount: paymentForm[appointment.id]?.amount || '', paymentMethod: e.target.value } })} style={input}>
             {paymentMethods.map((method: any) => <option key={method.value} value={method.value}>{method.label}</option>)}

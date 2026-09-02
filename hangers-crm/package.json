@@ -6,7 +6,8 @@
     "dev": "next dev -p 5002",
     "build": "next build",
     "build:public-static": "node scripts/build-public-static.mjs",
-    "start": "next start -p 5002"
+    "start": "next start -p 5002",
+    "test:responsive": "playwright test tests/responsive/crm-responsive.spec.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.0",
@@ -23,6 +24,7 @@
     "react-hot-toast": "^2.4.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/js-cookie": "^3",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.5",

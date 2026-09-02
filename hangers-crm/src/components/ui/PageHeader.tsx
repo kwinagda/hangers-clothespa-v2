@@ -11,7 +11,7 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, actions, breadcrumb }: PageHeaderProps) {
   return (
-    <div
+    <div className="crm-page-header"
       style={{
         display:        'flex',
         justifyContent: 'space-between',
@@ -21,7 +21,7 @@ export function PageHeader({ title, subtitle, actions, breadcrumb }: PageHeaderP
         flexWrap:       'wrap',
       }}
     >
-      <div style={{ flex: 1 }}>
+      <div className="crm-page-header-copy" style={{ flex: 1 }}>
         {breadcrumb && breadcrumb.length > 0 && (
           <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginBottom: 4 }}>
             {breadcrumb.join(' / ')}
@@ -44,7 +44,7 @@ export function PageHeader({ title, subtitle, actions, breadcrumb }: PageHeaderP
         )}
       </div>
       {actions && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div className="crm-page-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {actions}
         </div>
       )}

@@ -59,7 +59,7 @@ function StatCard({ icon: Icon, label, value, note, tone = 'blue' }: StatCardPro
   const palette = TONE[tone]
   return (
     <div
-      className="crm-card-hover"
+      className="crm-card-hover crm-dashboard-stat"
       style={{
         background: '#fff',
         borderRadius: 22,
@@ -68,7 +68,7 @@ function StatCard({ icon: Icon, label, value, note, tone = 'blue' }: StatCardPro
         boxShadow: '0 10px 28px rgba(2,60,98,0.06)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div className="crm-dashboard-stat-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div
           style={{
             width: 42,
@@ -83,7 +83,7 @@ function StatCard({ icon: Icon, label, value, note, tone = 'blue' }: StatCardPro
         >
           <Icon size={20} />
         </div>
-        <span
+        <span className="crm-dashboard-stat-label"
           style={{
             fontSize: 11,
             fontWeight: 700,
@@ -95,10 +95,10 @@ function StatCard({ icon: Icon, label, value, note, tone = 'blue' }: StatCardPro
           {label}
         </span>
       </div>
-      <div style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 32, color: '#142033', lineHeight: 1 }}>
+      <div className="crm-dashboard-stat-value" style={{ fontFamily: 'var(--crm-font-ui)', fontWeight: 800, fontSize: 32, color: '#142033', lineHeight: 1 }}>
         {value}
       </div>
-      <div style={{ fontSize: 12, color: '#8ca1bc', marginTop: 8, lineHeight: 1.45 }}>{note}</div>
+      <div className="crm-dashboard-stat-note" style={{ fontSize: 12, color: '#8ca1bc', marginTop: 8, lineHeight: 1.45 }}>{note}</div>
     </div>
   )
 }
@@ -208,21 +208,21 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto' }}>
+    <div className="crm-dashboard-page" style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto' }}>
       <PageHeader
         title="Dashboard"
         subtitle={todayDate}
         actions={<Link href="/dashboard/orders/new" style={{display:'inline-flex',alignItems:'center',gap:8,background:'#023c62',color:'#fff',textDecoration:'none',padding:'10px 18px',borderRadius:10,fontWeight:700,fontSize:13.5}}><PackagePlus size={15}/> New Order</Link>}
       />
 
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,minmax(0,1fr))', gap:14, marginBottom:20 }}>
+      <div className="crm-dashboard-stats" style={{ display:'grid', gridTemplateColumns:'repeat(4,minmax(0,1fr))', gap:14, marginBottom:20 }}>
         <StatCard icon={ClipboardList} label="Today's Orders" value={loading ? '—' : totalToday} note="vs yesterday" tone="blue" />
         <StatCard icon={Clock3} label="Queue Load" value={loading ? '—' : pendingOrders} note="pending + in process" tone="amber" />
         <StatCard icon={Truck} label="Ready To Dispatch" value={loading ? '—' : readyOrders} note="awaiting delivery" tone="green" />
         <StatCard icon={IndianRupee} label="Collections Today" value={loading ? '—' : fmt(stats?.today?.revenue)} note="cash + digital" tone="violet" />
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1.2fr', gap:16, marginBottom:20 }}>
+      <div className="crm-dashboard-panels" style={{ display:'grid', gridTemplateColumns:'1fr 1.2fr', gap:16, marginBottom:20 }}>
         <div style={{ background:'#fff', border:'1px solid #e3edf6', borderRadius:14 }}>
           <div style={{ padding:'17px 20px', borderBottom:'1px solid #edf3f8', fontFamily:'var(--crm-font-display)', fontWeight:700, fontSize:15.5, color:'#023c62' }}>Quick Actions</div>
           <div style={{ padding:8, display:'flex', flexDirection:'column', gap:2 }}>

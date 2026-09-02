@@ -11,3 +11,4 @@ export {
   TableLoader,
 } from './Feedback';
 export { PaginationControls } from './PaginationControls';
+export { ResponsiveDialog } from './ResponsiveDialog';

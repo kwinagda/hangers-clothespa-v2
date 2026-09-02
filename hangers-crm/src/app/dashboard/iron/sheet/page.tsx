@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
-import { CheckCircle2, ChevronDown, ChevronUp, Loader2, Minus, Plus, Save, Search, SlidersHorizontal } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Loader2, Minus, Plus, Save, Search, SlidersHorizontal, X } from 'lucide-react'
 import { format } from 'date-fns'
 import { ironAPI, servicesAPI } from '@/lib/api'
 import { sanitizeDecimalInput, sanitizeIntegerInput } from '@/lib/numeric-input'
@@ -117,6 +117,7 @@ export default function DailyIronSheetPage() {
   const [showOnlyPending, setShowOnlyPending] = useState(false)
   const [logRules, setLogRules] = useState<IronLogRules | null>(null)
   const [backdateReason, setBackdateReason] = useState('')
+  const [mobileCustomerId, setMobileCustomerId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -339,8 +340,8 @@ export default function DailyIronSheetPage() {
     })
   }, [services])
 
-  const validateDraft = () => {
-    for (const row of draftRows) {
+  const validateDraft = (rows = draftRows) => {
+    for (const row of rows) {
       const customer = subscriptions.find((sub: any) => sub.customerId === row.customerId)?.customer
       for (const item of row.items) {
         const service = services.find((entry) => entry.id === item.serviceId)
@@ -395,8 +396,102 @@ export default function DailyIronSheetPage() {
     }
   }
 
+  const saveMobileCustomer = async (customerId: string) => {
+    if (saving) return
+    const row = draftRows.find((entry) => entry.customerId === customerId)
+    if (!row) return toast.error('Add at least one clothing item')
+    if (selectedDateError) return toast.error(selectedDateError)
+    if (backdateReasonError) return toast.error(backdateReasonError)
+    const validationError = validateDraft([row])
+    if (validationError) return toast.error(validationError)
+    setSaving(true)
+    try {
+      const response = await ironAPI.createDaySheet({
+        date: selectedDate,
+        rows: [row],
+        ...(selectedDateNeedsOverride ? { backdateReason: backdateReason.trim() } : {}),
+      })
+      const pieces = row.items.reduce((sum: number, item: any) => sum + Number(item.pieces || 0), 0)
+      toast.success(`Saved ${response?.data?.summary?.pieces || pieces} clothes`)
+      clearCustomerDraft(customerId)
+      setMobileCustomerId(null)
+      setBackdateReason('')
+      await load()
+    } catch (err: any) {
+      const rowDetail = Array.isArray(err.details) && err.details[0]?.message ? err.details[0].message : ''
+      toast.error(rowDetail || err.message || 'Failed to save Daily Iron entry')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const openMobileCustomer = (sub: any) => {
+    if (loggedByCustomer.has(sub.customerId)) {
+      setAddingMoreForLogged((prev) => ({ ...prev, [sub.customerId]: true }))
+    }
+    setMobileCustomerId(sub.customerId)
+  }
+
+  const mobileCustomer = subscriptions.find((sub: any) => sub.customerId === mobileCustomerId)
+
   return (
-    <div style={{ padding: '28px 32px 56px', maxWidth: 1500, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
+    <div className="iron-sheet-page" style={{ padding: '28px 32px 56px', maxWidth: 1500, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
+      <section className="iron-sheet-mobile">
+        <header className="iron-mobile-head">
+          <div><small>Daily Iron</small><h1>Today Sheet</h1></div>
+          <label><span>Date</span><input type="date" value={selectedDate} min={logRules?.canBackdateBeyondLimit ? undefined : logRules ? dateBounds.earliest : undefined} max={logRules?.futureDatesAllowed ? undefined : dateBounds.today} onChange={(event) => setSelectedDate(event.target.value)} /></label>
+        </header>
+        <IronSectionTabs />
+        <div className="iron-mobile-summary">
+          <div><span>Saved</span><strong>{daySummary.customers}</strong><small>customers</small></div>
+          <div><span>Pieces</span><strong>{daySummary.pieces}</strong><small>{draftSummary.pieces ? `+${draftSummary.pieces} draft` : 'saved'}</small></div>
+          <div><span>Value</span><strong>{fmt(daySummary.amount)}</strong><small>{draftSummary.amount ? `+${fmt(draftSummary.amount)}` : 'saved'}</small></div>
+        </div>
+        <div className="iron-mobile-tools">
+          <label><Search size={17}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search customer" /></label>
+          <button className={showOnlyPending ? 'active' : ''} onClick={() => setShowOnlyPending((value) => !value)}><SlidersHorizontal size={16}/><span>{showOnlyPending ? 'Pending' : 'All'}</span></button>
+        </div>
+        {selectedDateError && <div className="iron-mobile-warning">{selectedDateError}</div>}
+        <div className="iron-mobile-customers">
+          {loading ? Array.from({length: 6}, (_, index) => <div className="iron-mobile-skeleton" key={index}><i/><span/><b/></div>) : !filteredSubscriptions.length ? <div className="iron-mobile-empty"><strong>No customers found</strong><span>Change the search or filter to continue.</span></div> : filteredSubscriptions.map((sub: any) => {
+            const customer = sub.customer || {}
+            const saved = loggedByCustomer.get(sub.customerId)
+            const draftPieces = customerDraftPieces(sub.customerId)
+            return <article key={sub.id} className={draftPieces ? 'has-draft' : saved ? 'is-saved' : ''}>
+              <button className="iron-mobile-customer-main" onClick={() => openMobileCustomer(sub)}>
+                <span className="iron-mobile-avatar">{String(customer.name || 'C').trim().charAt(0).toUpperCase()}</span>
+                <span className="iron-mobile-customer-copy"><strong>{customer.name || 'Unnamed Customer'}</strong><small>{customer.phone || 'No phone number'}</small></span>
+                <span className="iron-mobile-customer-status">{draftPieces ? <><b>{draftPieces}</b><small>draft</small></> : saved ? <><b>{saved.pieces}</b><small>saved</small></> : <><Plus size={16}/><small>add</small></>} </span>
+                <ChevronRight size={17}/>
+              </button>
+            </article>
+          })}
+        </div>
+        {draftRows.length > 0 && <div className="iron-mobile-draftbar"><span><strong>{draftSummary.customers} drafts</strong><small>{draftSummary.pieces} clothes · {fmt(draftSummary.amount)}</small></span><button disabled={saving} onClick={saveSheet}>{saving ? <Loader2 className="crm-spin" size={17}/> : <Save size={17}/>} Save all</button></div>}
+      </section>
+
+      {mobileCustomer && <div className="iron-mobile-editor" role="dialog" aria-modal="true">
+        <header><button aria-label="Close entry" onClick={() => setMobileCustomerId(null)}><X size={20}/></button><div><small>{format(new Date(`${selectedDate}T00:00:00`), 'dd MMM yyyy')}</small><h2>{mobileCustomer.customer?.name || 'Customer'}</h2></div><span>{loggedByCustomer.get(mobileCustomer.customerId)?.pieces || 0}<small>saved</small></span></header>
+        <div className="iron-mobile-editor-body">
+          {selectedDateNeedsOverride && logRules?.canBackdateBeyondLimit && <div className="iron-mobile-backdate"><strong>Backdated entry</strong><span>Add a reason. This is recorded in the audit history.</span><input value={backdateReason} onChange={(event) => setBackdateReason(event.target.value)} placeholder="Reason for older entry"/></div>}
+          <div className="iron-mobile-service-list">
+            {services.map((service) => {
+              const key = cellKey(mobileCustomer.customerId, service.id)
+              const cell = qty[key] || { pieces: '' }
+              const pieces = Number(cell.pieces || 0)
+              const saved = loggedByCustomerService.get(key)
+              const adjusted = Boolean(cell.ratePerPiece && Math.abs(Number(cell.ratePerPiece) - service.price) > .009)
+              return <section key={service.id} className={pieces ? 'selected' : ''}>
+                <div className="iron-mobile-service-head"><span><strong>{service.name}</strong><small>{fmt(service.price)} each{saved ? ` · ${saved.pieces} already saved` : ''}</small></span><div className="iron-mobile-stepper"><button disabled={!pieces} onClick={() => bumpCell(mobileCustomer.customerId, service.id, -1)}><Minus size={16}/></button><input inputMode="numeric" value={cell.pieces || ''} placeholder="0" onChange={(event) => setCellPieces(mobileCustomer.customerId, service.id, event.target.value)}/><button onClick={() => bumpCell(mobileCustomer.customerId, service.id, 1)}><Plus size={16}/></button></div></div>
+                {pieces > 0 && <div className="iron-mobile-rate"><label><span>Rate</span><input inputMode="decimal" value={cell.ratePerPiece || ''} placeholder={String(service.price)} onChange={(event) => setCellRate(mobileCustomer.customerId, service.id, event.target.value)}/></label>{adjusted && <label className="reason"><span>Reason for rate change</span><input value={cell.notes || ''} onChange={(event) => setCellNotes(mobileCustomer.customerId, service.id, event.target.value)} placeholder="Required"/></label>}</div>}
+              </section>
+            })}
+          </div>
+        </div>
+        <footer><span><small>Current entry</small><strong>{customerDraftPieces(mobileCustomer.customerId)} clothes</strong></span><button disabled={saving || !customerHasDraft(mobileCustomer.customerId) || Boolean(selectedDateError || backdateReasonError)} onClick={() => saveMobileCustomer(mobileCustomer.customerId)}>{saving ? <Loader2 className="crm-spin" size={18}/> : <Save size={18}/>} Save entry</button></footer>
+      </div>}
+
+      <div className="iron-sheet-desktop">
       <PageHeader
         title="Daily Iron Sheet"
         subtitle="Fast date-wise logging for active Daily Iron customers"
@@ -654,6 +749,7 @@ export default function DailyIronSheetPage() {
           <span>{filteredSubscriptions.length} of {subscriptions.length} active customers shown for {format(new Date(selectedDate), 'dd MMM yyyy')}</span>
           <span>Saved rows are locked first. Use Add more only when extra clothes come later for the same date.</span>
         </div>
+      </div>
       </div>
     </div>
   )

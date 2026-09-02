@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { customersAPI, ironAPI, metadataAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
-import { ArrowRight, Plus, Search } from 'lucide-react'
+import { ArrowRight, ChevronRight, Plus, Search, UserPlus, X } from 'lucide-react'
 import { PageHeader, Button } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
@@ -67,7 +67,32 @@ export default function CustomersPage() {
   }
 
   return (
-    <div style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
+    <div className="crm-customers-page" style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
+      <section className="crm-customers-mobile">
+        <header className="crm-mobile-page-head"><div><h1>Customers</h1><p>{total} registered customers</p></div><button onClick={() => setShowAdd(true)}><Plus size={19}/> Add</button></header>
+        <div className="crm-mobile-directory-search"><Search size={17}/><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Search name or mobile" /></div>
+        <div className="crm-mobile-customer-list">
+          {loading ? <div className="crm-mobile-list-state">Loading customers…</div> : !customers.length ? <div className="crm-mobile-list-state"><UserPlus size={25}/><strong>No customers found</strong><span>Add a customer or change the search.</span></div> : customers.map((customer:any) => <Link key={customer.id} href={`/dashboard/customers/${customer.id}`}>
+            <span className="crm-customer-avatar">{String(customer.name || 'C').trim().charAt(0).toUpperCase()}</span>
+            <span className="crm-customer-copy"><strong>{customer.name || 'Unnamed customer'}</strong><small>{customer.phone}</small><em>{customer._count?.orders || 0} orders{customer.orders?.[0] ? ` · Last ${format(new Date(customer.orders[0].createdAt),'dd MMM')}` : ''}</em></span>
+            <ChevronRight size={19}/>
+          </Link>)}
+        </div>
+        <PaginationControls page={page} pageSize={pageSize} totalItems={total} itemLabel="customers" onPageChange={setPage} onPageSizeChange={(size)=>{setPageSize(size);setPage(1)}} pageSizeOptions={[10,20,30,50]} />
+      </section>
+
+      {showAdd && <section className="crm-mobile-customer-create" role="dialog" aria-modal="true" aria-label="Add customer">
+        <header><div><small>Customer directory</small><h1>Add customer</h1></div><button onClick={() => setShowAdd(false)}><X size={21}/></button></header>
+        <div className="crm-mobile-form-body">
+          <label><span>Mobile number <b>*</b></span><div className="crm-phone-input"><strong>+91</strong><input value={newPhone} onChange={(event) => setNewPhone(event.target.value.replace(/\D/g,'').slice(0,10))} inputMode="numeric" maxLength={10} placeholder="9876543210" /></div></label>
+          <label><span>Customer name</span><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Customer name" /></label>
+          <label><span>Preferred language</span><select value={newLanguage} onChange={(event) => setNewLanguage(event.target.value)}>{languageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <button className={enrollDailyIron ? 'crm-mobile-toggle active' : 'crm-mobile-toggle'} onClick={() => setEnrollDailyIron((value) => !value)}><span><strong>Enroll in Daily Iron</strong><small>Create the subscription after this customer is saved.</small></span><em>{enrollDailyIron ? 'On' : 'Off'}</em></button>
+        </div>
+        <footer><button onClick={() => setShowAdd(false)}>Cancel</button><button className="primary" onClick={addCustomer} disabled={adding}>{adding ? 'Adding…' : 'Add customer'}</button></footer>
+      </section>}
+
+      <div className="crm-customers-desktop">
       <PageHeader
         title="Customers"
         subtitle={`${total} registered customers`}
@@ -162,6 +187,7 @@ export default function CustomersPage() {
         onPageSizeChange={(size)=>{setPageSize(size);setPage(1)}}
         pageSizeOptions={[10,20,30,50,100]}
       />
+      </div>
     </div>
   )
 }

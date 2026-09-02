@@ -61,10 +61,11 @@ export default function LoginClient() {
 
           <form onSubmit={handleLogin}>
             <div style={{ marginBottom:16 }}>
-              <label style={{ fontSize:12.5, fontWeight:600, color:'#3d5470', marginBottom:7, display:'block' }}>Email</label>
+              <label htmlFor="crm-login-email" style={{ fontSize:12.5, fontWeight:600, color:'#3d5470', marginBottom:7, display:'block' }}>Email</label>
               <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', borderRadius:10, border:'1.5px solid #dce8f0', background:'#fff' }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9dafc8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6a2 2 0 0 1 2-2h2l2 5-2 1.4a11 11 0 0 0 5.6 5.6L15 14l5 2v2a2 2 0 0 1-2 2A15 15 0 0 1 4 6z"/></svg>
                 <input
+                  id="crm-login-email"
                   type="text"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
@@ -78,10 +79,10 @@ export default function LoginClient() {
               </div>
             </div>
             <div style={{ marginBottom:16 }}>
-              <label style={{ fontSize:12.5, fontWeight:600, color:'#3d5470', marginBottom:7, display:'block' }}>Password</label>
+              <label htmlFor="crm-login-password" style={{ fontSize:12.5, fontWeight:600, color:'#3d5470', marginBottom:7, display:'block' }}>Password</label>
               <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', borderRadius:10, border:'1.5px solid #dce8f0', background:'#fff' }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9dafc8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-                <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="••••••••" required
+                <input id="crm-login-password" type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="••••••••" required
                   style={{ border:'none', outline:'none', fontSize:14, color:'#1a2332', width:'100%', fontFamily:'var(--crm-font-ui)' }} />
               </div>
             </div>

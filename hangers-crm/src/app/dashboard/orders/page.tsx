@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { authAPI, ordersAPI, challanAPI, metadataAPI, paymentsAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
-import { ClipboardList, Lock, Plus } from 'lucide-react'
+import { CheckSquare, ChevronRight, ClipboardList, Ellipsis, Lock, MessageCircle, Package, Plus, Printer, Search, Square, X } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
 import { InlineLoader, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
@@ -281,6 +281,7 @@ function OrdersPageContent() {
   const [whatsAppPreview, setWhatsAppPreview] = useState<any>(null)
   const [whatsAppPreviewLoading, setWhatsAppPreviewLoading] = useState(false)
   const [whatsAppCooldownTick, setWhatsAppCooldownTick] = useState(0)
+  const [mobileActionOrder, setMobileActionOrder] = useState<any | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -629,7 +630,64 @@ function OrdersPageContent() {
     : 0
 
   return (
-    <div className="crm-page-enter" style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto'}}>
+    <div className="crm-page-enter crm-orders-page" style={{padding:'30px 36px 60px',maxWidth:1360,margin:'0 auto'}}>
+      <section className="crm-orders-mobile" aria-label={activeView.title}>
+        <header className="crm-mobile-page-head">
+          <div><h1>{activeView.title}</h1><p>{total} matching orders</p></div>
+          <Link href="/dashboard/orders/new"><Plus size={19} /> New</Link>
+        </header>
+        <div className="crm-mobile-filterbar">
+          <label><Search size={17} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Order, customer or phone" /></label>
+          <select value={view} onChange={(event) => applyOrderView(event.target.value)} aria-label="Order view">
+            {orderViews.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+          </select>
+        </div>
+        {selected.size > 0 && (
+          <div className="crm-mobile-selection-bar">
+            <strong>{selected.size} selected</strong>
+            <button onClick={() => setShowChallanModal(true)}>Challan</button>
+            {selectedPayableOrders.length > 0 && <button onClick={openBulkPayModal}>{selectedPayableOrders.length === 1 ? 'Payment' : 'Bulk pay'}</button>}
+            <button onClick={() => setSelected(new Set())}>Clear</button>
+          </div>
+        )}
+        <div className="crm-mobile-order-list">
+          {loading ? <div className="crm-mobile-list-state">Loading orders…</div> : !orders.length ? <div className="crm-mobile-list-state"><Package size={25} /><strong>No orders found</strong><span>Change the filter or create a new order.</span></div> : orders.map((order: any) => {
+            const selectedOrder = selected.has(order.id)
+            const locked = plantStatuses.includes(order.status) || isReturnOrder(order)
+            const statusStyle = statusStyles[order.status] || { bg: '#f2f6f9', text: '#31506a', border: '#d7e3eb' }
+            const itemCount = orderTotalQty(order)
+            return <article key={order.id} className={selectedOrder ? 'selected' : ''}>
+              <button className="crm-mobile-select" disabled={locked} onClick={() => toggleSelect(order.id)} aria-label={selectedOrder ? 'Deselect order' : 'Select order'}>{selectedOrder ? <CheckSquare size={21} /> : <Square size={21} />}</button>
+              <Link className="crm-mobile-order-main" href={`/dashboard/orders/${order.id}?returnTo=${encodeURIComponent(returnTo)}`}>
+                <div className="crm-mobile-order-title"><strong>{order.orderNumber}</strong><span style={{background:statusStyle.bg,color:statusStyle.text,borderColor:statusStyle.border}}>{getStatusLabel(order.status, order.source, statusLabels)}</span></div>
+                <div className="crm-mobile-order-customer"><strong>{order.customer?.name || 'Unnamed customer'}</strong><span>{order.customer?.phone || 'No mobile'}</span></div>
+                <p>{orderItemSummaryText(order)}</p>
+                <div className="crm-mobile-order-meta"><span>{itemCount} pcs</span><span>{order.deliveryDate ? `Due ${format(new Date(order.deliveryDate), 'dd MMM')}` : 'No due date'}</span><strong>{formatCurrency(order.totalAmount || 0)}</strong><em>{order.paymentStatus || 'UNPAID'}</em></div>
+              </Link>
+              <button className="crm-mobile-row-actions" onClick={() => setMobileActionOrder(order)} aria-label={`Actions for ${order.orderNumber}`}><Ellipsis size={21} /></button>
+            </article>
+          })}
+        </div>
+        <PaginationControls page={page} pageSize={pageSize} totalItems={total} itemLabel="orders" onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1) }} pageSizeOptions={[10,20,30,50]} />
+      </section>
+
+      {mobileActionOrder && (
+        <div className="crm-mobile-action-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setMobileActionOrder(null)}>
+          <section className="crm-mobile-action-sheet" role="dialog" aria-modal="true" aria-label={`Actions for ${mobileActionOrder.orderNumber}`}>
+            <header><div><strong>{mobileActionOrder.orderNumber}</strong><span>{mobileActionOrder.customer?.name || 'Customer'} · {formatCurrency(orderBalanceDue(mobileActionOrder))} due</span></div><button onClick={() => setMobileActionOrder(null)}><X size={20} /></button></header>
+            <Link href={`/dashboard/orders/${mobileActionOrder.id}?returnTo=${encodeURIComponent(returnTo)}`}><Package size={19} /><span>Open order</span><ChevronRight size={18} /></Link>
+            {orderWorkflow.directReadyAllowedStatuses.includes(mobileActionOrder.status) && <button onClick={() => { markReady(mobileActionOrder); setMobileActionOrder(null) }}><CheckSquare size={19} /><span>Mark cleaned</span></button>}
+            <button onClick={() => { openWhatsAppModal(mobileActionOrder); setMobileActionOrder(null) }}><MessageCircle size={19} /><span>Send WhatsApp</span></button>
+            <button onClick={() => { openPrintWindow(`/dashboard/print?orderId=${mobileActionOrder.id}&type=receipt&autoprint=1`); setMobileActionOrder(null) }}><Printer size={19} /><span>Print receipt</span></button>
+            <div className="crm-mobile-status-actions">
+              <small>Move order</small>
+              {getStatusChoices(mobileActionOrder.status, orderWorkflow, currentStaff).filter((status) => status !== mobileActionOrder.status).map((status) => <button key={status} onClick={() => { updateStatus(mobileActionOrder.id, mobileActionOrder.status, status); setMobileActionOrder(null) }}>{getStatusLabel(status, mobileActionOrder.source, statusLabels)}</button>)}
+            </div>
+          </section>
+        </div>
+      )}
+
+      <div className="crm-orders-desktop">
       <PageHeader
         title={activeView.title}
         subtitle={activeView.description}
@@ -850,6 +908,7 @@ function OrdersPageContent() {
         onPageSizeChange={(size) => { setPageSize(size); setPage(1) }}
         pageSizeOptions={[10, 20, 30, 50, 100]}
       />
+      </div>
 
       {whatsAppModal.open && whatsAppModal.order && (
         <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.42)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:60,padding:'18px',boxSizing:'border-box'}}>

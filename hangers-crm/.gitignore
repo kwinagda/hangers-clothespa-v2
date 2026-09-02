@@ -4,3 +4,5 @@ node_modules/
 .env.local
 *.log
 dist-public/
+playwright-report/
+test-results/

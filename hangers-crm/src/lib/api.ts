@@ -54,6 +54,10 @@ export const authAPI = {
   logout: ()             => api.post('/staff/auth/logout'),
   changePassword: (currentPassword: string, newPassword: string) => api.post('/staff/auth/change-password', { currentPassword, newPassword }) as any,
 }
+export const uiPreferencesAPI = {
+  get: () => api.get('/staff/me/ui-preferences') as any,
+  update: (primaryNavItems: string[]) => api.put('/staff/me/ui-preferences', { primaryNavItems }) as any,
+}
 export const ordersAPI = {
   list:         (params?: any) => api.get('/orders', { params }) as any,
   stats:        ()             => api.get('/orders/stats') as any,

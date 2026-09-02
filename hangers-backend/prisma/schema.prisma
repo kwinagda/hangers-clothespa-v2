@@ -131,8 +131,20 @@ model Staff {
   serviceAppointmentsCreated   ServiceAppointment[]      @relation("ServiceAppointmentCreatedBy")
   serviceAppointmentsCompleted ServiceAppointment[]      @relation("ServiceAppointmentCompletedBy")
   serviceAppointmentEvents     ServiceAppointmentEvent[]
+  uiPreference                StaffUiPreference?
 
   @@map("staff")
+}
+
+model StaffUiPreference {
+  staffId         String   @id
+  primaryNavItems Json
+  schemaVersion   Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  staff           Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@map("staff_ui_preferences")
 }
 
 model StaffPermission {

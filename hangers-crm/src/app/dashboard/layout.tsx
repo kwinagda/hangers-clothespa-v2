@@ -4,9 +4,10 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Toaster } from 'react-hot-toast'
 import toast from 'react-hot-toast'
-import { LogOut, Plus } from 'lucide-react'
-import { authAPI, metadataAPI } from '@/lib/api'
+import { LogOut } from 'lucide-react'
+import { authAPI, metadataAPI, uiPreferencesAPI } from '@/lib/api'
 import { LOGO_WHITE_URL } from '@/lib/branding'
+import { MobileAppNavigation } from '@/components/app/MobileAppNavigation'
 
 // SVG icons exactly matching the design
 const Ico = ({ d }: { d: string }) => (
@@ -36,6 +37,7 @@ const NAV_SECTIONS = [
     items: [
       { href: '/dashboard/iron/sheet', label: 'Today Sheet', d: '<path d="M4 5h16v14H4z"/><path d="M4 10h16M9 5v14"/><path d="M12 14l1.7 1.7L17 12.4"/>' },
       { href: '/dashboard/iron/logs', label: 'Iron Logs', d: '<path d="M8.5 4l-4.5 2 1.8 3.2L8 8v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V8l2.2 1.2L20 6l-4.5-2s-.5 2-3.5 2-3.5-2-3.5-2z"/>' },
+      { href: '/dashboard/iron/monthly', label: 'Monthly Summary', d: '<rect x="4" y="5" width="16" height="15" rx="1.5"/><path d="M8 3v4M16 3v4M4 9.5h16"/><path d="M8 13h3M8 16h8"/>' },
       { href: '/dashboard/iron/applications', label: 'Applications', d: '<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M8.5 12.5l2.3 2.3L15.5 10"/>' },
     ],
   },
@@ -77,12 +79,29 @@ const NAV_SECTIONS = [
   },
 ]
 
+const DEFAULT_UI_PREFERENCES = {
+  primaryNavItems: ['orders', 'new_order'],
+  availableNavItems: [
+    { id: 'orders', href: '/dashboard/orders' },
+    { id: 'new_order', href: '/dashboard/orders/new' },
+    { id: 'customers', href: '/dashboard/customers' },
+    { id: 'daily_iron', href: '/dashboard/iron/sheet' },
+    { id: 'monthly_iron', href: '/dashboard/iron/monthly' },
+    { id: 'pickup_requests', href: '/dashboard/pickup-requests' },
+    { id: 'field_service', href: '/dashboard/service-appointments' },
+    { id: 'plant_challans', href: '/dashboard/plantchallans' },
+    { id: 'finance', href: '/dashboard/finance' },
+    { id: 'reports', href: '/dashboard/reports' },
+  ],
+}
+
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const router   = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [staff, setStaff] = useState<any>(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [uiPreferences, setUiPreferences] = useState<any>(DEFAULT_UI_PREFERENCES)
 
   const asArray = (value: any, keys: string[] = []) => {
     if (Array.isArray(value)) return value
@@ -110,6 +129,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     metadataAPI.getAll().catch(() => {
       toast.error('Failed to load dashboard metadata')
     })
+    uiPreferencesAPI.get()
+      .then((r: any) => setUiPreferences(r?.data || r || {}))
+      .catch(() => setUiPreferences(DEFAULT_UI_PREFERENCES))
   }, [])
 
   const handleLogout = async () => {
@@ -119,7 +141,30 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   const isFullscreenWorkspace = pathname === '/dashboard/orders/new'
   const isAutoPrintPopup = pathname === '/dashboard/print' && searchParams.get('autoprint') === '1'
-  const showFloatingOrderButton = pathname !== '/dashboard/orders/new'
+  const orderViewLabels: Record<string, string> = { in_process: 'In Process', ready: 'Ready For Delivery', delivered: 'Delivered' }
+  const pageLabel = pathname === '/dashboard/orders/new'
+    ? 'New Order'
+    : pathname === '/dashboard/orders'
+      ? (orderViewLabels[searchParams.get('view') || ''] || 'All Orders')
+      : pathname.startsWith('/dashboard/orders/')
+        ? 'Order Details'
+        : NAV_SECTIONS.flatMap((section) => section.items)
+          .filter((item) => pathname === item.href.split('?')[0] || pathname.startsWith(`${item.href.split('?')[0]}/`))
+          .sort((a, b) => b.href.length - a.href.length)[0]?.label || 'Hangers CRM'
+  const visibleNavSections = NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item: any) => {
+      const permissions = staff?.effectivePermissions || []
+      const hasPermission = !item.permission || staff?.role === 'SUPER_ADMIN' || permissions.includes('*') || permissions.includes(item.permission)
+      return hasPermission
+    }),
+  })).filter((section) => section.items.length)
+
+  const savePrimaryNavigation = async (primaryNavItems: string[]) => {
+    const response = await uiPreferencesAPI.update(primaryNavItems)
+    setUiPreferences(response?.data || response || {})
+    toast.success('Navigation shortcuts updated')
+  }
 
   if (authLoading) {
     return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', fontFamily: 'var(--crm-font-ui)', color: '#6b7fa3' }}>Loading workspace...</div>
@@ -135,10 +180,19 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'var(--crm-font-ui)' }}>
+    <div className="crm-dashboard-frame" style={{ fontFamily: 'var(--crm-font-ui)' }}>
+
+      <MobileAppNavigation
+        sections={visibleNavSections}
+        pathname={pathname}
+        pageLabel={pageLabel}
+        primaryIds={uiPreferences.primaryNavItems || ['orders', 'new_order']}
+        availableItems={uiPreferences.availableNavItems || []}
+        onSavePrimary={savePrimaryNavigation}
+      />
 
       {/* ── Sidebar — matches design exactly ── */}
-      <aside style={{
+      <aside className="crm-desktop-sidebar" style={{
         width: 254,
         flexShrink: 0,
         background: '#023c62',
@@ -214,26 +268,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* ── Main content ── */}
-      <main style={{ flex: 1, minHeight: '100vh', background: '#f4f7fb', overflow: isFullscreenWorkspace ? 'hidden' : 'auto' }}>
+      <main className={isFullscreenWorkspace ? 'crm-dashboard-main crm-dashboard-main-fullscreen' : 'crm-dashboard-main'} style={{ overflow: isFullscreenWorkspace ? 'hidden' : 'auto' }}>
         {isFullscreenWorkspace ? children : (
           <div className="crm-page-enter crm-page-shell">{children}</div>
-        )}
-        {showFloatingOrderButton && (
-          <Link href="/dashboard/orders/new" className="crm-floating-order" style={{
-            position: 'fixed', right: 24, bottom: 24,
-            display: 'inline-flex', alignItems: 'center', gap: 10, padding: '12px 14px',
-            borderRadius: 999, background: 'linear-gradient(135deg,#023c62,#035a8f)', color: '#fff',
-            textDecoration: 'none', boxShadow: '0 18px 42px rgba(2,60,98,0.28)',
-            border: '1px solid rgba(184,208,232,0.26)', zIndex: 40,
-          }}>
-            <span style={{ width: 34, height: 34, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.16)', flexShrink: 0 }}>
-              <Plus size={17} />
-            </span>
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-              <span style={{ fontSize: 14, fontWeight: 800, lineHeight: 1.1 }}>New Order</span>
-              <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.72)', lineHeight: 1.1 }}>Quick create</span>
-            </span>
-          </Link>
         )}
       </main>
       <Toaster position="top-right" toastOptions={{ style: { fontFamily: 'var(--crm-font-ui)', background: '#023c62', color: '#fff', borderRadius: '12px' } }} />
