@@ -763,6 +763,59 @@ const retryWhatsAppNotification = async (req, res) => {
 
     const metadata = failedStage.metadata && typeof failedStage.metadata === 'object' ? failedStage.metadata : {};
     const failedType = metadata.outboxEventType || null;
+    const manualType = metadata.manualType || null;
+
+    if (manualType === 'PAYMENT_REMINDER_ORDER' || manualType === 'PAYMENT_REMINDER_SUMMARY') {
+      const paymentSettings = await getPaymentReminderSettings();
+      let reminder;
+      let label;
+
+      if (manualType === 'PAYMENT_REMINDER_ORDER') {
+        const balanceDue = getOrderOutstanding(order);
+        if (!(balanceDue > 0)) return badRequest(res, 'This order has no outstanding balance');
+        label = 'Payment reminder';
+        reminder = {
+          mode: 'ORDER',
+          outstandingAmount: balanceDue,
+          outstandingOrderCount: 1,
+          paymentSettings,
+        };
+      } else {
+        const summary = await getCustomerOutstandingSummary(order.customerId);
+        if (!(summary.outstandingAmount > 0)) return badRequest(res, 'This customer has no outstanding balance');
+        const buttonSlug = await createPublicShareToken({
+          resourceType: 'CUSTOMER',
+          resourceId: order.customerId,
+          purpose: 'INVOICE_VIEW',
+        });
+        label = 'Outstanding payment summary';
+        reminder = {
+          mode: 'OUTSTANDING_SUMMARY',
+          ...summary,
+          buttonSlug,
+          paymentSettings,
+        };
+      }
+
+      const sent = await sendPaymentReminderMessage(order, reminder, {
+        idempotencyKey: `manual-retry:payment-reminder:${order.id}:${manualType}:${failedStage.id}`,
+        throwOnFailure: true,
+      });
+      if (!sent) return error(res, 'WhatsApp provider did not accept the payment reminder');
+      await logWhatsAppRetrySent({
+        order,
+        failedStage,
+        label,
+        metadata: {
+          manualType,
+          outstandingAmount: reminder.outstandingAmount,
+          outstandingOrderCount: reminder.outstandingOrderCount,
+          orderNumbers: reminder.orderNumbers || [order.orderNumber],
+        },
+      });
+      await markWhatsAppFailureResolved(failedStage, req.staff);
+      return success(res, { sent: true }, `${label} resent on WhatsApp`);
+    }
 
     if (failedType === OUTBOX_EVENT.PAYMENT_RECEIVED) {
       const paymentId = metadata.payload?.paymentId;
