@@ -581,7 +581,7 @@ textarea:focus {
 
 .crm-new-order-mobile-progress,.crm-new-order-mobile-footer { display:none; }
 @media (max-width:767px) {
-  .crm-dashboard-main-fullscreen { height:calc(100dvh - 64px - env(safe-area-inset-top)); overflow:hidden!important; }
+  .crm-dashboard-main-fullscreen { height:calc(100dvh - 132px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); min-height:0!important; overflow:hidden!important; }
   .crm-new-order-app { position:relative; width:100%!important; height:100%!important; min-height:0!important; display:block!important; overflow:hidden!important; background:#f5f8fb!important; }
   .crm-new-order-catalog,.crm-new-order-review { position:absolute; inset:52px 0 72px; width:100%!important; min-width:0!important; max-width:none!important; height:auto!important; box-shadow:none!important; border:0!important; transition:opacity 140ms ease!important; }
   .crm-new-order-desktop-bar,.crm-new-order-resizer { display:none!important; }
@@ -615,7 +615,7 @@ textarea:focus {
   .crm-new-order-mobile-footer strong { color:#023c62; font:700 13px/1.2 var(--crm-font-mono); }
   .crm-new-order-app > div[style*="position: fixed"][style*="inset: 0"] { padding:0!important; align-items:flex-end!important; }
   .crm-new-order-app > div[style*="position: fixed"][style*="inset: 0"] > div { width:100%!important; max-width:none!important; max-height:94dvh; overflow:auto; border-radius:12px 12px 0 0!important; padding:18px 16px!important; }
-  .crm-payment-backdrop { align-items:flex-end!important; padding:0!important; }.crm-payment-sheet { width:100%!important; max-width:none!important; max-height:calc(100dvh - env(safe-area-inset-top)); padding:18px 16px calc(18px + env(safe-area-inset-bottom))!important; overflow:auto; border-radius:12px 12px 0 0!important; animation:crm-sheet-up 180ms var(--crm-ease); }.crm-payment-sheet>div:last-child { position:sticky; bottom:0; padding-top:10px; background:#fff; }
+  .crm-payment-backdrop { z-index:1000!important; align-items:flex-end!important; padding:0!important; }.crm-payment-sheet { width:100%!important; max-width:none!important; max-height:calc(100dvh - env(safe-area-inset-top)); padding:18px 16px calc(18px + env(safe-area-inset-bottom))!important; overflow:auto; overscroll-behavior:contain; border-radius:12px 12px 0 0!important; animation:crm-sheet-up 180ms var(--crm-ease); }.crm-payment-sheet>div:last-child { position:sticky; bottom:0; z-index:2; padding-top:10px; background:#fff; }
 }
 
 .crm-surface {
