@@ -273,7 +273,7 @@ export default function PricingPage() {
   }
 
   return (
-    <div style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
+    <div className="pricing-page" style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
       <PageHeader
         title="Pricing"
         subtitle="Rate card used across quotations, orders and the customer app"
@@ -294,8 +294,8 @@ export default function PricingPage() {
           {loadError || 'No pricing catalog found. Add services from this page to begin.'}
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>
-          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 12, position: 'sticky', top: 20 }}>
+        <div className="pricing-layout" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>
+          <div className="pricing-categories" style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', padding: 12, position: 'sticky', top: 20 }}>
             {catalog.map((cat) => (
               <button
                 key={cat.category}
@@ -331,7 +331,7 @@ export default function PricingPage() {
                   </div>
 
                   {addingCategory === cat.category && (
-                    <div style={{ padding: '14px 20px', background: '#f8fbfe', borderBottom: '1px solid #e8f0f7', display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) 120px 120px auto', gap: 10, alignItems: 'center' }}>
+                    <div className="pricing-add-row" style={{ padding: '14px 20px', background: '#f8fbfe', borderBottom: '1px solid #e8f0f7', display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) 120px 120px auto', gap: 10, alignItems: 'center' }}>
                       <input
                         value={newItemName}
                         onChange={(e) => setNewItemName(e.target.value)}

@@ -189,7 +189,7 @@ export default function PickupRequestsPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1480, margin: '0 auto', padding: '26px 28px 48px' }}>
+    <div className="pickup-requests-page" style={{ maxWidth: 1480, margin: '0 auto', padding: '26px 28px 48px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
         <div><div style={{ color: '#6b7fa3', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>Website enquiries</div><h1 style={{ margin: '5px 0 4px', color: '#023c62', fontSize: 27, fontWeight: 800 }}>Pickup Requests</h1><p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>Contact, confirm, and convert website pickup enquiries into orders.</p></div>
         <div style={{ position: 'relative', width: 'min(360px, 100%)' }}><Search size={17} style={{ position: 'absolute', left: 13, top: 12, color: '#8292a8' }}/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search request, name, phone or address" style={{ width: '100%', boxSizing: 'border-box', border: '1px solid #d8e2ec', borderRadius: 7, padding: '11px 12px 11px 39px', outline: 'none', background: '#fff', fontSize: 13.5 }}/></div>

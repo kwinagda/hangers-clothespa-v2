@@ -56,6 +56,42 @@ test('mobile navigation is searchable and Back closes it first', async ({ page }
   await expect(page).toHaveURL(/\/dashboard$/)
 })
 
+test('real customer and order detail screens stay inside every viewport', async ({ page }, testInfo) => {
+  const detailRoutes: string[] = []
+  for (const source of ['/dashboard/customers', '/dashboard/orders']) {
+    await page.goto(source, { waitUntil: 'domcontentloaded' })
+    const prefix = source === '/dashboard/customers' ? '/dashboard/customers/' : '/dashboard/orders/'
+    const href = await page.locator(`a[href^="${prefix}"]`).evaluateAll((links, routePrefix) => {
+      const match = links
+        .map(link => (link as HTMLAnchorElement).getAttribute('href'))
+        .find(value => value
+          && value !== routePrefix
+          && value !== '/dashboard/orders/new'
+          && !value.startsWith('/dashboard/orders/return'))
+      return match || null
+    }, prefix)
+    if (href) detailRoutes.push(href)
+  }
+
+  expect(detailRoutes.length, 'No real customer or order detail links were available to audit').toBeGreaterThan(0)
+  for (const device of auditDevices) {
+    await page.setViewportSize({ width: device.width, height: device.height })
+    for (const route of detailRoutes) {
+      await page.goto(route, { waitUntil: 'domcontentloaded' })
+      await expect(page.locator('body')).not.toContainText('Application error')
+      const result = await page.evaluate(() => ({
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: document.documentElement.clientWidth,
+      }))
+      expect.soft(result.documentWidth, `${device.name} ${route}`).toBeLessThanOrEqual(result.viewportWidth + 2)
+      await page.screenshot({
+        path: testInfo.outputPath(`${device.name}-${route.replace(/[^a-z0-9]+/gi, '-')}.png`),
+        fullPage: false,
+      })
+    }
+  }
+})
+
 test('common modal workflows fit phone and tablet viewports', async ({ page }, testInfo) => {
   await page.goto('/dashboard')
   const cases = [

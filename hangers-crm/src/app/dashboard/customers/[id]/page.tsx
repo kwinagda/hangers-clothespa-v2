@@ -557,13 +557,13 @@ export default function CustomerProfilePage() {
   }
 
   return (
-    <div style={{ padding: '30px 36px 60px', maxWidth: 1180, margin: '0 auto', ...s }}>
+    <div className="customer-detail-page" style={{ padding: '30px 36px 60px', maxWidth: 1180, margin: '0 auto', ...s }}>
       <div style={{marginBottom:22}}>
         <button onClick={() => router.back()} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#6b7fa3',fontWeight:600,background:'none',border:'none',cursor:'pointer',padding:0,marginBottom:18}}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
           Back to Customers
         </button>
-        <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:22}}>
+        <div className="customer-detail-header" style={{display:'flex',alignItems:'center',gap:16,marginBottom:22}}>
           <div style={{width:56,height:56,borderRadius:14,background:'#e8f0f7',color:'#023c62',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:20,flexShrink:0}}>
             {(customer.name||'?').split(' ').map((n:string)=>n[0]).join('').slice(0,2).toUpperCase()}
           </div>
@@ -590,14 +590,14 @@ export default function CustomerProfilePage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gap: 18, marginBottom: 22 }}>
+      <div className="customer-detail-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gap: 18, marginBottom: 22 }}>
         <CustomerMetric label="Total Orders" value={String(stats?.totalOrders || 0)} note="Lifetime order count for this customer." />
         <CustomerMetric label="Total Spend" value={fmt(stats?.totalSpend || 0)} note="Sum of recorded collections across orders." />
         <CustomerMetric label="Outstanding" value={fmt(stats?.outstanding || 0)} note={(stats?.outstanding || 0) > 0 ? 'Customer still has unpaid balance pending.' : 'No open outstanding balance right now.'} />
         <CustomerMetric label="Loyalty" value={String(customer.loyaltyPoints || 0)} note="Available loyalty points on the customer record." />
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20, background: '#eef4f8', borderRadius: 18, padding: 6, width: 'fit-content', border: '1px solid #dde9f2' }}>
+      <div className="customer-detail-tabs" style={{ display: 'flex', gap: 6, marginBottom: 20, background: '#eef4f8', borderRadius: 18, padding: 6, width: 'fit-content', border: '1px solid #dde9f2' }}>
         {tabBtn('overview', 'Overview')}
         {tabBtn('iron', 'Daily Iron', ironSubscription ? ironLogs.length : undefined)}
         {tabBtn('wallet', 'Wallet', wallet?.transactions?.length)}
@@ -607,7 +607,7 @@ export default function CustomerProfilePage() {
 
       {/* ── OVERVIEW TAB ─────────────────────────────────────────── */}
       {tab === 'overview' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div className="customer-detail-overview" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           {/* Details card */}
           <ProfileSection title="Customer Details" subtitle="Core profile, preferences, and communication settings from the live customer record.">
             {editing ? (

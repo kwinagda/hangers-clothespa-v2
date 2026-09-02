@@ -272,7 +272,7 @@ export default function StaffPage() {
   const active=pagedFiltered.filter(s=>s.isActive), inactive=pagedFiltered.filter(s=>!s.isActive)
 
   return (
-    <div style={{padding:'30px 36px 60px',fontFamily:"var(--crm-font-ui)"}}>
+    <div className="staff-page" style={{padding:'30px 36px 60px',fontFamily:"var(--crm-font-ui)"}}>
       <PageHeader
         title="Staff"
         subtitle={`Team roles, access and contact details · ${staff.filter(s=>s.isActive).length} active`}
@@ -283,7 +283,7 @@ export default function StaffPage() {
         }
       />
 
-      <div style={{display:'flex',gap:8,marginBottom:20}}>
+      <div className="staff-view-tabs" style={{display:'flex',gap:8,marginBottom:20}}>
         {[
           { key:'staff', label:'Staff Directory', icon: UserCog },
           ...(canManageAccess ? [{ key:'access', label:'Access Control', icon: SlidersHorizontal }] : []),
@@ -310,7 +310,7 @@ export default function StaffPage() {
 
       {view === 'staff' && <>
       {/* Filters */}
-      <div style={{display:'flex',gap:12,marginBottom:20}}>
+      <div className="staff-filters" style={{display:'flex',gap:12,marginBottom:20}}>
         <input style={{flex:1,border:'1.5px solid #dce8f0',borderRadius:12,padding:'10px 16px',fontSize:14,outline:'none',background:'#fff',color:'#1a2332'}}
           placeholder="Search by name, phone, email..." value={search} onChange={e=>setSearch(e.target.value)} />
         <select style={{border:'1.5px solid #dce8f0',borderRadius:12,padding:'10px 14px',fontSize:14,outline:'none',background:'#fff',color:'#1a2332',minWidth:200}}
@@ -360,7 +360,7 @@ export default function StaffPage() {
       </>}
 
       {view === 'access' && canManageAccess && (
-        <div style={{display:'grid',gridTemplateColumns:'minmax(260px,0.4fr) minmax(0,1fr)',gap:18}}>
+        <div className="staff-access-layout" style={{display:'grid',gridTemplateColumns:'minmax(260px,0.4fr) minmax(0,1fr)',gap:18}}>
           <div style={{background:'#fff',border:'1px solid #dce8f0',borderRadius:18,overflow:'hidden'}}>
             <div style={{padding:'14px 16px',borderBottom:'1px solid #edf3f8'}}>
               <div style={{fontWeight:800,color:'#023c62',fontSize:15}}>Select Staff</div>
@@ -396,7 +396,7 @@ export default function StaffPage() {
                     {savingAccess ? 'Saving...' : 'Save Access'}
                   </button>
                 </div>
-                <div style={{padding:22,display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:12}}>
+                <div className="staff-service-grid" style={{padding:22,display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:12}}>
                   {services.map((serviceCode) => {
                     const defaultAllowed = defaultAllowedFor(selectedAccessStaff, serviceCode)
                     const allowed = effectiveAllowedFor(selectedAccessStaff, serviceCode)
@@ -426,7 +426,7 @@ export default function StaffPage() {
                         <div style={{padding:'10px 14px',background:'#f7fafc',borderBottom:'1px solid #edf3f8',fontSize:12,fontWeight:900,color:'#023c62',textTransform:'uppercase',letterSpacing:0.5}}>
                           {category}
                         </div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))'}}>
+                        <div className="staff-permission-grid" style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))'}}>
                           {items.map((permission) => {
                             const defaultGranted = defaultPermissionFor(selectedAccessStaff, permission)
                             const granted = effectivePermissionFor(selectedAccessStaff, permission)

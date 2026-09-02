@@ -886,7 +886,7 @@ export default function OrderDetailPage() {
   const totalPieces = order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0
 
   return (
-    <div style={{padding:'30px 36px 60px',maxWidth:1180,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
+    <div className="order-detail-page" style={{padding:'30px 36px 60px',maxWidth:1180,margin:'0 auto',fontFamily:"var(--crm-font-ui)"}}>
       {order.status === 'RETURNED' && (
         <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:14,padding:'12px 16px',marginBottom:16,fontSize:13,color:'#991b1b'}}>
           This order has been returned. {order.notes?.includes('[RETURNED') && <span>{order.notes.match(/[RETURNED[^]]+]/)?.[0]?.replace(/[[]]/g,'')}</span>}
@@ -936,14 +936,14 @@ export default function OrderDetailPage() {
         </div>
       )}
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:14,marginBottom:20}}>
+      <div className="order-detail-metrics" style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:14,marginBottom:20}}>
         <OrderMetric icon={IndianRupee} label="Order Total" value={formatCurrency(order.totalAmount || 0)} note="Current billed total from the order record." tone="blue" />
         <OrderMetric icon={PackageCheck} label="Garments" value={String(totalPieces)} note={noItems ? 'Items still need to be logged.' : `${order.items?.length || 0} distinct item line(s) added.`} tone="amber" />
         <OrderMetric icon={Receipt} label="Collected" value={formatCurrency((order.paidAmount || 0) + (order.writeOffAmount || 0))} note={order.writeOffAmount ? `Includes write-off of ${formatCurrency(order.writeOffAmount)}` : 'Payments and approved write-offs booked so far.'} tone="green" />
         <OrderMetric icon={Clock3} label="Outstanding" value={formatCurrency(outstandingAmount)} note={outstandingAmount === 0 ? 'No pending collection remains.' : 'Remaining amount still to be collected.'} tone="violet" />
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.6fr) minmax(340px,1fr)',gap:20,alignItems:'start'}}>
+      <div className="order-detail-layout" style={{display:'grid',gridTemplateColumns:'minmax(0,1.6fr) minmax(340px,1fr)',gap:20,alignItems:'start'}}>
         {/* LEFT COLUMN */}
         <div ref={leftColumnRef} style={{minWidth:0}}>
           {showItemsPanel && (

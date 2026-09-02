@@ -308,10 +308,10 @@ export default function ReportsPage() {
   }
 
   return (
-    <div style={{ padding: '30px 36px 60px', fontFamily: 'var(--crm-font-ui)' }}>
+    <div className="reports-page" style={{ padding: '30px 36px 60px', fontFamily: 'var(--crm-font-ui)' }}>
       <PageHeader title="Reports" subtitle="Business performance across orders, revenue and customers" />
-      <div style={{ display: 'grid', gridTemplateColumns: '250px minmax(0,1fr)', gap: 18, alignItems: 'start' }}>
-        <aside style={{ background: '#fff', border: '1px solid #dce8f0', borderRadius: 14, overflow: 'hidden', position: 'sticky', top: 18, maxHeight: 'calc(100vh - 36px)' }}>
+      <div className="reports-layout" style={{ display: 'grid', gridTemplateColumns: '250px minmax(0,1fr)', gap: 18, alignItems: 'start' }}>
+        <aside className="reports-catalog" style={{ background: '#fff', border: '1px solid #dce8f0', borderRadius: 14, overflow: 'hidden', position: 'sticky', top: 18, maxHeight: 'calc(100vh - 36px)' }}>
           <div style={{ padding: 14, borderBottom: '1px solid #edf3f8' }}>
             <div style={{ fontWeight: 900, color: '#023c62', fontSize: 15 }}>Reports</div>
             <div style={{ position: 'relative', marginTop: 10 }}>
@@ -338,12 +338,12 @@ export default function ReportsPage() {
         </aside>
 
         <main>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', marginBottom: 14 }}>
+          <div className="reports-toolbar" style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', marginBottom: 14 }}>
             <div>
               <h1 style={{ margin: 0, color: '#023c62', fontSize: 26, fontFamily: 'var(--crm-font-display)', fontWeight: 900 }}>Insights</h1>
               <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{selectedMeta.description}</div>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div className="reports-date-tools" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <select value={rangeLabel} onChange={(e) => selectQuickRange(e.target.value)} style={{ border: '1px solid #dce8f0', borderRadius: 10, padding: '9px 12px', background: '#fff', color: '#142033', minWidth: 220 }}>
                 {QUICK_RANGES.map((range) => <option key={range.label}>{range.label}</option>)}
               </select>
@@ -355,7 +355,7 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 14, marginBottom: 14 }}>
+          <div className="reports-overview" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 14, marginBottom: 14 }}>
             {overviewCards.map((card) => (
               <div key={card.label} style={{ background: card.tone, borderRadius: 10, border: '1px solid rgba(2,60,98,0.08)', minHeight: 128, padding: 18, boxShadow: '0 10px 24px rgba(2,60,98,0.06)' }}>
                 <div style={{ fontSize: 15, fontWeight: 900, color: '#023c62' }}>{card.label}</div>
@@ -368,7 +368,7 @@ export default function ReportsPage() {
             ))}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.1fr) minmax(340px,0.9fr)', gap: 14, marginBottom: 14 }}>
+          <div className="reports-charts" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.1fr) minmax(340px,0.9fr)', gap: 14, marginBottom: 14 }}>
             <section style={{ background: '#fff', border: '1px solid #dce8f0', borderRadius: 10, overflow: 'hidden' }}>
               <div style={{ padding: '16px 18px', borderBottom: '1px solid #edf3f8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>

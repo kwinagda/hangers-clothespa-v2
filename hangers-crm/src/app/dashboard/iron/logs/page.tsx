@@ -98,7 +98,7 @@ export default function IronLogsPage() {
   }
 
   return (
-    <div style={{ padding:'30px 36px 60px', maxWidth:1360, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
+    <div className="iron-logs-page" style={{ padding:'30px 36px 60px', maxWidth:1360, margin:'0 auto', fontFamily:"var(--crm-font-ui)" }}>
       <PageHeader
         title="Iron Logs"
         subtitle="Daily Iron service usage log per customer"
@@ -110,7 +110,7 @@ export default function IronLogsPage() {
 
       <IronSectionTabs />
 
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:20 }}>
+      <div className="iron-logs-metrics" style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:20 }}>
         {[
           { label:'Customers Logged', value: summary.activeCustomers ?? '—', color:'#023c62' },
           { label:'Entries', value: summary.totalLogs ?? '—', color:'#035a8f' },
@@ -125,9 +125,9 @@ export default function IronLogsPage() {
         ))}
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'0.95fr 1.05fr', gap:16 }}>
+      <div className="iron-logs-layout" style={{ display:'grid', gridTemplateColumns:'0.95fr 1.05fr', gap:16 }}>
         <div style={{ background:'#fff', border:'1px solid #e3edf6', borderRadius:14, overflow:'hidden' }}>
-          <div style={{ padding:'18px 20px', borderBottom:'1px solid #e8f0f7', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div className="iron-logs-section-head" style={{ padding:'18px 20px', borderBottom:'1px solid #e8f0f7', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <div>
               <div style={{ fontWeight:700, color:'#023c62' }}>Customer Summary</div>
               <div style={{ fontSize:12, color:'#6b7fa3', marginTop:3 }}>Per-customer daily totals for {format(new Date(selectedDate), 'dd MMM yyyy')}.</div>

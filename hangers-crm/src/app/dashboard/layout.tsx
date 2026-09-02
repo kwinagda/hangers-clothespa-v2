@@ -8,6 +8,7 @@ import { LogOut } from 'lucide-react'
 import { authAPI, metadataAPI, uiPreferencesAPI } from '@/lib/api'
 import { LOGO_WHITE_URL } from '@/lib/branding'
 import { MobileAppNavigation } from '@/components/app/MobileAppNavigation'
+import { ResponsiveTableLabels } from '@/components/app/ResponsiveTableLabels'
 
 // SVG icons exactly matching the design
 const Ico = ({ d }: { d: string }) => (
@@ -269,6 +270,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
       {/* ── Main content ── */}
       <main className={isFullscreenWorkspace ? 'crm-dashboard-main crm-dashboard-main-fullscreen' : 'crm-dashboard-main'} style={{ overflow: isFullscreenWorkspace ? 'hidden' : 'auto' }}>
+        <ResponsiveTableLabels />
         {isFullscreenWorkspace ? children : (
           <div className="crm-page-enter crm-page-shell">{children}</div>
         )}

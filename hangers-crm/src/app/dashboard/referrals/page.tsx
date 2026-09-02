@@ -76,7 +76,7 @@ export default function ReferralsReportPage() {
   }
 
   return (
-    <div style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
+    <div className="referrals-page" style={{ padding: '30px 36px 60px', maxWidth: 1360, margin: '0 auto', fontFamily: 'var(--crm-font-ui)' }}>
       <PageHeader
         title="Referrals"
         subtitle="Customers who brought in new business"
@@ -87,7 +87,7 @@ export default function ReferralsReportPage() {
         </div>}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 14, marginBottom: 22 }}>
+      <div className="referrals-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 14, marginBottom: 22 }}>
         {[
           { label: 'Total Referrals', value: summary?.totalReferrals || 0, note: 'Referral records captured in range' },
           { label: 'Credits Awarded', value: fmt(summary?.totalCreditsAwarded || 0), note: 'Wallet credit issued from referrals' },
@@ -112,8 +112,8 @@ export default function ReferralsReportPage() {
             {Number(settingsForm.referral_program_enabled) > 0 ? 'Enabled' : 'Disabled'}
           </span>
         </div>
-        <div style={{ padding: 24, display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 18 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12 }}>
+        <div className="referrals-settings-layout" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 18 }}>
+          <div className="referrals-settings-fields" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12 }}>
             {[
               { key: 'referral_reward_percent', label: 'Reward %', suffix: '%', note: 'Wallet credit per side based on first qualifying order total.' },
               { key: 'referral_reward_cap', label: 'Reward Cap', suffix: '₹', note: 'Maximum wallet credit per side for one referral.' },
@@ -162,7 +162,7 @@ export default function ReferralsReportPage() {
         </div>
       </section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.05fr 0.95fr', gap: 16 }}>
+      <div className="referrals-content-layout" style={{ display: 'grid', gridTemplateColumns: '1.05fr 0.95fr', gap: 16 }}>
         <section style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
           <div style={{ padding: '20px 24px 18px', borderBottom: '1px solid #edf3f8' }}>
             <h2 style={{ margin: '0 0 4px', fontFamily: 'var(--crm-font-display)', fontWeight: 700, fontSize: 19, color: '#023c62' }}>Top Referrers</h2>
