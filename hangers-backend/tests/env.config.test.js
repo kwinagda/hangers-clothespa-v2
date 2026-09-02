@@ -31,6 +31,7 @@ test('production environment rejects localhost and missing Redis', () => {
     process.env.DATABASE_URL = 'postgresql://example';
     process.env.JWT_SECRET = 'x'.repeat(64);
     process.env.CRM_URL = 'http://localhost:5002';
+    process.env.PUBLIC_API_URL = 'http://localhost:5001';
     delete process.env.ALLOWED_ORIGINS;
     delete process.env.REDIS_URL;
 
@@ -50,6 +51,7 @@ test('production environment accepts explicit HTTPS origins and Redis', () => {
     process.env.DATABASE_URL = 'postgresql://example';
     process.env.JWT_SECRET = 'x'.repeat(64);
     process.env.ALLOWED_ORIGINS = 'https://crm.example.com';
+    process.env.PUBLIC_API_URL = 'https://api.example.com';
     delete process.env.CRM_URL;
     delete process.env.CUSTOMER_APP_URL;
     delete process.env.STAFF_APP_URL;
@@ -62,3 +64,22 @@ test('production environment accepts explicit HTTPS origins and Redis', () => {
   }
 });
 
+test('production environment requires a public HTTPS API origin', () => {
+  const env = snapshotEnv();
+  try {
+    process.env.NODE_ENV = 'production';
+    process.env.DATABASE_URL = 'postgresql://example';
+    process.env.JWT_SECRET = 'x'.repeat(64);
+    process.env.ALLOWED_ORIGINS = 'https://crm.example.com';
+    process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.DEV_MODE = 'false';
+    delete process.env.PUBLIC_API_URL;
+
+    assert.throws(
+      () => validateEnvironment(),
+      /PUBLIC_API_URL is required in production/
+    );
+  } finally {
+    restoreEnv(env);
+  }
+});

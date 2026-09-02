@@ -61,6 +61,15 @@ const validateEnvironment = () => {
 
   const origins = getAllowedOrigins();
   if (isProduction()) {
+    if (!process.env.PUBLIC_API_URL) {
+      errors.push('PUBLIC_API_URL is required in production for public media and callback links');
+    } else {
+      const publicApiError = validateUrl('PUBLIC_API_URL', process.env.PUBLIC_API_URL, { requireHttps: true });
+      if (publicApiError) errors.push(publicApiError);
+      if (/localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\./.test(process.env.PUBLIC_API_URL)) {
+        errors.push('PUBLIC_API_URL cannot use localhost or a LAN address in production');
+      }
+    }
     if (!origins.length) errors.push('ALLOWED_ORIGINS or CRM_URL is required in production');
     for (const origin of origins) {
       const error = validateUrl('Allowed origin', origin, { requireHttps: true });
@@ -90,4 +99,3 @@ module.exports = {
   parseOriginList,
   validateEnvironment,
 };
-
