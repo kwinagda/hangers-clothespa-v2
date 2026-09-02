@@ -38,13 +38,25 @@ export function MobileAppNavigation({
   const [query, setQuery] = useState('')
   const [saving, setSaving] = useState(false)
 
+  const flatItems = useMemo(() => sections.flatMap((section) => section.items), [sections])
+  const availableById = useMemo(() => new Map(availableItems.map((item) => [item.id, item.href])), [availableItems])
+  const resolvedPrimaryIds = useMemo(() => Array.from(new Set([
+    ...primaryIds,
+    'orders',
+    'daily_iron',
+    ...availableItems.map((item) => item.id),
+  ])).filter((id) => {
+    const href = availableById.get(id)
+    return Boolean(href && flatItems.some((item) => item.href.split('?')[0] === href))
+  }).slice(0, 2), [availableById, availableItems, flatItems, primaryIds])
+
   useEffect(() => {
     setMoreOpen(false)
     setEditing(false)
     setQuery('')
   }, [pathname])
 
-  useEffect(() => setDraft(primaryIds), [primaryIds])
+  useEffect(() => setDraft(resolvedPrimaryIds), [resolvedPrimaryIds])
 
   useEffect(() => {
     if (!moreOpen) return
@@ -58,17 +70,6 @@ export function MobileAppNavigation({
     }
   }, [moreOpen])
 
-  const flatItems = useMemo(() => sections.flatMap((section) => section.items), [sections])
-  const availableById = useMemo(() => new Map(availableItems.map((item) => [item.id, item.href])), [availableItems])
-  const resolvedPrimaryIds = Array.from(new Set([
-    ...primaryIds,
-    'orders',
-    'daily_iron',
-    ...availableItems.map((item) => item.id),
-  ])).filter((id) => {
-    const href = availableById.get(id)
-    return Boolean(href && flatItems.some((item) => item.href.split('?')[0] === href))
-  }).slice(0, 2)
   const primary = resolvedPrimaryIds.map((id) => {
     const href = availableById.get(id)
     return href ? flatItems.find((item) => item.href.split('?')[0] === href) : undefined
@@ -131,13 +132,13 @@ export function MobileAppNavigation({
                   return <button key={id} className={selected ? 'selected' : ''} onClick={() => toggleDraft(id)}><Icon size={19} /><span>{item.label}</span>{selected && <Check size={18} />}</button>
                 })}
               </div>
-              <footer><button onClick={() => { setDraft(primaryIds); setEditing(false) }}>Cancel</button><button className="primary" disabled={draft.length !== 2 || saving} onClick={save}>{saving ? 'Saving…' : 'Save shortcuts'}</button></footer>
+              <footer><button onClick={() => { setDraft(resolvedPrimaryIds); setEditing(false) }}>Cancel</button><button className="primary" disabled={draft.length !== 2 || saving} onClick={save}>{saving ? 'Saving…' : 'Save shortcuts'}</button></footer>
             </div>
           ) : (
             <>
               <div className="crm-more-tools">
                 <label><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a section" /></label>
-                <button onClick={() => setEditing(true)}>Edit shortcuts</button>
+                <button onClick={() => { setDraft(resolvedPrimaryIds); setEditing(true) }}>Edit shortcuts</button>
               </div>
               <div className="crm-more-list">
                 {filteredSections.map((section) => <section key={section.label}><h2>{section.label}</h2><div>{section.items.map((item) => { const Icon = iconFor(item.href); return <Link key={item.href} href={item.href}><Icon size={20} /><span>{item.label}</span></Link> })}</div></section>)}
