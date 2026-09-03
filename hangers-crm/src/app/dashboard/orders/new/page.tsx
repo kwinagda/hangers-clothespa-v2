@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import api, { ordersAPI, quotationsAPI, customersAPI, servicesAPI, statsAPI, ironAPI, metadataAPI, pickupRequestsAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
-import { AlertTriangle, Check, GripVertical, Loader2, Shirt, Trash2, User } from 'lucide-react'
+import { AlertTriangle, Check, ChevronLeft, GripVertical, Loader2, RotateCcw, Shirt, Trash2, User } from 'lucide-react'
 import { sanitizeDecimalInput, sanitizeIntegerInput, isStrictMoneyText, isStrictPositiveIntText } from '@/lib/numeric-input'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -85,6 +85,9 @@ const selectedCustomerPhoneTextStyle = {
 }
 
 type OrderDraft = {
+  version: 2
+  updatedAt: number
+  mobileStep: 1 | 2 | 3
   customer: Customer | null
   customerStats: CustomerStats | null
   cart: CartItem[]
@@ -112,6 +115,8 @@ type OrderDraft = {
   dailyIronDate: string
   validUntil?: string
 }
+
+const ORDER_DRAFT_TTL_MS = 10 * 60 * 1000
 
 const createCartLineId = () => `line_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 
@@ -190,6 +195,9 @@ function NewOrderPageContent() {
   const draftStorageKey = isQuotationMode ? 'crm:new-quotation-draft:v1' : 'crm:new-order-draft:v1'
   const [draftReady, setDraftReady] = useState(false)
   const [mobileStep, setMobileStep] = useState<1 | 2 | 3 | 4>(1)
+  const [draftExpiresAt, setDraftExpiresAt] = useState<number | null>(null)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const skipNextDraftPersist = useRef(false)
   const mobileCustomerPrompted = useRef(false)
 
   // Customer
@@ -295,6 +303,45 @@ function NewOrderPageContent() {
     if (typeof window !== 'undefined') window.localStorage.removeItem(draftStorageKey)
   }, [draftStorageKey])
 
+  const resetDraft = useCallback((openCustomerPicker = true) => {
+    clearDraft()
+    setCustomer(null)
+    setCustomerStats(null)
+    setCart([])
+    setCustomerSearch('')
+    setCustomerResults([])
+    setNewCustomerName('')
+    setNewCustomerPhone('')
+    setNewCustomerLanguage('ENGLISH')
+    setNewCustomerEnrollIron(false)
+    setPaymentMethod('Pay Later')
+    setPaidAmount('')
+    setDiscountType('flat')
+    setDiscountValue('')
+    setCouponCode('')
+    setCouponDiscount(0)
+    setCouponApplied(false)
+    setLoyaltyPoints('')
+    setLoyaltyDiscount(0)
+    setLoyaltyApplied(false)
+    setWriteOff(false)
+    setWriteOffAmount(0)
+    setCommercialReason('')
+    setWalletSplit('')
+    setNotes('')
+    setDailyIronDate(new Date().toISOString().slice(0, 10))
+    const next = new Date()
+    next.setDate(next.getDate() + 7)
+    setValidUntil(next.toISOString().slice(0, 10))
+    setQuotationStatus('DRAFT')
+    setShowPayment(false)
+    setMobileStep(1)
+    setDraftExpiresAt(null)
+    setShowResetConfirm(false)
+    mobileCustomerPrompted.current = openCustomerPicker
+    setShowCustomerModal(openCustomerPicker)
+  }, [clearDraft])
+
   const triggerCatalogFlash = useCallback((key: string) => {
     setCatalogFlashKey(key)
     if (catalogFlashTimeoutRef.current) window.clearTimeout(catalogFlashTimeoutRef.current)
@@ -360,6 +407,12 @@ function NewOrderPageContent() {
         return
       }
       const draft = JSON.parse(raw) as Partial<OrderDraft>
+      if (draft.version !== 2 || typeof draft.updatedAt !== 'number' || Date.now() - draft.updatedAt >= ORDER_DRAFT_TTL_MS) {
+        window.localStorage.removeItem(draftStorageKey)
+        setDraftReady(true)
+        return
+      }
+      skipNextDraftPersist.current = true
       if (draft.customer !== undefined) setCustomer(draft.customer as Customer | null)
       if (draft.customerStats !== undefined) setCustomerStats(draft.customerStats as CustomerStats | null)
       if (Array.isArray(draft.cart)) setCart(draft.cart.map(normalizeCartItem))
@@ -386,12 +439,32 @@ function NewOrderPageContent() {
       if (typeof draft.notes === 'string') setNotes(draft.notes)
       if (typeof draft.dailyIronDate === 'string') setDailyIronDate(draft.dailyIronDate)
       if (typeof draft.validUntil === 'string') setValidUntil(draft.validUntil)
+      const restoredStep = draft.mobileStep && draft.mobileStep >= 1 && draft.mobileStep <= 3
+        ? draft.mobileStep
+        : draft.cart?.length ? 3 : draft.customer ? 2 : 1
+      setMobileStep(restoredStep)
+      setDraftExpiresAt(draft.updatedAt + ORDER_DRAFT_TTL_MS)
     } catch {
       window.localStorage.removeItem(draftStorageKey)
     } finally {
       setDraftReady(true)
     }
   }, [draftStorageKey])
+
+  useEffect(() => {
+    if (!draftReady || !draftExpiresAt) return
+    const remaining = draftExpiresAt - Date.now()
+    if (remaining <= 0) {
+      resetDraft(false)
+      toast('The inactive order draft was reset after 10 minutes.')
+      return
+    }
+    const timer = window.setTimeout(() => {
+      resetDraft(false)
+      toast('The inactive order draft was reset after 10 minutes.')
+    }, remaining)
+    return () => window.clearTimeout(timer)
+  }, [draftExpiresAt, draftReady, resetDraft])
 
   // Auto-load customer from URL or quotation edit state
   useEffect(() => {
@@ -1276,7 +1349,15 @@ function NewOrderPageContent() {
 
   useEffect(() => {
     if (!draftReady || typeof window === 'undefined') return
+    if (skipNextDraftPersist.current) {
+      skipNextDraftPersist.current = false
+      return
+    }
+    const updatedAt = Date.now()
     const draft: OrderDraft = {
+      version: 2,
+      updatedAt,
+      mobileStep: Math.min(3, mobileStep) as 1 | 2 | 3,
       customer,
       customerStats,
       cart,
@@ -1306,15 +1387,17 @@ function NewOrderPageContent() {
     }
     if (hasDraftContent(draft)) {
       window.localStorage.setItem(draftStorageKey, JSON.stringify(draft))
+      setDraftExpiresAt(updatedAt + ORDER_DRAFT_TTL_MS)
     } else {
       window.localStorage.removeItem(draftStorageKey)
+      setDraftExpiresAt(null)
     }
   }, [
     draftReady, customer, customerStats, cart, activeCategory, customerSearch,
     newCustomerName, newCustomerPhone, newCustomerLanguage, newCustomerEnrollIron,
     paymentMethod, paidAmount, discountType, discountValue, couponCode, couponDiscount,
     couponApplied, loyaltyPoints, loyaltyDiscount, loyaltyApplied, writeOff,
-    writeOffAmount, commercialReason, walletSplit, notes, dailyIronDate, validUntil, hasDraftContent, draftStorageKey,
+    writeOffAmount, commercialReason, walletSplit, notes, dailyIronDate, validUntil, mobileStep, hasDraftContent, draftStorageKey,
   ])
 
   const beginCheckout = () => {
@@ -1349,6 +1432,20 @@ function NewOrderPageContent() {
     >
 
       {/* ── Customer Search Modal ──────────────────────────────────────────── */}
+      {showResetConfirm && (
+        <div className="crm-new-order-reset-backdrop" role="presentation" onClick={() => setShowResetConfirm(false)}>
+          <div className="crm-new-order-reset-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-order-title" onClick={(event) => event.stopPropagation()}>
+            <RotateCcw size={22} />
+            <h2 id="reset-order-title">Reset this draft?</h2>
+            <p>The selected customer, services, discounts and payment details will be cleared.</p>
+            <footer>
+              <button type="button" onClick={() => setShowResetConfirm(false)}>Keep draft</button>
+              <button type="button" className="danger" onClick={() => resetDraft(true)}>Reset draft</button>
+            </footer>
+          </div>
+        </div>
+      )}
+
       {dailyIronPrompt && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,28,60,0.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 120, backdropFilter: 'blur(4px)', padding: 18 }}>
           <div style={{ background: '#fff', borderRadius: 18, padding: 26, width: '100%', maxWidth: 460, boxShadow: '0 28px 70px rgba(0,0,0,0.24)', border: '1px solid #dbe8f2' }}>
@@ -1489,39 +1586,7 @@ function NewOrderPageContent() {
           </button>
           <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 18, color: '#fff', flex: 1 }}>{isQuotationMode ? (quotationId ? 'Edit Quotation' : 'New Quotation') : 'New Order'}</div>
           {(customer || cart.length > 0 || notes.trim()) && (
-            <button onClick={() => {
-              clearDraft()
-              setCustomer(null)
-              setCustomerStats(null)
-              setCart([])
-              setCustomerSearch('')
-              setCustomerResults([])
-              setNewCustomerName('')
-              setNewCustomerPhone('')
-              setNewCustomerLanguage('ENGLISH')
-              setNewCustomerEnrollIron(false)
-              setPaymentMethod('Pay Later')
-              setPaidAmount('')
-              setDiscountType('flat')
-              setDiscountValue('')
-              setCouponCode('')
-              setCouponDiscount(0)
-              setCouponApplied(false)
-              setLoyaltyPoints('')
-              setLoyaltyDiscount(0)
-              setLoyaltyApplied(false)
-              setWriteOff(false)
-              setWriteOffAmount(0)
-              setWalletSplit('')
-              setNotes('')
-              setDailyIronDate(new Date().toISOString().slice(0, 10))
-              const next = new Date()
-              next.setDate(next.getDate() + 7)
-              setValidUntil(next.toISOString().slice(0, 10))
-              setQuotationStatus('DRAFT')
-              setShowPayment(false)
-              setShowCustomerModal(true)
-            }}
+            <button onClick={() => setShowResetConfirm(true)}
               style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.16)', color: '#fff', padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
               Reset Draft
             </button>
@@ -2178,7 +2243,8 @@ function NewOrderPageContent() {
         }}><span>{mobileStep > Number(number) ? '✓' : number}</span><small>{label}</small></button>)}
       </div>
       <div className="crm-new-order-mobile-footer">
-        {mobileStep > 1 && mobileStep < 4 && <button onClick={() => setMobileStep((mobileStep - 1) as 1 | 2 | 3)}>Back</button>}
+        {mobileStep > 1 && mobileStep < 4 && <button className="crm-new-order-back" onClick={() => setMobileStep((mobileStep - 1) as 1 | 2 | 3)} aria-label="Previous step"><ChevronLeft size={18} /><span>Back</span></button>}
+        {(customer || cart.length > 0 || notes.trim()) && <button className="crm-new-order-reset" onClick={() => setShowResetConfirm(true)} aria-label="Reset order draft" title="Reset order draft"><RotateCcw size={17} /><span>Reset</span></button>}
         <div><span>{cart.reduce((sum,item) => sum + item.quantity,0)} pcs</span><strong>{fmt(total)}</strong></div>
         {mobileStep === 1 ? <button className="primary" onClick={() => customer ? setMobileStep(2) : setShowCustomerModal(true)}>{customer ? 'Choose services' : 'Select customer'}</button> : mobileStep === 2 ? <button className="primary" disabled={!customer || !cart.length} onClick={() => setMobileStep(3)}>Review order</button> : mobileStep === 3 ? <button className="primary" disabled={!customer || !cart.length || submitting} onClick={beginCheckout}>{isQuotationMode ? 'Save quotation' : isPureDailyIron ? 'Create logs' : 'Continue to payment'}</button> : null}
       </div>
