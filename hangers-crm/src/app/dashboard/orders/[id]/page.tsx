@@ -366,6 +366,8 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
   const storedDiscount = order.pricingSnapshot?.orderDiscount || inferLegacyOrderDiscount(order)
   const [discountType, setDiscountType] = useState<'FLAT' | 'PERCENT'>(storedDiscount.type === 'PERCENT' ? 'PERCENT' : 'FLAT')
   const [discountValue, setDiscountValue] = useState(String(storedDiscount.value || ''))
+  const rememberedFlatDiscount = useRef<string | null>(storedDiscount.type === 'FLAT' ? String(storedDiscount.value || '') : null)
+  const rememberedPercentDiscount = useRef<string | null>(storedDiscount.type === 'PERCENT' ? String(storedDiscount.value || '') : null)
   const [deliveryDate, setDeliveryDate] = useState(order.deliveryDate ? String(order.deliveryDate).slice(0, 10) : '')
   const [notes, setNotes] = useState(order.notes || '')
   const [reason, setReason] = useState(mode === 'add' ? 'Garments logged after pickup' : '')
@@ -423,10 +425,19 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
   const switchDiscountType = (nextType: 'FLAT' | 'PERCENT') => {
     if (nextType === discountType) return
     if (nextType === 'PERCENT') {
+      rememberedFlatDiscount.current = discountValue
+      const remembered = Number(rememberedPercentDiscount.current)
+      const canRestore = rememberedPercentDiscount.current !== null
+        && roundOrderCash(cartSubtotal * remembered / 100) === effectiveDiscount
       const converted = cartSubtotal > 0 ? (effectiveDiscount / cartSubtotal) * 100 : 0
-      setDiscountValue(converted ? String(Number(converted.toFixed(2))) : '')
+      const nextValue = canRestore ? rememberedPercentDiscount.current! : converted ? String(Number(converted.toFixed(2))) : ''
+      setDiscountValue(nextValue)
+      rememberedPercentDiscount.current = nextValue
     } else {
-      setDiscountValue(effectiveDiscount ? String(effectiveDiscount) : '')
+      rememberedPercentDiscount.current = discountValue
+      const nextValue = effectiveDiscount ? String(effectiveDiscount) : ''
+      setDiscountValue(nextValue)
+      rememberedFlatDiscount.current = nextValue
     }
     setDiscountType(nextType)
   }
@@ -572,7 +583,11 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
                 {(['FLAT', 'PERCENT'] as const).map((type) => <button key={type} type="button" onClick={() => switchDiscountType(type)} aria-pressed={discountType === type}
                   style={{minWidth:42,height:34,border:0,borderRight:type==='FLAT'?'1px solid #dce8f0':0,background:discountType===type?'#023c62':'#fff',color:discountType===type?'#fff':'#52657f',fontWeight:800,cursor:'pointer'}}>{type === 'FLAT' ? '₹' : '%'}</button>)}
               </div>
-              <input type="number" inputMode="decimal" value={discountValue} onChange={e=>setDiscountValue(e.target.value)} min={0} max={discountType === 'PERCENT' ? 100 : undefined}
+              <input type="number" inputMode="decimal" value={discountValue} onChange={e=>{
+                setDiscountValue(e.target.value)
+                if (discountType === 'FLAT') rememberedFlatDiscount.current = e.target.value
+                else rememberedPercentDiscount.current = e.target.value
+              }} min={0} max={discountType === 'PERCENT' ? 100 : undefined}
                 placeholder={discountType === 'PERCENT' ? '0-100' : 'Amount'}
                 style={{width:96,border:'1.5px solid #dce8f0',borderRadius:8,padding:'7px 9px',fontSize:13,textAlign:'right',outline:'none'}}/>
               {effectiveDiscount > 0 && <span style={{fontSize:11,color:'#166534',fontWeight:700}}>-₹{effectiveDiscount.toLocaleString('en-IN')}</span>}

@@ -274,6 +274,8 @@ function NewOrderPageContent() {
   const [submitting, setSubmitting] = useState(false)
   const [discountType, setDiscountType] = useState<'flat'|'percent'>('flat')
   const [discountValue, setDiscountValue] = useState('')
+  const rememberedFlatDiscount = useRef<string | null>(null)
+  const rememberedPercentDiscount = useRef<string | null>(null)
   const [couponCode, setCouponCode] = useState('')
   const [couponDiscount, setCouponDiscount] = useState(0)
   const [couponApplied, setCouponApplied] = useState(false)
@@ -319,6 +321,8 @@ function NewOrderPageContent() {
     setPaidAmount('')
     setDiscountType('flat')
     setDiscountValue('')
+    rememberedFlatDiscount.current = null
+    rememberedPercentDiscount.current = null
     setCouponCode('')
     setCouponDiscount(0)
     setCouponApplied(false)
@@ -2076,18 +2080,31 @@ function NewOrderPageContent() {
                   <div className="crm-new-order-billing-row" style={{ display: 'flex', gap: 5, marginBottom: 7 }}>
                     <button onClick={() => {
                       if (discountType === 'flat') return
+                      rememberedPercentDiscount.current = discountValue
                       setDiscountValue(String(manualDiscount || ''))
+                      rememberedFlatDiscount.current = String(manualDiscount || '')
                       setDiscountType('flat')
                     }}
                       style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: discountType === 'flat' ? '#023c62' : '#fff', color: discountType === 'flat' ? '#fff' : '#374151', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>₹</button>
                     <button onClick={() => {
                       if (discountType === 'percent') return
+                      rememberedFlatDiscount.current = discountValue
+                      const remembered = Number(rememberedPercentDiscount.current)
+                      const canRestore = rememberedPercentDiscount.current !== null
+                        && roundCashAmount(regularSubtotal * remembered / 100) === manualDiscount
                       const converted = regularSubtotal > 0 ? (manualDiscount / regularSubtotal) * 100 : 0
-                      setDiscountValue(converted ? String(Number(converted.toFixed(2))) : '')
+                      const nextValue = canRestore ? rememberedPercentDiscount.current! : converted ? String(Number(converted.toFixed(2))) : ''
+                      setDiscountValue(nextValue)
+                      rememberedPercentDiscount.current = nextValue
                       setDiscountType('percent')
                     }}
                       style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: discountType === 'percent' ? '#023c62' : '#fff', color: discountType === 'percent' ? '#fff' : '#374151', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>%</button>
-                    <input inputMode="decimal" value={discountValue} onChange={e => setDiscountValue(sanitizeDecimalInput(e.target.value))}
+                    <input inputMode="decimal" value={discountValue} onChange={e => {
+                      const value = sanitizeDecimalInput(e.target.value)
+                      setDiscountValue(value)
+                      if (discountType === 'flat') rememberedFlatDiscount.current = value
+                      else rememberedPercentDiscount.current = value
+                    }}
                       placeholder="Bill discount"
                       style={{ flex: 1, border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' as const }} />
                     {manualDiscount > 0 && <span style={{ fontSize: 11, color: '#166534', alignSelf: 'center', fontWeight: 600 }}>-{fmt(manualDiscount)}</span>}
