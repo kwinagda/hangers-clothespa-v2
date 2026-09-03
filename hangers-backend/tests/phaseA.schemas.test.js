@@ -68,6 +68,20 @@ test('createOrderSchema accepts current CRM counter order payload', () => {
   assert.equal(parsed.success, true);
 });
 
+test('createOrderSchema preserves percentage discount input', () => {
+  const parsed = createOrderSchema.safeParse({
+    customerId: 'customer-1',
+    items: [{ serviceId: 'service-1', quantity: 1 }],
+    discount: 87,
+    discountType: 'PERCENT',
+    discountValue: 10,
+    commercialReason: 'Promotional discount',
+  });
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.data.discountType, 'PERCENT');
+  assert.equal(parsed.data.discountValue, 10);
+});
+
 test('editOrderSchema accepts percentage discounts and rejects values above 100', () => {
   const base = {
     version: 1,

@@ -29,6 +29,21 @@ const getStatusLabel = (status: string, source?: string, labels: Record<string, 
   if (status === 'PICKED_UP' && (source === 'counter' || source === 'COUNTER' || source === 'walk-in')) return 'Received'
   return labels[status] || status
 }
+
+const roundOrderCash = (value: number) => {
+  const cents = Math.round(Math.max(0, value) * 100)
+  const rupees = Math.floor(cents / 100)
+  return cents % 100 > 50 ? rupees + 1 : rupees
+}
+
+const inferLegacyOrderDiscount = (order: any): { type: 'FLAT' | 'PERCENT'; value: number } => {
+  const amount = Number(order.discount || 0)
+  const subtotal = Number(order.subtotal || 0)
+  if (!(amount > 0) || !(subtotal > 0)) return { type: 'FLAT', value: amount }
+  const matches = Array.from({ length: 100 }, (_, index) => index + 1)
+    .filter((percent) => roundOrderCash(subtotal * percent / 100) === amount)
+  return matches.length === 1 ? { type: 'PERCENT', value: matches[0] } : { type: 'FLAT', value: amount }
+}
 const EMPTY_WORKFLOW = {
   next: {} as Record<string, string>,
   allowedForward: {} as Record<string, string[]>,
@@ -348,9 +363,9 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
     basePrice: Number(item.baseUnitPrice ?? item.unitPrice ?? 0),
     notes: item.notes || null,
   })))
-  const storedDiscount = order.pricingSnapshot?.orderDiscount
-  const [discountType, setDiscountType] = useState<'FLAT' | 'PERCENT'>(storedDiscount?.type === 'PERCENT' ? 'PERCENT' : 'FLAT')
-  const [discountValue, setDiscountValue] = useState(String(storedDiscount?.value ?? order.discount ?? ''))
+  const storedDiscount = order.pricingSnapshot?.orderDiscount || inferLegacyOrderDiscount(order)
+  const [discountType, setDiscountType] = useState<'FLAT' | 'PERCENT'>(storedDiscount.type === 'PERCENT' ? 'PERCENT' : 'FLAT')
+  const [discountValue, setDiscountValue] = useState(String(storedDiscount.value || ''))
   const [deliveryDate, setDeliveryDate] = useState(order.deliveryDate ? String(order.deliveryDate).slice(0, 10) : '')
   const [notes, setNotes] = useState(order.notes || '')
   const [reason, setReason] = useState(mode === 'add' ? 'Garments logged after pickup' : '')
@@ -405,6 +420,16 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
     ? Math.round(cartSubtotal * Math.min(100, parsedDiscountValue) / 100)
     : Math.min(cartSubtotal, parsedDiscountValue)
   const cartTotal    = Math.max(0, cartSubtotal - effectiveDiscount)
+  const switchDiscountType = (nextType: 'FLAT' | 'PERCENT') => {
+    if (nextType === discountType) return
+    if (nextType === 'PERCENT') {
+      const converted = cartSubtotal > 0 ? (effectiveDiscount / cartSubtotal) * 100 : 0
+      setDiscountValue(converted ? String(Number(converted.toFixed(2))) : '')
+    } else {
+      setDiscountValue(effectiveDiscount ? String(effectiveDiscount) : '')
+    }
+    setDiscountType(nextType)
+  }
   const totalItems   = cart.reduce((s,i)=>s+i.qty, 0)
   const filtered     = (catalog[activeCat]||[]).filter(i => !search || i.name.toLowerCase().includes(search.toLowerCase()))
 
@@ -544,7 +569,7 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
             <div className="order-edit-discount" style={{display:'flex',alignItems:'center',gap:8,marginTop:10}}>
               <label style={{fontSize:12,color:'#6b7fa3',flexShrink:0}}>Order discount</label>
               <div role="group" aria-label="Discount type" style={{display:'flex',border:'1.5px solid #dce8f0',borderRadius:8,overflow:'hidden'}}>
-                {(['FLAT', 'PERCENT'] as const).map((type) => <button key={type} type="button" onClick={() => setDiscountType(type)} aria-pressed={discountType === type}
+                {(['FLAT', 'PERCENT'] as const).map((type) => <button key={type} type="button" onClick={() => switchDiscountType(type)} aria-pressed={discountType === type}
                   style={{minWidth:42,height:34,border:0,borderRight:type==='FLAT'?'1px solid #dce8f0':0,background:discountType===type?'#023c62':'#fff',color:discountType===type?'#fff':'#52657f',fontWeight:800,cursor:'pointer'}}>{type === 'FLAT' ? '₹' : '%'}</button>)}
               </div>
               <input type="number" inputMode="decimal" value={discountValue} onChange={e=>setDiscountValue(e.target.value)} min={0} max={discountType === 'PERCENT' ? 100 : undefined}

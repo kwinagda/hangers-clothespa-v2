@@ -1212,6 +1212,8 @@ function NewOrderPageContent() {
           notes: i.notes || undefined,
         })),
         discount: manualDiscount || undefined,
+        discountType: discountType.toUpperCase(),
+        discountValue: parseFloat(discountValue) || 0,
         couponCode: couponApplied ? couponCode : undefined,
         loyaltyPointsRedeemed: loyaltyApplied ? parseInt(loyaltyPoints) : undefined,
         writeOffAmount: writeOffAmt || undefined,
@@ -2072,9 +2074,18 @@ function NewOrderPageContent() {
                     Billing Controls
                   </div>
                   <div className="crm-new-order-billing-row" style={{ display: 'flex', gap: 5, marginBottom: 7 }}>
-                    <button onClick={() => setDiscountType('flat')}
+                    <button onClick={() => {
+                      if (discountType === 'flat') return
+                      setDiscountValue(String(manualDiscount || ''))
+                      setDiscountType('flat')
+                    }}
                       style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: discountType === 'flat' ? '#023c62' : '#fff', color: discountType === 'flat' ? '#fff' : '#374151', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>₹</button>
-                    <button onClick={() => setDiscountType('percent')}
+                    <button onClick={() => {
+                      if (discountType === 'percent') return
+                      const converted = regularSubtotal > 0 ? (manualDiscount / regularSubtotal) * 100 : 0
+                      setDiscountValue(converted ? String(Number(converted.toFixed(2))) : '')
+                      setDiscountType('percent')
+                    }}
                       style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: discountType === 'percent' ? '#023c62' : '#fff', color: discountType === 'percent' ? '#fff' : '#374151', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>%</button>
                     <input inputMode="decimal" value={discountValue} onChange={e => setDiscountValue(sanitizeDecimalInput(e.target.value))}
                       placeholder="Bill discount"

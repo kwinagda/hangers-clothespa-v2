@@ -61,6 +61,8 @@ const createOrderSchema = z.object({
   notes:        z.string().trim().max(1000).optional().nullable(),
   couponCode:   z.string().trim().max(64).optional().nullable(),
   discount:     money.optional(),
+  discountType: z.enum(['FLAT', 'PERCENT']).optional(),
+  discountValue: z.coerce.number().finite().min(0).max(1000000000).optional(),
   loyaltyPointsRedeemed: z.coerce.number().int().positive().optional(),
   walletAmount: money.optional(),
   paymentMethod: z.string().trim().max(80).optional().nullable(),
@@ -69,7 +71,14 @@ const createOrderSchema = z.object({
   commercialReason: adjustmentReason.optional(),
   writeOffReason: adjustmentReason.optional(),
   items:        z.array(orderItemSchema).min(1).max(200),
-}).strict().refine((data) => data.customerId || data.customerPhone, {
+}).strict().superRefine((data, ctx) => {
+  if (data.discountType && data.discountValue === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'discountValue is required with discountType', path: ['discountValue'] });
+  }
+  if (data.discountType === 'PERCENT' && Number(data.discountValue) > 100) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Percentage discount cannot exceed 100', path: ['discountValue'] });
+  }
+}).refine((data) => data.customerId || data.customerPhone, {
   message: 'customerId or customerPhone is required',
   path: ['customerId'],
 });
