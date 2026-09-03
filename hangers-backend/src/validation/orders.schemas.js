@@ -94,11 +94,20 @@ const editOrderSchema = z.object({
   version: z.coerce.number().int().positive(),
   items: z.array(orderItemSchema).min(1).max(200),
   discount: money.optional(),
+  discountType: z.enum(['FLAT', 'PERCENT']).optional(),
+  discountValue: z.coerce.number().finite().min(0).max(1000000000).optional(),
   deliveryDate: z.coerce.date().optional().nullable(),
   notes: z.string().trim().max(1000).optional().nullable(),
   reason: z.string().trim().min(3).max(500),
   commercialReason: adjustmentReason.optional(),
-}).strict();
+}).strict().superRefine((data, ctx) => {
+  if (data.discountType && data.discountValue === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'discountValue is required with discountType', path: ['discountValue'] });
+  }
+  if (data.discountType === 'PERCENT' && Number(data.discountValue) > 100) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Percentage discount cannot exceed 100', path: ['discountValue'] });
+  }
+});
 
 const assignOrderSchema = z.object({
   riderId: z.string().trim().min(1),

@@ -278,6 +278,7 @@ function NewOrderPageContent() {
   const [couponDiscount, setCouponDiscount] = useState(0)
   const [couponApplied, setCouponApplied] = useState(false)
   const [couponLoading, setCouponLoading] = useState(false)
+  const [showAdditionalBilling, setShowAdditionalBilling] = useState(false)
   const [loyaltyPoints, setLoyaltyPoints] = useState('')
   const [loyaltyDiscount, setLoyaltyDiscount] = useState(0)
   const [loyaltyApplied, setLoyaltyApplied] = useState(false)
@@ -321,6 +322,7 @@ function NewOrderPageContent() {
     setCouponCode('')
     setCouponDiscount(0)
     setCouponApplied(false)
+    setShowAdditionalBilling(false)
     setLoyaltyPoints('')
     setLoyaltyDiscount(0)
     setLoyaltyApplied(false)
@@ -2065,11 +2067,11 @@ function NewOrderPageContent() {
               })}
 
               {hasRegularItems && (
-                <div style={{ margin: '12px 14px 0', padding: '12px 14px', borderRadius: 14, border: '1px solid #e3edf6', background: '#fafbfd' }}>
+                <div className="crm-new-order-billing" style={{ margin: '12px 14px 0', padding: '12px 14px', borderRadius: 14, border: '1px solid #e3edf6', background: '#fafbfd' }}>
                   <div style={{ fontSize: 11, color: '#6b7fa3', marginBottom: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
                     Billing Controls
                   </div>
-                  <div style={{ display: 'flex', gap: 5, marginBottom: 7 }}>
+                  <div className="crm-new-order-billing-row" style={{ display: 'flex', gap: 5, marginBottom: 7 }}>
                     <button onClick={() => setDiscountType('flat')}
                       style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: discountType === 'flat' ? '#023c62' : '#fff', color: discountType === 'flat' ? '#fff' : '#374151', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>₹</button>
                     <button onClick={() => setDiscountType('percent')}
@@ -2079,7 +2081,11 @@ function NewOrderPageContent() {
                       style={{ flex: 1, border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' as const }} />
                     {manualDiscount > 0 && <span style={{ fontSize: 11, color: '#166534', alignSelf: 'center', fontWeight: 600 }}>-{fmt(manualDiscount)}</span>}
                   </div>
-                  <div style={{ display: 'flex', gap: 5, marginBottom: customer && (customer.loyaltyPoints || 0) > 0 ? 7 : 0 }}>
+                  <button type="button" className="crm-billing-more-toggle" aria-expanded={showAdditionalBilling} onClick={() => setShowAdditionalBilling((current) => !current)}>
+                    {showAdditionalBilling ? 'Hide coupon & loyalty' : 'Coupon or loyalty'}
+                  </button>
+                  <div className={`crm-billing-additional ${showAdditionalBilling ? 'open' : ''}`}>
+                  <div className="crm-new-order-billing-row" style={{ display: 'flex', gap: 5, marginBottom: customer && (customer.loyaltyPoints || 0) > 0 ? 7 : 0 }}>
                     <input type="text" value={couponCode}
                       onChange={e => { setCouponCode(e.target.value.toUpperCase()); setCouponApplied(false); setCouponDiscount(0) }}
                       placeholder="Coupon code"
@@ -2100,7 +2106,7 @@ function NewOrderPageContent() {
                     </button>
                   </div>
                   {customer && (customer.loyaltyPoints || 0) > 0 && (
-                    <div style={{ display: 'flex', gap: 5 }}>
+                    <div className="crm-new-order-billing-row" style={{ display: 'flex', gap: 5 }}>
                       <input inputMode="numeric" value={loyaltyPoints}
                         onChange={e => { setLoyaltyPoints(sanitizeIntegerInput(e.target.value)); setLoyaltyApplied(false); setLoyaltyDiscount(0) }}
                         placeholder={`Points (have ${customer.loyaltyPoints || 0})`}
@@ -2121,6 +2127,7 @@ function NewOrderPageContent() {
                       </button>
                     </div>
                   )}
+                  </div>
                 </div>
               )}
 

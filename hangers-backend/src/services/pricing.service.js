@@ -97,6 +97,8 @@ const resolveOrderPricing = async (tx, {
   couponCode,
   loyaltyPointsRedeemed = 0,
   discount = 0,
+  discountType,
+  discountValue,
   commercialReason,
   staff,
 }) => {
@@ -193,7 +195,17 @@ const resolveOrderPricing = async (tx, {
   });
 
   const subtotal = roundCashAmount(pricedItems.reduce((sum, item) => sum + item.subtotal, 0));
-  const manualDiscount = roundCashAmount(Math.max(0, Number(discount || 0)));
+  const normalizedDiscountType = discountType ? String(discountType).toUpperCase() : 'FLAT';
+  const requestedDiscountValue = Math.max(0, Number(discountValue ?? discount ?? 0));
+  if (!['FLAT', 'PERCENT'].includes(normalizedDiscountType)) {
+    throw new CommercialRuleError('INVALID_DISCOUNT_TYPE', 'Discount type must be FLAT or PERCENT');
+  }
+  if (normalizedDiscountType === 'PERCENT' && requestedDiscountValue > 100) {
+    throw new CommercialRuleError('INVALID_DISCOUNT_PERCENT', 'Percentage discount cannot exceed 100');
+  }
+  const manualDiscount = normalizedDiscountType === 'PERCENT'
+    ? roundCashAmount(subtotal * requestedDiscountValue / 100)
+    : roundCashAmount(requestedDiscountValue);
   if (manualDiscount > subtotal) {
     throw new CommercialRuleError('DISCOUNT_EXCEEDS_SUBTOTAL', 'Order discount cannot exceed the priced subtotal');
   }
@@ -232,6 +244,7 @@ const resolveOrderPricing = async (tx, {
     loyaltyDiscount: loyalty?.discount || 0,
     totalAmount,
     commercialReason: adjustmentReason,
+    discountInput: { type: normalizedDiscountType, value: requestedDiscountValue },
     overrideDetails,
   };
 };

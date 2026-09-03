@@ -1194,7 +1194,7 @@ const updateOrder = async (req, res) => {
 
   try {
     const { id } = req.params;
-    const { items, discount = 0, deliveryDate, notes, reason, commercialReason, version } = parsed.data;
+    const { items, discount = 0, discountType, discountValue, deliveryDate, notes, reason, commercialReason, version } = parsed.data;
     const orderWorkflow = await getOrderWorkflow();
     const transactionResult = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`;
@@ -1227,6 +1227,8 @@ const updateOrder = async (req, res) => {
         items,
         customerId: order.customerId,
         discount,
+        discountType,
+        discountValue,
         commercialReason: commercialReason || reason,
         staff: req.staff,
       });
@@ -1326,6 +1328,7 @@ const updateOrder = async (req, res) => {
             retainedCouponDiscount: Number(order.couponDiscount || 0),
             retainedLoyaltyDiscount: Number(order.loyaltyDiscount || 0),
             totalAmount,
+            orderDiscount: pricing.discountInput,
           },
           deliveryDate: Object.prototype.hasOwnProperty.call(parsed.data, 'deliveryDate') ? deliveryDate : order.deliveryDate,
           notes: Object.prototype.hasOwnProperty.call(parsed.data, 'notes') ? notes : order.notes,
@@ -1345,7 +1348,7 @@ const updateOrder = async (req, res) => {
         actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
         action: 'ORDER_EDITED', resource: 'order', resourceId: id,
         description: `Order ${order.orderNumber} edited: Rs ${Number(order.totalAmount).toFixed(2)} -> Rs ${totalAmount.toFixed(2)}`,
-        metadata: { orderNumber: order.orderNumber, reason, before: beforeSummary, after: afterSummary, overrides: pricing.overrideDetails },
+        metadata: { orderNumber: order.orderNumber, reason, before: beforeSummary, after: afterSummary, discountInput: pricing.discountInput, overrides: pricing.overrideDetails },
         ...getRequestMeta(req),
       });
       await enqueueOutboxEvent(tx, {

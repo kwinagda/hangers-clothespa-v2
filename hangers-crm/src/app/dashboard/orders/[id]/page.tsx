@@ -348,7 +348,9 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
     basePrice: Number(item.baseUnitPrice ?? item.unitPrice ?? 0),
     notes: item.notes || null,
   })))
-  const [discount,   setDiscount]   = useState(Number(order.discount || 0))
+  const storedDiscount = order.pricingSnapshot?.orderDiscount
+  const [discountType, setDiscountType] = useState<'FLAT' | 'PERCENT'>(storedDiscount?.type === 'PERCENT' ? 'PERCENT' : 'FLAT')
+  const [discountValue, setDiscountValue] = useState(String(storedDiscount?.value ?? order.discount ?? ''))
   const [deliveryDate, setDeliveryDate] = useState(order.deliveryDate ? String(order.deliveryDate).slice(0, 10) : '')
   const [notes, setNotes] = useState(order.notes || '')
   const [reason, setReason] = useState(mode === 'add' ? 'Garments logged after pickup' : '')
@@ -398,7 +400,11 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
   const removeLine = (idx: number) => setCart(prev => prev.filter((_, i) => i !== idx))
 
   const cartSubtotal = cart.reduce((s,i)=>s+i.qty*i.price, 0)
-  const cartTotal    = Math.max(0, cartSubtotal - discount)
+  const parsedDiscountValue = Math.max(0, Number(discountValue) || 0)
+  const effectiveDiscount = discountType === 'PERCENT'
+    ? Math.round(cartSubtotal * Math.min(100, parsedDiscountValue) / 100)
+    : Math.min(cartSubtotal, parsedDiscountValue)
+  const cartTotal    = Math.max(0, cartSubtotal - effectiveDiscount)
   const totalItems   = cart.reduce((s,i)=>s+i.qty, 0)
   const filtered     = (catalog[activeCat]||[]).filter(i => !search || i.name.toLowerCase().includes(search.toLowerCase()))
 
@@ -419,7 +425,9 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
           baseUnitPrice:i.basePrice ?? i.price,
           notes:i.notes || undefined,
         })),
-        discount,
+        discount: effectiveDiscount,
+        discountType,
+        discountValue: parsedDiscountValue,
         deliveryDate: deliveryDate || null,
         notes,
         reason: reason.trim(),
@@ -533,10 +541,16 @@ function EditOrderPanel({ order, mode = 'edit', onSaved, onCancel }: { order: an
               <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={2}
                 style={{display:'block',width:'100%',marginTop:5,border:'1.5px solid #dce8f0',borderRadius:8,padding:'7px 8px',fontSize:13,outline:'none',resize:'vertical',boxSizing:'border-box'}}/>
             </label>
-            <div style={{display:'flex',alignItems:'center',gap:10,marginTop:10}}>
-              <label style={{fontSize:12,color:'#6b7fa3',flexShrink:0}}>Discount (₹)</label>
-              <input type="number" value={discount} onChange={e=>setDiscount(Number(e.target.value)||0)} min={0}
-                style={{width:80,border:'1.5px solid #dce8f0',borderRadius:8,padding:'5px 8px',fontSize:13,textAlign:'right',outline:'none'}}/>
+            <div className="order-edit-discount" style={{display:'flex',alignItems:'center',gap:8,marginTop:10}}>
+              <label style={{fontSize:12,color:'#6b7fa3',flexShrink:0}}>Order discount</label>
+              <div role="group" aria-label="Discount type" style={{display:'flex',border:'1.5px solid #dce8f0',borderRadius:8,overflow:'hidden'}}>
+                {(['FLAT', 'PERCENT'] as const).map((type) => <button key={type} type="button" onClick={() => setDiscountType(type)} aria-pressed={discountType === type}
+                  style={{minWidth:42,height:34,border:0,borderRight:type==='FLAT'?'1px solid #dce8f0':0,background:discountType===type?'#023c62':'#fff',color:discountType===type?'#fff':'#52657f',fontWeight:800,cursor:'pointer'}}>{type === 'FLAT' ? '₹' : '%'}</button>)}
+              </div>
+              <input type="number" inputMode="decimal" value={discountValue} onChange={e=>setDiscountValue(e.target.value)} min={0} max={discountType === 'PERCENT' ? 100 : undefined}
+                placeholder={discountType === 'PERCENT' ? '0-100' : 'Amount'}
+                style={{width:96,border:'1.5px solid #dce8f0',borderRadius:8,padding:'7px 9px',fontSize:13,textAlign:'right',outline:'none'}}/>
+              {effectiveDiscount > 0 && <span style={{fontSize:11,color:'#166534',fontWeight:700}}>-₹{effectiveDiscount.toLocaleString('en-IN')}</span>}
             </div>
             <div style={{marginTop:10,display:'flex',justifyContent:'space-between',fontWeight:700,color:'#023c62',fontSize:15}}>
               <span>Order Total</span>

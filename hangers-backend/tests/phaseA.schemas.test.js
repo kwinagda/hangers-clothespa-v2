@@ -7,7 +7,7 @@ const { recurringPickupSchema }     = require('../src/validation/recurring.schem
 const { reportQuerySchema }         = require('../src/validation/reports.schemas');
 const { advancedSearchQuerySchema } = require('../src/validation/search.schemas');
 const { automationSchema }          = require('../src/validation/automations.schemas');
-const { createOrderSchema }         = require('../src/validation/orders.schemas');
+const { createOrderSchema, editOrderSchema } = require('../src/validation/orders.schemas');
 
 test('cashEntrySchema rejects negative amount', () => {
   const parsed = cashEntrySchema.safeParse({ type: 'IN', amount: -10, description: 'Bad' });
@@ -66,4 +66,16 @@ test('createOrderSchema accepts current CRM counter order payload', () => {
   });
 
   assert.equal(parsed.success, true);
+});
+
+test('editOrderSchema accepts percentage discounts and rejects values above 100', () => {
+  const base = {
+    version: 1,
+    items: [{ serviceId: 'service-1', quantity: 1 }],
+    reason: 'Customer discount correction',
+    discountType: 'PERCENT',
+  };
+
+  assert.equal(editOrderSchema.safeParse({ ...base, discountValue: 12.5 }).success, true);
+  assert.equal(editOrderSchema.safeParse({ ...base, discountValue: 101 }).success, false);
 });
