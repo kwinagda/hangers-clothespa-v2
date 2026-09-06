@@ -69,6 +69,9 @@ export default async function PublicRateChartPage() {
           font-family: var(--crm-font-ui);
           padding: 16px 12px 34px;
         }
+        .rate-seo-catalog {
+          display: none;
+        }
         .rate-shell {
           width: 100%;
           max-width: 760px;
