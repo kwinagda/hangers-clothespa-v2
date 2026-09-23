@@ -719,10 +719,13 @@ const createPublicRazorpayOrder = async (req, res) => {
     if (!target || !target.invoice.orderId) return notFound(res, 'Online payment is not available for this invoice');
     const amount = Math.round(Number(target.invoice.balanceDue || 0) * 100);
     if (amount < 100) return badRequest(res, 'Minimum online payment is ₹1');
+    // Razorpay receipts identify individual orders and cannot be reused on a retry.
+    // Keep the business invoice in notes while giving every checkout attempt its own receipt.
+    const receipt = `${target.invoice.invoiceNumber}-${Date.now()}`.slice(0, 40);
     const order = await getPublicRazorpay().orders.create({
       amount,
       currency: 'INR',
-      receipt: target.invoice.invoiceNumber,
+      receipt,
       notes: { invoiceId: target.invoice.id, orderId: target.invoice.orderId, publicShareId: target.share.id },
     });
     return success(res, { razorpayOrderId: order.id, amount: order.amount, currency: order.currency, key: process.env.RAZORPAY_KEY_ID, invoiceNumber: target.invoice.invoiceNumber });

@@ -602,7 +602,13 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             ))}
           </div>
         </footer>
-        <InvoicePaymentButton slug={slug} balanceDue={Number(invoice.balanceDue || 0)} enabled={invoice.invoiceType === 'ORDER'} />
+        <InvoicePaymentButton
+          slug={slug}
+          balanceDue={Number(invoice.balanceDue || 0)}
+          customerName={invoice.customer?.name}
+          customerPhone={invoice.customer?.phone}
+          enabled={invoice.invoiceType === 'ORDER'}
+        />
         <LegalTerms terms={invoice.legalTerms} />
         <p style={{ margin: 0, padding: '0 26px 24px', color: '#6b7fa3', fontSize: 12, lineHeight: 1.6 }}>Thank you for choosing Hangers Clothes Spa.</p>
       </section>

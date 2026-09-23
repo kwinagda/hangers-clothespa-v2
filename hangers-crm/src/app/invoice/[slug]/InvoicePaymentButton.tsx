@@ -10,7 +10,7 @@ declare global {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
 
-export default function InvoicePaymentButton({ slug, balanceDue, enabled = true }: { slug: string; balanceDue: number; enabled?: boolean }) {
+export default function InvoicePaymentButton({ slug, balanceDue, customerName, customerPhone, enabled = true }: { slug: string; balanceDue: number; customerName?: string; customerPhone?: string; enabled?: boolean }) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
@@ -49,6 +49,12 @@ export default function InvoicePaymentButton({ slug, balanceDue, enabled = true 
         name: 'Hangers Clothes Spa',
         description: `Invoice ${created.data?.invoiceNumber || created.invoiceNumber || ''}`,
         order_id: created.data?.razorpayOrderId || created.razorpayOrderId,
+        // Explicitly bind Checkout to this invoice customer so a saved Razorpay
+        // contact from another browser session cannot be reused.
+        prefill: {
+          ...(customerName ? { name: customerName } : {}),
+          ...(customerPhone ? { contact: `+91${String(customerPhone).replace(/\D/g, '').replace(/^91/, '')}` } : {}),
+        },
         theme: { color: '#023c62' },
         modal: { ondismiss: () => { setBusy(false); setMessage('Payment cancelled. You can try again.') } },
         handler: async (response: any) => {
