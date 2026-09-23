@@ -117,6 +117,9 @@ const createCapturedPayment = async (tx, {
   staffId,
   idempotencyKey,
   effectiveAt,
+  razorpayOrderId,
+  razorpayPaymentId,
+  razorpaySignature,
 }) => {
   const normalizedAmount = roundMoney(Number(amount || 0));
   if (!(normalizedAmount > 0)) return null;
@@ -138,6 +141,9 @@ const createCapturedPayment = async (tx, {
         createdAt: effectiveAt || undefined,
         collectedBy: staffId || null,
         idempotencyKey: idempotencyKey || null,
+        razorpayOrderId: razorpayOrderId || null,
+        razorpayPaymentId: razorpayPaymentId || null,
+        razorpaySignature: razorpaySignature || null,
       },
     });
     await tx.paymentAllocation.create({
@@ -176,6 +182,9 @@ const recordOrderSettlement = async (tx, {
   staff,
   idempotencyKey,
   effectiveAt,
+  razorpayOrderId,
+  razorpayPaymentId,
+  razorpaySignature,
 }) => {
   await lockOrder(tx, orderId);
   const before = await getLedgerState(tx, orderId);
@@ -247,6 +256,9 @@ const recordOrderSettlement = async (tx, {
       staffId: staff?.id,
       idempotencyKey: idempotencyKey ? `${idempotencyKey}:payment` : null,
       effectiveAt,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
     }));
   }
 
@@ -306,6 +318,9 @@ const recordInvoiceSettlement = async (tx, {
   staff,
   idempotencyKey,
   effectiveAt,
+  razorpayOrderId,
+  razorpayPaymentId,
+  razorpaySignature,
 }) => {
   const locked = await tx.$queryRaw`
     SELECT "id"
@@ -380,6 +395,9 @@ const recordInvoiceSettlement = async (tx, {
       staffId: staff?.id,
       idempotencyKey: idempotencyKey ? `${idempotencyKey}:payment` : null,
       effectiveAt,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
     }));
   }
 

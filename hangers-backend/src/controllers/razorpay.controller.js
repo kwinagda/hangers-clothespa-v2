@@ -9,7 +9,7 @@
 const crypto  = require('crypto');
 const Razorpay = require('razorpay');
 const prisma  = require('../config/database');
-const { success, badRequest, error, unauthorized, notFound } = require('../utils/response');
+const { success, badRequest, error, notFound } = require('../utils/response');
 const { processReferralQualification } = require('../services/referral.service');
 const { deriveOrderPaymentState } = require('../utils/order-payment-state');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
@@ -49,13 +49,15 @@ const createRazorpayOrder = async (req, res) => {
     if (paymentState.paymentStatus === 'PAID') return badRequest(res, 'Order is already paid');
     const balanceDue = calculateBalanceDue(order);
     if (balanceDue <= 0)               return badRequest(res, 'Order is already fully settled');
+    const amountPaise = Math.round(balanceDue * 100);
+    if (amountPaise < 100)              return badRequest(res, 'Minimum online payment is ₹1');
 
     // Dev mode: return a local simulator order only when Razorpay keys are not configured.
     if (isDevMode()) {
       const simulatedRzpOrderId = `order_DEV_${Date.now()}`;
       return success(res, {
         razorpayOrderId: simulatedRzpOrderId,
-        amount:          Math.round(balanceDue * 100),
+        amount:          amountPaise,
         currency:        'INR',
         key:             'rzp_test_DEV_MODE',
         orderNumber:     order.orderNumber,
@@ -67,7 +69,7 @@ const createRazorpayOrder = async (req, res) => {
 
     const razorpay = getRazorpay();
     const rzpOrder = await razorpay.orders.create({
-      amount:   Math.round(balanceDue * 100),
+      amount:   amountPaise,
       currency: 'INR',
       receipt:  order.orderNumber,
       notes: {
@@ -104,7 +106,9 @@ const verifyRazorpayPayment = async (req, res) => {
   } = req.body;
   const customerId = req.customer.id;
 
-  if (!orderId || !razorpayPaymentId) return badRequest(res, 'Missing required fields');
+  if (!orderId || !razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+    return badRequest(res, 'orderId, Razorpay order, payment, and signature are required');
+  }
 
   try {
     // Verify the order belongs to this customer
@@ -136,20 +140,41 @@ const verifyRazorpayPayment = async (req, res) => {
       return badRequest(res, 'This Razorpay payment ID is already linked to a different order');
     }
 
-    // Dev mode — skip signature check
+    let verifiedAmount = balanceDue;
     if (!isDevMode()) {
-      const body      = razorpayOrderId + '|' + razorpayPaymentId;
-      const expected  = crypto
+      const body = `${razorpayOrderId}|${razorpayPaymentId}`;
+      const expected = crypto
         .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
         .update(body)
         .digest('hex');
+      const received = Buffer.from(String(razorpaySignature));
+      const expectedBuffer = Buffer.from(expected);
 
-      if (expected !== razorpaySignature) {
-        return unauthorized(res, 'Payment verification failed — invalid signature');
+      if (received.length !== expectedBuffer.length || !crypto.timingSafeEqual(received, expectedBuffer)) {
+        return badRequest(res, 'Payment verification failed — invalid signature');
       }
+
+      // Never trust the amount from the browser. Confirm the captured payment
+      // belongs to the server-created Razorpay order before recording it.
+      const razorpay = getRazorpay();
+      const paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
+      if (paymentDetails.order_id !== razorpayOrderId) {
+        return badRequest(res, 'Payment does not belong to this Razorpay order');
+      }
+      if (!['captured', 'authorized'].includes(String(paymentDetails.status).toLowerCase())) {
+        return badRequest(res, 'Razorpay payment has not been captured');
+      }
+      const paymentAmount = Number(paymentDetails.amount) / 100;
+      if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+        return badRequest(res, 'Razorpay returned an invalid payment amount');
+      }
+      if (paymentAmount > balanceDue + 0.01) {
+        return badRequest(res, 'Razorpay payment exceeds the outstanding balance');
+      }
+      verifiedAmount = Number(paymentAmount.toFixed(2));
     }
 
-    const appliedAmount = balanceDue;
+    const appliedAmount = verifiedAmount;
     if (appliedAmount <= 0) return badRequest(res, 'Nothing is due on this order');
 
     const payment = await prisma.$transaction(async (tx) => {

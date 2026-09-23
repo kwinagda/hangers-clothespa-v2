@@ -1,5 +1,6 @@
 import { LOGO_BLUE_URL, LOGO_WHITE_URL } from '@/lib/branding'
 import { Fragment } from 'react'
+import InvoicePaymentButton from './InvoicePaymentButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -601,6 +602,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             ))}
           </div>
         </footer>
+        <InvoicePaymentButton slug={slug} balanceDue={Number(invoice.balanceDue || 0)} enabled={invoice.invoiceType === 'ORDER'} />
         <LegalTerms terms={invoice.legalTerms} />
         <p style={{ margin: 0, padding: '0 26px 24px', color: '#6b7fa3', fontSize: 12, lineHeight: 1.6 }}>Thank you for choosing Hangers Clothes Spa.</p>
       </section>

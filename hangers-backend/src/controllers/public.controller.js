@@ -12,6 +12,9 @@ const { createAuthChallenge, verifyAuthChallengeAndIssueToken, consumeAuthChalle
 const { sendPickupRequestOtp } = require('../services/whatomate.service');
 const { pickupOtpSendSchema, pickupOtpVerifySchema, publicPickupRequestSchema, queuedPickupRequestSchema } = require('../validation/public.schemas');
 const { randomInt } = require('crypto');
+const crypto = require('crypto');
+const Razorpay = require('razorpay');
+const { recordInvoiceSettlement, PaymentRuleError } = require('../services/payment.service');
 
 const PUBLIC_SITE_PROFILE_KEY = 'public_site_profile';
 
@@ -689,6 +692,83 @@ const getPublicInvoice = async (req, res) => {
   }
 };
 
+const getPublicInvoiceForPayment = async (slug) => {
+  const share = await resolvePublicShareToken({ token: slug, purpose: 'INVOICE_VIEW' });
+  if (!share || share.resourceType === 'CUSTOMER') return null;
+  const where = share.resourceType === 'INVOICE'
+    ? { id: share.resourceId }
+    : share.resourceType === 'IRON_BILL'
+      ? { ironBillId: share.resourceId }
+      : share.resourceType === 'ORDER'
+        ? { orderId: share.resourceId }
+        : null;
+  if (!where) return null;
+  const invoice = await prisma.invoice.findFirst({ where, select: { id: true, invoiceNumber: true, customerId: true, orderId: true, status: true, balanceDue: true, totalAmount: true } });
+  if (!invoice || invoice.status === 'VOID') return null;
+  return { share, invoice };
+};
+
+const getPublicRazorpay = () => {
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) throw new Error('Razorpay keys are not configured');
+  return new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET });
+};
+
+const createPublicRazorpayOrder = async (req, res) => {
+  try {
+    const target = await getPublicInvoiceForPayment(String(req.params.slug || ''));
+    if (!target || !target.invoice.orderId) return notFound(res, 'Online payment is not available for this invoice');
+    const amount = Math.round(Number(target.invoice.balanceDue || 0) * 100);
+    if (amount < 100) return badRequest(res, 'Minimum online payment is ₹1');
+    const order = await getPublicRazorpay().orders.create({
+      amount,
+      currency: 'INR',
+      receipt: target.invoice.invoiceNumber,
+      notes: { invoiceId: target.invoice.id, orderId: target.invoice.orderId, publicShareId: target.share.id },
+    });
+    return success(res, { razorpayOrderId: order.id, amount: order.amount, currency: order.currency, key: process.env.RAZORPAY_KEY_ID, invoiceNumber: target.invoice.invoiceNumber });
+  } catch (err) {
+    console.error('createPublicRazorpayOrder error:', err.message);
+    return error(res, 'Failed to start online payment');
+  }
+};
+
+const verifyPublicRazorpayPayment = async (req, res) => {
+  const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body || {};
+  if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) return badRequest(res, 'Razorpay order, payment, and signature are required');
+  try {
+    const target = await getPublicInvoiceForPayment(String(req.params.slug || ''));
+    if (!target || !target.invoice.orderId) return notFound(res, 'Online payment is not available for this invoice');
+    const razorpay = getPublicRazorpay();
+    const serverOrder = await razorpay.orders.fetch(razorpayOrderId);
+    if (serverOrder.notes?.invoiceId !== target.invoice.id || serverOrder.notes?.orderId !== target.invoice.orderId) return badRequest(res, 'Razorpay order does not belong to this invoice');
+    const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${serverOrder.id}|${razorpayPaymentId}`).digest('hex');
+    const receivedBuffer = Buffer.from(String(razorpaySignature));
+    const expectedBuffer = Buffer.from(expected);
+    if (receivedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(receivedBuffer, expectedBuffer)) return badRequest(res, 'Payment verification failed — invalid signature');
+    const paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
+    if (paymentDetails.order_id !== serverOrder.id || String(paymentDetails.status).toLowerCase() !== 'captured') return badRequest(res, 'Payment is not captured');
+    const amount = Number(paymentDetails.amount) / 100;
+    if (!Number.isFinite(amount) || amount <= 0 || amount > Number(target.invoice.balanceDue) + 0.01) return badRequest(res, 'Payment amount is invalid for this invoice');
+    const result = await prisma.$transaction(async (tx) => recordInvoiceSettlement(tx, {
+      invoiceId: target.invoice.id,
+      amount,
+      method: 'RAZORPAY',
+      reference: razorpayPaymentId,
+      notes: 'Online payment via public Razorpay invoice link',
+      idempotencyKey: `public-razorpay:${razorpayPaymentId}`,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+    }), { isolationLevel: 'Serializable' });
+    return success(res, { invoiceNumber: target.invoice.invoiceNumber, paymentId: result.payment?.id, amount: result.payment?.amount, balanceDue: result.balanceDue, paymentStatus: result.paymentStatus }, 'Payment successful');
+  } catch (err) {
+    if (err instanceof PaymentRuleError) return badRequest(res, err.message);
+    if (err?.code === 'P2002') return badRequest(res, 'This payment has already been recorded');
+    console.error('verifyPublicRazorpayPayment error:', err.message);
+    return error(res, 'Payment verification failed');
+  }
+};
+
 const getPublicQuotation = async (req, res) => {
   try {
     const slug = String(req.params.slug || '').trim();
@@ -779,4 +859,6 @@ module.exports = {
   getPublicDailyIronLogs,
   getPublicQuotation,
   getPublicRateChart,
+  createPublicRazorpayOrder,
+  verifyPublicRazorpayPayment,
 };

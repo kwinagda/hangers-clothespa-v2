@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { getPublicInvoice, getPublicDailyIronLogs, getPublicQuotation, getPublicRateChart, getPublicSiteProfile, createPublicPickupRequest, ingestQueuedPickupRequest, sendPublicPickupOtp, verifyPublicPickupOtp } = require('../controllers/public.controller');
+const { getPublicInvoice, getPublicDailyIronLogs, getPublicQuotation, getPublicRateChart, getPublicSiteProfile, createPublicPickupRequest, ingestQueuedPickupRequest, sendPublicPickupOtp, verifyPublicPickupOtp, createPublicRazorpayOrder, verifyPublicRazorpayPayment } = require('../controllers/public.controller');
 const { publicShareLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimit');
 
 router.use(publicShareLimiter);
 router.get('/invoices/:slug', getPublicInvoice);
+router.post('/invoices/:slug/payment/create-order', createPublicRazorpayOrder);
+router.post('/invoices/:slug/payment/verify', verifyPublicRazorpayPayment);
 router.get('/daily-iron/:slug', getPublicDailyIronLogs);
 router.get('/quotations/:slug', getPublicQuotation);
 router.get('/rate-chart', getPublicRateChart);
