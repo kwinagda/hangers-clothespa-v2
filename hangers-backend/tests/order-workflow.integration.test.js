@@ -33,6 +33,10 @@ const publicRouter = require('../src/routes/public.routes');
 const axios = require('axios');
 const { handleOutboxEvent } = require('../src/services/outbox.service');
 
+// Database integration tests use deterministic Test Mode semantics even when
+// the runner has no local .env file. All provider calls in this suite are stubbed.
+if (!process.env.RAZORPAY_KEY_ID) process.env.RAZORPAY_KEY_ID = 'rzp_test_integration_suite';
+
 const integrationTest = test;
 const runId = `it-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const bankImportLabel = 'Integration bank test';

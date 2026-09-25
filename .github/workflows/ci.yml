@@ -68,6 +68,9 @@ jobs:
       - name: Deploy migrations to test DB
         run: npx prisma migrate deploy
 
+      - name: Bootstrap application master data for integration tests
+        run: node -e "require('./src/services/masterData.service').syncMasterDataSettings().then(() => process.exit(0)).catch((error) => { console.error(error.message); process.exit(1); })"
+
       - name: Run tests
         run: npm test
         env:
