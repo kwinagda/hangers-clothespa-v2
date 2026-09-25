@@ -10,6 +10,23 @@ TARGET_REVISION="${1:-origin/main}"
 LOCK_FILE="/var/lock/hangers-code-deploy.lock"
 DEPLOY_LOG="${HANGERS_DEPLOY_LOG:-/var/log/hangers-deployments.log}"
 
+node_version_supported() {
+  local version="$1"
+  [[ "$version" =~ ^v?([0-9]+)\.([0-9]+)\.[0-9]+$ ]] || return 1
+  local major="${BASH_REMATCH[1]}"
+  local minor="${BASH_REMATCH[2]}"
+  (( major > 22 || (major == 22 && minor >= 2) ))
+}
+
+if [[ "${1:-}" == "--check-node-version" ]]; then
+  if node_version_supported "${2:-}"; then
+    printf 'Node.js %s satisfies the backend runtime requirement (>=22.2.0).\n' "${2#v}"
+    exit 0
+  fi
+  echo "Node.js ${2:-unknown} is unsupported; Hangers backend requires >=22.2.0." >&2
+  exit 1
+fi
+
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
   echo "Another Hangers deployment is already running." >&2
@@ -32,6 +49,17 @@ fail() {
 }
 
 [[ -d "$REPO_ROOT/.git" ]] || fail "$REPO_ROOT is not a Git checkout"
+
+node_version="$(run_as_deploy_user node --version 2>/dev/null || true)"
+if ! node_version_supported "$node_version"; then
+  fail "Node.js runtime $node_version is unsupported; Hangers backend/worker require >=22.2.0"
+fi
+echo "Deployment runtime: Node.js $node_version"
+echo "Verifying Node.js binaries used by PM2 payment processes..."
+if ! run_as_deploy_user env PM2_HOME="$PM2_HOME" node \
+  "$REPO_ROOT/scripts/deploy/check-pm2-node-runtime.js"; then
+  fail "PM2 backend/worker runtime preflight failed; host maintenance must restart them on Node.js >=22.2.0 before deployment"
+fi
 
 cd "$REPO_ROOT"
 

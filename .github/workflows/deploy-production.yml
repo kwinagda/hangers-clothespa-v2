@@ -35,11 +35,71 @@ jobs:
           fi
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
+      - name: Checkout preflight revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_PRODUCTION_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify EC2 and PM2 payment runtimes before deployment
+        env:
+          INSTANCE_ID: ${{ vars.AWS_PRODUCTION_INSTANCE_ID }}
+        run: |
+          runtime_check="$(base64 < scripts/deploy/check-pm2-node-runtime.js | tr -d '\n')"
+          remote_command="sudo -iu ubuntu bash -lc 'tmp=\$(mktemp /tmp/hangers-pm2-preflight.XXXXXX.js); trap \"rm -f \\\"\$tmp\\\"\" EXIT; printf %s ${runtime_check} | base64 -d > \"\$tmp\"; node --version; PM2_HOME=/home/ubuntu/.pm2 node \"\$tmp\"'"
+          parameters="$(jq -cn --arg command "$remote_command" '{commands: [$command]}')"
+          command_id="$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "Check Hangers backend Node.js runtime before deployment" \
+            --timeout-seconds 60 \
+            --parameters "$parameters" \
+            --query 'Command.CommandId' \
+            --output text)"
+
+          for attempt in $(seq 1 18); do
+            command_status="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$INSTANCE_ID" \
+              --query Status \
+              --output text 2>/dev/null || true)"
+            case "$command_status" in
+              Success|Failed|Cancelled|TimedOut|Cancelling) break ;;
+            esac
+            sleep 5
+          done
+
+          runtime_output="$(aws ssm get-command-invocation \
+            --command-id "$command_id" \
+            --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent \
+            --output text 2>/dev/null || true)"
+          if [[ "$command_status" != "Success" ]]; then
+            aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$INSTANCE_ID" \
+              --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}'
+            exit 1
+          fi
+
+          node_version="$(grep -Eo '^v?[0-9]+\.[0-9]+\.[0-9]+$' <<< "$runtime_output" | head -n 1)"
+          if [[ ! "$node_version" =~ ^v?([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
+            echo "Could not parse EC2 Node.js runtime output: $runtime_output" >&2
+            exit 1
+          fi
+          node_major="${BASH_REMATCH[1]}"
+          node_minor="${BASH_REMATCH[2]}"
+          if (( node_major < 22 || (node_major == 22 && node_minor < 2) )); then
+            echo "EC2 Node.js $node_version is unsupported; backend and worker require >=22.2.0. Deployment was not started." >&2
+            exit 1
+          fi
+          echo "EC2 Node.js $node_version satisfies >=22.2.0."
 
       - name: Start SSM deployment
         id: deploy

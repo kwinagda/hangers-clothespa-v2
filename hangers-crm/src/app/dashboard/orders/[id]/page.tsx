@@ -1240,7 +1240,7 @@ export default function OrderDetailPage() {
 
           {/* Payment panel (toggled) */}
           {showPaymentPanel && (
-            <PaymentPanel orderId={order.id} customerId={order.customer?.id} totalAmount={order.totalAmount||0} paidAmount={order.paidAmount||0} paymentStatus={order.paymentStatus||'UNPAID'} writeOffAlreadyDone={order.writeOffAmount||0} payments={order.payments || []} canRefund={canRefund} onPaymentRecorded={loadOrder} />
+            <PaymentPanel orderId={order.id} customerId={order.customer?.id} totalAmount={order.totalAmount||0} paidAmount={order.paidAmount||0} paymentStatus={order.paymentStatus||'UNPAID'} writeOffAlreadyDone={order.writeOffAmount||0} payments={order.payments || []} refundAttempts={order.razorpayRefundAttempts || []} canRefund={canRefund} onPaymentRecorded={loadOrder} />
           )}
 
           {/* Rider assignment */}

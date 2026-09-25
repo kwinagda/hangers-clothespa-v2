@@ -13,7 +13,7 @@ const express = require('express');
 const router  = express.Router();
 const {
   listOrders, getOrderStats, getOrder,
-  createOrder, updateOrder, updateOrderStatus, previewManualOrderNotification, sendManualOrderNotification, retryWhatsAppNotification, addItemsToOrder, deleteOrder, recordPayment, refundPayment, reversePaymentCorrection, createReturnOrder,
+  createOrder, updateOrder, updateOrderStatus, previewManualOrderNotification, sendManualOrderNotification, retryWhatsAppNotification, addItemsToOrder, deleteOrder, recordPayment, refundPayment, reconcileRefundPayment, reversePaymentCorrection, createReturnOrder,
 } = require('../controllers/orders.controller');
 const { staffAuth } = require('../middleware/auth');
 const { requirePermission, requireRole, requireServiceAccess } = require('../middleware/rbac');
@@ -38,6 +38,7 @@ router.post('/:id/notifications/manual', staffAuth, crmAccess, requirePermission
 router.post('/:id/notifications/:stageId/retry', staffAuth, crmAccess, requirePermission('orders.update_status'), idempotent({ scope: 'orders.notification-retry' }), retryWhatsAppNotification);
 router.post('/:id/payments', staffAuth, crmAccess, requirePermission('finance.collect_payment'), idempotent({ scope: 'orders.payment' }), recordPayment);
 router.post('/:id/refunds',  staffAuth, crmAccess, requirePermission('finance.refund'), idempotent({ scope: 'orders.refund' }), refundPayment);
+router.post('/:id/refunds/:attemptId/reconcile', staffAuth, crmAccess, requirePermission('finance.refund'), idempotent({ scope: 'orders.refund-reconcile' }), reconcileRefundPayment);
 router.post('/:id/payments/:paymentId/reversal', staffAuth, crmAccess, requirePermission('finance.refund'), idempotent({ scope: 'orders.payment-reversal' }), reversePaymentCorrection);
 router.patch('/:id/items',   staffAuth, crmAccess, requirePermission('orders.edit'), idempotent({ scope: 'orders.itemize' }), addItemsToOrder);
 router.delete('/:id',        staffAuth, crmAccess, requirePermission('orders.delete'), idempotent({ scope: 'orders.archive' }), deleteOrder);

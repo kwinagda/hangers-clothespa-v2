@@ -479,7 +479,11 @@ const PAYMENT_METHODS = [
 ];
 
 const PAYMENT_METHOD_VALUES = PAYMENT_METHODS.map((method) => method.value);
-const CORE_PAYMENT_METHODS = PAYMENT_METHODS.filter((method) => ['CASH', 'UPI', 'CARD'].includes(method.value)).map((method) => method.value);
+// Every supported collection method must be available to Finance and the shared payment ledger.
+// Razorpay is an online collection method, not a separate invoice-only path.
+const CORE_PAYMENT_METHODS = PAYMENT_METHODS
+  .filter((method) => ['CASH', 'UPI', 'CARD', 'RAZORPAY'].includes(method.value))
+  .map((method) => method.value);
 const PAYMENT_STATUSES = [
   { value: 'UNPAID', label: 'Unpaid', color: '#991b1b', bg: '#fee2e2' },
   { value: 'PARTIAL', label: 'Partial', color: '#92400e', bg: '#fef3c7' },

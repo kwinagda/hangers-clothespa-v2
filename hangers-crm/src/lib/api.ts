@@ -3,11 +3,11 @@ import axios from 'axios'
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
 const api  = axios.create({ baseURL: API_BASE_URL, timeout: 15000, withCredentials: true })
 
-export const idempotencyConfig = (scope: string) => {
+export const idempotencyConfig = (scope: string, stableId?: string) => {
   const randomId = typeof globalThis.crypto?.randomUUID === 'function'
     ? globalThis.crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  return { headers: { 'X-Idempotency-Key': `${scope}:${randomId}` } }
+  return { headers: { 'X-Idempotency-Key': `${scope}:${stableId || randomId}` } }
 }
 
 const normalizeApiResponse = (payload: any) => {
@@ -43,7 +43,13 @@ api.interceptors.response.use(
     }
     const apiError: any = new Error(err.response?.data?.message || 'Something went wrong')
     apiError.status = err.response?.status
-    apiError.details = err.response?.data?.errors || null
+    const body = err.response?.data || {}
+    apiError.code = body.code || null
+    apiError.requestId = body.requestId || null
+    apiError.retryable = body.retryable === true
+    apiError.action = body.action || null
+    apiError.fieldErrors = Array.isArray(body.fieldErrors) ? body.fieldErrors : []
+    apiError.details = body.details || body.errors || null
     throw apiError
   }
 )
@@ -118,7 +124,8 @@ export const paymentsAPI = {
   byOrder:     (orderId: string)              => api.get(`/payments/order/${orderId}`) as any,
   record:      (data: any)                    => api.post('/payments', data, idempotencyConfig('crm-payment')) as any,
   dailySummary:(params?: any)                 => api.get('/payments/daily', { params }) as any,
-  refund:      (orderId: string, data: any)   => api.post(`/orders/${orderId}/refunds`, data, idempotencyConfig('crm-refund')) as any,
+  refund:      (orderId: string, data: any, idempotencyKey?: string) => api.post(`/orders/${orderId}/refunds`, data, idempotencyConfig('crm-refund', idempotencyKey)) as any,
+  reconcileRefund: (orderId: string, attemptId: string) => api.post(`/orders/${orderId}/refunds/${attemptId}/reconcile`, {}, idempotencyConfig('crm-refund-reconcile')) as any,
   reverse:     (orderId: string, paymentId: string, data: { reason: string }) => api.post(`/orders/${orderId}/payments/${paymentId}/reversal`, data, idempotencyConfig('crm-payment-reversal')) as any,
   previewReceivablesReminder: (data: { customerId: string; invoiceIds?: string[] }) => api.post('/payments/receivables/reminders/preview', data) as any,
   sendReceivablesReminder: (data: { customerId: string; invoiceIds?: string[] }) => api.post('/payments/receivables/reminders/send', data, idempotencyConfig('crm-receivables-reminder')) as any,

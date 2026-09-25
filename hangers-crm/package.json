@@ -7,7 +7,8 @@
     "build": "next build",
     "build:public-static": "node scripts/build-public-static.mjs",
     "start": "next start -p 5002",
-    "test:responsive": "playwright test tests/responsive/crm-responsive.spec.ts"
+    "test:responsive": "playwright test tests/responsive/crm-responsive.spec.ts",
+    "test:invoice-ab-responsive": "playwright test --config=playwright.invoice.config.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.0",

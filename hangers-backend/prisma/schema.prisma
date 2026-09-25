@@ -8,49 +8,50 @@ datasource db {
 }
 
 model Customer {
-  id                    String                 @id @default(uuid())
-  phone                 String                 @unique
-  name                  String?
-  sessionVersion        Int                    @default(0)
-  ironRateOverride      Decimal?               @db.Decimal(18, 2)
-  preferredLanguage     String                 @default("ENGLISH")
-  ironSubStatus         String?
-  isActive              Boolean                @default(true)
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  notifPush             Boolean                @default(true)
-  notifWhatsApp         Boolean                @default(true)
-  pushToken             String?
-  dob                   DateTime?
-  ordersDue             Decimal                @default(0) @db.Decimal(18, 2)
-  referralCode          String?                @unique
-  referredById          String?
-  walletBalance         Decimal                @default(0) @db.Decimal(18, 2)
-  loyaltyPoints         Int                    @default(0)
-  notes                 String?
-  tag                   String?                @default("REGULAR")
-  mapLocation           String?
-  orders                Order[]
-  addresses             Address[]
-  sessions              CustomerSession[]
-  referrer              Customer?              @relation("ReferredBy", fields: [referredById], references: [id])
-  referred              Customer[]             @relation("ReferredBy")
-  loyaltyTransactions   LoyaltyTransaction[]
-  otps                  OtpVerification[]
-  recurringPickups      RecurringPickup[]
-  referralReceived      Referral?              @relation("ReferralReceived")
-  referralsMade         Referral[]             @relation("ReferralsMade")
-  walletTxns            WalletTransaction[]
-  ironSubscription      IronSubscription?
-  ironLogs              IronLog[]
-  ironBills             IronBill[]
-  invoices              Invoice[]
-  payments              Payment[]
-  creditNotes           CreditNote[]
-  receipts              Receipt[]
-  returnCases           ReturnCase[]
-  serviceAppointments   ServiceAppointment[]
-  websitePickupRequests WebsitePickupRequest[]
+  id                     String                  @id @default(uuid())
+  phone                  String                  @unique
+  name                   String?
+  sessionVersion         Int                     @default(0)
+  ironRateOverride       Decimal?                @db.Decimal(18, 2)
+  preferredLanguage      String                  @default("ENGLISH")
+  ironSubStatus          String?
+  isActive               Boolean                 @default(true)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  notifPush              Boolean                 @default(true)
+  notifWhatsApp          Boolean                 @default(true)
+  pushToken              String?
+  dob                    DateTime?
+  ordersDue              Decimal                 @default(0) @db.Decimal(18, 2)
+  referralCode           String?                 @unique
+  referredById           String?
+  walletBalance          Decimal                 @default(0) @db.Decimal(18, 2)
+  loyaltyPoints          Int                     @default(0)
+  notes                  String?
+  tag                    String?                 @default("REGULAR")
+  mapLocation            String?
+  orders                 Order[]
+  addresses              Address[]
+  sessions               CustomerSession[]
+  referrer               Customer?               @relation("ReferredBy", fields: [referredById], references: [id])
+  referred               Customer[]              @relation("ReferredBy")
+  loyaltyTransactions    LoyaltyTransaction[]
+  otps                   OtpVerification[]
+  recurringPickups       RecurringPickup[]
+  referralReceived       Referral?               @relation("ReferralReceived")
+  referralsMade          Referral[]              @relation("ReferralsMade")
+  walletTxns             WalletTransaction[]
+  ironSubscription       IronSubscription?
+  ironLogs               IronLog[]
+  ironBills              IronBill[]
+  invoices               Invoice[]
+  payments               Payment[]
+  razorpayRefundAttempts RazorpayRefundAttempt[]
+  creditNotes            CreditNote[]
+  receipts               Receipt[]
+  returnCases            ReturnCase[]
+  serviceAppointments    ServiceAppointment[]
+  websitePickupRequests  WebsitePickupRequest[]
 
   @@map("customers")
 }
@@ -130,8 +131,9 @@ model Staff {
   serviceAppointmentsAssigned  ServiceAppointment[]      @relation("ServiceAppointmentAssignee")
   serviceAppointmentsCreated   ServiceAppointment[]      @relation("ServiceAppointmentCreatedBy")
   serviceAppointmentsCompleted ServiceAppointment[]      @relation("ServiceAppointmentCompletedBy")
+  razorpayRefundAttempts       RazorpayRefundAttempt[]   @relation("RazorpayRefundCreatedBy")
   serviceAppointmentEvents     ServiceAppointmentEvent[]
-  uiPreference                StaffUiPreference?
+  uiPreference                 StaffUiPreference?
 
   @@map("staff")
 }
@@ -348,63 +350,64 @@ model PublicShareToken {
 }
 
 model Order {
-  id                    String                @id @default(cuid())
-  orderNumber           String                @unique
-  customerId            String
-  status                OrderStatus           @default(PENDING)
-  documentType          String                @default("ORDER")
-  source                String                @default("COUNTER")
-  quotationStatus       String?
-  validUntil            DateTime?
-  convertedOrderId      String?
-  subtotal              Decimal               @default(0) @db.Decimal(18, 2)
-  discount              Decimal               @default(0) @db.Decimal(18, 2)
-  discountReason        String?
-  discountApprovedById  String?
-  totalAmount           Decimal               @default(0) @db.Decimal(18, 2)
-  paidAmount            Decimal               @default(0) @db.Decimal(18, 2)
-  writeOffAmount        Decimal               @default(0) @db.Decimal(18, 2)
-  writeOffReason        String?
-  writeOffApprovedById  String?
-  pickupDate            DateTime?
-  deliveryDate          DateTime?
-  deliveredAt           DateTime?
-  notes                 String?
-  assignedToId          String?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
-  paymentStatus         String                @default("UNPAID")
-  pickupAddress         String?
-  pickupSlot            String?
-  couponCode            String?
-  couponDiscount        Decimal               @default(0) @db.Decimal(18, 2)
-  loyaltyPointsRedeemed Int                   @default(0)
-  loyaltyDiscount       Decimal               @default(0) @db.Decimal(18, 2)
-  isReturn              Boolean               @default(false)
-  originalOrderId       String?
-  returnReason          String?
-  upcharge              Decimal               @default(0) @db.Decimal(18, 2)
-  pricingSnapshot       Json?
-  version               Int                   @default(1)
-  assignedTo            Staff?                @relation(fields: [assignedToId], references: [id])
-  discountApprovedBy    Staff?                @relation("OrderDiscountApprovedBy", fields: [discountApprovedById], references: [id], onDelete: Restrict)
-  writeOffApprovedBy    Staff?                @relation("OrderWriteOffApprovedBy", fields: [writeOffApprovedById], references: [id], onDelete: Restrict)
-  customer              Customer              @relation(fields: [customerId], references: [id])
-  items                 OrderItem[]
-  stages                OrderStage[]
-  payments              Payment[]
-  paymentAllocations    PaymentAllocation[]
-  challanOrders         ChallanOrder[]
-  walletTxns            WalletTransaction[]
-  financialAdjustments  FinancialAdjustment[]
-  invoice               Invoice?
-  creditNotes           CreditNote[]
-  returnCasesAsOriginal ReturnCase[]          @relation("ReturnCaseOriginalOrder")
-  returnCaseAsRework    ReturnCase?           @relation("ReturnCaseReworkOrder")
-  plantQualityIssues    PlantQualityIssue[]
-  deliveryAssignments   DeliveryAssignment[]
-  deliveryAttempts      DeliveryAttempt[]
-  websitePickupRequest  WebsitePickupRequest?
+  id                     String                  @id @default(cuid())
+  orderNumber            String                  @unique
+  customerId             String
+  status                 OrderStatus             @default(PENDING)
+  documentType           String                  @default("ORDER")
+  source                 String                  @default("COUNTER")
+  quotationStatus        String?
+  validUntil             DateTime?
+  convertedOrderId       String?
+  subtotal               Decimal                 @default(0) @db.Decimal(18, 2)
+  discount               Decimal                 @default(0) @db.Decimal(18, 2)
+  discountReason         String?
+  discountApprovedById   String?
+  totalAmount            Decimal                 @default(0) @db.Decimal(18, 2)
+  paidAmount             Decimal                 @default(0) @db.Decimal(18, 2)
+  writeOffAmount         Decimal                 @default(0) @db.Decimal(18, 2)
+  writeOffReason         String?
+  writeOffApprovedById   String?
+  pickupDate             DateTime?
+  deliveryDate           DateTime?
+  deliveredAt            DateTime?
+  notes                  String?
+  assignedToId           String?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  paymentStatus          String                  @default("UNPAID")
+  pickupAddress          String?
+  pickupSlot             String?
+  couponCode             String?
+  couponDiscount         Decimal                 @default(0) @db.Decimal(18, 2)
+  loyaltyPointsRedeemed  Int                     @default(0)
+  loyaltyDiscount        Decimal                 @default(0) @db.Decimal(18, 2)
+  isReturn               Boolean                 @default(false)
+  originalOrderId        String?
+  returnReason           String?
+  upcharge               Decimal                 @default(0) @db.Decimal(18, 2)
+  pricingSnapshot        Json?
+  version                Int                     @default(1)
+  assignedTo             Staff?                  @relation(fields: [assignedToId], references: [id])
+  discountApprovedBy     Staff?                  @relation("OrderDiscountApprovedBy", fields: [discountApprovedById], references: [id], onDelete: Restrict)
+  writeOffApprovedBy     Staff?                  @relation("OrderWriteOffApprovedBy", fields: [writeOffApprovedById], references: [id], onDelete: Restrict)
+  customer               Customer                @relation(fields: [customerId], references: [id])
+  items                  OrderItem[]
+  stages                 OrderStage[]
+  payments               Payment[]
+  razorpayRefundAttempts RazorpayRefundAttempt[]
+  paymentAllocations     PaymentAllocation[]
+  challanOrders          ChallanOrder[]
+  walletTxns             WalletTransaction[]
+  financialAdjustments   FinancialAdjustment[]
+  invoice                Invoice?
+  creditNotes            CreditNote[]
+  returnCasesAsOriginal  ReturnCase[]            @relation("ReturnCaseOriginalOrder")
+  returnCaseAsRework     ReturnCase?             @relation("ReturnCaseReworkOrder")
+  plantQualityIssues     PlantQualityIssue[]
+  deliveryAssignments    DeliveryAssignment[]
+  deliveryAttempts       DeliveryAttempt[]
+  websitePickupRequest   WebsitePickupRequest?
 
   @@index([customerId])
   @@index([status])
@@ -616,38 +619,45 @@ model IronBill {
 }
 
 model Payment {
-  id                   String              @id @default(cuid())
-  orderId              String?
-  amount               Decimal             @db.Decimal(18, 2)
-  kind                 String              @default("RECEIPT")
-  method               String
-  reference            String?
-  notes                String?
-  createdAt            DateTime            @default(now())
-  collectedBy          String?
-  razorpayOrderId      String?
-  razorpayPaymentId    String?
-  razorpaySignature    String?
-  status               String              @default("CAPTURED")
-  idempotencyKey       String?             @unique
-  referenceFingerprint String?             @unique
-  reversedAt           DateTime?
-  reversalReason       String?
-  reversalOfId         String?
-  customerId           String
-  mode                 String?
-  collectedByStaff     Staff?              @relation(fields: [collectedBy], references: [id])
-  order                Order?              @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  customer             Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  reversalOf           Payment?            @relation("PaymentReversals", fields: [reversalOfId], references: [id], onDelete: Restrict)
-  reversals            Payment[]           @relation("PaymentReversals")
-  allocations          PaymentAllocation[]
-  refundAllocations    RefundAllocation[]  @relation("RefundPaymentAllocations")
-  receipt              Receipt?
-  creditNote           CreditNote?         @relation("CreditNoteRefundPayment")
+  id                                String                  @id @default(cuid())
+  orderId                           String?
+  amount                            Decimal                 @db.Decimal(18, 2)
+  kind                              String                  @default("RECEIPT")
+  method                            String
+  reference                         String?
+  notes                             String?
+  createdAt                         DateTime                @default(now())
+  collectedBy                       String?
+  razorpayOrderId                   String?
+  razorpayPaymentId                 String?
+  providerMethod                    String?
+  providerMethodDetail              String?
+  razorpayRefundId                  String?                 @unique
+  razorpaySignature                 String?
+  status                            String                  @default("CAPTURED")
+  idempotencyKey                    String?                 @unique
+  referenceFingerprint              String?                 @unique
+  reversedAt                        DateTime?
+  reversalReason                    String?
+  reversalOfId                      String?
+  customerId                        String
+  mode                              String?
+  collectedByStaff                  Staff?                  @relation(fields: [collectedBy], references: [id])
+  order                             Order?                  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  customer                          Customer                @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  reversalOf                        Payment?                @relation("PaymentReversals", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversals                         Payment[]               @relation("PaymentReversals")
+  allocations                       PaymentAllocation[]
+  refundAllocations                 RefundAllocation[]      @relation("RefundPaymentAllocations")
+  razorpayRefundAttemptsFromPayment RazorpayRefundAttempt[] @relation("RazorpayRefundSourcePayment")
+  razorpayRefundAttemptLedger       RazorpayRefundAttempt?  @relation("RazorpayRefundLedgerPayment")
+  razorpayDisputes                  RazorpayDisputeCase[]
+  receipt                           Receipt?
+  creditNote                        CreditNote?             @relation("CreditNoteRefundPayment")
 
   @@index([orderId])
   @@index([method, createdAt])
+  @@index([providerMethod, createdAt])
   @@index([collectedBy, createdAt])
 }
 
@@ -675,47 +685,48 @@ model PaymentAllocation {
 }
 
 model Invoice {
-  id                   String                @id @default(cuid())
-  invoiceNumber        String                @unique
-  customerId           String
-  orderId              String?               @unique
-  ironBillId           String?               @unique
-  serviceAppointmentId String?               @unique
-  sourceType           String
-  status               String                @default("OPEN")
-  currency             String                @default("INR")
-  issueDate            DateTime              @default(now())
-  dueDate              DateTime
-  subtotal             Decimal               @db.Decimal(18, 2)
-  discountAmount       Decimal               @default(0) @db.Decimal(18, 2)
-  taxAmount            Decimal               @default(0) @db.Decimal(18, 2)
-  totalAmount          Decimal               @db.Decimal(18, 2)
-  paidAmount           Decimal               @default(0) @db.Decimal(18, 2)
-  creditAmount         Decimal               @default(0) @db.Decimal(18, 2)
-  balanceDue           Decimal               @db.Decimal(18, 2)
-  paymentTermsDays     Int                   @default(7)
-  version              Int                   @default(1)
-  postedAt             DateTime?
-  voidedAt             DateTime?
-  voidReason           String?
-  createdById          String?
-  postedById           String?
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  customer             Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  order                Order?                @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  ironBill             IronBill?             @relation(fields: [ironBillId], references: [id], onDelete: Restrict)
-  serviceAppointment   ServiceAppointment?   @relation(fields: [serviceAppointmentId], references: [id], onDelete: Restrict)
-  createdBy            Staff?                @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  postedBy             Staff?                @relation("InvoicePostedBy", fields: [postedById], references: [id], onDelete: Restrict)
-  lines                InvoiceLine[]
-  allocations          PaymentAllocation[]
-  revisions            InvoiceRevision[]
-  creditNotes          CreditNote[]
-  refundAllocations    RefundAllocation[]
-  receipts             Receipt[]
-  receiptAllocations   ReceiptAllocation[]
-  financialAdjustments FinancialAdjustment[]
+  id                     String                  @id @default(cuid())
+  invoiceNumber          String                  @unique
+  customerId             String
+  orderId                String?                 @unique
+  ironBillId             String?                 @unique
+  serviceAppointmentId   String?                 @unique
+  sourceType             String
+  status                 String                  @default("OPEN")
+  currency               String                  @default("INR")
+  issueDate              DateTime                @default(now())
+  dueDate                DateTime
+  subtotal               Decimal                 @db.Decimal(18, 2)
+  discountAmount         Decimal                 @default(0) @db.Decimal(18, 2)
+  taxAmount              Decimal                 @default(0) @db.Decimal(18, 2)
+  totalAmount            Decimal                 @db.Decimal(18, 2)
+  paidAmount             Decimal                 @default(0) @db.Decimal(18, 2)
+  creditAmount           Decimal                 @default(0) @db.Decimal(18, 2)
+  balanceDue             Decimal                 @db.Decimal(18, 2)
+  paymentTermsDays       Int                     @default(7)
+  version                Int                     @default(1)
+  postedAt               DateTime?
+  voidedAt               DateTime?
+  voidReason             String?
+  createdById            String?
+  postedById             String?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  customer               Customer                @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  order                  Order?                  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  ironBill               IronBill?               @relation(fields: [ironBillId], references: [id], onDelete: Restrict)
+  serviceAppointment     ServiceAppointment?     @relation(fields: [serviceAppointmentId], references: [id], onDelete: Restrict)
+  createdBy              Staff?                  @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  postedBy               Staff?                  @relation("InvoicePostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  lines                  InvoiceLine[]
+  allocations            PaymentAllocation[]
+  revisions              InvoiceRevision[]
+  creditNotes            CreditNote[]
+  refundAllocations      RefundAllocation[]
+  razorpayRefundAttempts RazorpayRefundAttempt[]
+  receipts               Receipt[]
+  receiptAllocations     ReceiptAllocation[]
+  financialAdjustments   FinancialAdjustment[]
 
   @@index([customerId, status, dueDate])
   @@index([status, dueDate])
@@ -1140,6 +1151,282 @@ model OutboxEvent {
   @@index([aggregateType, aggregateId])
   @@index([createdAt])
   @@map("outbox_events")
+}
+
+model RazorpayWebhookEvent {
+  id              String    @id @default(cuid())
+  eventId         String    @unique
+  event           String
+  mode            String?
+  paymentId       String?
+  orderId         String?
+  refundId        String?
+  refundAttemptId String?
+  settlementId    String?
+  disputeId       String?
+  payload         Json?
+  payloadHash     String?
+  status          String    @default("RECEIVED")
+  attempts        Int       @default(0)
+  nextAttemptAt   DateTime  @default(now())
+  lockedAt        DateTime?
+  processedAt     DateTime?
+  error           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([mode, status, nextAttemptAt])
+  @@index([paymentId])
+  @@index([orderId])
+  @@index([refundId])
+  @@index([settlementId])
+  @@index([disputeId])
+  @@map("razorpay_webhook_events")
+}
+
+model RazorpayDisputeCase {
+  id                  String    @id @default(cuid())
+  providerDisputeId   String    @unique
+  providerPaymentId   String
+  localPaymentId      String?
+  amountPaise         BigInt
+  amountDeductedPaise BigInt
+  currency            String
+  status              String
+  linkStatus          String
+  phase               String?
+  reasonCode          String?
+  respondBy           DateTime?
+  providerCreatedAt   DateTime?
+  lastEventId         String?
+  lastEventType       String?
+  mode                String
+  lastSyncedAt        DateTime  @default(now())
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  localPayment        Payment?  @relation(fields: [localPaymentId], references: [id], onDelete: Restrict)
+
+  @@index([status, respondBy])
+  @@index([providerPaymentId])
+  @@index([localPaymentId, status])
+  @@map("razorpay_dispute_cases")
+}
+
+model RazorpayRefundAttempt {
+  id                     String    @id @default(cuid())
+  idempotencyKey         String    @unique
+  providerIdempotencyKey String    @unique
+  requestHash            String
+  sourcePaymentId        String
+  orderId                String
+  invoiceId              String
+  customerId             String
+  createdById            String
+  amountPaise            BigInt
+  currency               String    @default("INR")
+  mode                   String
+  status                 String    @default("CREATING")
+  providerStatus         String?
+  razorpayRefundId       String?   @unique
+  localRefundPaymentId   String?   @unique
+  creditNoteId           String?
+  reasonCode             String
+  reason                 String
+  requestId              String?
+  failureCode            String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  completedAt            DateTime?
+  sourcePayment          Payment   @relation("RazorpayRefundSourcePayment", fields: [sourcePaymentId], references: [id], onDelete: Restrict)
+  localRefundPayment     Payment?  @relation("RazorpayRefundLedgerPayment", fields: [localRefundPaymentId], references: [id], onDelete: Restrict)
+  order                  Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  invoice                Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  customer               Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy              Staff     @relation("RazorpayRefundCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([sourcePaymentId, status, createdAt])
+  @@index([invoiceId, status, createdAt])
+  @@index([orderId, createdAt])
+  @@index([status, updatedAt])
+  @@map("razorpay_refund_attempts")
+}
+
+model RazorpayCheckoutAttempt {
+  id                    String    @id @default(cuid())
+  idempotencyKey        String    @unique
+  invoiceId             String
+  invoiceNumber         String
+  orderId               String?
+  customerId            String
+  publicShareId         String?
+  amountPaise           BigInt
+  currency              String    @default("INR")
+  mode                  String
+  status                String    @default("CREATING")
+  razorpayOrderId       String?   @unique
+  razorpayPaymentId     String?   @unique
+  requestId             String?
+  failureCode           String?
+  failureMessage        String?
+  providerMethod        String?
+  providerMethodDetail  String?
+  providerErrorCode     String?
+  providerErrorSource   String?
+  providerErrorStep     String?
+  providerErrorReason   String?
+  experimentId          String?
+  experimentVariant     String?
+  experimentVisitorHash String?
+  expiresAt             DateTime?
+  completedAt           DateTime?
+  nextProviderCheckAt   DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([invoiceId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([status, createdAt])
+  @@index([mode, status, nextProviderCheckAt], map: "razorpay_checkout_attempts_mode_status_next_provider_check_idx")
+  @@index([createdAt, mode, providerMethod, status], map: "razorpay_checkout_attempts_analytics_idx")
+  @@map("razorpay_checkout_attempts")
+}
+
+model RazorpayCheckoutExperimentEvent {
+  id           String   @id @default(cuid())
+  eventId      String   @unique
+  experimentId String
+  visitorHash  String
+  variant      String
+  eventType    String
+  attemptId    String?
+  mode         String
+  createdAt    DateTime @default(now())
+
+  @@index([experimentId, mode, createdAt], map: "razorpay_checkout_experiment_events_experimentId_mode_createdAt")
+  @@index([experimentId, variant, eventType, createdAt], map: "razorpay_checkout_experiment_events_experimentId_variant_eventT")
+  @@index([attemptId])
+  @@map("razorpay_checkout_experiment_events")
+}
+
+model RazorpaySettlementReconLine {
+  id                   String    @id @default(cuid())
+  mode                 String
+  providerEntityId     String
+  entityType           String
+  providerSettlementId String?
+  providerPaymentId    String?
+  providerOrderId      String?
+  providerDisputeId    String?
+  currency             String
+  amountPaise          BigInt
+  debitPaise           BigInt
+  creditPaise          BigInt
+  feePaise             BigInt
+  taxPaise             BigInt
+  onHold               Boolean   @default(false)
+  settled              Boolean   @default(false)
+  providerCreatedAt    DateTime?
+  providerSettledAt    DateTime?
+  settlementUtr        String?
+  method               String?
+  description          String?
+  lastSyncedAt         DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([mode, entityType, providerEntityId], map: "razorpay_settlement_recon_lines_mode_entityType_providerEntityI")
+  @@index([mode, providerSettlementId])
+  @@index([mode, providerPaymentId])
+  @@index([mode, settled, providerSettledAt], map: "razorpay_settlement_recon_lines_mode_settled_providerSettledAt_")
+  @@map("razorpay_settlement_recon_lines")
+}
+
+model RazorpaySettlementSummary {
+  id                   String                @id @default(cuid())
+  mode                 String
+  providerSettlementId String
+  status               String
+  amountPaise          BigInt
+  feesPaise            BigInt
+  taxPaise             BigInt
+  settlementUtr        String?
+  providerCreatedAt    DateTime
+  lastSyncedAt         DateTime              @default(now())
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  bankMatches          BankSettlementMatch[]
+
+  @@unique([mode, providerSettlementId])
+  @@index([mode, providerCreatedAt])
+  @@index([mode, status, providerCreatedAt])
+  @@map("razorpay_settlement_summaries")
+}
+
+model BankStatementImport {
+  id           String             @id @default(cuid())
+  accountLabel String
+  fileName     String
+  fileSha256   String
+  status       String
+  totalRows    Int
+  acceptedRows Int
+  rejectedRows Int
+  importedBy   String?
+  importedAt   DateTime           @default(now())
+  rows         BankStatementRow[]
+
+  @@unique([fileSha256])
+  @@index([importedAt])
+  @@map("bank_statement_imports")
+}
+
+model BankStatementRow {
+  id                String                @id @default(cuid())
+  importId          String
+  rowNumber         Int
+  transactionDate   DateTime?
+  reference         String?
+  direction         String?
+  amountPaise       BigInt?
+  balancePaise      BigInt?
+  currency          String?
+  memo              String?
+  status            String
+  errorCode         String?
+  import            BankStatementImport   @relation(fields: [importId], references: [id], onDelete: Cascade)
+  settlementMatches BankSettlementMatch[]
+
+  @@unique([importId, rowNumber])
+  @@index([status, transactionDate])
+  @@index([reference])
+  @@map("bank_statement_rows")
+}
+
+model BankSettlementMatch {
+  id                    String                    @id @default(cuid())
+  bankStatementRowId    String
+  settlementSummaryId   String
+  matchType             String
+  status                String                    @default("MATCHED")
+  currency              String
+  statementAmountPaise  BigInt
+  settlementAmountPaise BigInt
+  reportNetPaise        BigInt
+  variancePaise         BigInt
+  reason                String?
+  confirmedBy           String?
+  confirmedAt           DateTime                  @default(now())
+  reversedBy            String?
+  reversedAt            DateTime?
+  reverseReason         String?
+  bankStatementRow      BankStatementRow          @relation(fields: [bankStatementRowId], references: [id], onDelete: Restrict)
+  settlementSummary     RazorpaySettlementSummary @relation(fields: [settlementSummaryId], references: [id], onDelete: Restrict)
+
+  @@index([status, confirmedAt])
+  @@index([settlementSummaryId, status])
+  @@index([bankStatementRowId, status])
+  @@map("bank_settlement_matches")
 }
 
 model ReconciliationRun {
@@ -1695,10 +1982,10 @@ model WebsitePickupRequest {
   handledBy               Staff?         @relation("WebsitePickupHandledBy", fields: [handledById], references: [id], onDelete: SetNull)
   verificationChallenge   AuthChallenge? @relation(fields: [verificationChallengeId], references: [id], onDelete: SetNull)
 
+  @@unique([externalSource, externalRequestId])
   @@index([status, createdAt])
   @@index([customerId])
   @@index([handledById])
-  @@unique([externalSource, externalRequestId])
   @@map("website_pickup_requests")
 }
 

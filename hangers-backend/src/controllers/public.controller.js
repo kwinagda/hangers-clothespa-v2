@@ -2,19 +2,21 @@ const prisma = require('../config/database');
 const { success, notFound, error, badRequest, created, forbidden } = require('../utils/response');
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
 const { compareServiceDisplay } = require('../utils/service-sort');
-const { resolvePublicShareToken } = require('../services/publicShare.service');
+const { findPublicShareToken, resolvePublicShareToken } = require('../services/publicShare.service');
 const { getLegalTerms, getServiceCategoryUi, getWebsitePickupRequestStatuses, getWebsitePickupTimeSlots } = require('../services/masterData.service');
 const { nextDocumentNumber } = require('../services/document-number.service');
 const { enqueueOutboxEvent, OUTBOX_EVENT } = require('../services/outbox.service');
-const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
+const { writeAuditEvent, getRequestMeta, log: logActivity } = require('../services/activity.service');
 const { normalizeCustomerName, normalizeCustomerPhone, normalizeNullableText } = require('../utils/customer-normalization');
 const { createAuthChallenge, verifyAuthChallengeAndIssueToken, consumeAuthChallengeToken, AUTH_CHALLENGE_PURPOSE } = require('../services/authChallenge.service');
 const { sendPickupRequestOtp } = require('../services/whatomate.service');
 const { pickupOtpSendSchema, pickupOtpVerifySchema, publicPickupRequestSchema, queuedPickupRequestSchema } = require('../validation/public.schemas');
 const { randomInt } = require('crypto');
-const crypto = require('crypto');
-const Razorpay = require('razorpay');
-const { recordInvoiceSettlement, PaymentRuleError } = require('../services/payment.service');
+const { RazorpayCheckoutError, canResumeUnattemptedCheckout, createInvoiceCheckout, getRazorpay, markAttemptFailed, safeProviderCode, safeProviderMessage, settleCapturedPayment } = require('../services/razorpay-invoice-checkout.service');
+const { getRazorpayTestContact } = require('../utils/razorpay-test-contact');
+const { ALLOWED_EVENTS: RAZORPAY_EXPERIMENT_EVENTS, EXPERIMENT_ID: RAZORPAY_EXPERIMENT_ID, assignVariant: assignRazorpayVariant, getExperimentConfig: getRazorpayExperimentConfig, hashVisitorId: hashRazorpayExperimentVisitor, normalizeVisitorId: normalizeRazorpayExperimentVisitor } = require('../utils/razorpay-checkout-experiment');
+const { paymentApiError } = require('../utils/payment-api-error');
+const { razorpayErrorSummary } = require('../utils/redact');
 
 const PUBLIC_SITE_PROFILE_KEY = 'public_site_profile';
 
@@ -692,8 +694,8 @@ const getPublicInvoice = async (req, res) => {
   }
 };
 
-const getPublicInvoiceForPayment = async (slug) => {
-  const share = await resolvePublicShareToken({ token: slug, purpose: 'INVOICE_VIEW' });
+const getPublicInvoiceForPayment = async (slug, { countAccess = true } = {}) => {
+  const share = await (countAccess ? resolvePublicShareToken : findPublicShareToken)({ token: slug, purpose: 'INVOICE_VIEW' });
   if (!share || share.resourceType === 'CUSTOMER') return null;
   const where = share.resourceType === 'INVOICE'
     ? { id: share.resourceId }
@@ -703,72 +705,330 @@ const getPublicInvoiceForPayment = async (slug) => {
         ? { orderId: share.resourceId }
         : null;
   if (!where) return null;
-  const invoice = await prisma.invoice.findFirst({ where, select: { id: true, invoiceNumber: true, customerId: true, orderId: true, status: true, balanceDue: true, totalAmount: true } });
+  const invoice = await prisma.invoice.findFirst({ where, select: { id: true, invoiceNumber: true, customerId: true, orderId: true, status: true, currency: true, balanceDue: true, totalAmount: true } });
   if (!invoice || invoice.status === 'VOID') return null;
   return { share, invoice };
 };
 
-const getPublicRazorpay = () => {
-  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) throw new Error('Razorpay keys are not configured');
-  return new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET });
+const logRazorpayAction = (req, action, description, metadata = {}, status = 'SUCCESS') => logActivity({
+  ...getRequestMeta(req),
+  actorType: 'customer',
+  action,
+  resource: 'razorpay_payment',
+  resourceId: metadata.paymentId || metadata.razorpayOrderId || metadata.invoiceId || null,
+  description,
+  status: status === 'FAILED' ? 'FAILURE' : status,
+  metadata: {
+    provider: 'RAZORPAY',
+    ...metadata,
+  },
+});
+
+const isExperimentEventId = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(String(value || '').toLowerCase());
+
+const assignPublicRazorpayCheckoutExperiment = async (req, res) => {
+  const config = getRazorpayExperimentConfig();
+  if (!config.enabled) return notFound(res, 'Checkout presentation experiment is not enabled');
+  const visitorId = normalizeRazorpayExperimentVisitor(req.body?.visitorId);
+  const eventId = String(req.body?.eventId || '').toLowerCase();
+  if (!visitorId || !isExperimentEventId(eventId)) return badRequest(res, 'A valid anonymous experiment session and event ID are required');
+  try {
+    if (!(await getPublicInvoiceForPayment(String(req.params.slug || ''), { countAccess: false }))) return notFound(res, 'Invoice is not available');
+    const visitorHash = hashRazorpayExperimentVisitor(visitorId, config.hashSecret);
+    const variant = assignRazorpayVariant(visitorHash);
+    const existing = await prisma.razorpayCheckoutExperimentEvent.findUnique({ where: { eventId } });
+    if (existing && (existing.experimentId !== RAZORPAY_EXPERIMENT_ID || existing.visitorHash !== visitorHash || existing.eventType !== 'EXPOSURE' || existing.variant !== variant)) {
+      return badRequest(res, 'Experiment event ID was already used for a different event');
+    }
+    if (!existing) await prisma.razorpayCheckoutExperimentEvent.create({
+      data: { eventId, experimentId: RAZORPAY_EXPERIMENT_ID, visitorHash, variant, eventType: 'EXPOSURE', mode: 'TEST' },
+    });
+    return success(res, { experimentId: RAZORPAY_EXPERIMENT_ID, variant });
+  } catch (err) {
+    console.error('assignPublicRazorpayCheckoutExperiment failed:', err?.code || 'DB_ERROR');
+    return error(res, 'Could not assign checkout presentation');
+  }
+};
+
+const recordPublicRazorpayCheckoutExperimentEvent = async (req, res) => {
+  const config = getRazorpayExperimentConfig();
+  if (!config.enabled) return notFound(res, 'Checkout presentation experiment is not enabled');
+  const visitorId = normalizeRazorpayExperimentVisitor(req.body?.visitorId);
+  const eventId = String(req.body?.eventId || '').toLowerCase();
+  const variant = String(req.body?.variant || '');
+  const eventType = String(req.body?.eventType || '');
+  const attemptId = req.body?.attemptId ? String(req.body.attemptId) : null;
+  if (!visitorId || !isExperimentEventId(eventId) || !['A', 'B'].includes(variant)
+    || !RAZORPAY_EXPERIMENT_EVENTS.has(eventType) || ['EXPOSURE', 'CRM_CAPTURED'].includes(eventType)
+    || (attemptId && attemptId.length > 64)) return badRequest(res, 'Checkout experiment event is invalid');
+  try {
+    const target = await getPublicInvoiceForPayment(String(req.params.slug || ''), { countAccess: false });
+    if (!target) return notFound(res, 'Invoice is not available');
+    const visitorHash = hashRazorpayExperimentVisitor(visitorId, config.hashSecret);
+    if (assignRazorpayVariant(visitorHash) !== variant) return badRequest(res, 'Checkout experiment assignment does not match this session');
+    const exposure = await prisma.razorpayCheckoutExperimentEvent.findFirst({
+      where: { experimentId: RAZORPAY_EXPERIMENT_ID, visitorHash, variant, eventType: 'EXPOSURE', mode: 'TEST' },
+      select: { id: true },
+    });
+    if (!exposure) return badRequest(res, 'Checkout experiment exposure was not recorded');
+    if (['CHECKOUT_OPEN_REQUESTED', 'CHECKOUT_DISMISSED', 'CHECKOUT_HANDLER_RETURNED', 'PAYMENT_FAILED_CALLBACK'].includes(eventType) && !attemptId) {
+      return badRequest(res, 'A checkout attempt is required for this event');
+    }
+    if (attemptId) {
+      const attempt = await prisma.razorpayCheckoutAttempt.findFirst({
+        where: { id: attemptId, invoiceId: target.invoice.id, mode: 'TEST', experimentId: RAZORPAY_EXPERIMENT_ID, experimentVariant: variant, experimentVisitorHash: visitorHash },
+        select: { id: true },
+      });
+      if (!attempt) return badRequest(res, 'Checkout attempt does not match this experiment session');
+    }
+    const priorEvent = await prisma.razorpayCheckoutExperimentEvent.findUnique({ where: { eventId } });
+    if (priorEvent) {
+      const sameEvent = priorEvent.experimentId === RAZORPAY_EXPERIMENT_ID && priorEvent.visitorHash === visitorHash
+        && priorEvent.variant === variant && priorEvent.eventType === eventType && priorEvent.attemptId === attemptId;
+      if (!sameEvent) return badRequest(res, 'Experiment event ID was already used for a different event');
+      return success(res, { accepted: true, duplicate: true });
+    }
+    await prisma.razorpayCheckoutExperimentEvent.create({
+      data: { eventId, experimentId: RAZORPAY_EXPERIMENT_ID, visitorHash, variant, eventType, attemptId, mode: 'TEST' },
+    });
+    return success(res, { accepted: true, duplicate: false });
+  } catch (err) {
+    console.error('recordPublicRazorpayCheckoutExperimentEvent failed:', err?.code || 'DB_ERROR');
+    return error(res, 'Could not record checkout experiment event');
+  }
 };
 
 const createPublicRazorpayOrder = async (req, res) => {
+  const startedAt = Date.now();
   try {
-    const target = await getPublicInvoiceForPayment(String(req.params.slug || ''));
-    if (!target || !target.invoice.orderId) return notFound(res, 'Online payment is not available for this invoice');
-    const amount = Math.round(Number(target.invoice.balanceDue || 0) * 100);
-    if (amount < 100) return badRequest(res, 'Minimum online payment is ₹1');
-    // Razorpay receipts identify individual orders and cannot be reused on a retry.
-    // Keep the business invoice in notes while giving every checkout attempt its own receipt.
-    const receipt = `${target.invoice.invoiceNumber}-${Date.now()}`.slice(0, 40);
-    const order = await getPublicRazorpay().orders.create({
-      amount,
-      currency: 'INR',
-      receipt,
-      notes: { invoiceId: target.invoice.id, orderId: target.invoice.orderId, publicShareId: target.share.id },
+    const mode = String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_') ? 'TEST' : 'LIVE';
+    const testContact = getRazorpayTestContact({
+      mode,
+      configuredContact: process.env.RAZORPAY_TEST_CONTACT_NUMBER,
     });
-    return success(res, { razorpayOrderId: order.id, amount: order.amount, currency: order.currency, key: process.env.RAZORPAY_KEY_ID, invoiceNumber: target.invoice.invoiceNumber });
+    if (mode === 'TEST' && !testContact) {
+      await logRazorpayAction(req, 'RAZORPAY_TEST_CONTACT_REQUIRED', 'Test checkout blocked because the approved test contact is not configured', {
+        code: 'TEST_CONTACT_NOT_CONFIGURED', requestId: req.id,
+      }, 'FAILED');
+      return paymentApiError(res, { statusCode: 503, code: 'TEST_CONTACT_NOT_CONFIGURED', message: 'Test checkout is unavailable until the approved test contact is configured.', requestId: req.id, retryable: false, action: 'CONTACT_SUPPORT' });
+    }
+    let experiment;
+    if (req.body?.experiment) {
+      const config = getRazorpayExperimentConfig();
+      const visitorId = normalizeRazorpayExperimentVisitor(req.body.experiment?.visitorId);
+      const variant = String(req.body.experiment?.variant || '');
+      const eventId = String(req.body.experiment?.eventId || '').toLowerCase();
+      if (!config.enabled || mode !== 'TEST' || !visitorId || !['A', 'B'].includes(variant) || !isExperimentEventId(eventId)) {
+        return paymentApiError(res, { statusCode: 400, code: 'CHECKOUT_EXPERIMENT_INVALID', message: 'Checkout experiment assignment is invalid', requestId: req.id });
+      }
+      const visitorHash = hashRazorpayExperimentVisitor(visitorId, config.hashSecret);
+      if (assignRazorpayVariant(visitorHash) !== variant) {
+        return paymentApiError(res, { statusCode: 400, code: 'CHECKOUT_EXPERIMENT_INVALID', message: 'Checkout experiment assignment does not match this session', requestId: req.id });
+      }
+      const exposure = await prisma.razorpayCheckoutExperimentEvent.findUnique({ where: { eventId } });
+      if (!exposure || exposure.experimentId !== RAZORPAY_EXPERIMENT_ID || exposure.visitorHash !== visitorHash
+        || exposure.variant !== variant || exposure.eventType !== 'EXPOSURE' || exposure.mode !== 'TEST') {
+        return paymentApiError(res, { statusCode: 400, code: 'CHECKOUT_EXPERIMENT_EXPOSURE_REQUIRED', message: 'Checkout experiment exposure must be recorded before payment starts', requestId: req.id });
+      }
+      experiment = { id: RAZORPAY_EXPERIMENT_ID, variant, visitorHash };
+    }
+    const target = await getPublicInvoiceForPayment(String(req.params.slug || ''));
+    if (!target) return paymentApiError(res, { statusCode: 404, code: 'INVOICE_NOT_PAYABLE', message: 'Online payment is not available for this invoice', requestId: req.id });
+    await logRazorpayAction(req, 'RAZORPAY_CHECKOUT_INITIATED', 'Customer initiated Razorpay checkout', {
+      invoiceId: target.invoice.id,
+      invoiceNumber: target.invoice.invoiceNumber,
+      orderId: target.invoice.orderId,
+      requestId: req.id,
+    });
+    const result = await createInvoiceCheckout({
+      invoice: target.invoice,
+      shareId: target.share.id,
+      idempotencyKey: req.get('Idempotency-Key'),
+      requestId: req.id,
+      experiment,
+    });
+    await logRazorpayAction(req, 'RAZORPAY_ORDER_CREATED', 'Razorpay order created for invoice checkout', {
+      checkoutAttemptId: result.attempt.id,
+      invoiceId: target.invoice.id,
+      invoiceNumber: target.invoice.invoiceNumber,
+      orderId: target.invoice.orderId,
+      razorpayOrderId: result.order.id,
+      amountPaise: result.order.amount,
+      currency: result.order.currency,
+      reused: result.reused,
+      experimentId: result.attempt.experimentId || null,
+      experimentVariant: result.attempt.experimentVariant || null,
+      durationMs: Date.now() - startedAt,
+    });
+    return success(res, {
+      checkoutAttemptId: result.attempt.id,
+      razorpayOrderId: result.order.id,
+      amount: result.order.amount,
+      currency: result.order.currency,
+      mode: result.attempt.mode,
+      ...(result.attempt.mode === 'TEST' ? { testContact } : {}),
+      key: process.env.RAZORPAY_KEY_ID,
+      invoiceNumber: target.invoice.invoiceNumber,
+      ...(experiment ? { experiment: { id: experiment.id, variant: experiment.variant } } : {}),
+    });
   } catch (err) {
-    console.error('createPublicRazorpayOrder error:', err.message);
-    return error(res, 'Failed to start online payment');
+    await logRazorpayAction(req, 'RAZORPAY_ORDER_CREATE_FAILED', 'Razorpay order creation failed', {
+      code: safeProviderCode(err), error: safeProviderMessage(err), providerError: razorpayErrorSummary(err), durationMs: Date.now() - startedAt,
+    }, 'FAILED');
+    if (err instanceof RazorpayCheckoutError) return paymentApiError(res, { statusCode: err.statusCode, code: err.code, message: err.message, requestId: req.id, details: err.details });
+    console.error('createPublicRazorpayOrder failed:', safeProviderCode(err));
+    return paymentApiError(res, { code: 'CHECKOUT_ORDER_CREATE_FAILED', message: 'Failed to start online payment', requestId: req.id });
   }
 };
 
 const verifyPublicRazorpayPayment = async (req, res) => {
   const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body || {};
-  if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) return badRequest(res, 'Razorpay order, payment, and signature are required');
+  if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+    await logRazorpayAction(req, 'RAZORPAY_CALLBACK_INVALID', 'Razorpay callback was missing verification fields', {
+      orderIdPresent: Boolean(razorpayOrderId),
+      paymentIdPresent: Boolean(razorpayPaymentId),
+      signaturePresent: Boolean(razorpaySignature),
+    }, 'FAILED');
+    return paymentApiError(res, { statusCode: 400, code: 'CHECKOUT_CALLBACK_FIELDS_REQUIRED', message: 'Razorpay order, payment, and signature are required', requestId: req.id });
+  }
+  await logRazorpayAction(req, 'RAZORPAY_CALLBACK_RECEIVED', 'Razorpay checkout callback received', {
+    providerOrderId: razorpayOrderId,
+    providerPaymentId: razorpayPaymentId,
+    signaturePresent: true,
+  });
   try {
     const target = await getPublicInvoiceForPayment(String(req.params.slug || ''));
-    if (!target || !target.invoice.orderId) return notFound(res, 'Online payment is not available for this invoice');
-    const razorpay = getPublicRazorpay();
-    const serverOrder = await razorpay.orders.fetch(razorpayOrderId);
-    if (serverOrder.notes?.invoiceId !== target.invoice.id || serverOrder.notes?.orderId !== target.invoice.orderId) return badRequest(res, 'Razorpay order does not belong to this invoice');
-    const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${serverOrder.id}|${razorpayPaymentId}`).digest('hex');
-    const receivedBuffer = Buffer.from(String(razorpaySignature));
-    const expectedBuffer = Buffer.from(expected);
-    if (receivedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(receivedBuffer, expectedBuffer)) return badRequest(res, 'Payment verification failed — invalid signature');
-    const paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
-    if (paymentDetails.order_id !== serverOrder.id || String(paymentDetails.status).toLowerCase() !== 'captured') return badRequest(res, 'Payment is not captured');
-    const amount = Number(paymentDetails.amount) / 100;
-    if (!Number.isFinite(amount) || amount <= 0 || amount > Number(target.invoice.balanceDue) + 0.01) return badRequest(res, 'Payment amount is invalid for this invoice');
-    const result = await prisma.$transaction(async (tx) => recordInvoiceSettlement(tx, {
+    if (!target) return paymentApiError(res, { statusCode: 404, code: 'INVOICE_NOT_PAYABLE', message: 'Online payment is not available for this invoice', requestId: req.id });
+    const result = await settleCapturedPayment({
+      paymentId: String(razorpayPaymentId),
+      providerOrderId: String(razorpayOrderId),
+      signature: String(razorpaySignature),
+      source: 'PUBLIC_INVOICE',
+      expectedInvoiceId: target.invoice.id,
+      expectedShareId: target.share.id,
+    });
+    if (result.pending) {
+      await logRazorpayAction(req, 'RAZORPAY_PAYMENT_PENDING', 'Provider callback received; payment is not yet captured', {
+        invoiceId: target.invoice.id, checkoutAttemptId: result.attempt.id, providerPaymentId: razorpayPaymentId, providerStatus: result.providerStatus,
+      });
+      return success(res, { status: 'PENDING', invoiceNumber: target.invoice.invoiceNumber, message: 'Payment is still processing. Do not retry yet; refresh this invoice shortly.' }, 'Payment processing');
+    }
+    if (result.failed) return paymentApiError(res, { statusCode: 409, code: 'RAZORPAY_PAYMENT_FAILED', message: 'Razorpay reports this payment failed. You can retry this invoice payment.', requestId: req.id, retryable: true, action: 'RETRY_CHECKOUT_SAME_ORDER' });
+    await logRazorpayAction(req, 'RAZORPAY_PAYMENT_SETTLED', 'Razorpay payment verified and posted to CRM ledger', {
       invoiceId: target.invoice.id,
-      amount,
-      method: 'RAZORPAY',
-      reference: razorpayPaymentId,
-      notes: 'Online payment via public Razorpay invoice link',
-      idempotencyKey: `public-razorpay:${razorpayPaymentId}`,
-      razorpayOrderId,
-      razorpayPaymentId,
-      razorpaySignature,
-    }), { isolationLevel: 'Serializable' });
-    return success(res, { invoiceNumber: target.invoice.invoiceNumber, paymentId: result.payment?.id, amount: result.payment?.amount, balanceDue: result.balanceDue, paymentStatus: result.paymentStatus }, 'Payment successful');
+      invoiceNumber: target.invoice.invoiceNumber,
+      checkoutAttemptId: result.attempt.id,
+      orderId: result.order?.id || target.invoice.orderId,
+      providerOrderId: razorpayOrderId,
+      providerPaymentId: razorpayPaymentId,
+      crmPaymentId: result.payment?.id,
+      amount: result.payment?.amount,
+      paymentStatus: result.paymentStatus,
+      balanceDue: result.balanceDue,
+      whatsappQueued: Boolean(result.payment && result.order),
+      alreadyRecorded: Boolean(result.alreadyRecorded),
+    });
+    return success(res, {
+      invoiceNumber: target.invoice.invoiceNumber,
+      paymentId: result.payment?.id,
+      amount: result.payment?.amount,
+      balanceDue: result.invoice?.balanceDue ?? result.balanceDue,
+      paymentStatus: result.invoice?.status || result.paymentStatus,
+      order: result.order ? {
+        id: result.order.id,
+        orderNumber: result.order.orderNumber,
+        paymentStatus: result.order.paymentStatus,
+        paidAmount: result.order.paidAmount,
+        balanceDue: result.balanceDue,
+      } : null,
+    }, 'Payment successful');
   } catch (err) {
-    if (err instanceof PaymentRuleError) return badRequest(res, err.message);
-    if (err?.code === 'P2002') return badRequest(res, 'This payment has already been recorded');
-    console.error('verifyPublicRazorpayPayment error:', err.message);
-    return error(res, 'Payment verification failed');
+    await logRazorpayAction(req, 'RAZORPAY_PAYMENT_FAILED', 'Razorpay payment verification or settlement failed', {
+      razorpayOrderId,
+      paymentId: razorpayPaymentId,
+      errorCode: safeProviderCode(err),
+      providerError: razorpayErrorSummary(err),
+    }, 'FAILED');
+    if (err instanceof RazorpayCheckoutError) return paymentApiError(res, { statusCode: err.statusCode, code: err.code, message: err.message, requestId: req.id, retryable: err.statusCode >= 500, details: err.details });
+    console.error('verifyPublicRazorpayPayment failed:', safeProviderCode(err));
+    return paymentApiError(res, { code: 'CHECKOUT_VERIFICATION_FAILED', message: 'Payment verification failed', requestId: req.id });
+  }
+};
+
+const getPublicRazorpayCheckoutStatus = async (req, res, _next, testHooks = {}) => {
+  const attemptId = String(req.query.attemptId || '').trim();
+  if (!attemptId || attemptId.length > 40) return paymentApiError(res, { statusCode: 400, code: 'CHECKOUT_ATTEMPT_REQUIRED', message: 'A valid checkout attempt is required', requestId: req.id });
+  try {
+    const target = await getPublicInvoiceForPayment(String(req.params.slug || ''));
+    if (!target) return paymentApiError(res, { statusCode: 404, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found', requestId: req.id });
+    let attempt = await prisma.razorpayCheckoutAttempt.findFirst({
+      where: { id: attemptId, invoiceId: target.invoice.id, publicShareId: target.share.id },
+    });
+    if (!attempt) return paymentApiError(res, { statusCode: 404, code: 'CHECKOUT_ATTEMPT_NOT_FOUND', message: 'Checkout attempt not found', requestId: req.id });
+
+    let canResumeCheckout = false;
+    if (['CREATED', 'AUTHORIZED', 'PENDING'].includes(attempt.status) && attempt.razorpayOrderId) {
+      try {
+        const razorpay = (testHooks.getRazorpay || getRazorpay)();
+        const providerPayments = await razorpay.orders.fetchPayments(attempt.razorpayOrderId);
+        const captured = (providerPayments?.items || []).find((payment) => String(payment.status).toLowerCase() === 'captured');
+        if (captured) {
+          await settleCapturedPayment({
+            paymentId: captured.id,
+            providerOrderId: attempt.razorpayOrderId,
+            source: 'STATUS_POLL',
+            expectedInvoiceId: target.invoice.id,
+            expectedShareId: target.share.id,
+          });
+          attempt = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
+        } else if ((providerPayments?.items || []).length && (providerPayments.items || []).every((payment) => String(payment.status).toLowerCase() === 'failed')) {
+          const lastFailure = providerPayments.items[providerPayments.items.length - 1];
+          attempt = await markAttemptFailed({
+            attemptId: attempt.id,
+            paymentId: lastFailure?.id || null,
+            providerPayment: lastFailure || null,
+            source: 'STATUS_POLL',
+          });
+        } else if (attempt.status === 'CREATED' && Array.isArray(providerPayments?.items) && providerPayments.items.length === 0) {
+          const providerOrder = await razorpay.orders.fetch(attempt.razorpayOrderId);
+          canResumeCheckout = canResumeUnattemptedCheckout({ attempt, providerOrder, providerPayments });
+          if (canResumeCheckout) await logRazorpayAction(req, 'RAZORPAY_UNATTEMPTED_CHECKOUT_RESUMABLE', 'Provider confirms the existing order is still created with no payment attempts; the same checkout order can be resumed', {
+            checkoutAttemptId: attempt.id,
+            invoiceId: target.invoice.id,
+            razorpayOrderId: attempt.razorpayOrderId,
+            providerOrderStatus: providerOrder.status,
+            providerAttemptCount: providerOrder.attempts,
+          });
+        }
+      } catch (providerError) {
+        // Status polling is a recovery path; preserve the pending attempt and let
+        // the durable webhook/reconciliation worker retry on provider outages.
+        if (providerError instanceof RazorpayCheckoutError) throw providerError;
+        await logRazorpayAction(req, 'RAZORPAY_PAYMENT_STATUS_PROVIDER_LOOKUP_FAILED', 'Provider status lookup failed; checkout remains pending for recovery', {
+          requestId: req.id,
+          checkoutAttemptId: attempt.id,
+          invoiceId: target.invoice.id,
+          razorpayOrderId: attempt.razorpayOrderId,
+          errorCode: safeProviderCode(providerError),
+          providerError: razorpayErrorSummary(providerError),
+        }, 'FAILED');
+      }
+    }
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: target.invoice.id },
+      select: { invoiceNumber: true, status: true, balanceDue: true, paidAmount: true },
+    });
+    return success(res, {
+      attemptId: attempt.id,
+      status: attempt.status,
+      canResumeCheckout,
+      invoice,
+      paymentId: attempt.status === 'CAPTURED' ? attempt.razorpayPaymentId : null,
+    });
+  } catch (err) {
+    if (err instanceof RazorpayCheckoutError) return paymentApiError(res, { statusCode: err.statusCode, code: err.code, message: err.message, requestId: req.id, retryable: err.statusCode >= 500, details: err.details });
+    return paymentApiError(res, { code: 'CHECKOUT_STATUS_CHECK_FAILED', message: 'Could not check payment status', requestId: req.id, retryable: true });
   }
 };
 
@@ -864,4 +1124,7 @@ module.exports = {
   getPublicRateChart,
   createPublicRazorpayOrder,
   verifyPublicRazorpayPayment,
+  getPublicRazorpayCheckoutStatus,
+  assignPublicRazorpayCheckoutExperiment,
+  recordPublicRazorpayCheckoutExperimentEvent,
 };

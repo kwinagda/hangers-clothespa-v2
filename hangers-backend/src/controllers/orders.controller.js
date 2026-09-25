@@ -27,6 +27,8 @@ const { createPublicShareToken }                    = require('../services/publi
 const { nextDocumentNumber } = require('../services/document-number.service');
 const { GarmentUnitError, syncOrderGarmentUnits } = require('../services/garment-unit.service');
 const { getDefaultPaymentAccount, getPaymentAccountQrMediaUrl } = require('../services/payment-account-settings.service');
+const { createRazorpayRefund, reconcileRazorpayRefundAttempt, serializeRefundAttempt } = require('../services/razorpay-refund.service');
+const { paymentApiError, validationFieldErrors } = require('../utils/payment-api-error');
 
 const STATUS_CORRECTION_ROLES = ['SUPER_ADMIN', 'MANAGER'];
 const HIGH_RISK_STATUS_CORRECTION_ROLES = ['SUPER_ADMIN'];
@@ -429,10 +431,22 @@ const getOrder = async (req, res) => {
         stages:     { orderBy: { createdAt: 'asc' } },
         assignedTo: { select: { id: true, name: true, role: true } },
         payments:   true,
+        ...((hasPermission(req.staff, 'finance.view') || hasPermission(req.staff, 'finance.refund')) ? { razorpayRefundAttempts: {
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true, sourcePaymentId: true, amountPaise: true, currency: true, status: true,
+            providerStatus: true, razorpayRefundId: true, reasonCode: true, reason: true,
+            failureCode: true, createdAt: true, updatedAt: true, completedAt: true,
+          },
+        } } : {}),
       },
     });
     if (!order) return notFound(res, 'Order not found');
-    return success(res, { order: withDerivedPaymentState(order) });
+    const safeOrder = {
+      ...order,
+      razorpayRefundAttempts: (order.razorpayRefundAttempts || []).map(serializeRefundAttempt),
+    };
+    return success(res, { order: withDerivedPaymentState(safeOrder) });
   } catch (err) {
     return error(res, 'Failed to fetch order');
   }
@@ -822,7 +836,10 @@ const retryWhatsAppNotification = async (req, res) => {
       if (!paymentId) return badRequest(res, 'Failed payment notification has no payment reference');
       const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
       if (!payment) return notFound(res, 'Payment not found for failed notification');
+      let templateName = null;
       const sent = await sendPaymentReceivedMessage(order, payment.amount, payment.method, {
+        providerMethod: payment.providerMethod,
+        onTemplateSelected: (name) => { templateName = name; },
         idempotencyKey: `manual-retry:payment-received:${payment.id}:${failedStage.id}`,
         throwOnFailure: true,
       });
@@ -831,7 +848,7 @@ const retryWhatsAppNotification = async (req, res) => {
         order,
         failedStage,
         label: 'Payment received',
-        metadata: { outboxEventType: failedType, payload: { paymentId } },
+        metadata: { outboxEventType: failedType, payload: { paymentId }, templateName },
       });
       await markWhatsAppFailureResolved(failedStage, req.staff);
       await prisma.outboxEvent.updateMany({
@@ -1802,7 +1819,14 @@ const addItemsToOrder = async (req, res) => {
 // ── Record Payment ─────────────────────────────────────────────────────────────
 const recordPayment = async (req, res) => {
   const parsed = orderPaymentSchema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid payment payload');
+  if (!parsed.success) return paymentApiError(res, {
+    statusCode: 400,
+    code: 'ORDER_PAYMENT_VALIDATION_FAILED',
+    message: 'Payment request contains invalid fields.',
+    requestId: req.id,
+    retryable: false,
+    fieldErrors: validationFieldErrors(parsed.error.issues),
+  });
 
   try {
     const { id } = req.params;
@@ -1810,7 +1834,14 @@ const recordPayment = async (req, res) => {
 	    const normalizedMethod = amount > 0 ? normalizePaymentMethod(method) : null;
     const corePaymentMethods = await getCorePaymentMethods();
     if (amount > 0 && !corePaymentMethods.includes(normalizedMethod)) {
-      return badRequest(res, `Payment method must be one of: ${corePaymentMethods.join(', ')}`);
+      return paymentApiError(res, {
+        statusCode: 400,
+        code: 'ORDER_PAYMENT_METHOD_INVALID',
+        message: `Payment method must be one of: ${corePaymentMethods.join(', ')}.`,
+        requestId: req.id,
+        retryable: false,
+        fieldErrors: [{ field: 'method', code: 'INVALID_ENUM_VALUE', message: `Choose one of: ${corePaymentMethods.join(', ')}.` }],
+      });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -1896,24 +1927,93 @@ const recordPayment = async (req, res) => {
   } catch (err) {
     console.error('recordPayment error:', err);
     if (err instanceof PaymentRuleError) {
-      if (err.statusCode === 404) return notFound(res, err.message);
-      if (err.statusCode === 403) return forbidden(res, err.message);
-      return badRequest(res, err.message);
+      return paymentApiError(res, {
+        statusCode: err.statusCode || 400,
+        code: err.code || 'ORDER_PAYMENT_REJECTED',
+        message: err.message || 'Payment request was rejected.',
+        requestId: req.id,
+        retryable: false,
+        action: err.statusCode === 403 ? 'CONTACT_ADMIN' : undefined,
+      });
     }
-    if (err instanceof BillingRuleError) return badRequest(res, err.message);
-    if (err?.code === 'P2034') return badRequest(res, 'Payment conflicted with another update; retry with the same idempotency key');
-    return error(res, 'Failed to record payment');
+    if (err instanceof BillingRuleError) return paymentApiError(res, { statusCode: err.statusCode || 400, code: err.code || 'ORDER_PAYMENT_BILLING_REJECTED', message: err.message, requestId: req.id, retryable: false });
+    if (err?.code === 'P2034') return paymentApiError(res, { statusCode: 409, code: 'ORDER_PAYMENT_CONCURRENT_CONFLICT', message: 'Payment conflicted with another update; retry using the same idempotency key.', requestId: req.id, retryable: true, action: 'RETRY_SAME_REQUEST' });
+    return paymentApiError(res, { code: 'ORDER_PAYMENT_RECORD_FAILED', message: 'Failed to record payment.', requestId: req.id });
   }
 };
 
 const refundPayment = async (req, res) => {
   const parsed = orderRefundSchema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid refund payload');
+  if (!parsed.success) return paymentApiError(res, {
+    statusCode: 400,
+    code: 'ORDER_REFUND_VALIDATION_FAILED',
+    message: 'Refund request contains invalid fields.',
+    requestId: req.id,
+    retryable: false,
+    fieldErrors: validationFieldErrors(parsed.error.issues),
+  });
   try {
+    const sourcePayment = await prisma.payment.findFirst({
+      where: { id: parsed.data.sourcePaymentId, orderId: req.params.id, kind: 'RECEIPT' },
+      select: { id: true, razorpayPaymentId: true },
+    });
+    if (sourcePayment?.razorpayPaymentId) {
+      if (parsed.data.method) return paymentApiError(res, {
+        statusCode: 400,
+        code: 'RAZORPAY_REFUND_METHOD_NOT_SELECTABLE',
+        message: 'Razorpay refunds are returned to the original payment method; do not choose a refund method.',
+        requestId: req.id,
+        retryable: false,
+        action: 'CORRECT_REQUEST',
+        fieldErrors: [{ field: 'method', code: 'METHOD_NOT_ALLOWED', message: 'Omit the refund method for Razorpay payments.' }],
+      });
+      const result = await createRazorpayRefund({
+        orderId: req.params.id,
+        ...parsed.data,
+        staff: req.staff,
+        idempotencyKey: req.idempotencyKey,
+        requestId: req.id,
+      });
+      const body = {
+        success: true,
+        message: result.pending
+          ? 'Razorpay is processing the refund; CRM balances update after provider confirmation.'
+          : result.failed
+            ? 'Razorpay could not process this refund. No CRM refund was posted.'
+            : result.alreadyRecorded
+              ? 'Razorpay refund is confirmed and recorded.'
+              : 'Razorpay refund and CRM credit note posted.',
+        data: {
+          attempt: serializeRefundAttempt(result.attempt),
+          refundPayment: result.refundPayment,
+          creditNote: result.creditNote,
+          pending: Boolean(result.pending),
+          failed: Boolean(result.failed),
+          review: Boolean(result.review),
+          alreadyRecorded: Boolean(result.alreadyRecorded),
+          ...(result.balanceDue !== undefined ? { balanceDue: result.balanceDue } : {}),
+        },
+      };
+      return res.status(result.pending || result.review ? 202 : 200).json(body);
+    }
+    if (!sourcePayment) return paymentApiError(res, {
+      statusCode: 404,
+      code: 'REFUND_SOURCE_PAYMENT_NOT_FOUND',
+      message: 'Captured source payment not found for this order.',
+      requestId: req.id,
+      retryable: false,
+    });
     const normalizedMethod = parsed.data.method ? normalizePaymentMethod(parsed.data.method) : undefined;
     if (normalizedMethod) {
       const methods = await getCorePaymentMethods();
-      if (!methods.includes(normalizedMethod)) return badRequest(res, `Refund method must be one of: ${methods.join(', ')}`);
+      if (!methods.includes(normalizedMethod)) return paymentApiError(res, {
+        statusCode: 400,
+        code: 'REFUND_METHOD_INVALID',
+        message: `Refund method must be one of: ${methods.join(', ')}.`,
+        requestId: req.id,
+        retryable: false,
+        fieldErrors: [{ field: 'method', code: 'INVALID_ENUM_VALUE', message: `Choose one of: ${methods.join(', ')}.` }],
+      });
     }
     const result = await prisma.$transaction(async (tx) => {
       const refund = await recordOrderRefund(tx, {
@@ -1946,19 +2046,86 @@ const refundPayment = async (req, res) => {
   } catch (err) {
     console.error('refundPayment error:', err);
     if (err instanceof PaymentRuleError) {
-      if (err.statusCode === 404) return notFound(res, err.message);
-      if (err.statusCode === 403) return forbidden(res, err.message);
-      if (err.statusCode === 409) return res.status(409).json({ success: false, message: err.message });
-      return badRequest(res, err.message);
+      return paymentApiError(res, {
+        statusCode: err.statusCode || 400,
+        code: err.code || 'ORDER_REFUND_REJECTED',
+        message: err.message || 'Refund request was rejected.',
+        requestId: req.id,
+        retryable: false,
+        action: err.statusCode === 403 ? 'CONTACT_ADMIN' : undefined,
+      });
     }
-    if (err?.code === 'P2034') return res.status(409).json({ success: false, message: 'Refund conflicted with another update; retry with the same idempotency key' });
-    return error(res, 'Failed to post refund');
+    if (err?.code === 'P2034') return paymentApiError(res, {
+      statusCode: 409,
+      code: 'ORDER_REFUND_CONCURRENT_UPDATE',
+      message: 'Refund conflicted with another update. Check the current refund status before retrying with the same idempotency key.',
+      requestId: req.id,
+      retryable: false,
+      action: 'CHECK_CURRENT_STATE',
+    });
+    return paymentApiError(res, { code: 'ORDER_REFUND_FAILED', message: 'Failed to post refund.', requestId: req.id });
+  }
+};
+
+const reconcileRefundPayment = async (req, res) => {
+  try {
+    const result = await reconcileRazorpayRefundAttempt({
+      orderId: req.params.id,
+      attemptId: req.params.attemptId,
+      staff: req.staff,
+      requestId: req.id,
+    });
+    const pending = Boolean(result.pending || result.review);
+    return res.status(pending ? 202 : 200).json({
+      success: true,
+      message: pending
+        ? 'Refund is not final yet. CRM balances remain unchanged until Razorpay confirms processing.'
+        : result.failed
+          ? 'Razorpay reports the refund failed. No CRM refund was posted.'
+          : 'Razorpay refund status reconciled with CRM.',
+      data: {
+        attempt: serializeRefundAttempt(result.attempt),
+        refundPayment: result.refundPayment || null,
+        creditNote: result.creditNote || null,
+        pending,
+        failed: Boolean(result.failed),
+        review: Boolean(result.review),
+        alreadyRecorded: Boolean(result.alreadyRecorded),
+      },
+    });
+  } catch (err) {
+    console.error('reconcileRefundPayment error:', err);
+    if (err instanceof PaymentRuleError) {
+      return paymentApiError(res, {
+        statusCode: err.statusCode || 400,
+        code: err.code || 'RAZORPAY_REFUND_RECONCILIATION_REJECTED',
+        message: err.message || 'Refund reconciliation was rejected.',
+        requestId: req.id,
+        retryable: false,
+        action: err.statusCode === 403 ? 'CONTACT_ADMIN' : undefined,
+      });
+    }
+    return paymentApiError(res, {
+      statusCode: 503,
+      code: 'RAZORPAY_REFUND_STATUS_UNAVAILABLE',
+      message: 'Could not verify refund status with Razorpay. CRM balances were not changed; retry the status check later.',
+      requestId: req.id,
+      retryable: true,
+      action: 'RETRY_SAME_REQUEST',
+    });
   }
 };
 
 const reversePaymentCorrection = async (req, res) => {
   const parsed = orderPaymentReversalSchema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid payment correction payload');
+  if (!parsed.success) return paymentApiError(res, {
+    statusCode: 400,
+    code: 'ORDER_PAYMENT_REVERSAL_VALIDATION_FAILED',
+    message: 'Payment correction request contains invalid fields.',
+    requestId: req.id,
+    retryable: false,
+    fieldErrors: validationFieldErrors(parsed.error.issues),
+  });
   try {
     const result = await prisma.$transaction(async (tx) => {
       const before = await tx.order.findFirst({
@@ -2032,13 +2199,17 @@ const reversePaymentCorrection = async (req, res) => {
   } catch (err) {
     console.error('reversePaymentCorrection error:', err);
     if (err instanceof PaymentRuleError) {
-      if (err.statusCode === 404) return notFound(res, err.message);
-      if (err.statusCode === 403) return forbidden(res, err.message);
-      if (err.statusCode === 409) return res.status(409).json({ success: false, message: err.message });
-      return badRequest(res, err.message);
+      return paymentApiError(res, {
+        statusCode: err.statusCode || 400,
+        code: err.code || 'ORDER_PAYMENT_REVERSAL_REJECTED',
+        message: err.message || 'Payment correction was rejected.',
+        requestId: req.id,
+        retryable: false,
+        action: err.statusCode === 403 ? 'CONTACT_ADMIN' : undefined,
+      });
     }
-    if (err?.code === 'P2034') return res.status(409).json({ success: false, message: 'Payment correction conflicted with another update; retry with the same idempotency key' });
-    return error(res, 'Failed to void payment entry');
+    if (err?.code === 'P2034') return paymentApiError(res, { statusCode: 409, code: 'ORDER_PAYMENT_REVERSAL_CONCURRENT_CONFLICT', message: 'Payment correction conflicted with another update; retry using the same idempotency key.', requestId: req.id, retryable: true, action: 'RETRY_SAME_REQUEST' });
+    return paymentApiError(res, { code: 'ORDER_PAYMENT_REVERSAL_FAILED', message: 'Failed to void payment entry.', requestId: req.id });
   }
 };
 
@@ -2225,6 +2396,7 @@ module.exports = {
   deleteOrder,
   recordPayment,
   refundPayment,
+  reconcileRefundPayment,
   reversePaymentCorrection,
   createReturnOrder,
 };

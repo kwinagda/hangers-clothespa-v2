@@ -48,6 +48,7 @@ const metadataRoutes      = require('./routes/metadata.routes');
 const quotationsRoutes    = require('./routes/quotations.routes');
 const publicRoutes        = require('./routes/public.routes');
 const websitePickupRequestsRoutes = require('./routes/website-pickup-requests.routes');
+const webhookRoutes = require('./routes/webhooks.routes');
 const { syncPermissionCatalog } = require('./services/accessControl.service');
 const { syncMasterDataSettings } = require('./services/masterData.service');
 const { processOutboxBatch } = require('./services/outbox.service');
@@ -87,7 +88,15 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json({ limit: '1mb', strict: true }));
+// Razorpay signs the exact raw JSON bytes. Preserve them only for the webhook
+// route; all other JSON requests continue through the normal parser.
+app.use(express.json({
+  limit: '1mb',
+  strict: true,
+  verify: (req, _res, buf) => {
+    if (/^\/api\/v1\/webhooks\/razorpay(?:\/(?:test|live))?$/.test(req.path)) req.rawBody = Buffer.from(buf);
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: '1mb', parameterLimit: 100 }));
 // Stamp every request with a unique ID — surfaced in error logs and response headers
 app.use((req, res, next) => {
@@ -130,6 +139,9 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
   fallthrough: false,
 }));
 
+// Provider callbacks use their own HMAC authentication and durable inbox; do not
+// let a user-facing IP rate limit suppress legitimate Razorpay retries.
+app.use('/api/v1/webhooks', webhookRoutes);
 app.use('/api/v1', globalApiLimiter);
 
 app.use('/api/v1/auth',            authRoutes);

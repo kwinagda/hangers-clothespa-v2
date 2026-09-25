@@ -42,17 +42,7 @@ const createPublicShareToken = async ({ resourceType, resourceId, purpose, ttlDa
 };
 
 const resolvePublicShareToken = async ({ token, purpose }) => {
-  const normalized = String(token || '').trim();
-  if (!normalized || normalized.length < 24) return null;
-
-  const share = await prisma.publicShareToken.findFirst({
-    where: {
-      tokenHash: hashToken(normalized),
-      purpose,
-      revokedAt: null,
-      expiresAt: { gt: new Date() },
-    },
-  });
+  const share = await findPublicShareToken({ token, purpose });
   if (!share) return null;
 
   await prisma.publicShareToken.update({
@@ -66,7 +56,24 @@ const resolvePublicShareToken = async ({ token, purpose }) => {
   return share;
 };
 
+const findPublicShareToken = async ({ token, purpose }) => {
+  const normalized = String(token || '').trim();
+  if (!normalized || normalized.length < 24) return null;
+
+  const share = await prisma.publicShareToken.findFirst({
+    where: {
+      tokenHash: hashToken(normalized),
+      purpose,
+      revokedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+  });
+  if (!share) return null;
+  return share;
+};
+
 module.exports = {
   createPublicShareToken,
+  findPublicShareToken,
   resolvePublicShareToken,
 };

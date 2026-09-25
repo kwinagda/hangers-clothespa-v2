@@ -11,6 +11,7 @@ dist/
 # Next.js
 .next/
 **/.next/
+**/.next-razorpay-qa/
 
 # Environment variables
 .env
@@ -21,6 +22,7 @@ dist/
 **/.env.*.local
 
 # Local credentials and secrets
+rzp-test-key*.csv
 *Creds*.rtf
 *creds*.rtf
 *credential*.rtf

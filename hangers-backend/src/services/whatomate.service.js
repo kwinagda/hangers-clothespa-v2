@@ -6,6 +6,7 @@ const { maskPhone, providerErrorSummary } = require('../utils/redact');
 
 const DEFAULT_TEMPLATE_ENDPOINT = 'https://whatomate-production-949e.up.railway.app/api/messages/template';
 const DEFAULT_TEMPLATE_TIMEOUT_MS = 30000;
+const PAYMENT_RECEIVED_TEMPLATE_NAME = 'hangers_crm_payment_received';
 
 const templateTimeoutMs = () => {
   const parsed = Number(process.env.WHATOMATE_TEMPLATE_TIMEOUT_MS || DEFAULT_TEMPLATE_TIMEOUT_MS);
@@ -13,12 +14,13 @@ const templateTimeoutMs = () => {
 };
 
 class WhatomateDeliveryError extends Error {
-  constructor(message, { retryable = false, statusCode = null, code = null } = {}) {
+  constructor(message, { retryable = false, statusCode = null, code = null, templateName = null } = {}) {
     super(message);
     this.name = 'WhatomateDeliveryError';
     this.retryable = retryable;
     this.statusCode = statusCode;
     this.code = code;
+    this.templateName = templateName;
   }
 }
 
@@ -66,7 +68,27 @@ const formatMonth = (value) => {
   return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 };
 
+const formatPaymentMethod = (method, providerMethod) => {
+  const providerLabels = {
+    card: 'Card',
+    upi: 'UPI',
+    netbanking: 'Netbanking',
+    wallet: 'Wallet',
+    emi: 'EMI',
+    cardless_emi: 'Cardless EMI',
+    paylater: 'Pay Later',
+  };
+  const provider = String(providerMethod || '').trim().toLowerCase();
+  if (providerLabels[provider]) return providerLabels[provider];
+
+  const tender = String(method || '').trim();
+  if (!tender) return '';
+  if (tender.toUpperCase() === 'RAZORPAY') return 'Online payment';
+  return tender;
+};
+
 const orderBalance = (order) => {
+  if (order?.balanceDue !== undefined && order?.balanceDue !== null) return Math.max(0, Number(order.balanceDue));
   const total = Number(order?.totalAmount || 0);
   const paid = Number(order?.paidAmount || 0);
   const writeOff = Number(order?.writeOffAmount || 0);
@@ -100,13 +122,13 @@ const resolveParam = ({ name, order, payment, iron, reminder, pickupRequest, otp
   const paymentSettings = reminder?.paymentSettings || {};
   const values = {
     customerName: customer.name || 'Customer',
-    orderNumber: order?.orderNumber || '',
+    orderNumber: order?.orderNumber || order?.invoiceNumber || '',
     totalAmount: formatAmount(order?.totalAmount),
     expectedDelivery: formatDate(order?.deliveryDate),
     balanceDue: formatAmount(orderBalance(order)),
     updatedTotalAmount: formatAmount(order?.totalAmount),
     paymentAmount: formatAmount(payment?.amount),
-    paymentMethod: payment?.method || '',
+    paymentMethod: formatPaymentMethod(payment?.method, payment?.providerMethod),
     validUntil: formatDate(order?.validUntil),
     ironCustomerName: ironCustomer.name || 'Customer',
     logDate: formatDate(log?.date),
@@ -141,6 +163,15 @@ const buildTemplateParams = (paramNames, context) =>
 const maybeThrow = (condition, error) => {
   if (condition) throw error;
   return false;
+};
+
+const requirePaymentReceivedTemplate = (template) => {
+  if (template?.templateName === PAYMENT_RECEIVED_TEMPLATE_NAME) return template;
+  throw new WhatomateDeliveryError('Configured payment-received template does not match the approved CRM template', {
+    retryable: false,
+    code: 'PAYMENT_TEMPLATE_MISMATCH',
+    templateName: template?.templateName || null,
+  });
 };
 
 const isRetryableHttpStatus = (status) => (
@@ -215,6 +246,7 @@ const postTemplate = async ({ phone, templateName, templateParams, buttonParams,
         retryable,
         statusCode,
         code: retryable ? 'PROVIDER_RETRYABLE_FAILURE' : 'PROVIDER_PERMANENT_FAILURE',
+        templateName,
       });
     }
     return false;
@@ -270,13 +302,15 @@ const sendPaymentReceivedMessage = async (order, amount, method, options = {}) =
   }
 
   const config = await getWhatsAppTemplates();
-  const template = config?.paymentReceived;
-  if (!template?.templateName) {
+  const configuredTemplate = config?.paymentReceived;
+  if (!configuredTemplate?.templateName) {
     return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('No WhatsApp payment template configured', {
       retryable: false,
       code: 'MISSING_TEMPLATE',
     }));
   }
+  const template = requirePaymentReceivedTemplate(configuredTemplate);
+  options.onTemplateSelected?.(template.templateName);
   const invoiceSlug = await invoiceSlugFor(order);
   if (!invoiceSlug) {
     return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('Could not create public invoice token', {
@@ -290,7 +324,7 @@ const sendPaymentReceivedMessage = async (order, amount, method, options = {}) =
     templateName: template.templateName,
     templateParams: buildTemplateParams(template.params, {
       order,
-      payment: { amount, method },
+      payment: { amount, method, providerMethod: options.providerMethod },
     }),
     buttonParams: { [config.invoiceButtonIndex || '0']: invoiceSlug },
     accountName: config.accountName,
@@ -590,6 +624,9 @@ module.exports = {
   sendPickupRequestCustomerConfirmation,
   postTemplate,
   normalizePhone,
+  formatPaymentMethod,
+  requirePaymentReceivedTemplate,
+  PAYMENT_RECEIVED_TEMPLATE_NAME,
   isDevPhoneAllowed,
   isEnabled,
   WhatomateDeliveryError,

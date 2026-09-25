@@ -108,6 +108,7 @@ const syncOrderPaymentState = async (tx, orderId) => {
 
 const createCapturedPayment = async (tx, {
   order,
+  orderId,
   customerId,
   invoiceId,
   amount,
@@ -119,6 +120,9 @@ const createCapturedPayment = async (tx, {
   effectiveAt,
   razorpayOrderId,
   razorpayPaymentId,
+  providerMethod,
+  providerMethodDetail,
+  mode,
   razorpaySignature,
 }) => {
   const normalizedAmount = roundMoney(Number(amount || 0));
@@ -129,7 +133,7 @@ const createCapturedPayment = async (tx, {
   try {
     const payment = await tx.payment.create({
       data: {
-        orderId: order?.id || null,
+        orderId: order?.id || orderId || null,
         customerId: order?.customerId || customerId,
         amount: normalizedAmount,
         kind: 'RECEIPT',
@@ -143,13 +147,16 @@ const createCapturedPayment = async (tx, {
         idempotencyKey: idempotencyKey || null,
         razorpayOrderId: razorpayOrderId || null,
         razorpayPaymentId: razorpayPaymentId || null,
+        providerMethod: providerMethod || null,
+        providerMethodDetail: providerMethodDetail || null,
+        ...(mode ? { mode } : {}),
         razorpaySignature: razorpaySignature || null,
       },
     });
     await tx.paymentAllocation.create({
       data: {
         paymentId: payment.id,
-        orderId: order?.id || null,
+        orderId: order?.id || orderId || null,
         invoiceId,
         amount: normalizedAmount,
         status: 'POSTED',
@@ -184,6 +191,9 @@ const recordOrderSettlement = async (tx, {
   effectiveAt,
   razorpayOrderId,
   razorpayPaymentId,
+  providerMethod,
+  providerMethodDetail,
+  mode,
   razorpaySignature,
 }) => {
   await lockOrder(tx, orderId);
@@ -258,6 +268,9 @@ const recordOrderSettlement = async (tx, {
       effectiveAt,
       razorpayOrderId,
       razorpayPaymentId,
+      providerMethod,
+      providerMethodDetail,
+      mode,
       razorpaySignature,
     }));
   }
@@ -320,6 +333,9 @@ const recordInvoiceSettlement = async (tx, {
   effectiveAt,
   razorpayOrderId,
   razorpayPaymentId,
+  providerMethod,
+  providerMethodDetail,
+  mode,
   razorpaySignature,
 }) => {
   const locked = await tx.$queryRaw`
@@ -373,6 +389,7 @@ const recordInvoiceSettlement = async (tx, {
       }
     );
     payments.push(await createCapturedPayment(tx, {
+      orderId: invoice.orderId,
       customerId: invoice.customerId,
       invoiceId: invoice.id,
       amount: storedValueAmount,
@@ -386,6 +403,7 @@ const recordInvoiceSettlement = async (tx, {
 
   if (externalAmount > 0) {
     payments.push(await createCapturedPayment(tx, {
+      orderId: invoice.orderId,
       customerId: invoice.customerId,
       invoiceId: invoice.id,
       amount: externalAmount,
@@ -397,6 +415,9 @@ const recordInvoiceSettlement = async (tx, {
       effectiveAt,
       razorpayOrderId,
       razorpayPaymentId,
+      providerMethod,
+      providerMethodDetail,
+      mode,
       razorpaySignature,
     }));
   }
@@ -447,6 +468,8 @@ const recordOrderRefund = async (tx, {
   reason,
   staff,
   idempotencyKey,
+  providerRefundId,
+  mode,
 }) => {
   const permissions = staff?.effectivePermissions || [];
   if (!permissions.includes('*') && !permissions.includes('finance.refund')) {
@@ -468,6 +491,16 @@ const recordOrderRefund = async (tx, {
     include: { allocations: { where: { invoiceId: invoice.id, status: 'POSTED' }, orderBy: { createdAt: 'asc' } } },
   });
   if (!sourcePayment) throw new PaymentRuleError('SOURCE_PAYMENT_NOT_FOUND', 'Captured source payment not found for this order', 404);
+  if (sourcePayment.razorpayPaymentId && !providerRefundId) {
+    throw new PaymentRuleError(
+      'RAZORPAY_REFUND_WORKFLOW_REQUIRED',
+      'Razorpay-collected payments must be refunded through the provider refund workflow. No local refund was posted.',
+      409
+    );
+  }
+  if (providerRefundId && !sourcePayment.razorpayPaymentId) {
+    throw new PaymentRuleError('REFUND_PROVIDER_SOURCE_MISMATCH', 'A provider refund can only be posted against its original Razorpay payment', 409);
+  }
 
   const refundAmount = roundMoney(Number(amount || 0));
   if (!(refundAmount > 0)) throw new PaymentRuleError('INVALID_REFUND_AMOUNT', 'Refund amount must be greater than zero');
@@ -505,6 +538,8 @@ const recordOrderRefund = async (tx, {
       status: 'CAPTURED',
       reference: reference || null,
       referenceFingerprint: fingerprint,
+      ...(providerRefundId ? { razorpayRefundId: providerRefundId } : {}),
+      ...(mode ? { mode } : {}),
       notes: String(reason).trim(),
       collectedBy: staff?.id || null,
       idempotencyKey: idempotencyKey ? `${idempotencyKey}:refund` : null,

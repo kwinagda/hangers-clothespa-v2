@@ -6,6 +6,13 @@ Production CRM deployments use one guarded command on EC2:
 sudo /usr/local/sbin/hangers-deploy-code <full-git-commit-sha>
 ```
 
+The backend and worker require **Node.js >=22.2.0** for the pinned Razorpay
+Node SDK. The GitHub deployment workflow checks both the EC2 `ubuntu` runtime
+and the actual executables of the running PM2 backend and worker processes
+before deployment. The EC2 deploy command repeats those checks before changing
+source or restarting services. A compatible login-shell or GitHub runner
+runtime does not substitute for the PM2 process check.
+
 The command:
 
 1. prevents concurrent deployments with `flock`;
@@ -65,3 +72,73 @@ release must have its own backup confirmation, migration review, migration lock,
 `prisma migrate deploy`, and post-migration verification. Never use `prisma db
 push`, seed scripts, local database copies, or imports against production as part
 of routine deployment.
+
+## Runtime Upgrade Gate
+
+The production runtime was read-only checked on 2026-09-25: EC2
+`i-05c749925b8391b99` (`Hangers-CRM-Prod`, `ap-south-1`) reported Node.js
+`v20.20.2`; backend, CRM, and worker PM2 processes were online. This version
+does not meet the backend's declared `>=22.2.0` requirement, so a Razorpay SDK
+deployment must not proceed. Upgrade Node through the approved host-maintenance
+procedure, restart both payment processes using that runtime, verify their actual
+process executables, then deploy a reviewed commit through the guarded command.
+The deploy command refuses to proceed while PM2 still runs either payment
+process on an older Node binary. Do not use an application deployment to perform
+the Node upgrade or restart production services as part of a read-only
+compatibility check.
+
+## Razorpay Webhook Mode Separation and Secret Rotation
+
+Razorpay configures separate Test and Live webhook URLs. This CRM runtime has one
+active Razorpay API keypair, so Test and Live webhook traffic must terminate on
+separate deployments/environments with matching Test or Live API keys and isolated
+databases. The mode-scoped endpoints are:
+
+- Test: `/api/v1/webhooks/razorpay/test` with `RAZORPAY_WEBHOOK_SECRET_TEST`
+  and optional `RAZORPAY_WEBHOOK_SECRET_TEST_PREVIOUS`.
+- Live: `/api/v1/webhooks/razorpay/live` with `RAZORPAY_WEBHOOK_SECRET_LIVE`
+  and optional `RAZORPAY_WEBHOOK_SECRET_LIVE_PREVIOUS`.
+
+The API rejects a scoped endpoint if its URL mode does not match the configured
+`RAZORPAY_KEY_ID` mode. The verified mode is stored with the durable inbox event;
+the worker checks it again before calling provider APIs. Never point a Test
+webhook at the Live deployment. Razorpay's Standard Checkout best-practices page
+recommends subscribing to `payment.captured`, `payment.failed`, and `order.paid`.
+Use settlement summary/reconciliation APIs for settlement accounting unless the
+merchant account explicitly confirms other event support.
+
+The legacy `/api/v1/webhooks/razorpay` route remains for the original
+`RAZORPAY_WEBHOOK_SECRET` current/previous pair during migration. Move each
+Dashboard configuration to its mode-scoped route and validate delivery before
+retiring the legacy URL and secret pair.
+
+The webhook endpoint accepts the configured current secret and, during rotation,
+one explicitly configured previous secret. It verifies the Razorpay HMAC against
+the raw request bytes and records only which slot matched (`CURRENT` or
+`PREVIOUS`); it never logs either secret or the signature.
+
+1. Generate the replacement webhook secret and store it in the correct
+   environment's secret manager. Do not reuse a Razorpay API key secret.
+2. For Live, set `RAZORPAY_WEBHOOK_SECRET_LIVE` to the replacement and
+   `RAZORPAY_WEBHOOK_SECRET_LIVE_PREVIOUS` to the existing Live Dashboard secret
+   on every Live API instance. Use the corresponding `_TEST` variables only in
+   the isolated Test environment. Roll out/restart that environment and verify
+   readiness before changing the matching Dashboard webhook. Keep values distinct.
+3. Update the matching Razorpay Dashboard webhook secret. Continue returning
+   2xx only after durable inbox persistence; verify deliveries and inspect
+   `signatureSecretSlot` in safe audit metadata for failures or unexpected old
+   secret use.
+4. Keep that mode's previous secret configured for at least 24 hours after the Dashboard
+   change. Razorpay documents exponential-backoff retries for 24 hours from
+   event creation; verify old-secret retries have ceased and corresponding
+   events are durably accepted before retirement.
+5. Remove that mode's `*_PREVIOUS` secret, roll out/restart its API instances,
+   and confirm current-secret events continue to be accepted. If rollback is
+   needed, restore the old secret as current and the new secret as previous,
+   then reconcile any webhook events during the transition.
+
+Test and Live Dashboard configurations and signing secrets are separate. Verify
+each against its corresponding isolated deployment before relying on either in
+production. Continue to treat a Test delivery as no evidence that Live webhook
+delivery is configured.
+Never paste webhook secrets into tickets, source, shell history, UI, or logs.

@@ -2,7 +2,7 @@
 // PAYMENTS CONTROLLER — Record, update, and track payments for orders
 // ─────────────────────────────────────────────────────────────────────────────
 const prisma = require('../config/database');
-const { success, created, badRequest, error, notFound, forbidden } = require('../utils/response');
+const { success, created } = require('../utils/response');
 const { recordPaymentSchema } = require('../validation/finance.schemas');
 const { normalizePaymentMethod } = require('../utils/payment-method');
 const { getCapturedPaymentStatusValues, getCorePaymentMethods } = require('../services/masterData.service');
@@ -13,18 +13,22 @@ const { createPublicShareToken } = require('../services/publicShare.service');
 const { getDefaultPaymentAccount, getPaymentAccountQrMediaUrl } = require('../services/payment-account-settings.service');
 const { findOpenReceivableInvoices, groupReceivablesByCustomer } = require('../services/receivables.service');
 const { sendPaymentReminderMessage } = require('../services/whatomate.service');
+const { paymentApiError, validationFieldErrors } = require('../utils/payment-api-error');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // ── POST /api/v1/payments — Record a payment for an order ─────────────────────
 const recordPayment = async (req, res) => {
   try {
     const parsed = recordPaymentSchema.safeParse(req.body);
-    if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid payment payload');
+    if (!parsed.success) return paymentApiError(res, {
+      statusCode: 400, code: 'PAYMENT_VALIDATION_FAILED', message: parsed.error.issues[0]?.message || 'Invalid payment payload',
+      requestId: req.id, fieldErrors: validationFieldErrors(parsed.error.issues),
+    });
     const { orderId, amount, method, reference, notes } = parsed.data;
     const normalizedMethod = normalizePaymentMethod(method);
     const corePaymentMethods = await getCorePaymentMethods();
     if (!corePaymentMethods.includes(normalizedMethod)) {
-      return badRequest(res, `Payment method must be one of: ${corePaymentMethods.join(', ')}`);
+      return paymentApiError(res, { statusCode: 400, code: 'PAYMENT_METHOD_UNSUPPORTED', message: `Payment method must be one of: ${corePaymentMethods.join(', ')}`, requestId: req.id });
     }
     const result = await prisma.$transaction(async (tx) => {
       const before = await tx.order.findFirst({ where: { id: orderId, ...ORDER_ONLY_WHERE } });
@@ -100,12 +104,10 @@ const recordPayment = async (req, res) => {
   } catch (err) {
     console.error('recordPayment:', err);
     if (err instanceof PaymentRuleError) {
-      if (err.statusCode === 404) return notFound(res, err.message);
-      if (err.statusCode === 403) return forbidden(res, err.message);
-      return badRequest(res, err.message);
+      return paymentApiError(res, { statusCode: err.statusCode, code: err.code, message: err.message, requestId: req.id, details: err.details });
     }
-    if (err?.code === 'P2034') return badRequest(res, 'Payment conflicted with another update; retry with the same idempotency key');
-    return error(res, 'Failed to record payment');
+    if (err?.code === 'P2034') return paymentApiError(res, { statusCode: 409, code: 'PAYMENT_CONCURRENT_CONFLICT', message: 'Payment conflicted with another update; retry with the same idempotency key', requestId: req.id, retryable: true });
+    return paymentApiError(res, { code: 'PAYMENT_RECORD_FAILED', message: 'Failed to record payment', requestId: req.id });
   }
 };
 
@@ -120,7 +122,7 @@ const getOrderPayments = async (req, res) => {
     });
     return success(res, { payments });
   } catch (err) {
-    return error(res, 'Failed to fetch payments');
+    return paymentApiError(res, { code: 'PAYMENT_HISTORY_LOAD_FAILED', message: 'Failed to fetch payments', requestId: req.id });
   }
 };
 
@@ -129,7 +131,7 @@ const getDailySummary = async (req, res) => {
   try {
     const { date } = req.query;
     const day   = date ? new Date(date) : new Date();
-    if (Number.isNaN(day.getTime())) return badRequest(res, 'date must be valid');
+    if (Number.isNaN(day.getTime())) return paymentApiError(res, { statusCode: 400, code: 'PAYMENT_REPORT_DATE_INVALID', message: 'date must be valid', requestId: req.id });
     const start = new Date(day.setHours(0, 0, 0, 0));
     const end   = new Date(day.setHours(23, 59, 59, 999));
 
@@ -163,7 +165,7 @@ const getDailySummary = async (req, res) => {
 
     return success(res, { summary, payments: normalizedPayments });
   } catch (err) {
-    return error(res, 'Failed to fetch daily summary');
+    return paymentApiError(res, { code: 'PAYMENT_DAILY_SUMMARY_FAILED', message: 'Failed to fetch daily summary', requestId: req.id });
   }
 };
 
@@ -190,7 +192,7 @@ const getReceivables = async (req, res) => {
       customerGroups: groupReceivablesByCustomer(ledger),
     });
   } catch (err) {
-    return error(res, 'Failed to fetch receivables');
+    return paymentApiError(res, { code: 'PAYMENT_RECEIVABLES_LOAD_FAILED', message: 'Failed to fetch receivables', requestId: req.id });
   }
 };
 
@@ -250,9 +252,9 @@ const previewReceivablesReminder = async (req, res) => {
       source: 'DB',
     });
   } catch (err) {
-    if (err instanceof PaymentRuleError) return badRequest(res, err.message);
+    if (err instanceof PaymentRuleError) return paymentApiError(res, { statusCode: err.statusCode, code: err.code, message: err.message, requestId: req.id });
     console.error('previewReceivablesReminder error:', err);
-    return error(res, 'Failed to preview receivables reminder');
+    return paymentApiError(res, { code: 'PAYMENT_REMINDER_PREVIEW_FAILED', message: 'Failed to preview receivables reminder', requestId: req.id });
   }
 };
 
@@ -260,7 +262,7 @@ const sendReceivablesReminder = async (req, res) => {
   try {
     const { customerId, invoiceIds = [] } = req.body || {};
     const { customer, receivables, reminder } = await selectedReceivableSummary({ customerId, invoiceIds });
-    if (customer?.notifWhatsApp === false) return badRequest(res, 'Customer WhatsApp notifications are disabled');
+    if (customer?.notifWhatsApp === false) return paymentApiError(res, { statusCode: 409, code: 'PAYMENT_REMINDER_DISABLED', message: 'Customer WhatsApp notifications are disabled', requestId: req.id });
     const sent = await sendPaymentReminderMessage({ id: `customer-${customerId}`, customer }, reminder, {
       idempotencyKey: `ar-payment-reminder:${customerId}:${receivables.map((invoice) => invoice.invoiceId).join('-')}:${Date.now()}`,
       throwOnFailure: true,
@@ -268,10 +270,26 @@ const sendReceivablesReminder = async (req, res) => {
     if (!sent) throw new Error('WhatsApp provider did not accept the message');
     return success(res, { sent: true, receivables }, 'Outstanding payment summary sent on WhatsApp');
   } catch (err) {
-    if (err instanceof PaymentRuleError) return badRequest(res, err.message);
+    if (err instanceof PaymentRuleError) return paymentApiError(res, { statusCode: err.statusCode, code: err.code, message: err.message, requestId: req.id });
     console.error('sendReceivablesReminder error:', err);
-    return error(res, err?.message || 'Failed to send receivables reminder');
+    return paymentApiError(res, { code: 'PAYMENT_REMINDER_SEND_FAILED', message: 'Failed to send receivables reminder', requestId: req.id, retryable: false, action: 'CHECK_DELIVERY_STATUS' });
   }
 };
 
-module.exports = { recordPayment, getOrderPayments, getDailySummary, getReceivables, previewReceivablesReminder, sendReceivablesReminder };
+const createInvoiceShareLink = async (req, res) => {
+  try {
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: String(req.params.invoiceId || ''), status: { not: 'VOID' } },
+      select: { id: true, invoiceNumber: true },
+    });
+    if (!invoice) return paymentApiError(res, { statusCode: 404, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found', requestId: req.id });
+    const slug = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: invoice.id, purpose: 'INVOICE_VIEW' });
+    if (!slug) return paymentApiError(res, { code: 'INVOICE_SHARE_CREATE_FAILED', message: 'Failed to create invoice link', requestId: req.id });
+    return success(res, { invoiceNumber: invoice.invoiceNumber, slug, path: `/invoice/${slug}` });
+  } catch (err) {
+    console.error('createInvoiceShareLink error:', err);
+    return paymentApiError(res, { code: 'INVOICE_SHARE_CREATE_FAILED', message: 'Failed to create invoice link', requestId: req.id });
+  }
+};
+
+module.exports = { recordPayment, getOrderPayments, getDailySummary, getReceivables, previewReceivablesReminder, sendReceivablesReminder, createInvoiceShareLink };

@@ -51,11 +51,11 @@ test('Whatomate dev gate blocks non-allowlisted localhost sends', () => {
   withEnv({
     DEV_MODE: 'true',
     WHATOMATE_SEND_IN_DEV: 'false',
-    WHATOMATE_DEV_ALLOWED_PHONES: '919930367267',
+    WHATOMATE_DEV_ALLOWED_PHONES: '',
     WHATOMATE_API_KEY: 'whm_valid_local_test_key',
   }, () => {
-    assert.equal(isDevPhoneAllowed('919876543210'), false);
-    assert.equal(isEnabled('919876543210'), false);
+    assert.equal(isDevPhoneAllowed('9930367267'), false);
+    assert.equal(isEnabled('9930367267'), false);
   });
 });
 
@@ -78,8 +78,8 @@ test('Whatomate dev gate does not restrict production sends', () => {
     WHATOMATE_DEV_ALLOWED_PHONES: '',
     WHATOMATE_API_KEY: 'whm_valid_local_test_key',
   }, () => {
-    assert.equal(isDevPhoneAllowed('919876543210'), true);
-    assert.equal(isEnabled('919876543210'), true);
+    assert.equal(isDevPhoneAllowed('9930367267'), true);
+    assert.equal(isEnabled('9930367267'), true);
   });
 });
 
@@ -87,16 +87,16 @@ test('blocked local sends cannot be reported as successful delivery', async () =
   await withEnvAsync({
     DEV_MODE: 'true',
     WHATOMATE_SEND_IN_DEV: 'false',
-    WHATOMATE_DEV_ALLOWED_PHONES: '919930367267',
+    WHATOMATE_DEV_ALLOWED_PHONES: '',
     WHATOMATE_API_KEY: 'whm_valid_local_test_key',
   }, async () => {
     const result = await postTemplate({
-      phone: '919876543210',
+      phone: '9930367267',
       templateName: 'test_template',
     });
     assert.equal(result, false);
     await assert.rejects(
-      postTemplate({ phone: '919876543210', templateName: 'test_template', throwOnFailure: true }),
+      postTemplate({ phone: '9930367267', templateName: 'test_template', throwOnFailure: true }),
       (error) => error?.code === 'DEV_SEND_BLOCKED' && error?.retryable === false,
     );
   });

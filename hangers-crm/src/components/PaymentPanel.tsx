@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import api, { idempotencyConfig, metadataAPI, paymentsAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { CheckCircle2, CreditCard, IndianRupee, RotateCcw, Wallet } from 'lucide-react'
@@ -13,10 +13,11 @@ interface Props {
   onPaymentRecorded: () => void
   writeOffAlreadyDone?: number
   payments?: any[]
+  refundAttempts?: any[]
   canRefund?: boolean
 }
 
-export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmount, paymentStatus, onPaymentRecorded, writeOffAlreadyDone = 0, payments = [], canRefund = false }: Props) {
+export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmount, paymentStatus, onPaymentRecorded, writeOffAlreadyDone = 0, payments = [], refundAttempts = [], canRefund = false }: Props) {
   const [amount, setAmount]           = useState('')
   const [method, setMethod]           = useState('CASH')
   const [loading, setLoading]         = useState(false)
@@ -33,9 +34,11 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   const [refundMethod, setRefundMethod] = useState('CASH')
   const [refundReasonCode, setRefundReasonCode] = useState('CUSTOMER_REFUND')
   const [refundReason, setRefundReason] = useState('')
+  const [refundReviewOpen, setRefundReviewOpen] = useState(false)
   const [showCorrection, setShowCorrection] = useState(false)
   const [correctionPaymentId, setCorrectionPaymentId] = useState('')
   const [correctionReason, setCorrectionReason] = useState('')
+  const refundRequestKey = useRef<{ signature: string; key: string } | null>(null)
 
   const balance = Math.max(0, totalAmount - paidAmount - (writeOffAlreadyDone || 0))
 
@@ -47,9 +50,23 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   const refundedFor = (paymentId: string) => payments
     .filter((payment) => payment.kind === 'REFUND' && payment.reversalOfId === paymentId && ['CAPTURED', 'SUCCESS', 'PAID'].includes(payment.status))
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
-  const refundableReceipts = capturedReceipts.filter((payment) => Number(payment.amount || 0) - refundedFor(payment.id) > 0.005)
+  const pendingRefundFor = (paymentId: string) => refundAttempts
+    .filter((attempt) => attempt.sourcePaymentId === paymentId && ['CREATING', 'PENDING', 'REVIEW'].includes(attempt.status))
+    .reduce((sum, attempt) => sum + Number(attempt.amount || 0), 0)
+  const refundableReceipts = capturedReceipts.filter((payment) => Number(payment.amount || 0) - refundedFor(payment.id) - pendingRefundFor(payment.id) > 0.005)
   const reversibleReceipts = capturedReceipts.filter((payment) => refundedFor(payment.id) <= 0.005)
   const selectedCorrectionPayment = reversibleReceipts.find((payment) => payment.id === correctionPaymentId)
+  const selectedRefundSource = refundableReceipts.find((payment) => payment.id === refundSourceId)
+  const paymentErrorNotice = (error: any, fallback: string) => {
+    const reference = [error?.code, error?.requestId].filter(Boolean).join(' · ')
+    const guidance = error?.action === 'CHECK_STATUS_FIRST' || error?.action === 'CHECK_CURRENT_STATE'
+      ? ' Check the refund status before trying again.'
+      : error?.retryable
+        ? ' You can retry this status check.'
+        : ''
+    return `${error?.message || fallback}${reference ? ` (${reference})` : ''}${guidance}`
+  }
+  const selectedSourceIsRazorpay = Boolean(selectedRefundSource?.razorpayPaymentId)
 
   useEffect(() => {
     // Load write-off max from settings
@@ -136,26 +153,63 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   const handleRefund = async () => {
     const source = refundableReceipts.find((payment) => payment.id === refundSourceId)
     const value = Number(refundAmount)
-    const available = source ? Number(source.amount || 0) - refundedFor(source.id) : 0
+    const available = source ? Number(source.amount || 0) - refundedFor(source.id) - pendingRefundFor(source.id) : 0
     if (!source) { toast.error('Choose the captured payment to refund'); return }
-    if (!(value > 0) || value > available) { toast.error(`Refund must be between ₹0.01 and ₹${available.toFixed(2)}`); return }
+    const minimumRefund = source.razorpayPaymentId ? 1 : 0.01
+    if (!(value >= minimumRefund) || value > available) { toast.error(`Refund must be between ₹${minimumRefund.toFixed(2)} and ₹${available.toFixed(2)}`); return }
     if (refundReason.trim().length < 3) { toast.error('Enter a refund reason'); return }
+    const refundRequest = {
+      sourcePaymentId: source.id,
+      amount: value,
+      ...(!source.razorpayPaymentId ? { method: refundMethod } : {}),
+      reasonCode: refundReasonCode,
+      reason: refundReason.trim(),
+    }
+    if (!refundReviewOpen) {
+      setRefundReviewOpen(true)
+      return
+    }
+    const signature = JSON.stringify(refundRequest)
+    if (!refundRequestKey.current || refundRequestKey.current.signature !== signature) {
+      const key = typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      refundRequestKey.current = { signature, key }
+    }
     setLoading(true)
     try {
-      await paymentsAPI.refund(orderId, {
-        sourcePaymentId: source.id,
-        amount: value,
-        method: refundMethod,
-        reasonCode: refundReasonCode,
-        reason: refundReason.trim(),
-      })
-      toast.success('Refund and credit note posted')
+      const result = await paymentsAPI.refund(orderId, refundRequest, refundRequestKey.current.key)
+      refundRequestKey.current = null
+      if (source.razorpayPaymentId && (result.pending || result.review)) {
+        toast.success('Refund requested. CRM balances update after Razorpay confirms processing.')
+      } else if (source.razorpayPaymentId && result.failed) {
+        toast.error('Razorpay could not process the refund. No CRM refund was posted.')
+      } else {
+        toast.success(source.razorpayPaymentId ? 'Razorpay refund confirmed and recorded with a credit note' : 'Refund and credit note recorded')
+      }
       setRefundAmount('')
       setRefundReason('')
+      setRefundReviewOpen(false)
       setShowRefund(false)
       onPaymentRecorded()
     } catch (e: any) {
-      toast.error(e.message || 'Failed to post refund')
+      if (e.status && e.status < 500 && e.status !== 409) refundRequestKey.current = null
+      toast.error(paymentErrorNotice(e, 'Failed to post refund'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleReconcileRefund = async (attemptId: string) => {
+    setLoading(true)
+    try {
+      const result = await paymentsAPI.reconcileRefund(orderId, attemptId)
+      if (result.pending || result.review) toast('Razorpay has not confirmed a final refund state yet.')
+      else if (result.failed) toast.error('Razorpay reports the refund failed; CRM balances were not changed.')
+      else toast.success('Refund status reconciled with Razorpay.')
+      onPaymentRecorded()
+    } catch (e: any) {
+      toast.error(paymentErrorNotice(e, 'Could not reconcile refund status'))
     } finally {
       setLoading(false)
     }
@@ -254,6 +308,32 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
         </div>
       )}
 
+      {canRefund && refundAttempts.length > 0 && (
+        <div style={{ borderTop:'1px solid #e8f0f7', paddingTop:12, marginTop:12 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#023c62', marginBottom:8 }}>Razorpay Refund Status</div>
+          <div style={{ display:'grid', gap:7 }}>
+            {refundAttempts.map((attempt) => {
+              const active = ['CREATING', 'PENDING', 'REVIEW'].includes(attempt.status)
+              const tone = attempt.status === 'PROCESSED' ? '#166534' : attempt.status === 'FAILED' ? '#991b1b' : '#92400e'
+              const background = attempt.status === 'PROCESSED' ? '#f0fdf4' : attempt.status === 'FAILED' ? '#fff7f7' : '#fffbeb'
+              return <div key={attempt.id} style={{ border:`1px solid ${tone}33`, borderRadius:8, padding:'9px 10px', background }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                  <strong style={{ color:tone, fontSize:11 }}>{attempt.status === 'PROCESSED' ? 'Processed' : attempt.status === 'FAILED' ? 'Failed' : attempt.status === 'REVIEW' ? 'Needs reconciliation' : 'Pending with Razorpay'}</strong>
+                  <strong style={{ color:'#142033', fontSize:12 }}>₹{Number(attempt.amount || 0).toFixed(2)}</strong>
+                </div>
+                <div style={{ color:'#64748b', fontSize:10, marginTop:3 }}>
+                  {attempt.providerStatus ? `Provider: ${attempt.providerStatus} · ` : ''}{new Date(attempt.updatedAt || attempt.createdAt).toLocaleString('en-IN')}
+                  {attempt.failureCode ? ` · ${attempt.failureCode}` : ''}
+                </div>
+                {active && <button onClick={() => handleReconcileRefund(attempt.id)} disabled={loading} style={{ marginTop:7, padding:'6px 9px', border:'1px solid #d5e3ed', borderRadius:7, background:'#fff', color:'#075985', fontSize:10, fontWeight:800, cursor:'pointer', opacity:loading ? .6 : 1 }}>
+                  {loading ? 'Checking...' : attempt.razorpayRefundId ? 'Refresh refund status' : 'Recover / retry same refund safely'}
+                </button>}
+              </div>
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Record payment form */}
       {balance > 0 && (
         <div style={{ borderTop:'1px solid #e8f0f7', paddingTop:16 }}>
@@ -338,24 +418,33 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
 
       {canRefund && refundableReceipts.length > 0 && (
         <div style={{ borderTop:'1px solid #e8f0f7', marginTop:16, paddingTop:16 }}>
-          <button onClick={() => { setShowRefund((value) => !value); if (!refundSourceId) setRefundSourceId(refundableReceipts[0]?.id || '') }} style={{ width:'100%', padding:'9px 12px', border:'1px solid #fecaca', background:'#fff7f7', color:'#991b1b', borderRadius:8, fontWeight:700, fontSize:12, cursor:'pointer', display:'flex', justifyContent:'center', alignItems:'center', gap:7 }}>
+          <button onClick={() => { setShowRefund((value) => !value); setRefundReviewOpen(false); if (!refundSourceId) setRefundSourceId(refundableReceipts[0]?.id || '') }} style={{ width:'100%', padding:'9px 12px', border:'1px solid #fecaca', background:'#fff7f7', color:'#991b1b', borderRadius:8, fontWeight:700, fontSize:12, cursor:'pointer', display:'flex', justifyContent:'center', alignItems:'center', gap:7 }}>
             <RotateCcw size={14} /> {showRefund ? 'Close Refund Form' : 'Refund / Credit Note'}
           </button>
           {showRefund && <div style={{ marginTop:10, display:'grid', gap:8 }}>
-            <select value={refundSourceId} onChange={(event) => setRefundSourceId(event.target.value)} style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, background:'#fff', fontSize:12 }}>
-              {refundableReceipts.map((payment) => <option key={payment.id} value={payment.id}>₹{(Number(payment.amount || 0) - refundedFor(payment.id)).toFixed(2)} available · {payment.method} · {new Date(payment.createdAt).toLocaleDateString('en-IN')}</option>)}
+            <select value={refundSourceId} onChange={(event) => { setRefundSourceId(event.target.value); setRefundReviewOpen(false) }} style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, background:'#fff', fontSize:12 }}>
+              {refundableReceipts.map((payment) => <option key={payment.id} value={payment.id}>₹{(Number(payment.amount || 0) - refundedFor(payment.id) - pendingRefundFor(payment.id)).toFixed(2)} available · {payment.method} · {new Date(payment.createdAt).toLocaleDateString('en-IN')}</option>)}
             </select>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-              <input type="number" min="0.01" step="0.01" value={refundAmount} onChange={(event) => setRefundAmount(event.target.value)} placeholder="Refund amount" style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, fontSize:12 }} />
-              <select value={refundMethod} onChange={(event) => setRefundMethod(event.target.value)} style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, background:'#fff', fontSize:12 }}>
+              <input type="number" min={selectedSourceIsRazorpay ? '1' : '0.01'} step="0.01" value={refundAmount} onChange={(event) => { setRefundAmount(event.target.value); setRefundReviewOpen(false) }} placeholder="Refund amount" style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, fontSize:12 }} />
+              {!selectedSourceIsRazorpay && <select value={refundMethod} onChange={(event) => { setRefundMethod(event.target.value); setRefundReviewOpen(false) }} style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, background:'#fff', fontSize:12 }}>
                 {paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
+              </select>}
             </div>
-            <select value={refundReasonCode} onChange={(event) => setRefundReasonCode(event.target.value)} style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, background:'#fff', fontSize:12 }}>
+            {selectedSourceIsRazorpay && <div style={{ fontSize:11, color:'#6b4b12', lineHeight:1.45, background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8, padding:'8px 10px' }}>
+              This payment was collected by Razorpay. The refund goes back to its original payment method; the CRM records it only after Razorpay confirms processing.
+            </div>}
+            <select value={refundReasonCode} onChange={(event) => { setRefundReasonCode(event.target.value); setRefundReviewOpen(false) }} style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, background:'#fff', fontSize:12 }}>
               <option value="CUSTOMER_REFUND">Customer refund</option><option value="ORDER_CANCELLATION">Order cancellation</option><option value="SERVICE_FAILURE">Service failure</option><option value="DUPLICATE_CHARGE">Duplicate charge</option><option value="PRICE_CORRECTION">Price correction</option><option value="OTHER">Other</option>
             </select>
-            <input value={refundReason} onChange={(event) => setRefundReason(event.target.value)} maxLength={500} placeholder="Required refund reason" style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, fontSize:12 }} />
-            <button onClick={handleRefund} disabled={loading} style={{ padding:'9px 12px', border:'none', background:'#991b1b', color:'#fff', borderRadius:8, fontWeight:700, fontSize:12, cursor:'pointer', opacity:loading ? 0.65 : 1 }}>{loading ? 'Posting...' : 'Post Refund and Credit Note'}</button>
+            <input value={refundReason} onChange={(event) => { setRefundReason(event.target.value); setRefundReviewOpen(false) }} maxLength={500} placeholder="Required refund reason" style={{ padding:'8px 10px', border:'1.5px solid #fecaca', borderRadius:8, fontSize:12 }} />
+            {refundReviewOpen && <div style={{ border:'1px solid #fecaca', background:'#fff7f7', borderRadius:8, padding:'10px 11px', color:'#7f1d1d', fontSize:11, lineHeight:1.5 }}>
+              <strong>Confirm refund of ₹{Number(refundAmount || 0).toFixed(2)}</strong>
+              <div>Payment: {selectedRefundSource?.method || 'Selected payment'}{selectedSourceIsRazorpay ? ' · returned to original payment method' : ` · refund method ${refundMethod}`}</div>
+              <div>Reason: {refundReason.trim()}</div>
+              <div style={{ marginTop:4 }}>{selectedSourceIsRazorpay ? 'Once accepted by Razorpay, the request cannot be recalled. CRM balances change only after provider confirmation.' : 'This posts a refund and credit note to the CRM ledger. Mistaken entries require a finance correction.'}</div>
+            </div>}
+            <button onClick={handleRefund} disabled={loading} style={{ padding:'9px 12px', border:'none', background:'#991b1b', color:'#fff', borderRadius:8, fontWeight:700, fontSize:12, cursor:'pointer', opacity:loading ? 0.65 : 1 }}>{loading ? 'Submitting...' : refundReviewOpen ? selectedSourceIsRazorpay ? 'Confirm and submit refund' : 'Confirm and issue credit note' : 'Review refund'}</button>
           </div>}
         </div>
       )}
