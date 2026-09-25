@@ -912,6 +912,26 @@ integrationTest('ambiguous Razorpay order-create failure is held for review and 
   }
 });
 
+integrationTest('missing Razorpay credentials fail before reserving a checkout attempt', async () => {
+  const invoice = await createInvoice('RZP-MISSING-CONFIG');
+  const previousKeyId = process.env.RAZORPAY_KEY_ID;
+  const previousKeySecret = process.env.RAZORPAY_KEY_SECRET;
+  delete process.env.RAZORPAY_KEY_ID;
+  delete process.env.RAZORPAY_KEY_SECRET;
+  try {
+    await assert.rejects(
+      createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `missing-config-${runId}` }),
+      (error) => error.code === 'RAZORPAY_NOT_CONFIGURED' && error.statusCode === 503
+    );
+    assert.equal(await prisma.razorpayCheckoutAttempt.count({ where: { invoiceId: invoice.id } }), 0);
+  } finally {
+    if (previousKeyId === undefined) delete process.env.RAZORPAY_KEY_ID;
+    else process.env.RAZORPAY_KEY_ID = previousKeyId;
+    if (previousKeySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET;
+    else process.env.RAZORPAY_KEY_SECRET = previousKeySecret;
+  }
+});
+
 integrationTest('Razorpay webhook acknowledges an already durable review event on duplicate delivery', async () => {
   const eventId = `IT-${runId}-WEBHOOK-REVIEW`;
   const previousSecret = process.env.RAZORPAY_WEBHOOK_SECRET;

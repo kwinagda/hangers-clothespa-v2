@@ -98,6 +98,10 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
     throw new RazorpayCheckoutError('CHECKOUT_EXPERIMENT_INVALID', 'Checkout experiment assignment is invalid', 400);
   }
 
+  // Configuration failures happen before any provider request and must not
+  // reserve an attempt that looks like an ambiguous remote order creation.
+  const razorpay = injectedProvider || getRazorpay();
+
   const localKey = digest(`${invoice.id}:${idempotencyKey}`);
   const reserveAttempt = () => prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw`SELECT "id" FROM "invoices" WHERE "id" = ${invoice.id} FOR UPDATE`;
@@ -208,7 +212,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
   const currentInvoice = reservation.current;
 
   try {
-    const order = await (injectedProvider || getRazorpay()).orders.create({
+    const order = await razorpay.orders.create({
       amount: Number(attempt.amountPaise),
       currency: attempt.currency,
       receipt: `hc-${attempt.id}`.slice(0, 40),
