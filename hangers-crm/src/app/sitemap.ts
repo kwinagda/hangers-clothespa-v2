@@ -1,7 +1,8 @@
 import type { MetadataRoute } from 'next'
 import { SITE_URL } from '@/lib/seo'
+import { getPublicBlogPosts, getPublicSuburbPages } from '@/lib/publicContent'
 
-const pages: Array<{ path: string; changeFrequency: 'weekly' | 'monthly'; priority: number }> = [
+const staticPages: Array<{ path: string; changeFrequency: 'weekly' | 'monthly'; priority: number }> = [
   { path: '', changeFrequency: 'weekly', priority: 1 },
   { path: '/services', changeFrequency: 'monthly', priority: 0.9 },
   { path: '/rate-chart', changeFrequency: 'weekly', priority: 0.9 },
@@ -15,9 +16,11 @@ const pages: Array<{ path: string; changeFrequency: 'weekly' | 'monthly'; priori
   { path: '/contact', changeFrequency: 'monthly', priority: 0.7 },
 ]
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const lastModified = new Date()
-  return pages.map((page) => ({
+  const [blogPosts, suburbPages] = await Promise.all([getPublicBlogPosts(), getPublicSuburbPages()])
+
+  const staticEntries = staticPages.map((page) => ({
     url: `${SITE_URL}${page.path}`,
     lastModified,
     changeFrequency: page.changeFrequency,
@@ -26,4 +29,22 @@ export default function sitemap(): MetadataRoute.Sitemap {
       ? [`${SITE_URL}/brand/curtain-care-hero.webp`, `${SITE_URL}/brand/garment-care-hero.webp`]
       : [`${SITE_URL}${page.path}/opengraph-image`],
   }))
+
+  const blogEntries = blogPosts.map((post) => ({
+    url: `${SITE_URL}/blog/${post.slug}`,
+    lastModified: post.publishedAt ? new Date(post.publishedAt) : lastModified,
+    changeFrequency: 'monthly' as const,
+    priority: 0.6,
+    images: [`${SITE_URL}/blog/${post.slug}/opengraph-image`],
+  }))
+
+  const suburbEntries = suburbPages.map((page) => ({
+    url: `${SITE_URL}/pickup-zones/${page.slug}`,
+    lastModified,
+    changeFrequency: 'monthly' as const,
+    priority: 0.7,
+    images: [`${SITE_URL}/pickup-zones/${page.slug}/opengraph-image`],
+  }))
+
+  return [...staticEntries, ...blogEntries, ...suburbEntries]
 }

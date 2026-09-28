@@ -1989,6 +1989,48 @@ model WebsitePickupRequest {
   @@map("website_pickup_requests")
 }
 
+model BlogPost {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  status          String    @default("DRAFT")
+  kicker          String
+  title           String
+  metaDescription String
+  heroImage       String
+  heroImageAlt    String
+  excerpt         String
+  sections        Json
+  faqs            Json?
+  publishedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  updatedBy       String?
+
+  @@index([status, publishedAt])
+  @@map("blog_posts")
+}
+
+model SuburbPage {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  suburbName      String
+  status          String    @default("DRAFT")
+  title           String
+  metaDescription String
+  heroImage       String
+  heroImageAlt    String
+  intro           String
+  landmarks       Json?
+  pickupNotes     String?
+  faqs            Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  updatedBy       String?
+
+  @@index([status])
+  @@map("suburb_pages")
+}
+
 enum StaffRole {
   SUPER_ADMIN
   MANAGER

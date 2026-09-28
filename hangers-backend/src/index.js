@@ -8,6 +8,8 @@ const path      = require('path');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const { randomUUID } = require('crypto');
 const prisma = require('./config/database');
+const { shouldRunDevOutbox } = require('./utils/dev-outbox');
+const { matchesLocalQaProfile } = require('./utils/local-qa-profile');
 const { closeConnection } = require('./queues/connection');
 const { getAllowedOrigins, validateEnvironment } = require('./config/env');
 const authRoutes          = require('./routes/auth.routes');
@@ -36,6 +38,7 @@ const campaignsRoutes     = require('./routes/campaigns.routes');
 const reportsRoutes       = require('./routes/reports.routes');
 const searchRoutes        = require('./routes/search.routes');
 const automationsRoutes   = require('./routes/automations.routes');
+const contentRoutes       = require('./routes/content.routes');
 const logsRoutes          = require('./routes/logs.routes');
 const challanRoutes       = require('./routes/challan.routes');
 const staffWalletRoutes   = require('./routes/staff.wallet.routes');
@@ -88,6 +91,16 @@ app.use(cors({
   credentials: true,
 }));
 
+// Assign a correlation ID before parsing so malformed/oversized webhook bodies
+// still have an ID in the response and error log.
+app.use((req, res, next) => {
+  const id = req.headers['x-request-id'] || randomUUID();
+  req.headers['x-request-id'] = id;
+  req.id = id;
+  res.setHeader('x-request-id', id);
+  next();
+});
+
 // Razorpay signs the exact raw JSON bytes. Preserve them only for the webhook
 // route; all other JSON requests continue through the normal parser.
 app.use(express.json({
@@ -98,14 +111,6 @@ app.use(express.json({
   },
 }));
 app.use(express.urlencoded({ extended: true, limit: '1mb', parameterLimit: 100 }));
-// Stamp every request with a unique ID — surfaced in error logs and response headers
-app.use((req, res, next) => {
-  const id = req.headers['x-request-id'] || randomUUID();
-  req.headers['x-request-id'] = id;
-  req.id = id;
-  res.setHeader('x-request-id', id);
-  next();
-});
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 app.get('/health', (_req, res) => res.json({ success: true, message: 'Hangers API process is alive', version: '4.0.0' }));
@@ -120,16 +125,29 @@ app.get('/', (_req, res) => res.json({
 app.get('/ready', async (_req, res) => {
   const status = app.locals.readiness;
   let database = 'ok';
+  let localQaProfileMatches = false;
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    const [identity] = await prisma.$queryRaw`SELECT current_database() AS name, current_user AS username, host(inet_server_addr()) AS address, inet_server_port() AS port`;
+    localQaProfileMatches = matchesLocalQaProfile({
+      isProduction: environment.isProduction,
+      databaseName: identity?.name,
+      databaseUser: identity?.username,
+      databaseAddress: identity?.address,
+      databasePort: Number(identity?.port),
+      razorpayKeyId: process.env.RAZORPAY_KEY_ID,
+      outboxWorker: process.env.DEV_OUTBOX_WORKER,
+      skipStartupSync: process.env.LOCAL_SKIP_STARTUP_SYNC,
+    });
   } catch {
     database = 'failed';
   }
   const ready = status.ready && database === 'ok';
+  const data = { ...status, ready, checks: { ...status.checks, database } };
+  if (!environment.isProduction) data.localQaProfileMatches = localQaProfileMatches;
   return res.status(ready ? 200 : 503).json({
     success: ready,
     message: ready ? 'Hangers API is ready' : 'Hangers API is not ready',
-    data: { ...status, ready, checks: { ...status.checks, database } },
+    data,
   });
 });
 
@@ -193,6 +211,7 @@ app.use('/api/v1/campaigns',                   campaignsRoutes);
 app.use('/api/v1/reports',                     reportsRoutes);
 app.use('/api/v1/search',                      searchRoutes);
 app.use('/api/v1/automations',                 automationsRoutes);
+app.use('/api/v1/content',                     contentRoutes);
 app.use('/api/v1/logs',                        logsRoutes);
 // Refer & Earn
 const referralRoutes  = require('./routes/referral.routes');
@@ -207,10 +226,16 @@ app.use(errorHandler);
 
 const runStartupChecks = async () => {
   try {
-    await syncMasterDataSettings();
-    readiness.checks.masterData = 'ok';
-    await syncPermissionCatalog();
-    readiness.checks.permissions = 'ok';
+    if (process.env.LOCAL_SKIP_STARTUP_SYNC === 'true' && !environment.isProduction) {
+      await prisma.$queryRaw`SELECT 1`;
+      readiness.checks.masterData = 'skipped-local-read-only';
+      readiness.checks.permissions = 'skipped-local-read-only';
+    } else {
+      await syncMasterDataSettings();
+      readiness.checks.masterData = 'ok';
+      await syncPermissionCatalog();
+      readiness.checks.permissions = 'ok';
+    }
     readiness.ready = true;
     readiness.readyAt = new Date().toISOString();
   } catch (err) {
@@ -227,7 +252,7 @@ let devOutboxTimer = null;
 let devOutboxRunning = false;
 
 const startDevOutboxPoller = () => {
-  if (environment.isProduction || process.env.DEV_OUTBOX_WORKER === 'false' || devOutboxTimer) return;
+  if (!shouldRunDevOutbox({ isProduction: environment.isProduction, workerEnabled: process.env.DEV_OUTBOX_WORKER }) || devOutboxTimer) return;
   const drainOutbox = async () => {
     if (devOutboxRunning) return;
     devOutboxRunning = true;

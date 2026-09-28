@@ -4,17 +4,18 @@ import path from 'node:path';
 if (!process.env.PUBLIC_SITE_ORIGIN) {
   throw new Error('PUBLIC_SITE_ORIGIN is required, e.g. PUBLIC_SITE_ORIGIN=https://crm.hangers-cs.com node scripts/build-public-static.mjs');
 }
+if (!process.env.PUBLIC_API_ORIGIN) {
+  throw new Error('PUBLIC_API_ORIGIN is required, e.g. PUBLIC_API_ORIGIN=https://crm.hangers-cs.com/api/v1 node scripts/build-public-static.mjs');
+}
 const origin = process.env.PUBLIC_SITE_ORIGIN.replace(/\/$/, '');
+const apiOrigin = process.env.PUBLIC_API_ORIGIN.replace(/\/$/, '');
 const outDir = path.resolve(process.env.PUBLIC_STATIC_OUT_DIR || 'dist-public');
 
 // The marketing site is published as static HTML to S3. Keep analytics here so
 // it is present in the initial document on marketing pages only, never in CRM.
-const marketingAnalyticsHead = `
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-D23MCHNN38"></script>
-<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-D23MCHNN38');</script>`;
+const marketingAnalyticsHead = '\n<script defer src="/marketing-analytics.js?v=2026-09-29.1"></script>';
 
-const htmlRoutes = [
+const staticHtmlRoutes = [
   '/',
   '/services',
   '/rate-chart',
@@ -26,6 +27,32 @@ const htmlRoutes = [
   '/pickup-zones',
   '/blog',
   '/faq',
+];
+
+// Blog posts and suburb pages are DB-backed content (hangers-backend BlogPost/
+// SuburbPage models), not a fixed list of routes. Their slugs are discovered from
+// the backend's own public listing endpoints at publish time, so a new published
+// post/page is picked up automatically on the next sync — no hand-edited route
+// list to forget. This keeps the same "pre-rendered once, published to S3" model
+// as every other public page (see the _next/static comment below): only the ROUTE
+// LIST is dynamic, nothing here becomes a live/on-demand render.
+const fetchSlugs = async (apiPath) => {
+  const response = await fetch(`${apiOrigin}${apiPath}`);
+  if (!response.ok) throw new Error(`${apiPath} returned ${response.status}`);
+  const payload = await response.json();
+  const items = payload?.data?.items ?? payload?.items ?? [];
+  return items.map((item) => item.slug).filter(Boolean);
+};
+
+const [blogSlugs, suburbSlugs] = await Promise.all([
+  fetchSlugs('/public/blog-posts'),
+  fetchSlugs('/public/pickup-zones'),
+]);
+
+const htmlRoutes = [
+  ...staticHtmlRoutes,
+  ...blogSlugs.map((slug) => `/blog/${slug}`),
+  ...suburbSlugs.map((slug) => `/pickup-zones/${slug}`),
 ];
 
 const fileRoutes = [
