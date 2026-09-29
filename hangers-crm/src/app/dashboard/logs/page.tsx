@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { ironAPI, logsAPI } from '@/lib/api'
+import { collapseQueuedWhatsAppEvents } from '@/lib/notificationTimeline'
 
 const filterOptions = [
   { key: 'ALL', label: 'All Logs', params: {} },
@@ -18,6 +19,7 @@ const filterOptions = [
 ]
 
 const stageLabel = (stage: string) => {
+  if (stage === 'WHATSAPP_PENDING') return 'WhatsApp Queued'
   if (stage === 'DAILY_IRON_WHATSAPP_PENDING') return 'WhatsApp Queued'
   if (stage === 'DAILY_IRON_WHATSAPP_FAILED') return 'WhatsApp Failed'
   if (stage === 'DAILY_IRON_WHATSAPP_SENT') return 'WhatsApp Sent'
@@ -67,7 +69,7 @@ const retryAttemptSummary = (metadata: any) => {
 
 const groupLogsByOrder = (logs: any[]) => {
   const map = new Map<string, any>()
-  logs.forEach((log) => {
+  collapseQueuedWhatsAppEvents(logs).forEach((log) => {
     const key = log.order?.id || `unknown-${log.id}`
     if (!map.has(key)) {
       map.set(key, {
@@ -239,6 +241,7 @@ export default function LogsPage() {
                               <span style={{ color: '#6b7fa3', fontSize: 11.5 }}>{format(new Date(log.createdAt), 'd MMM, h:mm a')}</span>
                               <span style={{ color: '#9dafc8', fontSize: 11.5 }}>{log.eventType || 'EVENT'}</span>
                             </div>
+                            {log.notificationQueuedAt && <div style={{ marginTop: 6, color: '#6b7fa3', fontSize: 11.5 }}>Queued {format(new Date(log.notificationQueuedAt), 'd MMM, h:mm a')} · provider outcome recorded {format(new Date(log.createdAt), 'd MMM, h:mm a')}</div>}
                             <div style={{ marginTop: 6, color: '#142033', fontSize: 13, lineHeight: 1.45, overflowWrap: 'anywhere' }}>
                               {actionFailureDisplay?.message || log.notes || stageLabel(log.stage)}
                             </div>

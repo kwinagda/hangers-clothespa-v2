@@ -4,7 +4,7 @@
   "description": "Hangers Clothes Spa - Backend API",
   "main": "src/index.js",
   "engines": {
-    "node": ">=22.2.0"
+    "node": ">=24.11.0 <25"
   },
   "scripts": {
     "start": "node src/index.js",

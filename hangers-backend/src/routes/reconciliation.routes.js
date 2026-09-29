@@ -4,8 +4,8 @@ const { requirePermission, requireServiceAccess } = require('../middleware/rbac'
 const { privateNoStore } = require('../middleware/privateCache');
 const { requireTrustedWrite } = require('../middleware/origin');
 const { idempotent } = require('../middleware/idempotency');
-const { createBankSettlementMatch, getBankStatement, getRazorpaySettlementSummaryReportController, importBankStatement, listBankSettlementCandidates, listBankStatements, listRuns, previewBankStatement, reverseBankSettlement, runNow, runRazorpayPaymentsNow, runRazorpaySettlementsNow, runRazorpaySettlementSummariesNow, listRazorpaySettlementSummaries, listRazorpaySettlementLines } = require('../controllers/reconciliation.controller');
-const { listRazorpayWebhookEvents, listRazorpayDisputeCases, listRazorpayCheckoutAttempts, getRazorpayCheckoutMethodOutcomes, getRazorpayCheckoutExperimentReport, replayRazorpayWebhookEvent } = require('../controllers/razorpayWebhookOps.controller');
+const { backfillHistoricalRazorpayOrder, backfillHistoricalRazorpayPayment, createBankSettlementMatch, getBankStatement, getRazorpaySettlementSummaryReportController, importBankStatement, listBankSettlementCandidates, listBankStatements, listRuns, previewBankStatement, previewRazorpayDashboardOrdersReport, previewRazorpayDashboardPaymentsReport, previewRazorpayHistoricalPaymentReports, previewRazorpayOrders, reverseBankSettlement, runNow, runRazorpayPaymentsNow, runRazorpaySettlementsNow, runRazorpaySettlementSummariesNow, listRazorpaySettlementSummaries, listRazorpaySettlementLines } = require('../controllers/reconciliation.controller');
+const { listRazorpayWebhookEvents, listRazorpayDisputeCases, syncRazorpayDisputes, listRazorpayCheckoutAttempts, reconcileRazorpayCheckoutAttempt, getRazorpayCheckoutMethodOutcomes, getRazorpayCheckoutExperimentReport, replayRazorpayWebhookEvent } = require('../controllers/razorpayWebhookOps.controller');
 
 const router = express.Router();
 router.use(privateNoStore);
@@ -13,6 +13,12 @@ router.use(requireTrustedWrite);
 router.get('/', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), listRuns);
 router.post('/run', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), idempotent({ scope: 'finance.reconcile' }), runNow);
 router.post('/razorpay-payments/run', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), idempotent({ scope: 'finance.razorpay-payment-reconcile' }), runRazorpayPaymentsNow);
+router.get('/razorpay-orders/preview', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), previewRazorpayOrders);
+router.post('/razorpay-dashboard-reports/payments/preview', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), previewRazorpayDashboardPaymentsReport);
+router.post('/razorpay-dashboard-reports/orders/preview', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), previewRazorpayDashboardOrdersReport);
+router.post('/razorpay-dashboard-reports/historical-payments/preview', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), previewRazorpayHistoricalPaymentReports);
+router.post('/razorpay-payments/:paymentId/backfill', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), idempotent({ scope: 'finance.razorpay-historical-payment-backfill' }), backfillHistoricalRazorpayPayment);
+router.post('/razorpay-orders/:orderId/backfill', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), idempotent({ scope: 'finance.razorpay-historical-order-backfill' }), backfillHistoricalRazorpayOrder);
 router.post('/razorpay-settlements/run', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), idempotent({ scope: 'finance.razorpay-settlement-reconcile' }), runRazorpaySettlementsNow);
 router.post('/razorpay-settlement-summaries/run', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), idempotent({ scope: 'finance.razorpay-settlement-summary-reconcile' }), runRazorpaySettlementSummariesNow);
 router.get('/razorpay-settlement-summaries', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), listRazorpaySettlementSummaries);
@@ -20,7 +26,9 @@ router.get('/razorpay-settlement-summary-report', staffAuth, requireServiceAcces
 router.get('/razorpay-settlements', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), listRazorpaySettlementLines);
 router.get('/razorpay-webhooks', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), listRazorpayWebhookEvents);
 router.get('/razorpay-disputes', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), listRazorpayDisputeCases);
+router.post('/razorpay-disputes/sync', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), idempotent({ scope: 'finance.razorpay-disputes.sync' }), syncRazorpayDisputes);
 router.get('/razorpay-checkout-attempts', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), listRazorpayCheckoutAttempts);
+router.post('/razorpay-checkout-attempts/:id/reconcile', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), idempotent({ scope: 'finance.razorpay-checkout-attempt.reconcile' }), reconcileRazorpayCheckoutAttempt);
 router.get('/razorpay-checkout-method-outcomes', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), getRazorpayCheckoutMethodOutcomes);
 router.get('/razorpay-checkout-experiment', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), getRazorpayCheckoutExperimentReport);
 router.post('/razorpay-webhooks/:id/replay', staffAuth, requireServiceAccess('FINANCE'), requirePermission('finance.reconcile'), idempotent({ scope: 'razorpay.webhook.replay' }), replayRazorpayWebhookEvent);

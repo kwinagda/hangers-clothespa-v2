@@ -156,7 +156,19 @@ const processWebhook = async (event, { refundReconciler = reconcileRazorpayRefun
     if (!captured.length) throw Object.assign(new Error('No captured payment is visible for the paid order yet'), { code: 'ORDER_PAYMENT_PENDING' });
     const results = [];
     for (const payment of captured) {
-      results.push(await settleCapturedPayment({ paymentId: payment.id, providerOrderId: event.orderId, source: 'ORDER_PAID_WEBHOOK', provider }));
+      const result = await settleCapturedPayment({ paymentId: payment.id, providerOrderId: event.orderId, source: 'ORDER_PAID_WEBHOOK', provider });
+      if (result.pending) {
+        throw Object.assign(new Error('Razorpay order is paid but a listed payment is not yet confirmed captured by the payment lookup'), {
+          code: 'PROVIDER_STATE_PENDING',
+        });
+      }
+      if (result.failed || result.attempt?.status !== 'CAPTURED') {
+        throw Object.assign(new Error('Razorpay order payment is not in a state that can be finalized in the CRM ledger'), {
+          code: result.failed ? 'PROVIDER_PAYMENT_FAILED' : 'PROVIDER_PAYMENT_STATE_REVIEW',
+          permanent: Boolean(result.failed),
+        });
+      }
+      results.push(result);
     }
     return { state: 'PROCESSED', paymentId: captured.map((payment) => payment.id).join(','), count: captured.length };
   }
@@ -194,7 +206,15 @@ const auditOutcome = (event, action, status, metadata = {}) => log({
   resource: 'razorpay_webhook',
   resourceId: event.eventId,
   description: `Razorpay ${event.event} event ${status.toLowerCase()}`,
-  metadata: { provider: 'RAZORPAY', eventId: event.eventId, webhookRecordId: event.id, ...metadata },
+  metadata: {
+    provider: 'RAZORPAY',
+    eventId: event.eventId,
+    webhookRecordId: event.id,
+    mode: event.mode || null,
+    razorpayOrderId: event.orderId || null,
+    razorpayPaymentId: event.paymentId || null,
+    ...metadata,
+  },
 });
 
 const renewWebhookLease = (event) => prisma.$executeRaw`

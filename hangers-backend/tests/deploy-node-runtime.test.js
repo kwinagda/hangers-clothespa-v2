@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { checkProcesses, versionSupported } = require('../../scripts/deploy/check-pm2-node-runtime');
+const { checkPm2Daemon, checkProcesses, versionSupported } = require('../../scripts/deploy/check-pm2-node-runtime');
 
 const deployScript = path.resolve(__dirname, '../../scripts/deploy/deploy-ec2-code.sh');
 
@@ -12,28 +12,80 @@ const checkVersion = (version) => spawnSync('bash', [deployScript, '--check-node
   encoding: 'utf8',
 });
 
-test('production deployment accepts only stable Node.js >=22.2.0', () => {
-  for (const version of ['v22.2.0', '22.2.1', 'v23.0.0', 'v24.14.0']) {
+test('production deployment accepts only stable Node.js 24 >=24.11.0', () => {
+  for (const version of ['v24.11.0', '24.11.1', 'v24.14.0']) {
     const result = checkVersion(version);
     assert.equal(result.status, 0, `${version}: ${result.stderr}`);
   }
 
-  for (const version of ['v20.20.2', 'v22.1.99', 'v22.2.0-rc.1', 'unknown']) {
+  for (const version of ['v20.20.2', 'v22.23.3', 'v24.10.99', 'v24.11.0-rc.1', 'v25.0.0', 'unknown']) {
     const result = checkVersion(version);
     assert.equal(result.status, 1, `${version} must fail the production runtime gate`);
-    assert.match(result.stderr, /requires >=22\.2\.0/);
+    assert.match(result.stderr, /requires Node\.js 24 >=24\.11\.0/);
   }
 });
 
+test('production public-asset smoke checks stay within login and Finance scope', () => {
+  const script = fs.readFileSync(deployScript, 'utf8');
+  assert.match(script, /verify_public_next_assets "\/login"/);
+  assert.match(script, /verify_public_next_assets "\/dashboard\/finance"/);
+  assert.doesNotMatch(script, /verify_public_next_assets "\/dashboard\/iron\//);
+});
+
+test('production deployment revalidates backend and worker PM2 state after restart', () => {
+  const script = fs.readFileSync(deployScript, 'utf8');
+  const restartIndex = script.indexOf('run_as_deploy_user env PM2_HOME="$PM2_HOME" pm2 restart');
+  const postRestartCheckIndex = script.indexOf('check-pm2-node-runtime.js', restartIndex);
+  const saveIndex = script.indexOf('pm2 save', restartIndex);
+  assert.ok(restartIndex >= 0, 'deployment must restart the existing PM2 processes');
+  assert.ok(postRestartCheckIndex > restartIndex, 'deployment must recheck both payment processes after restart');
+  assert.ok(saveIndex > postRestartCheckIndex, 'deployment must not save PM2 state before the post-restart check passes');
+});
+
+test('production workflow checks out the exact resolved commit it will deploy', () => {
+  const workflow = fs.readFileSync(path.resolve(__dirname, '../../.github/workflows/deploy-production.yml'), 'utf8');
+  assert.match(workflow, /ref: \$\{\{ steps\.revision\.outputs\.commit \}\}/);
+});
+
 test('PM2 runtime gate requires both payment processes on supported Node binaries', () => {
-  assert.equal(versionSupported('v22.2.0'), true);
-  assert.equal(versionSupported('v22.1.99'), false);
+  assert.equal(versionSupported('v24.11.0'), true);
+  assert.equal(versionSupported('v24.10.99'), false);
+  assert.equal(versionSupported('v22.23.3'), false);
   assert.equal(versionSupported('v20.20.2'), false);
-  assert.equal(versionSupported('v22.2.0-rc.1'), false);
+  assert.equal(versionSupported('v24.11.0-rc.1'), false);
 
   const problems = checkProcesses([], '/proc');
   assert.match(problems.join('\n'), /hangers-backend is missing/);
   assert.match(problems.join('\n'), /hangers-worker is missing/);
+});
+
+test('PM2 runtime preflight refuses to start a missing or stale daemon', (t) => {
+  const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangers-pm2-home-'));
+  t.after(() => fs.rmSync(pm2Home, { recursive: true, force: true }));
+
+  assert.match(checkPm2Daemon(pm2Home), /PID file is unavailable/);
+
+  fs.writeFileSync(path.join(pm2Home, 'pm2.pid'), '456\n');
+  fs.writeFileSync(path.join(pm2Home, 'rpc.sock'), '');
+  fs.writeFileSync(path.join(pm2Home, 'pub.sock'), '');
+  assert.match(checkPm2Daemon(pm2Home, () => false), /PID 456 is not running/);
+  assert.equal(checkPm2Daemon(pm2Home, () => true), null);
+
+  fs.writeFileSync(path.join(pm2Home, 'pm2.pid'), 'not-a-pid\n');
+  assert.match(checkPm2Daemon(pm2Home), /PID file is invalid/);
+});
+
+test('PM2 CLI preflight leaves PM2_HOME untouched when its daemon is absent', (t) => {
+  const pm2Home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangers-pm2-empty-'));
+  t.after(() => fs.rmSync(pm2Home, { recursive: true, force: true }));
+
+  const result = spawnSync(process.execPath, [
+    path.resolve(__dirname, '../../scripts/deploy/check-pm2-node-runtime.js'),
+  ], { encoding: 'utf8', env: { ...process.env, PM2_HOME: pm2Home } });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /PM2 daemon PID file is unavailable/);
+  assert.deepEqual(fs.readdirSync(pm2Home), []);
 });
 
 test('PM2 runtime gate executes each online payment process binary', (t) => {

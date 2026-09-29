@@ -62,7 +62,7 @@ const handleRazorpayWebhook = async (req, res) => {
   const mode = requestedMode || getMode();
   const activeMode = getMode();
   if (!['TEST', 'LIVE'].includes(mode) || !process.env.RAZORPAY_KEY_ID || requestedMode && mode !== activeMode) {
-    await logWebhook('RAZORPAY_WEBHOOK_MODE_MISMATCH', String(req.body?.event || '').toLowerCase(), req.headers['x-razorpay-event-id'], 'FAILED', {
+    logWebhookAsync('RAZORPAY_WEBHOOK_MODE_MISMATCH', String(req.body?.event || '').toLowerCase(), req.headers['x-razorpay-event-id'], 'FAILED', {
       requestId: req.id,
       requestedMode: mode,
       activeMode,
@@ -75,7 +75,7 @@ const handleRazorpayWebhook = async (req, res) => {
   const previousSecret = requestedMode ? process.env[`RAZORPAY_WEBHOOK_SECRET_${mode}_PREVIOUS`] : process.env.RAZORPAY_WEBHOOK_SECRET_PREVIOUS;
   const event = String(req.body?.event || '').toLowerCase().slice(0, 120);
   if (!req.rawBody || !eventId || eventId.length > 160 || !signature) {
-    await logWebhook('RAZORPAY_WEBHOOK_REJECTED', event, eventId, 'FAILED', {
+    logWebhookAsync('RAZORPAY_WEBHOOK_REJECTED', event, eventId, 'FAILED', {
       requestId: req.id,
       missingRawBody: !req.rawBody,
       missingEventId: !eventId,
@@ -86,11 +86,11 @@ const handleRazorpayWebhook = async (req, res) => {
 
   const verification = verifyWebhookSignature(req.rawBody, signature, currentSecret, previousSecret);
   if (verification.configurationError) {
-    await logWebhook('RAZORPAY_WEBHOOK_VERIFIER_MISCONFIGURED', event, eventId, 'FAILED', { requestId: req.id });
+    logWebhookAsync('RAZORPAY_WEBHOOK_VERIFIER_MISCONFIGURED', event, eventId, 'FAILED', { requestId: req.id });
     return paymentApiError(res, { statusCode: 503, code: 'WEBHOOK_VERIFIER_MISCONFIGURED', message: 'Webhook verification is temporarily unavailable', requestId: req.id, retryable: true, action: 'RETRY_PROVIDER_DELIVERY' });
   }
   if (!verification.matchedSecretSlot) {
-    await logWebhook('RAZORPAY_WEBHOOK_SIGNATURE_INVALID', event, eventId, 'FAILED', { requestId: req.id });
+    logWebhookAsync('RAZORPAY_WEBHOOK_SIGNATURE_INVALID', event, eventId, 'FAILED', { requestId: req.id });
     return paymentApiError(res, { statusCode: 400, code: 'WEBHOOK_SIGNATURE_INVALID', message: 'Invalid webhook signature', requestId: req.id, retryable: false });
   }
 
@@ -140,7 +140,7 @@ const handleRazorpayWebhook = async (req, res) => {
         return res.status(200).json({ success: true, accepted: true, replay: true });
       }
     }
-    await logWebhook('RAZORPAY_WEBHOOK_PERSIST_FAILED', event, eventId, 'FAILED', {
+    logWebhookAsync('RAZORPAY_WEBHOOK_PERSIST_FAILED', event, eventId, 'FAILED', {
       requestId: req.id,
       errorCode: String(error?.code || 'DATABASE_ERROR').slice(0, 80),
     });

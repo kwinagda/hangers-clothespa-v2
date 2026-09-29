@@ -7,6 +7,31 @@ const parsePositiveInt = (value, fallback, max) => {
   return Math.min(parsed, max);
 };
 
+const WHATSAPP_LIFECYCLE_STAGES = ['WHATSAPP_PENDING', 'WHATSAPP_SENT', 'WHATSAPP_FAILED', 'WHATSAPP_SKIPPED'];
+
+const getWhatsAppLifecycleReferences = (logs) => {
+  const references = new Map();
+  for (const log of logs) {
+    if (log.eventType !== 'NOTIFICATION' || !WHATSAPP_LIFECYCLE_STAGES.includes(log.stage)) continue;
+    const metadata = log.metadata || {};
+    if (metadata.outboxEventId) {
+      references.set(`outbox:${metadata.outboxEventId}`, {
+        metadata: { path: ['outboxEventId'], equals: metadata.outboxEventId },
+      });
+    }
+    const paymentId = metadata.payload?.paymentId;
+    if (metadata.outboxEventType === 'PAYMENT_RECEIVED' && paymentId) {
+      references.set(`payment:${paymentId}`, {
+        AND: [
+          { metadata: { path: ['outboxEventType'], equals: 'PAYMENT_RECEIVED' } },
+          { metadata: { path: ['payload', 'paymentId'], equals: paymentId } },
+        ],
+      });
+    }
+  }
+  return [...references.values()];
+};
+
 const listOrderTimelineLogs = async (req, res) => {
   try {
     const limit = parsePositiveInt(req.query.limit, 100, 200);
@@ -42,7 +67,7 @@ const listOrderTimelineLogs = async (req, res) => {
       };
     }
 
-    const [logs, total] = await Promise.all([
+    const [pageLogs, total] = await Promise.all([
       prisma.orderStage.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -62,6 +87,35 @@ const listOrderTimelineLogs = async (req, res) => {
       }),
       prisma.orderStage.count({ where }),
     ]);
+
+    // Keep each queued notification and its eventual outcome together even
+    // when their immutable timeline rows fall on different pages.
+    const orderIds = [...new Set(pageLogs.map((log) => log.orderId))];
+    const lifecycleReferences = getWhatsAppLifecycleReferences(pageLogs);
+    const siblingLogs = orderIds.length && lifecycleReferences.length
+      ? await prisma.orderStage.findMany({
+          where: {
+            orderId: { in: orderIds },
+            eventType: 'NOTIFICATION',
+            stage: { in: WHATSAPP_LIFECYCLE_STAGES },
+            OR: lifecycleReferences,
+          },
+          include: {
+            order: {
+              select: {
+                id: true,
+                orderNumber: true,
+                status: true,
+                customer: { select: { id: true, name: true, phone: true } },
+              },
+            },
+            changedBy: { select: { id: true, name: true, role: true } },
+          },
+        })
+      : [];
+    const pageLogIds = new Set(pageLogs.map((log) => log.id));
+    const logs = [...pageLogs, ...siblingLogs.filter((log) => !pageLogIds.has(log.id))]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     return success(res, {
       logs,

@@ -18,6 +18,16 @@ class PaymentRuleError extends Error {
   }
 }
 
+const assertSettlementMethodAllowed = (method, { providerCaptureVerified = false } = {}) => {
+  if (normalizePaymentMethod(method) === 'RAZORPAY' && !providerCaptureVerified) {
+    throw new PaymentRuleError(
+      'RAZORPAY_PROVIDER_VERIFICATION_REQUIRED',
+      'Razorpay payments can only be recorded after server-side provider verification',
+      409
+    );
+  }
+};
+
 const paymentReferenceFingerprint = (method, reference) => {
   const normalized = String(reference || '').trim().toUpperCase().replace(/\s+/g, '');
   if (!normalized) return null;
@@ -196,6 +206,7 @@ const recordOrderSettlement = async (tx, {
   mode,
   razorpaySignature,
 }) => {
+  assertSettlementMethodAllowed(method);
   await lockOrder(tx, orderId);
   const before = await getLedgerState(tx, orderId);
   const invoice = await ensureOrderInvoice(tx, orderId, staff?.id);
@@ -337,7 +348,9 @@ const recordInvoiceSettlement = async (tx, {
   providerMethodDetail,
   mode,
   razorpaySignature,
+  providerCaptureVerified = false,
 }) => {
+  assertSettlementMethodAllowed(method, { providerCaptureVerified });
   const locked = await tx.$queryRaw`
     SELECT "id"
     FROM "invoices"
@@ -826,6 +839,7 @@ const creditOverpayment = async (tx, order, amount, staff, idempotencyKey) => cr
 module.exports = {
   CAPTURED_PAYMENT_STATUSES,
   PaymentRuleError,
+  assertSettlementMethodAllowed,
   creditOverpayment,
   getLedgerState,
   paymentReferenceFingerprint,

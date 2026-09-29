@@ -2,7 +2,17 @@ import http from 'node:http'
 
 let createOrderRequests = 0
 let assignmentRequests = 0
+let serverSideStatusLookups = 0
+let recoverCaptured = false
+let recoverFailed = false
+let standardCheckoutCaptured = false
+let summaryCapturedInvoiceId = ''
+const summaryCreatedInvoiceIds = []
+const summaryVerifiedInvoiceIds = []
 const experimentEvents = []
+const clientEvents = []
+const summaryStatusInvoiceIds = []
+const summaryAssignmentInvoiceIds = []
 
 const invoice = {
   invoiceNumber: 'AB-VISUAL-FIXTURE',
@@ -17,7 +27,7 @@ const invoice = {
   balanceDue: 1,
   createdAt: '2026-09-24T00:00:00.000Z',
   deliveryDate: '2026-09-25T00:00:00.000Z',
-  customer: { name: 'Razorpay Test Customer', phone: '9930367267' },
+  customer: { name: 'Home QA', phone: '9930367267' },
   items: [{ sourceType: 'SERVICE', garmentType: 'Test garment', serviceName: 'Dry Clean', quantity: 1, unitPrice: 1, subtotal: 1 }],
   legalTerms: { sections: [] },
 }
@@ -34,24 +44,69 @@ const server = http.createServer((req, res) => {
     res.writeHead(204).end()
     return
   }
+  if (req.method === 'POST' && path === '/__test__/reset-standard-success') {
+    standardCheckoutCaptured = false
+    res.writeHead(200).end(JSON.stringify({ success: true }))
+    return
+  }
+  if (req.method === 'POST' && path === '/__test__/reset-summary-payment') {
+    summaryCapturedInvoiceId = ''
+    summaryCreatedInvoiceIds.length = 0
+    summaryVerifiedInvoiceIds.length = 0
+    res.writeHead(200).end(JSON.stringify({ success: true }))
+    return
+  }
   if (req.method === 'GET' && path === '/__test__/stats') {
-    res.writeHead(200).end(JSON.stringify({ createOrderRequests, assignmentRequests, experimentEvents }))
+    res.writeHead(200).end(JSON.stringify({ createOrderRequests, assignmentRequests, serverSideStatusLookups, experimentEvents, clientEvents, summaryStatusInvoiceIds, summaryAssignmentInvoiceIds, summaryCreatedInvoiceIds, summaryVerifiedInvoiceIds }))
     return
   }
 
   const segments = path.split('/').filter(Boolean)
   const slug = segments[4]
-  if (req.method === 'GET' && /^\/api\/v1\/public\/invoices\/variant-(?:[ab]|telemetry-down)$/.test(path)) {
-    res.writeHead(200).end(JSON.stringify({ success: true, data: { invoice } }))
+  if (req.method === 'GET' && path === '/api/v1/public/invoices/customer-summary') {
+    const receivable = (invoiceId, invoiceNumber, sourceNumber, balanceDue) => ({
+      invoiceId, invoiceNumber, sourceNumber, sourceType: 'ORDER', dueDate: '2026-09-27T00:00:00.000Z',
+      totalAmount: balanceDue, paidAmount: 0, balanceDue, totalPieces: 1,
+      items: [{ serviceName: 'Dry Clean', garmentType: 'SERVICE', quantity: 1, unitPrice: balanceDue, subtotal: balanceDue }],
+    })
+    const receivables = [
+      ...(summaryCapturedInvoiceId === 'summary-invoice-42' ? [] : [receivable('summary-invoice-42', 'INV-SUMMARY-42', 'HCS-SUM-42', 42)]),
+      receivable('summary-invoice-55', 'INV-SUMMARY-55', 'HCS-SUM-55', 55),
+    ]
+    const totals = receivables.reduce((sum, item) => ({
+      totalAmount: sum.totalAmount + item.totalAmount,
+      paidAmount: sum.paidAmount + item.paidAmount,
+      balanceDue: sum.balanceDue + item.balanceDue,
+    }), { totalAmount: 0, paidAmount: 0, balanceDue: 0 })
+    res.writeHead(200).end(JSON.stringify({ success: true, data: { paymentSummary: {
+      customer: { name: 'Home QA', phone: '9930367267' }, invoiceCount: receivables.length,
+      totals, legalTerms: { sections: [] }, receivables,
+    } } }))
+    return
+  }
+  if (req.method === 'GET' && /^\/api\/v1\/public\/invoices\/variant-(?:[ab]|telemetry-down|callback-failure|modal-dismiss|terminal-failure|recover-captured|recover-pending|recover-failed|standard-success|redirect-disabled)$/.test(path)) {
+    const invoiceData = ((slug === 'variant-recover-captured' && recoverCaptured) || (slug === 'variant-standard-success' && standardCheckoutCaptured))
+      ? { ...invoice, paymentStatus: 'PAID', paidAmount: 1, balanceDue: 0 }
+      : invoice
+    res.writeHead(200).end(JSON.stringify({ success: true, data: { invoice: invoiceData } }))
     return
   }
   if (req.method === 'POST' && path.endsWith('/payment/experiment/assign')) {
     assignmentRequests += 1
-    if (slug === 'variant-telemetry-down') {
-      res.writeHead(503).end(JSON.stringify({ success: false, message: 'Experiment service unavailable.' }))
-      return
-    }
-    res.writeHead(200).end(JSON.stringify({ success: true, data: { experimentId: 'invoice_checkout_presentation_v1', variant: slug === 'variant-b' ? 'B' : 'A' } }))
+    let rawBody = ''
+    req.setEncoding('utf8')
+    req.on('data', (chunk) => { rawBody += chunk })
+    req.on('end', () => {
+      try {
+        const event = JSON.parse(rawBody)
+        if (event.invoiceId) summaryAssignmentInvoiceIds.push(event.invoiceId)
+      } catch {}
+      if (slug === 'variant-telemetry-down') {
+        res.writeHead(503).end(JSON.stringify({ success: false, message: 'Experiment service unavailable.' }))
+        return
+      }
+      res.writeHead(200).end(JSON.stringify({ success: true, data: { experimentId: 'invoice_checkout_presentation_v1', variant: slug === 'variant-b' ? 'B' : 'A' } }))
+    })
     return
   }
   if (req.method === 'POST' && path.endsWith('/payment/experiment/events')) {
@@ -69,12 +124,145 @@ const server = http.createServer((req, res) => {
     })
     return
   }
+  if (req.method === 'POST' && path.endsWith('/payment/client-events')) {
+    let rawBody = ''
+    req.setEncoding('utf8')
+    req.on('data', (chunk) => { rawBody += chunk })
+    req.on('end', () => {
+      try {
+        const event = JSON.parse(rawBody)
+        clientEvents.push({ eventType: event.eventType, hasAttemptId: Boolean(event.attemptId), hasClientEventId: Boolean(event.clientEventId) })
+        res.writeHead(200).end(JSON.stringify({ success: true, data: { accepted: true } }))
+      } catch {
+        res.writeHead(400).end(JSON.stringify({ success: false }))
+      }
+    })
+    return
+  }
   if (req.method === 'POST' && path.endsWith('/payment/create-order')) {
     createOrderRequests += 1
+    if (slug === 'customer-summary') {
+      let rawBody = ''
+      req.setEncoding('utf8')
+      req.on('data', (chunk) => { rawBody += chunk })
+      req.on('end', () => {
+        try {
+          const requestBody = JSON.parse(rawBody)
+          if (requestBody.invoiceId !== 'summary-invoice-42' || summaryCapturedInvoiceId) {
+            res.writeHead(409).end(JSON.stringify({ success: false, code: 'SUMMARY_INVOICE_NOT_PAYABLE' }))
+            return
+          }
+          summaryCreatedInvoiceIds.push(requestBody.invoiceId)
+          res.writeHead(200).end(JSON.stringify({ success: true, data: {
+            key: 'rzp_test_ui_fixture', amount: 4200, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
+            checkoutAttemptId: 'summary-ui-test-attempt', razorpayOrderId: 'order_summary_ui_test', invoiceNumber: 'INV-SUMMARY-42',
+          } }))
+        } catch {
+          res.writeHead(400).end(JSON.stringify({ success: false }))
+        }
+      })
+      return
+    }
+    if (slug === 'variant-terminal-failure') {
+      res.writeHead(409).end(JSON.stringify({
+        success: false,
+        code: 'CHECKOUT_ATTEMPT_TERMINAL',
+        message: 'This payment attempt failed. Start a new attempt to continue.',
+        details: { checkoutAttemptId: 'ui-test-terminal-attempt' },
+      }))
+      return
+    }
+    if (slug === 'variant-callback-failure' || slug === 'variant-modal-dismiss' || slug === 'variant-standard-success') {
+      res.writeHead(200).end(JSON.stringify({ success: true, data: {
+        key: 'rzp_test_ui_fixture', amount: 100, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
+        checkoutAttemptId: 'ui-test-attempt', razorpayOrderId: 'order_ui_test', invoiceNumber: 'AB-VISUAL-FIXTURE',
+        redirectCheckoutAvailable: true,
+        callbackUrl: `http://localhost:5001/api/v1/public/invoices/${slug}/payment/callback?invoiceId=ui-test-invoice`,
+      } }))
+      return
+    }
     res.writeHead(403).end(JSON.stringify({ success: false, code: 'UI_TEST_PAYMENT_DISABLED', message: 'Order creation is blocked in this UI test.' }))
+    return
+  }
+  if (req.method === 'POST' && path.endsWith('/payment/verify') && slug === 'customer-summary') {
+    let rawBody = ''
+    req.setEncoding('utf8')
+    req.on('data', (chunk) => { rawBody += chunk })
+    req.on('end', () => {
+      try {
+        const tuple = JSON.parse(rawBody)
+        if (tuple.invoiceId !== 'summary-invoice-42' || tuple.razorpayOrderId !== 'order_summary_ui_test' || tuple.razorpayPaymentId !== 'pay_summary_ui_captured' || tuple.razorpaySignature !== 'summary-ui-test-signature') {
+          res.writeHead(400).end(JSON.stringify({ success: false, code: 'INVALID_FIXTURE_TUPLE' }))
+          return
+        }
+        summaryCapturedInvoiceId = tuple.invoiceId
+        summaryVerifiedInvoiceIds.push(tuple.invoiceId)
+        res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', paymentId: tuple.razorpayPaymentId } }))
+      } catch {
+        res.writeHead(400).end(JSON.stringify({ success: false }))
+      }
+    })
+    return
+  }
+  if (req.method === 'POST' && path.endsWith('/payment/verify') && slug === 'variant-standard-success') {
+    let rawBody = ''
+    req.setEncoding('utf8')
+    req.on('data', (chunk) => { rawBody += chunk })
+    req.on('end', () => {
+      try {
+        const tuple = JSON.parse(rawBody)
+        if (tuple.razorpayOrderId !== 'order_ui_test' || tuple.razorpayPaymentId !== 'pay_ui_test_captured' || tuple.razorpaySignature !== 'ui-test-signature') {
+          res.writeHead(400).end(JSON.stringify({ success: false, code: 'INVALID_FIXTURE_TUPLE' }))
+          return
+        }
+        standardCheckoutCaptured = true
+        res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', paymentId: tuple.razorpayPaymentId } }))
+      } catch {
+        res.writeHead(400).end(JSON.stringify({ success: false }))
+      }
+    })
+    return
+  }
+  if (req.method === 'GET' && path.endsWith('/payment/status')) {
+    const searchParams = new URL(req.url || '/', 'http://127.0.0.1').searchParams
+    const hasAttemptId = Boolean(searchParams.get('attemptId'))
+    const invoiceId = searchParams.get('invoiceId')
+    if (invoiceId) summaryStatusInvoiceIds.push(invoiceId)
+    if (!hasAttemptId) serverSideStatusLookups += 1
+    if (slug === 'variant-recover-captured' && !hasAttemptId) {
+      recoverCaptured = true
+      res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', attemptId: 'server-resolved-attempt', invoice: { status: 'PAID', balanceDue: 0 }, paymentId: 'pay_test_captured' } }))
+      return
+    }
+    if (slug === 'variant-standard-success' && standardCheckoutCaptured && !hasAttemptId) {
+      res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', attemptId: 'server-resolved-attempt', invoice: { status: 'PAID', balanceDue: 0 }, paymentId: 'pay_ui_test_captured' } }))
+      return
+    }
+    if (slug === 'customer-summary' && invoiceId === summaryCapturedInvoiceId) {
+      res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', attemptId: 'summary-ui-test-attempt', invoice: { status: 'PAID', balanceDue: 0 }, paymentId: 'pay_summary_ui_captured' } }))
+      return
+    }
+    if (slug === 'variant-recover-pending' && !hasAttemptId) {
+      res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'PENDING', attemptId: 'server-resolved-pending-attempt', canResumeCheckout: false } }))
+      return
+    }
+    if (slug === 'variant-modal-dismiss' && hasAttemptId) {
+      res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CREATED', attemptId: 'ui-test-attempt', canResumeCheckout: false } }))
+      return
+    }
+    if (slug === 'variant-recover-failed') {
+      if (!hasAttemptId && !recoverFailed) {
+        recoverFailed = true
+        res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'PENDING', attemptId: 'server-resolved-failed-attempt', canResumeCheckout: false } }))
+        return
+      }
+      res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'FAILED', attemptId: 'server-resolved-failed-attempt', canResumeCheckout: false } }))
+      return
+    }
+    res.writeHead(200).end(JSON.stringify({ success: true, data: { status: hasAttemptId ? 'FAILED' : 'NONE', redirectCheckoutAvailable: true } }))
     return
   }
   res.writeHead(404).end(JSON.stringify({ success: false }))
 })
 
-server.listen(55101, '127.0.0.1')
+server.listen(55102, '127.0.0.1')

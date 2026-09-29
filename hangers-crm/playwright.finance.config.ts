@@ -1,0 +1,15 @@
+import { defineConfig } from '@playwright/test'
+
+export default defineConfig({
+  testDir: './tests/finance',
+  fullyParallel: false,
+  workers: 1,
+  reporter: 'list',
+  use: {
+    baseURL: 'http://localhost:5002',
+    headless: true,
+    launchOptions: {
+      executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    },
+  },
+})

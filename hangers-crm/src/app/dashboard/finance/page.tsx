@@ -54,6 +54,11 @@ const paymentCustomerName = (payment: any) =>
 const paymentReference = (payment: any) => payment.method === 'RAZORPAY'
   ? payment.razorpayPaymentId || payment.reference || payment.razorpayOrderId || '—'
   : payment.reference || '—'
+const paymentModeLabel = (payment: any) => {
+  if (payment.method !== 'RAZORPAY') return null
+  const mode = String(payment.mode || '').toUpperCase()
+  return mode === 'TEST' ? 'Test mode' : mode === 'LIVE' ? 'Live mode' : 'Mode unverified'
+}
 const providerMethodLabel = (payment: any) => {
   if (payment.method !== 'RAZORPAY' || !payment.providerMethod) return null
   const method = String(payment.providerMethod).replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase())
@@ -114,9 +119,40 @@ export default function FinancePage() {
   const [bankMatchBusy, setBankMatchBusy] = useState(false)
   const [bankMatchReasons, setBankMatchReasons] = useState<Record<string, string>>({})
   const [webhookLoading, setWebhookLoading] = useState(false)
+  const [disputeSyncBusy, setDisputeSyncBusy] = useState(false)
+  const [disputeSyncNextSkip, setDisputeSyncNextSkip] = useState<number | null>(null)
+  const [disputeSyncTo, setDisputeSyncTo] = useState<number | null>(null)
   const [webhookBusyId, setWebhookBusyId] = useState<string | null>(null)
   const [providerReconciliationBusy, setProviderReconciliationBusy] = useState(false)
+  const [orderInventoryFrom, setOrderInventoryFrom] = useState(format(subDays(new Date(), 6), 'yyyy-MM-dd'))
+  const [orderInventoryTo, setOrderInventoryTo] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [orderInventoryBusy, setOrderInventoryBusy] = useState(false)
+  const [orderInventoryPreview, setOrderInventoryPreview] = useState<any>(null)
+  const [orderInventoryError, setOrderInventoryError] = useState('')
+  const [razorpayReportCsv, setRazorpayReportCsv] = useState<{ name: string; text: string } | null>(null)
+  const [razorpayReportPreview, setRazorpayReportPreview] = useState<any>(null)
+  const [razorpayReportBusy, setRazorpayReportBusy] = useState(false)
+  const [razorpayReportError, setRazorpayReportError] = useState('')
+  const [razorpayOrdersReportCsv, setRazorpayOrdersReportCsv] = useState<{ name: string; text: string } | null>(null)
+  const [razorpayOrdersReportPreview, setRazorpayOrdersReportPreview] = useState<any>(null)
+  const [razorpayOrdersReportBusy, setRazorpayOrdersReportBusy] = useState(false)
+  const [razorpayOrdersReportError, setRazorpayOrdersReportError] = useState('')
+  const [historicalReportsPreview, setHistoricalReportsPreview] = useState<any>(null)
+  const [historicalReportsBusy, setHistoricalReportsBusy] = useState(false)
+  const [historicalReportsError, setHistoricalReportsError] = useState('')
+  const [historicalBackfillDialog, setHistoricalBackfillDialog] = useState<any>(null)
+  const [historicalBackfillBusyId, setHistoricalBackfillBusyId] = useState<string | null>(null)
+  const [checkoutAttemptReconcileBusy, setCheckoutAttemptReconcileBusy] = useState<string | null>(null)
   const [replayDialog, setReplayDialog] = useState<{ event: any; reason: string } | null>(null)
+
+  useEffect(() => {
+    if (!historicalBackfillDialog) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !historicalBackfillBusyId) setHistoricalBackfillDialog(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [historicalBackfillDialog, historicalBackfillBusyId])
 
   const loadDaily = useCallback(async () => {
     setLoading(true)
@@ -167,6 +203,18 @@ export default function FinancePage() {
     } finally { setWebhookLoading(false) }
   }, [checkoutAnalyticsFrom, checkoutAnalyticsTo])
 
+  const reconcileCheckoutAttempt = async (attempt: any) => {
+    setCheckoutAttemptReconcileBusy(attempt.id)
+    try {
+      await api.post(`/reconciliation/razorpay-checkout-attempts/${encodeURIComponent(attempt.id)}/reconcile`, {}, idempotencyConfig('finance.razorpay-checkout-attempt.reconcile', attempt.id))
+      toast.success('Razorpay attempt reconciled. Refreshing Finance status.')
+      await loadWebhookEvents()
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Attempt remains blocked. Could not reconcile with Razorpay.')
+      await loadWebhookEvents()
+    } finally { setCheckoutAttemptReconcileBusy(null) }
+  }
+
   useEffect(() => {
     if (tab === 'daily') loadDaily()
     else if (tab === 'receivables') loadReceivables()
@@ -194,7 +242,9 @@ export default function FinancePage() {
   useEffect(() => {
     metadataAPI.getAll().then((r:any) => {
       const metadata = r?.metadata || r?.data?.metadata || {}
-      const filteredMethods = (metadata.paymentMethods || []).filter((item:any) => item.value && item.value !== 'SPLIT' && item.value !== 'Pay Later')
+      const filteredMethods = (metadata.paymentMethods || [])
+        .filter((item:any) => item.value && item.value !== 'SPLIT' && item.value !== 'Pay Later')
+        .map((item:any) => item.value === 'ONLINE' ? { ...item, label: 'Bank transfer' } : item)
       setMethodOptions(filteredMethods)
       setMethodLabels({
         ALL: 'ALL',
@@ -221,6 +271,16 @@ export default function FinancePage() {
   }, {})).sort((a: any, b: any) => a.mode.localeCompare(b.mode) || a.method.localeCompare(b.method))
 
   const S = (v: number) => `₹${(v||0).toLocaleString('en-IN')}`
+  const signedPaymentAmount = (payment: any) => {
+    const signedAmount = Number(payment.signedAmount)
+    if (Number.isFinite(signedAmount)) return signedAmount
+    const amount = Number(payment.amount) || 0
+    return payment.kind === 'REFUND' ? -Math.abs(amount) : amount
+  }
+  const signedPaymentLabel = (payment: any) => {
+    const amount = signedPaymentAmount(payment)
+    return amount < 0 ? `-${S(Math.abs(amount))}` : S(amount)
+  }
   const groupKey = (group: any) => group?.customer?.id || group?.customer?.phone || group?.customer?.name || 'unknown'
   const selectedForGroup = (group: any) => {
     const key = groupKey(group)
@@ -313,6 +373,176 @@ export default function FinancePage() {
     } catch (e: any) {
       toast.error(e?.message || 'Could not queue provider reconciliation')
     } finally { setProviderReconciliationBusy(false) }
+  }
+  const previewRazorpayOrderInventory = async () => {
+    const parseLocalDate = (value: string, endOfDay = false) => {
+      const parts = value.split('-').map(Number)
+      if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part))) return null
+      const date = endOfDay
+        ? new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59)
+        : new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0)
+      return Number.isNaN(date.getTime()) ? null : Math.floor(date.getTime() / 1000)
+    }
+    const from = parseLocalDate(orderInventoryFrom)
+    const to = parseLocalDate(orderInventoryTo, true)
+    if (from === null || to === null || to <= from || to - from > 31 * 24 * 60 * 60) {
+      setOrderInventoryError('Choose a valid date range of 31 days or less.')
+      setOrderInventoryPreview(null)
+      return
+    }
+    setOrderInventoryBusy(true)
+    setOrderInventoryError('')
+    try {
+      const response = await api.get(`/reconciliation/razorpay-orders/preview?from=${from}&to=${to}`)
+      setOrderInventoryPreview(response.data?.preview || response.data?.data?.preview || null)
+      if (!response.data?.preview && !response.data?.data?.preview) throw new Error('The preview response was incomplete.')
+    } catch (error: any) {
+      setOrderInventoryPreview(null)
+      setOrderInventoryError(error?.response?.data?.message || error?.message || 'Could not preview Razorpay Orders.')
+    } finally { setOrderInventoryBusy(false) }
+  }
+  const selectRazorpayPaymentsReport = async (event: any) => {
+    const file = event.target.files?.[0]
+    setRazorpayReportCsv(null)
+    setRazorpayReportPreview(null)
+    setRazorpayReportError('')
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.csv') || file.size > 450_000) {
+      setRazorpayReportError('Choose a Razorpay Payments CSV smaller than 450 KB.')
+      event.target.value = ''
+      return
+    }
+    try {
+      setRazorpayReportCsv({ name: file.name, text: await file.text() })
+    } catch {
+      setRazorpayReportError('The selected Razorpay report could not be read.')
+    }
+  }
+  const previewRazorpayPaymentsReport = async () => {
+    if (!razorpayReportCsv || !canReconcile) return
+    setRazorpayReportBusy(true)
+    setRazorpayReportError('')
+    setRazorpayReportPreview(null)
+    try {
+      const response = await api.post('/reconciliation/razorpay-dashboard-reports/payments/preview', { csvText: razorpayReportCsv.text })
+      const report = response.data?.report || response.data?.data?.report
+      if (!report) throw new Error('The report preview response was incomplete.')
+      setRazorpayReportPreview(report)
+    } catch (error: any) {
+      setRazorpayReportError(error?.response?.data?.message || error?.message || 'Could not preview this Razorpay report.')
+    } finally { setRazorpayReportBusy(false) }
+  }
+  const selectRazorpayOrdersReport = async (event: any) => {
+    const file = event.target.files?.[0]
+    setRazorpayOrdersReportCsv(null)
+    setRazorpayOrdersReportPreview(null)
+    setRazorpayOrdersReportError('')
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.csv') || file.size > 450_000) {
+      setRazorpayOrdersReportError('Choose a Razorpay Orders CSV smaller than 450 KB.')
+      event.target.value = ''
+      return
+    }
+    try { setRazorpayOrdersReportCsv({ name: file.name, text: await file.text() }) }
+    catch { setRazorpayOrdersReportError('The selected Razorpay Orders report could not be read.') }
+  }
+  const previewRazorpayOrdersReport = async () => {
+    if (!razorpayOrdersReportCsv || !canReconcile) return
+    setRazorpayOrdersReportBusy(true)
+    setRazorpayOrdersReportError('')
+    setRazorpayOrdersReportPreview(null)
+    try {
+      const response = await api.post('/reconciliation/razorpay-dashboard-reports/orders/preview', { csvText: razorpayOrdersReportCsv.text })
+      const report = response.data?.report || response.data?.data?.report
+      if (!report) throw new Error('The Orders report preview response was incomplete.')
+      setRazorpayOrdersReportPreview(report)
+    } catch (error: any) {
+      setRazorpayOrdersReportError(error?.response?.data?.message || error?.message || 'Could not preview this Razorpay Orders report.')
+    } finally { setRazorpayOrdersReportBusy(false) }
+  }
+  const previewHistoricalPaymentReports = async () => {
+    if (!razorpayReportCsv || !razorpayOrdersReportCsv || !canReconcile) return
+    setHistoricalReportsBusy(true)
+    setHistoricalReportsError('')
+    setHistoricalReportsPreview(null)
+    try {
+      const response = await api.post('/reconciliation/razorpay-dashboard-reports/historical-payments/preview', {
+        paymentsCsvText: razorpayReportCsv.text,
+        ordersCsvText: razorpayOrdersReportCsv.text,
+      })
+      const report = response.data?.report || response.data?.data?.report
+      if (!report) throw new Error('The paired report preview response was incomplete.')
+      setHistoricalReportsPreview(report)
+    } catch (error: any) {
+      setHistoricalReportsError(error?.response?.data?.message || error?.message || 'Could not match the Payments and Orders reports.')
+    } finally { setHistoricalReportsBusy(false) }
+  }
+  const confirmHistoricalPaymentBackfill = async () => {
+    const item = historicalBackfillDialog
+    if (item?.type === 'ORDER') {
+      const orderId = item?.providerOrder?.id
+      const invoiceId = item?.invoice?.id
+      if (!orderId || !invoiceId || !canReconcile) return
+      setHistoricalBackfillBusyId(orderId)
+      try {
+        const response = await api.post(
+          `/reconciliation/razorpay-orders/${encodeURIComponent(orderId)}/backfill`,
+          { invoiceId, mode: item.mode || orderInventoryPreview?.mode },
+          idempotencyConfig('finance.razorpay-historical-order-backfill', orderId),
+        )
+        toast.success(response.data?.message || response.data?.data?.message || 'Verified unused Order linked to the invoice')
+        setHistoricalBackfillDialog(null)
+        await previewRazorpayOrderInventory()
+        await loadDaily()
+      } catch (error: any) {
+        toast.error(error?.response?.data?.message || error?.message || 'Historical Order could not be linked')
+      } finally { setHistoricalBackfillBusyId(null) }
+      return
+    }
+    const paymentId = item?.providerPayment?.id
+    const invoiceId = item?.invoice?.id
+    if (!paymentId || !invoiceId || !canReconcile) return
+    setHistoricalBackfillBusyId(paymentId)
+    try {
+      const historicalReport = item?.source === 'HISTORICAL_REPORT'
+      const response = await api.post(
+        `/reconciliation/razorpay-payments/${encodeURIComponent(paymentId)}/backfill`,
+        {
+          invoiceId,
+          mode: item.mode || orderInventoryPreview?.mode,
+          ...(historicalReport ? {
+            paymentsCsvText: razorpayReportCsv?.text,
+            ordersCsvText: razorpayOrdersReportCsv?.text,
+          } : {}),
+        },
+        idempotencyConfig('finance.razorpay-historical-payment-backfill', paymentId),
+      )
+      toast.success(response.data?.message || response.data?.data?.message || 'Verified payment recorded in CRM')
+      const fromDashboardReport = item.source === 'DASHBOARD_REPORT'
+      setHistoricalBackfillDialog(null)
+      if (fromDashboardReport) await previewRazorpayPaymentsReport()
+      else if (historicalReport) await previewHistoricalPaymentReports()
+      else await previewRazorpayOrderInventory()
+      await loadDaily()
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || error?.message || 'Historical payment could not be recorded')
+    } finally { setHistoricalBackfillBusyId(null) }
+  }
+  const syncRazorpayDisputes = async () => {
+    const skip = disputeSyncNextSkip ?? 0
+    const to = disputeSyncNextSkip === null ? Math.floor(Date.now() / 1000) : disputeSyncTo
+    if (!to) { toast.error('Could not continue the dispute sync snapshot; start a new sync'); return }
+    setDisputeSyncBusy(true)
+    try {
+      const response = await api.post('/reconciliation/razorpay-disputes/sync', { count: 25, skip, to }, idempotencyConfig('finance.razorpay-disputes.sync'))
+      const result = response.data?.data || response.data || {}
+      setDisputeSyncNextSkip(result.hasMore ? Number(result.nextSkip) : null)
+      setDisputeSyncTo(result.hasMore ? Number(result.to) : null)
+      toast.success(`Synced ${Number(result.synced || 0)} disputes${Number(result.review || 0) || Number(result.failed || 0) ? ` · ${Number(result.review || 0)} need review · ${Number(result.failed || 0)} failed` : ''}`)
+      await loadWebhookEvents()
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not sync Razorpay disputes')
+    } finally { setDisputeSyncBusy(false) }
   }
   const queueSettlementReconciliation = async () => {
     const [year, month, day] = settlementReconDate.split('-').map(Number)
@@ -530,24 +760,24 @@ export default function FinancePage() {
                           const Icon = METHOD_ICON[(p.method || 'OTHER') as keyof typeof METHOD_ICON] || Tag
                           return <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Icon size={12} /> {methodLabels[p.method] || p.method}</span>
                         })()}
-                      </span>{providerMethodLabel(p) && <small style={{paddingLeft:3,fontSize:10.5,fontWeight:600,color:'#52647e'}}>{providerMethodLabel(p)}</small>}</div>
+                      </span>{p.kind === 'REFUND' && <small style={{padding:'2px 6px',borderRadius:4,fontSize:10,fontWeight:700,color:'#b91c1c',background:'#fef2f2'}}>Refund</small>}{providerMethodLabel(p) && <small style={{paddingLeft:3,fontSize:10.5,fontWeight:600,color:'#52647e'}}>{providerMethodLabel(p)}</small>}{paymentModeLabel(p) && <small style={{padding:'2px 6px',borderRadius:4,fontSize:10,fontWeight:700,color:p.mode === 'TEST' ? '#92400e' : p.mode === 'LIVE' ? '#166534' : '#475569',background:p.mode === 'TEST' ? '#fef3c7' : p.mode === 'LIVE' ? '#dcfce7' : '#f1f5f9'}}>{paymentModeLabel(p)}</small>}</div>
                     </td>
                     <td style={{padding:'11px 16px',fontSize:12,color:'#9dafc8',fontFamily:"var(--crm-font-mono)"}}>{paymentReference(p)}</td>
-                    <td style={{padding:'11px 16px',fontWeight:700,color:'#022c50',fontSize:15}}>{S(p.amount)}</td>
+                    <td style={{padding:'11px 16px',fontWeight:700,color:signedPaymentAmount(p)<0?'#b91c1c':'#022c50',fontSize:15}}>{signedPaymentLabel(p)}</td>
                     <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{p.collectedByStaff?.name||'—'}</td>
                   </tr>
                 ))}
               </tbody>
               {filtered.length>0&&(
                 <tfoot><tr style={{background:'#f7f9fc'}}>
-                  <td colSpan={5} style={{padding:'12px 18px',fontWeight:700,color:'#023c62',fontFamily:"var(--crm-font-ui)"}}>Total</td>
-                  <td style={{padding:'12px 18px',fontWeight:800,color:'#023c62',fontSize:16,fontFamily:"var(--crm-font-ui)"}}>{S(filtered.reduce((s:number,p:any)=>s+p.amount,0))}</td>
+                  <td colSpan={5} style={{padding:'12px 18px',fontWeight:700,color:'#023c62',fontFamily:"var(--crm-font-ui)"}}>Net total</td>
+                  <td style={{padding:'12px 18px',fontWeight:800,color:'#023c62',fontSize:16,fontFamily:"var(--crm-font-ui)"}}>{S(filtered.reduce((sum:number,p:any)=>sum+signedPaymentAmount(p),0))}</td>
                   <td/>
                 </tr></tfoot>
               )}
             </table>
             <div className="finance-mobile-transactions">
-              {loading ? Array.from({length:5},(_,index)=><div className="finance-mobile-skeleton" key={index}><i/><span/><b/></div>) : !filtered.length ? <div className="finance-mobile-empty">No transactions for this date.</div> : pagedPayments.map((p:any)=>{const Icon=METHOD_ICON[(p.method||'OTHER') as keyof typeof METHOD_ICON]||Tag;return <article key={p.id}><div><strong>{paymentCustomerName(p)}</strong><small>{paymentSourceNumber(p)} · {format(new Date(p.createdAt),'h:mm a')}</small></div><span><b>{S(p.amount)}</b><small><Icon size={11}/>{methodLabels[p.method]||p.method}</small>{providerMethodLabel(p)&&<small>{providerMethodLabel(p)}</small>}</span>{paymentReference(p) !== '—'&&<p>{p.method === 'RAZORPAY' ? 'Razorpay payment: ' : 'Reference: '}{paymentReference(p)}</p>}{p.method === 'RAZORPAY' && p.razorpayOrderId && <p>Razorpay order: {p.razorpayOrderId}</p>}<em>Collected by {p.collectedByStaff?.name||'—'}</em></article>})}
+              {loading ? Array.from({length:5},(_,index)=><div className="finance-mobile-skeleton" key={index}><i/><span/><b/></div>) : !filtered.length ? <div className="finance-mobile-empty">No transactions for this date.</div> : pagedPayments.map((p:any)=>{const Icon=METHOD_ICON[(p.method||'OTHER') as keyof typeof METHOD_ICON]||Tag;return <article key={p.id}><div><strong>{paymentCustomerName(p)}</strong><small>{paymentSourceNumber(p)} · {format(new Date(p.createdAt),'h:mm a')}</small></div><span><b style={{color:signedPaymentAmount(p)<0?'#b91c1c':'inherit'}}>{signedPaymentLabel(p)}</b><small><Icon size={11}/>{methodLabels[p.method]||p.method}</small>{p.kind==='REFUND'&&<small style={{color:'#b91c1c',fontWeight:700}}>Refund</small>}{providerMethodLabel(p)&&<small>{providerMethodLabel(p)}</small>}{paymentModeLabel(p)&&<small style={{fontWeight:700,color:p.mode === 'TEST' ? '#92400e' : p.mode === 'LIVE' ? '#166534' : '#475569'}}>{paymentModeLabel(p)}</small>}</span>{paymentReference(p) !== '—'&&<p>{p.method === 'RAZORPAY' ? 'Razorpay payment: ' : 'Reference: '}{paymentReference(p)}</p>}{p.method === 'RAZORPAY' && p.razorpayOrderId && <p>Razorpay order: {p.razorpayOrderId}</p>}<em>Collected by {p.collectedByStaff?.name||'—'}</em></article>})}
             </div>
           </div>
           <PaginationControls
@@ -667,6 +897,107 @@ export default function FinancePage() {
             })}
           </div>
         </section>}
+        <section aria-label="Historical Razorpay Order inventory" style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden'}}>
+          <div style={{padding:'16px 20px',display:'flex',alignItems:'center',gap:12,borderBottom:'1px solid #e8f0f7',flexWrap:'wrap'}}>
+            <div style={{flex:1,minWidth:220}}>
+              <div style={{fontSize:15,fontWeight:800,color:'#023c62'}}>Historical Razorpay Order inventory</div>
+              <div style={{fontSize:12,color:'#6b7fa3',marginTop:3}}>Read-only scan of provider Orders and Payments to find possible links to CRM invoices and captured receipts. Preview never changes invoices, attempts, or receipts; Finance must review every candidate before any backfill. Direct Order lookup is limited to 180 days; use Razorpay Dashboard Reports for older records.</div>
+            </div>
+            <label style={{display:'grid',gap:4,fontSize:10,fontWeight:800,color:'#52647e'}}>From
+              <input aria-label="Order inventory from date" type="date" value={orderInventoryFrom} onChange={(event) => setOrderInventoryFrom(event.target.value)} style={{height:36,padding:'0 9px',border:'1px solid #c9ddea',borderRadius:7,color:'#19324a',fontSize:12}} />
+            </label>
+            <label style={{display:'grid',gap:4,fontSize:10,fontWeight:800,color:'#52647e'}}>To
+              <input aria-label="Order inventory to date" type="date" value={orderInventoryTo} onChange={(event) => setOrderInventoryTo(event.target.value)} style={{height:36,padding:'0 9px',border:'1px solid #c9ddea',borderRadius:7,color:'#19324a',fontSize:12}} />
+            </label>
+            <button type="button" onClick={previewRazorpayOrderInventory} disabled={orderInventoryBusy || !canReconcile} title={!canReconcile ? 'Finance reconciliation permission required' : 'Read-only Razorpay Order inventory preview'} style={{display:'inline-flex',alignItems:'center',gap:7,padding:'9px 13px',border:0,borderRadius:9,background:orderInventoryBusy || !canReconcile?'#91a8b8':'#023c62',color:'#fff',fontSize:12,fontWeight:800,cursor:orderInventoryBusy?'wait':'pointer'}}>
+              {orderInventoryBusy ? <Loader2 className="crm-spin" size={14}/> : <RefreshCw size={14}/>} {orderInventoryBusy ? 'Scanning…' : 'Preview Orders'}
+            </button>
+          </div>
+          <div style={{padding:'14px 18px',display:'grid',gap:10,borderBottom:'1px solid #e8f0f7',background:'#fbfdff'}}>
+            <div>
+              <strong style={{fontSize:13,color:'#023c62'}}>Preview older Payments from a Razorpay Dashboard report</strong>
+              <div style={{fontSize:11,color:'#6b7fa3',marginTop:3}}>Upload the Dashboard Payments CSV. Only provider IDs, status, amount, and currency are shown. The file is not stored. This preview does not verify capture with Razorpay or change CRM records.</div>
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+              <label style={{display:'grid',gap:4,fontSize:10,fontWeight:800,color:'#52647e'}}>
+                <span>Payments CSV</span>
+                <input aria-label="Razorpay Payments CSV report" type="file" accept=".csv,text/csv" onChange={selectRazorpayPaymentsReport} style={{maxWidth:250,fontSize:11,color:'#19324a'}} />
+              </label>
+              <button type="button" onClick={previewRazorpayPaymentsReport} disabled={!razorpayReportCsv || !canReconcile || razorpayReportBusy} title={!canReconcile ? 'Finance reconciliation permission required' : 'Preview sanitized Payments report fields'} style={{display:'inline-flex',alignItems:'center',gap:7,minHeight:36,padding:'0 12px',border:0,borderRadius:7,background:!razorpayReportCsv || !canReconcile || razorpayReportBusy?'#91a8b8':'#023c62',color:'#fff',fontSize:11,fontWeight:800,cursor:razorpayReportBusy?'wait':'pointer'}}>
+                {razorpayReportBusy ? <Loader2 className="crm-spin" size={14}/> : <FileSpreadsheet size={14}/>} {razorpayReportBusy ? 'Previewing…' : 'Preview Payments CSV'}
+              </button>
+            </div>
+            {razorpayReportError && <div role="alert" style={{padding:'8px 10px',background:'#fff1f2',color:'#b91c1c',fontSize:11}}>{razorpayReportError}</div>}
+            {razorpayReportPreview && <div style={{display:'grid',gap:8,minWidth:0}}>
+              <div style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:11,color:'#334155'}}><strong>{razorpayReportPreview.configuredMode} configured mode</strong><span>{razorpayReportPreview.totalRows} report rows</span><span>{razorpayReportPreview.capturedRows} say captured in report</span><span>{razorpayReportPreview.otherStatusRows} other status</span><span>{razorpayReportPreview.exactCandidateRows} exact CRM candidates</span>{razorpayReportPreview.truncated && <strong style={{color:'#b45309'}}>Showing first 100 rows</strong>}</div>
+              <div style={{display:'grid',gap:6,maxHeight:280,overflowY:'auto'}}>{razorpayReportPreview.preview?.map((row: any) => <article key={row.paymentId} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',padding:'8px 10px',border:'1px solid #e3edf6',borderRadius:7,fontSize:11,minWidth:0}}>
+                <strong style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{row.providerPayment.id}</strong><span>{row.providerPayment.orderId || 'No Order ID'}</span><span>{row.providerPayment.currency} {moneyFromPaise(row.providerPayment.amountPaise)}</span><span style={{fontWeight:800,color:row.providerPayment.status === 'captured' ? '#047857' : '#b45309'}}>{row.providerPayment.status}</span><span>{row.classification.replaceAll('_',' ')}</span>{row.invoice && <span>Invoice {row.invoice.invoiceNumber}</span>}
+                {row.classification === 'EXACT_CAPTURED_PAYMENT_CANDIDATE' && canReconcile && <button type="button" onClick={() => setHistoricalBackfillDialog({ ...row, mode: razorpayReportPreview.configuredMode, source: 'DASHBOARD_REPORT' })} disabled={Boolean(historicalBackfillBusyId)} style={{height:30,padding:'0 9px',border:0,borderRadius:7,background:'#087443',color:'#fff',fontSize:10,fontWeight:900,cursor:'pointer'}}>Review &amp; verify</button>}
+              </article>)}</div>
+            </div>}
+            <div style={{borderTop:'1px solid #e8f0f7',paddingTop:12,display:'grid',gap:9}}>
+              <div>
+                <strong style={{fontSize:13,color:'#023c62'}}>Preview Orders from a Razorpay Dashboard report</strong>
+                <div style={{fontSize:11,color:'#6b7fa3',marginTop:3}}>Read-only inventory for older Orders, including invoice-reference candidates. CSV Order status is not payment proof; this preview cannot attach an Order ID, mark an invoice paid, or create a receipt. Raw Notes and customer details are never returned.</div>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                <label style={{display:'grid',gap:4,fontSize:10,fontWeight:800,color:'#52647e'}}><span>Orders CSV</span><input aria-label="Razorpay Orders CSV report" type="file" accept=".csv,text/csv" onChange={selectRazorpayOrdersReport} style={{maxWidth:250,fontSize:11,color:'#19324a'}} /></label>
+                <button type="button" onClick={previewRazorpayOrdersReport} disabled={!razorpayOrdersReportCsv || !canReconcile || razorpayOrdersReportBusy} title={!canReconcile ? 'Finance reconciliation permission required' : 'Preview sanitized Orders report fields'} style={{display:'inline-flex',alignItems:'center',gap:7,minHeight:36,padding:'0 12px',border:0,borderRadius:7,background:!razorpayOrdersReportCsv || !canReconcile || razorpayOrdersReportBusy?'#91a8b8':'#023c62',color:'#fff',fontSize:11,fontWeight:800,cursor:razorpayOrdersReportBusy?'wait':'pointer'}}>
+                  {razorpayOrdersReportBusy ? <Loader2 className="crm-spin" size={14}/> : <FileSpreadsheet size={14}/>} {razorpayOrdersReportBusy ? 'Previewing…' : 'Preview Orders CSV'}
+                </button>
+              </div>
+              {razorpayOrdersReportError && <div role="alert" style={{padding:'8px 10px',background:'#fff1f2',color:'#b91c1c',fontSize:11}}>{razorpayOrdersReportError}</div>}
+              {razorpayOrdersReportPreview && <div style={{display:'grid',gap:8,minWidth:0}}>
+                <div style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:11,color:'#334155'}}><strong>{razorpayOrdersReportPreview.configuredMode} configured mode</strong><span>{razorpayOrdersReportPreview.totalRows} report rows</span><span>{razorpayOrdersReportPreview.paidOrders} report rows say paid</span><span>{razorpayOrdersReportPreview.unpaidOrders} report rows say unpaid</span><span>{razorpayOrdersReportPreview.exactAttemptCandidates} exact local Order/attempt candidates</span><span>{razorpayOrdersReportPreview.invoiceReferenceCandidates} invoice-reference reviews</span>{razorpayOrdersReportPreview.truncated && <strong style={{color:'#b45309'}}>Showing first 100 rows</strong>}</div>
+                <div style={{display:'grid',gap:6,maxHeight:280,overflowY:'auto'}}>{razorpayOrdersReportPreview.preview?.map((row: any) => <article key={row.providerOrder.id} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',padding:'8px 10px',border:'1px solid #e3edf6',borderRadius:7,fontSize:11,minWidth:0}}>
+                  <strong style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{row.providerOrder.id}</strong><span>{row.providerOrder.currency} {moneyFromPaise(row.providerOrder.amountPaise)}</span><span>Paid {row.providerOrder.amountPaidPaise == null ? 'not supplied' : moneyFromPaise(row.providerOrder.amountPaidPaise)}</span><span>Due {row.providerOrder.amountDuePaise == null ? 'not supplied' : moneyFromPaise(row.providerOrder.amountDuePaise)}</span><span>Attempts {row.providerOrder.attempts == null ? 'not supplied' : row.providerOrder.attempts}</span><span>{row.providerOrder.status}</span><span>{row.classification.replaceAll('_',' ')}</span>{row.invoice && <span>Invoice {row.invoice.invoiceNumber}</span>}
+                </article>)}</div>
+              </div>}
+            </div>
+            <div style={{borderTop:'1px solid #e8f0f7',paddingTop:12,display:'grid',gap:9}}>
+              <div>
+                <strong style={{fontSize:13,color:'#023c62'}}>Reconcile Orders older than Razorpay API retention</strong>
+                <div style={{fontSize:11,color:'#6b7fa3',marginTop:3}}>Use matching Payments and Orders exports from the same Razorpay Dashboard mode. Reports only identify candidates; before recording, the CRM re-fetches the Payment live and confirms it is captured and unrefunded.</div>
+              </div>
+              <button type="button" onClick={previewHistoricalPaymentReports} disabled={!razorpayReportCsv || !razorpayOrdersReportCsv || !canReconcile || historicalReportsBusy} style={{display:'inline-flex',alignItems:'center',gap:7,minHeight:36,padding:'0 12px',justifySelf:'start',border:0,borderRadius:7,background:!razorpayReportCsv || !razorpayOrdersReportCsv || !canReconcile || historicalReportsBusy?'#91a8b8':'#023c62',color:'#fff',fontSize:11,fontWeight:800,cursor:historicalReportsBusy?'wait':'pointer'}}>
+                {historicalReportsBusy ? <Loader2 className="crm-spin" size={14}/> : <FileSpreadsheet size={14}/>} {historicalReportsBusy ? 'Matching reports…' : 'Preview paired reports'}
+              </button>
+              {historicalReportsError && <div role="alert" style={{padding:'8px 10px',background:'#fff1f2',color:'#b91c1c',fontSize:11}}>{historicalReportsError}</div>}
+              {historicalReportsPreview && <div style={{display:'grid',gap:7,minWidth:0}}>
+                <div style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:11,color:'#334155'}}><strong>{historicalReportsPreview.configuredMode} configured mode</strong><span>{historicalReportsPreview.totalRows} Payments rows</span><span>{historicalReportsPreview.candidateRows} live-verification candidates</span><span>{historicalReportsPreview.alreadyRecordedRows} already recorded</span><span>{historicalReportsPreview.reviewRows} require review</span>{historicalReportsPreview.truncated && <strong style={{color:'#b45309'}}>Showing first 100 rows; narrow the reports</strong>}</div>
+                <div style={{display:'grid',gap:6,maxHeight:300,overflowY:'auto'}}>{historicalReportsPreview.preview?.map((row: any) => <article key={row.providerPayment.id} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',padding:'8px 10px',border:'1px solid #e3edf6',borderRadius:7,fontSize:11,minWidth:0}}>
+                  <strong style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{row.providerPayment.id}</strong><span>{row.providerPayment.orderId}</span><span>{row.providerPayment.currency} {moneyFromPaise(row.providerPayment.amountPaise)}</span><span>{row.classification.replaceAll('_',' ')}</span><span>{row.reasonCode.replaceAll('_',' ')}</span>{row.invoice && <span>Invoice {row.invoice.invoiceNumber}</span>}
+                  {row.classification === 'HISTORICAL_PAYMENT_REPORT_CANDIDATE' && row.invoice?.id && !historicalReportsPreview.truncated && canReconcile && <button type="button" onClick={() => setHistoricalBackfillDialog({ providerPayment: row.providerPayment, invoice: row.invoice, mode: historicalReportsPreview.configuredMode, source: 'HISTORICAL_REPORT' })} disabled={Boolean(historicalBackfillBusyId)} style={{height:30,padding:'0 9px',border:0,borderRadius:7,background:'#087443',color:'#fff',fontSize:10,fontWeight:900,cursor:'pointer'}}>Review &amp; verify live</button>}
+                </article>)}</div>
+                <small style={{color:'#71839d'}}>Report data alone never posts a receipt. A fresh Payment API verification and explicit Finance confirmation are required.</small>
+              </div>}
+            </div>
+          </div>
+          {orderInventoryError && <div role="alert" style={{padding:'10px 18px',background:'#fff1f2',color:'#b91c1c',fontSize:12}}>{orderInventoryError}</div>}
+          {orderInventoryPreview && <div style={{padding:16,display:'grid',gap:12}}>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',fontSize:11,color:'#334155'}}>
+              <strong>{orderInventoryPreview.mode} mode</strong><span>{orderInventoryPreview.scanned} Orders scanned</span><span>{orderInventoryPreview.pages} page(s)</span>
+              {Object.entries(orderInventoryPreview.counts || {}).map(([classification, count]) => <span key={classification}>{classification.replaceAll('_',' ')}: {String(count)}</span>)}
+              {orderInventoryPreview.linkedOrderLookups && <span>Referenced Orders checked: {orderInventoryPreview.linkedOrderLookups.fetched}/{orderInventoryPreview.linkedOrderLookups.requested}</span>}
+              {(!orderInventoryPreview.paginationComplete || !orderInventoryPreview.paymentInventory?.paginationComplete || orderInventoryPreview.linkedOrderLookups?.complete === false) && <strong style={{color:'#b91c1c'}}>Provider inventory is incomplete; do not use candidates or record payments</strong>}
+              {orderInventoryPreview.reviewItemsTruncated && <strong style={{color:'#b45309'}}>Review list is capped; narrow the date range</strong>}
+            </div>
+            {orderInventoryPreview.reviewItems?.length ? <div style={{display:'grid',gap:7,maxHeight:360,overflowY:'auto'}}>{orderInventoryPreview.reviewItems.map((item: any) => <article key={item.providerOrder.id} style={{display:'grid',gap:5,padding:10,border:'1px solid #e3edf6',borderRadius:8,minWidth:0}}>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}><strong style={{fontFamily:'var(--crm-font-mono)',fontSize:11,overflowWrap:'anywhere'}}>{item.providerOrder.id}</strong><span style={{fontSize:10,fontWeight:900,color:item.classification === 'EXACT_INVOICE_CANDIDATE' ? '#047857' : '#b45309'}}>{item.classification.replaceAll('_',' ')}</span><span style={{fontSize:10,color:'#52647e'}}>{item.reasonCode.replaceAll('_',' ')}</span></div>
+              <div style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:11,color:'#52647e'}}><span>{item.providerOrder.currency ? `${item.providerOrder.currency} ${moneyFromPaise(item.providerOrder.amountPaise)}` : 'Currency/amount unknown'}</span><span>Provider status: {item.providerOrder.status}</span>{item.invoice && <span>Invoice {item.invoice.invoiceNumber} · {item.invoice.status}</span>}{item.checkoutAttemptId && <span>Attempt {item.checkoutAttemptId} · {item.checkoutAttemptStatus}</span>}</div>
+              {item.classification === 'EXACT_INVOICE_CANDIDATE' && item.providerOrder.status === 'created' && item.providerOrder.attempts === 0 && item.providerOrder.amountPaidPaise === '0' && item.providerOrder.amountDuePaise === item.providerOrder.amountPaise && item.invoice?.id && orderInventoryPreview.paginationComplete && orderInventoryPreview.paymentInventory?.paginationComplete && orderInventoryPreview.linkedOrderLookups?.complete === true && !orderInventoryPreview.reviewItemsTruncated && !orderInventoryPreview.paymentInventory?.reviewItemsTruncated && canReconcile && <button type="button" onClick={() => setHistoricalBackfillDialog({ ...item, type: 'ORDER', mode: orderInventoryPreview.mode })} disabled={Boolean(historicalBackfillBusyId)} style={{height:32,padding:'0 10px',border:0,borderRadius:7,background:'#075985',color:'#fff',fontSize:11,fontWeight:900,cursor:'pointer'}}>Review &amp; link unused Order</button>}
+            </article>)}</div> : <div style={{fontSize:12,color:'#52647e'}}>No historical Orders require review in this date range.</div>}
+            <div style={{display:'grid',gap:8,borderTop:'1px solid #e8f0f7',paddingTop:12}}>
+              <strong style={{fontSize:12,color:'#023c62'}}>Provider Payments · {orderInventoryPreview.paymentInventory?.scanned || 0} scanned · {orderInventoryPreview.paymentInventory?.pages || 0} page(s)</strong>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',fontSize:11,color:'#334155'}}>{Object.entries(orderInventoryPreview.paymentInventory?.counts || {}).map(([classification, count]) => <span key={classification}>{classification.replaceAll('_',' ')}: {String(count)}</span>)}{orderInventoryPreview.paymentInventory?.reviewItemsTruncated && <strong style={{color:'#b45309'}}>Payment review list is capped; narrow the date range</strong>}</div>
+              {orderInventoryPreview.paymentInventory?.reviewItems?.length ? <div style={{display:'grid',gap:7,maxHeight:300,overflowY:'auto'}}>{orderInventoryPreview.paymentInventory.reviewItems.map((item: any) => <article key={item.providerPayment.id} style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',padding:10,border:'1px solid #e3edf6',borderRadius:8,minWidth:0,fontSize:11}}>
+                <strong style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{item.providerPayment.id}</strong><span style={{fontWeight:900,color:item.classification === 'EXACT_CAPTURED_PAYMENT_CANDIDATE' ? '#047857' : '#b45309'}}>{item.classification.replaceAll('_',' ')}</span><span style={{color:'#52647e'}}>{item.reasonCode.replaceAll('_',' ')}</span>{item.providerCode && <span>Razorpay code: {item.providerCode}</span>}<span>{item.providerPayment.currency || 'Currency unknown'} {moneyFromPaise(item.providerPayment.amountPaise)}</span><span>Provider status: {item.providerPayment.status}</span>{item.invoice && <span>Invoice {item.invoice.invoiceNumber}{item.invoice.balanceDuePaise ? ` · balance ₹${moneyFromPaise(item.invoice.balanceDuePaise)}` : ''}</span>}
+                {item.classification === 'EXACT_CAPTURED_PAYMENT_CANDIDATE' && item.invoice?.id && orderInventoryPreview.paginationComplete && orderInventoryPreview.paymentInventory?.paginationComplete && orderInventoryPreview.linkedOrderLookups?.complete === true && !orderInventoryPreview.reviewItemsTruncated && !orderInventoryPreview.paymentInventory?.reviewItemsTruncated && canReconcile && <button type="button" onClick={() => setHistoricalBackfillDialog(item)} disabled={Boolean(historicalBackfillBusyId)} style={{height:32,padding:'0 10px',border:0,borderRadius:7,background:'#087443',color:'#fff',fontSize:11,fontWeight:900,cursor:'pointer'}}>Review &amp; record</button>}
+              </article>)}</div> : <div style={{fontSize:12,color:'#52647e'}}>No provider Payments require review in this date range.</div>}
+              <small style={{color:'#71839d'}}>Preview never posts ledger entries. “Review & record” re-fetches the provider Payment and Order, may add CRM binding notes to the Order, and records a receipt only after exact captured-payment and invoice-balance checks pass.</small>
+            </div>
+          </div>}
+        </section>
         <section style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden'}}>
           <div style={{padding:'16px 20px',display:'flex',alignItems:'end',gap:12,borderBottom:'1px solid #e8f0f7',flexWrap:'wrap'}}>
             <div style={{flex:1,minWidth:220}}>
@@ -705,7 +1036,7 @@ export default function FinancePage() {
               attempt.providerErrorSource && `Source ${attempt.providerErrorSource}`,
               attempt.providerErrorStep && `Step ${attempt.providerErrorStep}`,
               attempt.providerErrorReason && `Reason ${attempt.providerErrorReason}`,
-              !attempt.providerErrorCode && attempt.failureCode && `CRM ${attempt.failureCode}`,
+              attempt.failureCode && `CRM code ${attempt.failureCode}`,
             ].filter(Boolean)
             return <article key={attempt.id} style={{padding:'13px 18px',borderBottom:'1px solid #eef4f8',display:'grid',gap:7,minWidth:0}}>
               <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
@@ -719,10 +1050,24 @@ export default function FinancePage() {
                 {diagnostics.length > 0 && <span style={{color:attempt.status==='FAILED'?'#b91c1c':'#9a3412',overflowWrap:'anywhere'}}>{diagnostics.join(' · ')}</span>}
                 {!detail && diagnostics.length === 0 && <span>{attempt.status==='CAPTURED'?'Verified capture recorded':'No provider error details recorded'}</span>}
               </div>
+              {attempt.providerErrorClassification && <div style={{padding:'8px 10px',background:'#fff8e7',borderRadius:7,fontSize:11,color:'#754c00',overflowWrap:'anywhere'}}>
+                <strong>{attempt.providerErrorClassification.category.replace(/_/g,' ')}</strong>
+                {' · Recommended: '}{attempt.providerErrorClassification.operatorAction.replace(/_/g,' ').toLowerCase()}
+                {' · Automatic retry disabled'}
+              </div>}
+              {attempt.status === 'REVIEW' && attempt.failureCode === 'OVERPAYMENT_NOT_ALLOWED' && <div role="status" style={{padding:'9px 10px',background:'#fff7ed',border:'1px solid #fed7aa',borderRadius:7,fontSize:11,color:'#9a3412',overflowWrap:'anywhere'}}>
+                Razorpay confirms this payment, but CRM did not post it because the invoice balance changed. Finance review is required. Do not ask the customer to pay again.
+              </div>}
               <div style={{fontFamily:'var(--crm-font-mono)',fontSize:10,color:'#71839d',overflowWrap:'anywhere'}}>
                 {attempt.razorpayOrderId ? `Order ${attempt.razorpayOrderId}` : 'No provider order ID'}{attempt.razorpayPaymentId ? ` · Payment ${attempt.razorpayPaymentId}` : ''}{attempt.requestId ? ` · Request ${attempt.requestId}` : ''}
                 {' · Updated '}{attempt.updatedAt ? format(new Date(attempt.updatedAt),'dd MMM yyyy, h:mm a') : '—'}
               </div>
+              {canReconcile && attempt.status === 'REVIEW' && !attempt.razorpayOrderId && attempt.failureCode !== 'OVERPAYMENT_NOT_ALLOWED' && <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+                <button type="button" onClick={() => reconcileCheckoutAttempt(attempt)} disabled={checkoutAttemptReconcileBusy !== null} style={{display:'inline-flex',alignItems:'center',gap:7,padding:'8px 11px',border:0,borderRadius:7,background:checkoutAttemptReconcileBusy===attempt.id?'#91a8b8':'#023c62',color:'#fff',fontSize:11,fontWeight:800,cursor:checkoutAttemptReconcileBusy?'wait':'pointer'}}>
+                  {checkoutAttemptReconcileBusy===attempt.id ? <Loader2 className="crm-spin" size={13}/> : <RefreshCw size={13}/>} {checkoutAttemptReconcileBusy===attempt.id ? 'Checking Razorpay…' : 'Reconcile order creation'}
+                </button>
+                <span style={{fontSize:10,color:'#754c00'}}>Looks up this attempt’s unique receipt; it never creates another order.</span>
+              </div>}
             </article>
           })}</div>}
         </section>
@@ -793,6 +1138,8 @@ export default function FinancePage() {
                   <span>{totals.settlementBatchCount || 0} batches</span><span>{totals.pendingSettlementAmountPaise ? `Pending ₹${moneyFromPaise(totals.pendingSettlementAmountPaise)}` : 'No pending batches'}</span>
                   <span>{totals.failedSettlementAmountPaise ? `Failed ₹${moneyFromPaise(totals.failedSettlementAmountPaise)}` : 'No failed batches'}</span>
                   <span>Processed report vs settlement: <strong>₹{moneyFromPaise(totals.reportToSettlementVariancePaise)}</strong></span>
+                  <span>Report vs summary fees: <strong>₹{moneyFromPaise(totals.reportToSummaryFeeVariancePaise)}</strong></span>
+                  <span>Report vs summary tax: <strong>₹{moneyFromPaise(totals.reportToSummaryTaxVariancePaise)}</strong></span>
                   <span>Matched bank vs matched settlements: <strong>₹{moneyFromPaise(totals.bankVariancePaise)}</strong></span>
                   <span>{totals.unmatchedProcessedSettlementCount || 0} processed batches without a bank match · ₹{moneyFromPaise(totals.unmatchedProcessedSettlementPaise)} not yet matched</span>
                   <span>{totals.unmatchedBankCreditCount || 0} unmatched bank credits</span>
@@ -810,7 +1157,7 @@ export default function FinancePage() {
                       {batch.unsupportedCurrencies?.length > 0 && <span style={{color:'#b45309'}}>Excluded: {batch.unsupportedCurrencies.join(', ')}</span>}
                     </summary>
                     <div style={{display:'grid',gap:8,marginTop:10}}>
-                      <div style={{display:'flex',gap:12,flexWrap:'wrap',fontSize:10,color:'#52647e'}}><span>Gross ₹{moneyFromPaise(batch.providerGrossPaise)}</span><span>Refunds ₹{moneyFromPaise(batch.refundsPaise)}</span><span>Fees ₹{moneyFromPaise(batch.feesPaise)}</span><span>Tax ₹{moneyFromPaise(batch.taxPaise)}</span><span>Transfers net ₹{moneyFromPaise(batch.transferNetPaise)}</span><span>Adjustments net ₹{moneyFromPaise(batch.adjustmentNetPaise)}</span><span>Report vs settlement ₹{moneyFromPaise(batch.reportToSettlementVariancePaise)}</span><span>Bank vs settlement ₹{moneyFromPaise(batch.bankToSettlementVariancePaise)}</span></div>
+                      <div style={{display:'flex',gap:12,flexWrap:'wrap',fontSize:10,color:'#52647e'}}><span>Gross ₹{moneyFromPaise(batch.providerGrossPaise)}</span><span>Refunds ₹{moneyFromPaise(batch.refundsPaise)}</span><span>Report fees ₹{moneyFromPaise(batch.feesPaise)} · summary ₹{moneyFromPaise(batch.settlementFeesPaise)} · variance ₹{moneyFromPaise(batch.reportToSummaryFeeVariancePaise)}</span><span>Report tax ₹{moneyFromPaise(batch.taxPaise)} · summary ₹{moneyFromPaise(batch.settlementTaxPaise)} · variance ₹{moneyFromPaise(batch.reportToSummaryTaxVariancePaise)}</span><span>Transfers net ₹{moneyFromPaise(batch.transferNetPaise)}</span><span>Adjustments net ₹{moneyFromPaise(batch.adjustmentNetPaise)}</span><span>Report vs settlement ₹{moneyFromPaise(batch.reportToSettlementVariancePaise)}</span><span>Bank vs settlement ₹{moneyFromPaise(batch.bankToSettlementVariancePaise)}</span></div>
                       {batch.lines?.map((line: any) => <div key={line.id} style={{display:'grid',gap:4,padding:'7px 0',borderTop:'1px solid #eef4f8',fontSize:10,color:'#52647e',minWidth:0}}>
                         <div style={{display:'flex',gap:10,flexWrap:'wrap'}}><strong>{line.entityType}</strong><span>{line.currency} {moneyFromPaise(line.amountPaise)}</span><span>Credit {moneyFromPaise(line.creditPaise)}</span><span>Debit {moneyFromPaise(line.debitPaise)}</span><span>Fee {moneyFromPaise(line.feePaise)}</span><span>Tax {moneyFromPaise(line.taxPaise)}</span><span>{line.settled ? 'Settled' : 'Not settled'}{line.onHold ? ' · On hold' : ''}</span><span style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{line.providerEntityId}</span></div>
                         {line.entityType === 'payment' && !line.crmPayments?.length && <div style={{paddingLeft:8,color:'#b45309'}}>No same-mode CRM payment reference matched.</div>}
@@ -980,10 +1327,14 @@ export default function FinancePage() {
           </div>
         </section>
         <section style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14,overflow:'hidden'}}>
-          <div style={{padding:'16px 20px',borderBottom:'1px solid #e8f0f7'}}>
-            <div style={{fontSize:15,fontWeight:800,color:'#023c62'}}>Razorpay disputes</div>
-            <div style={{fontSize:12,color:'#6b7fa3',marginTop:3}}>Provider-fetched dispute status and deducted amount. These are tracked separately from captured receipts; no payment ledger entry is changed automatically.</div>
+          <div style={{padding:'16px 20px',borderBottom:'1px solid #e8f0f7',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+            <div style={{flex:1,minWidth:220}}>
+              <div style={{fontSize:15,fontWeight:800,color:'#023c62'}}>Razorpay disputes</div>
+              <div style={{fontSize:12,color:'#6b7fa3',marginTop:3}}>Provider dispute status and deductions stay separate from captured receipts; sync does not change payment balances.</div>
+            </div>
+            {canReconcile && <button type="button" onClick={syncRazorpayDisputes} disabled={disputeSyncBusy || webhookLoading} aria-label={disputeSyncNextSkip === null ? 'Sync disputes from Razorpay' : 'Sync next page of disputes from Razorpay'} style={{display:'inline-flex',alignItems:'center',gap:7,padding:'8px 12px',border:'1px solid #cfe0eb',borderRadius:9,background:'#fff',color:'#023c62',fontSize:12,fontWeight:800,cursor:disputeSyncBusy || webhookLoading?'not-allowed':'pointer'}}><RefreshCw size={14}/>{disputeSyncBusy ? 'Syncing' : disputeSyncNextSkip === null ? 'Sync from Razorpay' : `Sync next 25 (${disputeSyncNextSkip})`}</button>}
           </div>
+          {disputeSyncNextSkip !== null && <div role="status" style={{padding:'8px 20px',background:'#fffbeb',color:'#92400e',fontSize:11}}>More provider disputes remain. Continue syncing from record {disputeSyncNextSkip}.</div>}
           {webhookLoading ? <div style={{padding:24,textAlign:'center',color:'#6b7fa3'}}>Loading disputes…</div>
           : !webhookDisputes.length ? <div style={{padding:24,color:'#6b7fa3',fontSize:12}}>No dispute cases have been synchronized.</div>
           : <div style={{display:'grid'}}>{webhookDisputes.map((dispute) => (
@@ -1046,6 +1397,34 @@ export default function FinancePage() {
               <span style={{fontSize:11,color:'#71839d'}}>Minimum 8 characters · saved in the audit trail</span>
               <div style={{display:'flex',gap:8}}><button type="button" onClick={() => setReplayDialog(null)} disabled={Boolean(webhookBusyId)} style={modalSecondary}>Cancel</button><button type="button" onClick={replayWebhook} disabled={Boolean(webhookBusyId) || replayDialog.reason.trim().length < 8} style={{...modalPrimary,opacity:webhookBusyId || replayDialog.reason.trim().length < 8 ? 0.55 : 1}}>{webhookBusyId ? 'Queueing…' : 'Confirm replay'}</button></div>
             </div>
+          </div>
+        </div>
+      )}
+      {historicalBackfillDialog && (
+        <div style={modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !historicalBackfillBusyId) setHistoricalBackfillDialog(null) }}>
+          <div style={arModal} role="dialog" aria-modal="true" aria-labelledby="historical-payment-backfill-title">
+            <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start'}}>
+              <div><div id="historical-payment-backfill-title" style={{fontSize:17,fontWeight:900,color:'#023c62'}}>{historicalBackfillDialog.type === 'ORDER' ? 'Review unused Order' : 'Review captured payment'}</div><div style={{fontSize:12,color:'#6b7fa3',marginTop:4}}>{historicalBackfillDialog.invoice?.invoiceNumber} · {historicalBackfillDialog.mode || orderInventoryPreview?.mode} mode</div></div>
+              <button type="button" onClick={() => setHistoricalBackfillDialog(null)} disabled={Boolean(historicalBackfillBusyId)} style={modalClose} aria-label="Close">×</button>
+            </div>
+            <div style={{display:'grid',gap:7,padding:12,marginTop:14,border:'1px solid #dbe8f1',borderRadius:9,background:'#f7fafc',fontSize:12,color:'#334155'}}>
+              {historicalBackfillDialog.type === 'ORDER' ? <>
+                <div>Razorpay Order <strong style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{historicalBackfillDialog.providerOrder?.id}</strong></div>
+                <div>Amount <strong>{historicalBackfillDialog.providerOrder?.currency} {moneyFromPaise(historicalBackfillDialog.providerOrder?.amountPaise)}</strong> · Invoice balance <strong>₹{moneyFromPaise(historicalBackfillDialog.invoice?.balanceDuePaise)}</strong></div>
+                <div>Provider state <strong>{historicalBackfillDialog.providerOrder?.status}</strong> · Attempts <strong>{historicalBackfillDialog.providerOrder?.attempts}</strong> · Paid <strong>₹{moneyFromPaise(historicalBackfillDialog.providerOrder?.amountPaidPaise)}</strong></div>
+              </> : <>
+                <div>Razorpay Payment <strong style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{historicalBackfillDialog.providerPayment?.id}</strong></div>
+                <div>Razorpay Order <strong style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{historicalBackfillDialog.providerPayment?.orderId}</strong></div>
+                <div>Amount <strong>{historicalBackfillDialog.providerPayment?.currency} {moneyFromPaise(historicalBackfillDialog.providerPayment?.amountPaise)}</strong> · Invoice balance <strong>₹{moneyFromPaise(historicalBackfillDialog.invoice?.balanceDuePaise)}</strong></div>
+              </>}
+            </div>
+            <p style={{fontSize:12,color:'#52647e',lineHeight:1.5,margin:'14px 0'}}>{historicalBackfillDialog.type === 'ORDER'
+              ? 'The CRM will re-fetch this Order and its payment list. Only if Razorpay still confirms the exact invoice reference, full current balance, created status, zero attempts, and no payments will it add CRM binding notes and make the existing Order resumable. This does not mark the invoice paid or collect money. Any mismatch keeps checkout blocked for Finance review.'
+              : historicalBackfillDialog.source === 'HISTORICAL_REPORT'
+                ? 'The paired Dashboard reports are used only if Razorpay returns its documented Order-retention error. The CRM then fetches this Payment live and requires the same Order, captured status, exact amount and currency, zero refunded amount, and current invoice balance. It does not edit the expired Order or treat the CSV alone as proof.'
+              : 'The CRM will re-fetch the Payment and Order. If they still match this invoice exactly and Razorpay confirms capture, the CRM may add binding notes to the provider Order and post one receipt through the normal ledger. Refunded, mismatched, already-linked, or non-captured records will not be auto-posted; they remain for Finance review.'}</p>
+            <label style={{display:'flex',gap:9,alignItems:'flex-start',fontSize:12,color:'#334155',fontWeight:700}}><input type="checkbox" checked={Boolean(historicalBackfillDialog.confirmed)} onChange={(event) => setHistoricalBackfillDialog((current: any) => ({ ...current, confirmed: event.target.checked }))} />{historicalBackfillDialog.type === 'ORDER' ? 'I reviewed these references and authorize linking this unused Order to this unpaid invoice.' : historicalBackfillDialog.source === 'HISTORICAL_REPORT' ? 'I reviewed the paired Dashboard report references and authorize live verification and recording this one payment.' : 'I reviewed these provider references and authorize recording this one payment against this invoice.'}</label>
+            <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:16}}><button type="button" onClick={() => setHistoricalBackfillDialog(null)} disabled={Boolean(historicalBackfillBusyId)} style={modalSecondary}>Cancel</button><button type="button" onClick={confirmHistoricalPaymentBackfill} disabled={!historicalBackfillDialog.confirmed || Boolean(historicalBackfillBusyId)} style={{...modalPrimary,background:historicalBackfillDialog.type === 'ORDER' ? '#075985' : '#087443',opacity:!historicalBackfillDialog.confirmed || historicalBackfillBusyId ? 0.55 : 1}}>{historicalBackfillBusyId ? 'Verifying…' : historicalBackfillDialog.type === 'ORDER' ? 'Confirm & link Order' : 'Confirm & record'}</button></div>
           </div>
         </div>
       )}

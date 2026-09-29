@@ -44,6 +44,10 @@ For the guarded EC2 code release process, read:
 
 - [`docs/production-deployment.md`](./docs/production-deployment.md)
 
+For the single supported local Razorpay QA environment and its fail-closed verifier, read:
+
+- [`docs/development/local-razorpay-qa.md`](./docs/development/local-razorpay-qa.md)
+
 ## Tech Stack
 
 - React Native + Expo

@@ -1,8 +1,11 @@
 const prisma = require('../config/database');
 const { success } = require('../utils/response');
 const { paymentApiError } = require('../utils/payment-api-error');
-const { getRequestMeta, writeAuditEvent } = require('../services/activity.service');
+const { getRequestMeta, writeAuditEvent, log } = require('../services/activity.service');
 const { businessDateKey, parseBusinessDateBoundary } = require('../utils/business-time');
+const { classifyRazorpayPaymentError } = require('../utils/razorpay-error-classification');
+const { getRazorpay, reconcileAmbiguousOrderCreation } = require('../services/razorpay-invoice-checkout.service');
+const { syncRazorpayDisputePage } = require('../services/razorpay-dispute.service');
 
 const REPLAYABLE_STATUSES = ['REVIEW', 'RETRY', 'FAILED', 'RETRYABLE'];
 const CHECKOUT_ATTEMPT_STATUSES = ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'FAILED', 'CREATE_FAILED', 'REVIEW', 'CAPTURED'];
@@ -76,6 +79,39 @@ const listRazorpayDisputeCases = async (req, res) => {
   }
 };
 
+const syncRazorpayDisputes = async (req, res) => {
+  const count = Number(req.body?.count ?? 25);
+  const skip = Number(req.body?.skip ?? 0);
+  const to = Number(req.body?.to ?? Math.floor(Date.now() / 1000));
+  if (!Number.isSafeInteger(count) || count < 1 || count > 25
+    || !Number.isSafeInteger(skip) || skip < 0 || skip > 100000
+    || !Number.isSafeInteger(to) || to < 1 || to > Math.floor(Date.now() / 1000) + 300) {
+    return paymentApiError(res, {
+      statusCode: 400,
+      code: 'RAZORPAY_DISPUTE_SYNC_FILTER_INVALID',
+      message: 'Choose a dispute page size from 1 to 25, a valid page offset, and a valid provider snapshot time.',
+      requestId: req.id,
+      retryable: false,
+    });
+  }
+
+  try {
+    const provider = getRazorpay();
+    const result = await syncRazorpayDisputePage({
+      provider, count, skip, to, actor: req.staff, requestMeta: getRequestMeta(req),
+    });
+    return success(res, result);
+  } catch (error) {
+    return paymentApiError(res, {
+      statusCode: 502,
+      code: 'RAZORPAY_DISPUTE_SYNC_FAILED',
+      message: 'Could not synchronize disputes from Razorpay. Existing Finance records were not cleared.',
+      requestId: req.id,
+      retryable: true,
+    });
+  }
+};
+
 const listRazorpayCheckoutAttempts = async (req, res) => {
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 50));
@@ -116,7 +152,11 @@ const listRazorpayCheckoutAttempts = async (req, res) => {
       prisma.razorpayCheckoutAttempt.count({ where }),
     ]);
     return success(res, {
-      attempts: attempts.map((attempt) => ({ ...attempt, amountPaise: String(attempt.amountPaise) })),
+      attempts: attempts.map((attempt) => ({
+        ...attempt,
+        amountPaise: String(attempt.amountPaise),
+        providerErrorClassification: classifyRazorpayPaymentError(attempt),
+      })),
       pagination: { page, limit, total },
     });
   } catch {
@@ -126,6 +166,27 @@ const listRazorpayCheckoutAttempts = async (req, res) => {
       message: 'Could not load Razorpay checkout attempts.',
       requestId: req.id,
       retryable: true,
+    });
+  }
+};
+
+const reconcileRazorpayCheckoutAttempt = async (req, res) => {
+  try {
+    const result = await reconcileAmbiguousOrderCreation({ attemptId: req.params.id, actor: req.staff, provider: getRazorpay() });
+    return success(res, {
+      attemptId: result.attempt.id,
+      status: result.attempt.status,
+      razorpayOrderId: result.attempt.razorpayOrderId,
+      order: result.order,
+    }, 'Razorpay order creation reconciled');
+  } catch (error) {
+    return paymentApiError(res, {
+      statusCode: error.statusCode || 500,
+      code: error.code || 'CHECKOUT_RECONCILIATION_FAILED',
+      message: error.message || 'Could not reconcile this Razorpay checkout attempt.',
+      requestId: req.id,
+      retryable: error.statusCode === 502 || error.code === 'RAZORPAY_NOT_CONFIGURED',
+      action: error.code === 'CHECKOUT_RECONCILIATION_REQUIRES_REVIEW' ? 'FINANCE_REVIEW' : undefined,
     });
   }
 };
@@ -212,6 +273,13 @@ const getRazorpayCheckoutExperimentReport = async (req, res) => {
   }
 
   try {
+    // Prisma writes DateTime values to PostgreSQL's timestamp-without-time-zone
+    // columns as UTC wall time. Convert these business-day instants to the same
+    // representation before comparing, rather than letting PostgreSQL coerce
+    // timestamptz bounds through its local timezone.
+    const utcTimestamp = (value) => value.toISOString().slice(0, -1).replace('T', ' ');
+    const startUtc = utcTimestamp(start);
+    const endUtc = utcTimestamp(end);
     const [events, capturedAttempts] = await Promise.all([
       prisma.$queryRaw`
         SELECT "variant", "eventType", COUNT(*)::int AS "eventCount",
@@ -219,22 +287,21 @@ const getRazorpayCheckoutExperimentReport = async (req, res) => {
         FROM "razorpay_checkout_experiment_events"
         WHERE "experimentId" = 'invoice_checkout_presentation_v1'
           AND "mode" = 'TEST'
-          AND "createdAt" >= ${start} AND "createdAt" <= ${end}
+          AND "createdAt" >= ${startUtc}::timestamp AND "createdAt" <= ${endUtc}::timestamp
         GROUP BY "variant", "eventType"
         ORDER BY "variant", "eventType"
       `,
-      prisma.razorpayCheckoutAttempt.groupBy({
-        by: ['experimentVariant', 'experimentVisitorHash'],
-        where: {
-          experimentId: 'invoice_checkout_presentation_v1',
-          mode: 'TEST',
-          status: 'CAPTURED',
-          experimentVisitorHash: { not: null },
-          createdAt: { gte: start, lte: end },
-        },
-        _count: { _all: true },
-        _sum: { amountPaise: true },
-      }),
+      prisma.$queryRaw`
+        SELECT "experimentVariant", "experimentVisitorHash",
+               COUNT(*)::int AS "attemptCount", SUM("amountPaise") AS "capturedPaise"
+        FROM "razorpay_checkout_attempts"
+        WHERE "experimentId" = 'invoice_checkout_presentation_v1'
+          AND "mode" = 'TEST'
+          AND "status" = 'CAPTURED'
+          AND "experimentVisitorHash" IS NOT NULL
+          AND "createdAt" >= ${startUtc}::timestamp AND "createdAt" <= ${endUtc}::timestamp
+        GROUP BY "experimentVariant", "experimentVisitorHash"
+      `,
     ]);
 
     const byVariant = Object.fromEntries(['A', 'B'].map((variant) => [variant, {
@@ -266,9 +333,9 @@ const getRazorpayCheckoutExperimentReport = async (req, res) => {
     for (const row of capturedAttempts) {
       const summary = byVariant[row.experimentVariant];
       if (!summary) continue;
-      summary.serverVerifiedCaptureAttempts += row._count._all;
+      summary.serverVerifiedCaptureAttempts += Number(row.attemptCount) || 0;
       summary.serverVerifiedCaptureVisitors += 1;
-      summary.capturedPaise = String(BigInt(summary.capturedPaise) + BigInt(row._sum.amountPaise || 0n));
+      summary.capturedPaise = String(BigInt(summary.capturedPaise) + BigInt(row.capturedPaise || 0n));
     }
     return success(res, {
       experimentId: 'invoice_checkout_presentation_v1',
@@ -352,4 +419,4 @@ const replayRazorpayWebhookEvent = async (req, res) => {
   }
 };
 
-module.exports = { listRazorpayWebhookEvents, listRazorpayDisputeCases, listRazorpayCheckoutAttempts, getRazorpayCheckoutMethodOutcomes, getRazorpayCheckoutExperimentReport, replayRazorpayWebhookEvent };
+module.exports = { listRazorpayWebhookEvents, listRazorpayDisputeCases, syncRazorpayDisputes, listRazorpayCheckoutAttempts, reconcileRazorpayCheckoutAttempt, getRazorpayCheckoutMethodOutcomes, getRazorpayCheckoutExperimentReport, replayRazorpayWebhookEvent };

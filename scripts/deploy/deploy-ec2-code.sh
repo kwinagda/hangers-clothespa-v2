@@ -12,18 +12,18 @@ DEPLOY_LOG="${HANGERS_DEPLOY_LOG:-/var/log/hangers-deployments.log}"
 
 node_version_supported() {
   local version="$1"
-  [[ "$version" =~ ^v?([0-9]+)\.([0-9]+)\.[0-9]+$ ]] || return 1
+  [[ "$version" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
   local major="${BASH_REMATCH[1]}"
   local minor="${BASH_REMATCH[2]}"
-  (( major > 22 || (major == 22 && minor >= 2) ))
+  (( major == 24 && minor >= 11 ))
 }
 
 if [[ "${1:-}" == "--check-node-version" ]]; then
   if node_version_supported "${2:-}"; then
-    printf 'Node.js %s satisfies the backend runtime requirement (>=22.2.0).\n' "${2#v}"
+    printf 'Node.js %s satisfies the backend runtime requirement (Node.js 24 >=24.11.0).\n' "${2#v}"
     exit 0
   fi
-  echo "Node.js ${2:-unknown} is unsupported; Hangers backend requires >=22.2.0." >&2
+  echo "Node.js ${2:-unknown} is unsupported; Hangers backend requires Node.js 24 >=24.11.0." >&2
   exit 1
 fi
 
@@ -52,13 +52,13 @@ fail() {
 
 node_version="$(run_as_deploy_user node --version 2>/dev/null || true)"
 if ! node_version_supported "$node_version"; then
-  fail "Node.js runtime $node_version is unsupported; Hangers backend/worker require >=22.2.0"
+  fail "Node.js runtime $node_version is unsupported; Hangers backend/worker require Node.js 24 >=24.11.0"
 fi
 echo "Deployment runtime: Node.js $node_version"
 echo "Verifying Node.js binaries used by PM2 payment processes..."
 if ! run_as_deploy_user env PM2_HOME="$PM2_HOME" node \
   "$REPO_ROOT/scripts/deploy/check-pm2-node-runtime.js"; then
-  fail "PM2 backend/worker runtime preflight failed; host maintenance must restart them on Node.js >=22.2.0 before deployment"
+  fail "PM2 backend/worker runtime preflight failed; host maintenance must restart them on Node.js 24 >=24.11.0 before deployment"
 fi
 
 cd "$REPO_ROOT"
@@ -123,6 +123,23 @@ run_as_deploy_user aws s3 sync \
 echo "Restarting application processes..."
 run_as_deploy_user env PM2_HOME="$PM2_HOME" pm2 restart \
   hangers-backend hangers-worker hangers-crm --update-env
+echo "Waiting for backend and worker PM2 processes to return online on supported Node.js..."
+payment_processes_ready=false
+for attempt in {1..30}; do
+  if run_as_deploy_user env PM2_HOME="$PM2_HOME" node \
+    "$REPO_ROOT/scripts/deploy/check-pm2-node-runtime.js" >/dev/null 2>&1; then
+    payment_processes_ready=true
+    break
+  fi
+  sleep 2
+done
+if [[ "$payment_processes_ready" != true ]]; then
+  run_as_deploy_user env PM2_HOME="$PM2_HOME" node \
+    "$REPO_ROOT/scripts/deploy/check-pm2-node-runtime.js" || true
+  fail "backend or worker PM2 process did not return online on Node.js 24 >=24.11.0 after restart"
+fi
+run_as_deploy_user env PM2_HOME="$PM2_HOME" node \
+  "$REPO_ROOT/scripts/deploy/check-pm2-node-runtime.js"
 run_as_deploy_user env PM2_HOME="$PM2_HOME" pm2 save
 
 wait_for_url() {
@@ -172,7 +189,7 @@ verify_public_next_assets() {
 }
 
 verify_public_next_assets "/login"
-verify_public_next_assets "/dashboard/iron/monthly"
+verify_public_next_assets "/dashboard/finance"
 
 deployed_commit="$(run_as_deploy_user git rev-parse HEAD)"
 [[ "$deployed_commit" == "$target_commit" ]] \

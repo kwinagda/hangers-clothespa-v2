@@ -54,6 +54,7 @@ const { syncPermissionCatalog } = require('./services/accessControl.service');
 const { syncMasterDataSettings } = require('./services/masterData.service');
 const { processOutboxBatch } = require('./services/outbox.service');
 const { globalApiLimiter } = require('./middleware/rateLimit');
+const { matchesLocalQaConfiguration, matchesLocalQaProfile } = require('./utils/local-qa-profile');
 const app  = express();
 const PORT = process.env.PORT || 5001;
 const environment = validateEnvironment();
@@ -68,6 +69,23 @@ const readiness = {
 };
 app.locals.readiness = readiness;
 const allowedOrigins = new Set(getAllowedOrigins());
+const localQaReadOnlyRequested = process.env.LOCAL_SKIP_STARTUP_SYNC === 'true';
+
+const inspectDatabaseIdentity = async () => {
+  const [database] = await prisma.$queryRaw`SELECT current_database() AS name, current_user AS username, host(inet_server_addr()) AS address, inet_server_port() AS port`;
+  return database;
+};
+
+const databaseMatchesLocalQaProfile = (database) => matchesLocalQaProfile({
+  isProduction: environment.isProduction,
+  databaseName: database?.name,
+  databaseUser: database?.username,
+  databaseAddress: database?.address,
+  databasePort: Number(database?.port),
+  razorpayKeyId: process.env.RAZORPAY_KEY_ID,
+  outboxWorker: process.env.DEV_OUTBOX_WORKER,
+  skipStartupSync: process.env.LOCAL_SKIP_STARTUP_SYNC,
+});
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -89,6 +107,16 @@ app.use(cors({
   credentials: true,
 }));
 
+// Stamp the request before body parsers so malformed or oversized requests also
+// receive a traceable response ID.
+app.use((req, res, next) => {
+  const id = req.headers['x-request-id'] || randomUUID();
+  req.headers['x-request-id'] = id;
+  req.id = id;
+  res.setHeader('x-request-id', id);
+  next();
+});
+
 // Razorpay signs the exact raw JSON bytes. Preserve them only for the webhook
 // route; all other JSON requests continue through the normal parser.
 app.use(express.json({
@@ -99,14 +127,6 @@ app.use(express.json({
   },
 }));
 app.use(express.urlencoded({ extended: true, limit: '1mb', parameterLimit: 100 }));
-// Stamp every request with a unique ID — surfaced in error logs and response headers
-app.use((req, res, next) => {
-  const id = req.headers['x-request-id'] || randomUUID();
-  req.headers['x-request-id'] = id;
-  req.id = id;
-  res.setHeader('x-request-id', id);
-  next();
-});
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 app.get('/health', (_req, res) => res.json({ success: true, message: 'Hangers API process is alive', version: '4.0.0' }));
@@ -121,16 +141,23 @@ app.get('/', (_req, res) => res.json({
 app.get('/ready', async (_req, res) => {
   const status = app.locals.readiness;
   let database = 'ok';
+  let localQaProfileMatches;
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    const identity = await inspectDatabaseIdentity();
+    if (localQaReadOnlyRequested || !environment.isProduction) {
+      localQaProfileMatches = databaseMatchesLocalQaProfile(identity);
+    }
+    if (localQaReadOnlyRequested && !localQaProfileMatches) database = 'failed';
   } catch {
     database = 'failed';
   }
   const ready = status.ready && database === 'ok';
+  const data = { ...status, ready, checks: { ...status.checks, database } };
+  if (!environment.isProduction) data.localQaProfileMatches = localQaProfileMatches === true;
   return res.status(ready ? 200 : 503).json({
     success: ready,
     message: ready ? 'Hangers API is ready' : 'Hangers API is not ready',
-    data: { ...status, ready, checks: { ...status.checks, database } },
+    data,
   });
 });
 
@@ -209,6 +236,27 @@ app.use(errorHandler);
 
 const runStartupChecks = async () => {
   try {
+    if (localQaReadOnlyRequested) {
+      const configurationMatches = matchesLocalQaConfiguration({
+        databaseUrl: process.env.DATABASE_URL,
+        razorpayKeyId: process.env.RAZORPAY_KEY_ID,
+        outboxWorker: process.env.DEV_OUTBOX_WORKER,
+        skipStartupSync: process.env.LOCAL_SKIP_STARTUP_SYNC,
+      });
+      if (environment.isProduction || !configurationMatches) {
+        throw new Error('LOCAL_SKIP_STARTUP_SYNC requires the exact loopback PostgreSQL Razorpay Test QA configuration');
+      }
+      const identity = await inspectDatabaseIdentity();
+      if (!databaseMatchesLocalQaProfile(identity)) {
+        throw new Error('Connected database identity does not match the local Razorpay Test QA profile');
+      }
+      readiness.checks.masterData = 'skipped-local-read-only';
+      readiness.checks.permissions = 'skipped-local-read-only';
+      readiness.ready = true;
+      readiness.readyAt = new Date().toISOString();
+      return;
+    }
+
     await syncMasterDataSettings();
     readiness.checks.masterData = 'ok';
     await syncPermissionCatalog();

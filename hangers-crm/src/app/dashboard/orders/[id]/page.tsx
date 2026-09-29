@@ -13,6 +13,7 @@ import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import PaymentPanel from '@/components/PaymentPanel'
 import { itemServiceCode } from '@/lib/serviceCode'
+import { collapseQueuedWhatsAppEvents } from '@/lib/notificationTimeline'
 import { AlertTriangle, Bike, CalendarRange, ClipboardList, Clock3, IndianRupee, Lock, MapPin, MessageSquareText, PackageCheck, Printer, Receipt, RotateCcw, ScrollText, Shirt, Smartphone, Tag, User, XCircle } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -307,6 +308,7 @@ const getTimelineTitle = (stage: string, note: string, statusLabel: (status: str
   if (stage === 'ORDER_STATUS_ATTEMPTED') return 'Status Update Requested'
   if (stage === 'ORDER_STATUS_SUCCEEDED') return 'Status Update Completed'
   if (stage === 'ORDER_STATUS_FAILED') return 'Status Update Failed'
+  if (stage === 'WHATSAPP_PENDING') return 'WhatsApp Queued'
   if (stage === 'WHATSAPP_SENT') return 'WhatsApp Sent'
   if (stage === 'WHATSAPP_FAILED') return 'WhatsApp Failed'
   if (stage === 'WHATSAPP_SKIPPED') return 'WhatsApp Skipped'
@@ -663,7 +665,9 @@ export default function OrderDetailPage() {
     try {
       const [orderR, staffR]: [any, any] = await Promise.all([
         ordersAPI.get(orderId),
-        staffAPI.list(),
+        ['SUPER_ADMIN', 'MANAGER'].includes(currentStaff?.role)
+          ? staffAPI.list()
+          : Promise.resolve({ data: { staff: [] } }),
       ])
       setOrder(orderR.data?.order || orderR.data)
       const allStaff = staffR.data?.staff || []
@@ -674,7 +678,7 @@ export default function OrderDetailPage() {
       toast.error('Order not found')
       router.push('/dashboard/orders')
     } finally { setLoading(false) }
-  }, [deliveryRoles, orderId])
+  }, [currentStaff?.role, deliveryRoles, orderId])
 
   useEffect(() => { loadOrder() }, [loadOrder])
   useEffect(() => {
@@ -924,6 +928,7 @@ export default function OrderDetailPage() {
   const nextSt         = orderWorkflow.next[order.status]
   const nextBlocked    = Boolean(nextSt && !canProgress(nextSt))
   const resolvedWhatsAppFailureIds = getResolvedWhatsAppFailureIds(order.stages || [])
+  const timelineStages = collapseQueuedWhatsAppEvents(order.stages || [])
   const forwardActionStatuses = statusChoices.filter((status) => {
     if (status === order.status) return false
     return status === nextSt || (orderWorkflow.allowedForward[order.status] || []).includes(status)
@@ -1170,9 +1175,9 @@ export default function OrderDetailPage() {
           <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14}}>
             <div style={{padding:'16px 20px',borderBottom:'1px solid #edf3f8',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:15,color:'#023c62'}}>Timeline</div>
             <div style={{paddingTop:16}}>
-              {!order.stages?.length ? (
+              {!timelineStages.length ? (
                 <div style={{padding:'20px',color:'#9dafc8',fontSize:13}}>No timeline entries yet</div>
-              ) : (order.stages||[]).map((st:any,i:number,arr:any[])=>{
+              ) : timelineStages.map((st:any,i:number,arr:any[])=>{
                 const isWhatsAppFailed = st.stage === 'WHATSAPP_FAILED'
                 const isWhatsAppSent = st.stage === 'WHATSAPP_SENT'
                 const isActionFailed = st.eventType === 'ACTION_FAILED' || st.stage === 'ORDER_STATUS_FAILED'
@@ -1212,7 +1217,7 @@ export default function OrderDetailPage() {
                             </button>
                           )}
                         </div>
-			                    <div style={{fontSize:11.5,color:isWhatsAppFailed||isActionFailed?'#b45353':'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{format(new Date(st.createdAt),'d MMM, h:mm a')}{timelineNote ? ` · ${timelineNote}` : ''}</div>
+                        <div style={{fontSize:11.5,color:isWhatsAppFailed||isActionFailed?'#b45353':'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{st.notificationQueuedAt ? `Queued ${format(new Date(st.notificationQueuedAt),'d MMM, h:mm a')} · outcome recorded ${format(new Date(st.createdAt),'d MMM, h:mm a')}` : format(new Date(st.createdAt),'d MMM, h:mm a')}{timelineNote ? ` · ${timelineNote}` : ''}</div>
                           {timelineErrorCode && (
                             <div style={{marginTop:7,display:'inline-flex',alignItems:'center',gap:6,border:'1px solid #fecaca',background:'#fff',color:'#991b1b',borderRadius:999,padding:'4px 8px',fontSize:11,fontWeight:800,letterSpacing:'0.02em'}}>
                               Ref: {timelineErrorCode}

@@ -16,8 +16,14 @@ const { getOrderStatuses } = require('./masterData.service');
 const { formatDailyIronLogItems } = require('../utils/daily-iron-summary');
 const { writeAuditEvent } = require('./activity.service');
 const { classifyOutboxFailure } = require('../utils/outbox-retry');
+const { isRazorpayTestPayment } = require('../utils/razorpay-test-notification');
 
 const CAPTURED_PAYMENT_STATUSES = new Set(['CAPTURED', 'SUCCESS', 'PAID']);
+
+const outboxDataError = (code, message) => Object.assign(new Error(message), {
+  code,
+  retryable: false,
+});
 
 const OUTBOX_EVENT = Object.freeze({
   ORDER_STATUS: 'ORDER_STATUS',
@@ -220,7 +226,7 @@ const notificationLabelForEvent = async (eventType, payload = {}) => {
   return await formatStatusLabel(eventType);
 };
 
-const logOrderWhatsAppStage = async ({ order, eventType, payload, outcome, error, templateName = null }) => {
+const logOrderWhatsAppStage = async ({ order, eventType, payload, outcome, error, errorCode = null, templateName = null, outboxEventId = null }) => {
   if (!order?.id) return;
   const failed = outcome === 'FAILED';
   const skipped = outcome === 'SKIPPED';
@@ -240,11 +246,13 @@ const logOrderWhatsAppStage = async ({ order, eventType, payload, outcome, error
         channel: 'WHATSAPP',
         provider: 'WHATOMATE',
         outboxEventType: eventType,
+        outboxEventId,
         outcome,
         ...(templateName ? { templateName } : {}),
         orderNumber: order.orderNumber || null,
         customerId: order.customer?.id || null,
         payload,
+        ...(errorCode ? { errorCode } : {}),
         error: error ? String(error).slice(0, 500) : null,
       },
     },
@@ -284,11 +292,11 @@ const handleOutboxEvent = async (event) => {
       const order = await getOrderForNotification(event.aggregateId);
       if (!order) return;
       if (order.customer?.notifWhatsApp === false) {
-        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: 'customer WhatsApp disabled' });
+        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: 'customer WhatsApp disabled', outboxEventId: event.id });
       } else {
         const sent = await sendOrderStatusMessage(order, payload.status || order.status, { throwOnFailure: true });
         if (!sent) throw new Error('Order status provider did not accept the message');
-        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SENT' });
+        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SENT', outboxEventId: event.id });
       }
       if (payload.push && order.customer?.notifPush && order.customer?.pushToken) {
         await enqueueNotification(NOTIFY_JOB.PUSH, {
@@ -304,26 +312,34 @@ const handleOutboxEvent = async (event) => {
       const order = await getOrderForNotification(event.aggregateId);
       if (!order) return;
       if (order.customer?.notifWhatsApp === false) {
-        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: 'customer WhatsApp disabled' });
+        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: 'customer WhatsApp disabled', outboxEventId: event.id });
         return;
       }
       const sent = await sendOrderUpdatedMessage(order, { throwOnFailure: true });
       if (!sent) throw new Error('Order update provider did not accept the message');
-      await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SENT' });
+      await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SENT', outboxEventId: event.id });
       return;
     }
     case OUTBOX_EVENT.PAYMENT_RECEIVED: {
+      if (!payload.paymentId || typeof payload.paymentId !== 'string') {
+        throw outboxDataError('PAYMENT_NOTIFICATION_PAYMENT_ID_INVALID', 'Payment notification has no valid payment reference');
+      }
       const [order, payment] = await Promise.all([
         getOrderForNotification(event.aggregateId),
         prisma.payment.findUnique({ where: { id: payload.paymentId } }),
       ]);
-      if (!order || !payment) return;
+      if (!order) throw outboxDataError('PAYMENT_NOTIFICATION_ORDER_NOT_FOUND', 'Payment notification references a missing order');
+      if (!payment) throw outboxDataError('PAYMENT_NOTIFICATION_PAYMENT_NOT_FOUND', 'Payment notification references a missing payment');
+      if (isRazorpayTestPayment(payment)) {
+        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: 'Razorpay Test-mode notification suppressed', outboxEventId: event.id });
+        return;
+      }
       if (order.customer?.notifWhatsApp === false) {
-        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: 'customer WhatsApp disabled' });
+        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: 'customer WhatsApp disabled', outboxEventId: event.id });
         return;
       }
       if (payment.kind !== 'RECEIPT' || !CAPTURED_PAYMENT_STATUSES.has(payment.status)) {
-        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: `payment is ${payment.kind}/${payment.status}` });
+        await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: `payment is ${payment.kind}/${payment.status}`, outboxEventId: event.id });
         return;
       }
       let templateName = null;
@@ -334,10 +350,13 @@ const handleOutboxEvent = async (event) => {
         throwOnFailure: true,
       });
       if (!sent) throw new Error('Payment provider did not accept the message');
-      await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SENT', templateName });
+      await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SENT', templateName, outboxEventId: event.id });
       return;
     }
     case OUTBOX_EVENT.INVOICE_PAYMENT_RECEIVED: {
+      if (!payload.paymentId || typeof payload.paymentId !== 'string') {
+        throw outboxDataError('INVOICE_NOTIFICATION_PAYMENT_ID_INVALID', 'Invoice payment notification has no valid payment reference');
+      }
       const [invoice, payment] = await Promise.all([
         prisma.invoice.findUnique({
           where: { id: event.aggregateId },
@@ -345,7 +364,8 @@ const handleOutboxEvent = async (event) => {
         }),
         prisma.payment.findUnique({ where: { id: payload.paymentId } }),
       ]);
-      if (!invoice || !payment) return;
+      if (!invoice) throw outboxDataError('INVOICE_NOTIFICATION_INVOICE_NOT_FOUND', 'Invoice payment notification references a missing invoice');
+      if (!payment) throw outboxDataError('INVOICE_NOTIFICATION_PAYMENT_NOT_FOUND', 'Invoice payment notification references a missing payment');
       const audit = async (outcome, error = null, templateName = null) => prisma.$transaction((tx) => writeAuditEvent(tx, {
         actorType: 'system', actorName: 'WhatsApp worker',
         action: outcome === 'SENT' ? 'INVOICE_PAYMENT_WHATSAPP_SENT' : outcome === 'SKIPPED' ? 'INVOICE_PAYMENT_WHATSAPP_SKIPPED' : 'INVOICE_PAYMENT_WHATSAPP_FAILED',
@@ -354,6 +374,10 @@ const handleOutboxEvent = async (event) => {
         description: `Invoice payment WhatsApp ${outcome.toLowerCase()}${error ? `: ${String(error).slice(0, 180)}` : ''}`,
         metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome, templateName, invoiceNumber: invoice.invoiceNumber, paymentId: payment.id, outboxEventId: event.id, error: error ? String(error).slice(0, 500) : null },
       }));
+      if (isRazorpayTestPayment(payment)) {
+        await audit('SKIPPED', 'Razorpay Test-mode notification suppressed');
+        return;
+      }
       if (invoice.customer?.notifWhatsApp === false) {
         await audit('SKIPPED', 'customer WhatsApp disabled');
         return;
@@ -506,13 +530,14 @@ const handleOutboxEvent = async (event) => {
   }
 };
 
-const claimOutboxBatch = async (limit = 25) => prisma.$transaction(async (tx) => {
+const claimOutboxBatch = async (limit = 25, onlyEventId = null) => prisma.$transaction(async (tx) => {
   const rows = await tx.$queryRaw`
     SELECT "id"
     FROM "outbox_events"
     WHERE "status" IN ('PENDING', 'FAILED')
       AND "nextAttemptAt" <= NOW()
       AND ("lockedAt" IS NULL OR "lockedAt" < NOW() - INTERVAL '5 minutes')
+      AND (${onlyEventId}::text IS NULL OR "id" = ${onlyEventId})
     ORDER BY "createdAt"
     FOR UPDATE SKIP LOCKED
     LIMIT ${limit}
@@ -526,8 +551,11 @@ const claimOutboxBatch = async (limit = 25) => prisma.$transaction(async (tx) =>
   return tx.outboxEvent.findMany({ where: { id: { in: ids } }, orderBy: { createdAt: 'asc' } });
 });
 
-const processOutboxBatch = async ({ limit = 25 } = {}) => {
-  const events = await claimOutboxBatch(limit);
+const processOutboxBatch = async ({ limit = 25, onlyEventId = null } = {}) => {
+  if (onlyEventId !== null && (typeof onlyEventId !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(onlyEventId))) {
+    throw new TypeError('A valid outbox event ID is required for targeted processing');
+  }
+  const events = await claimOutboxBatch(limit, onlyEventId);
   for (const event of events) {
     try {
       await handleOutboxEvent(event);
@@ -538,16 +566,27 @@ const processOutboxBatch = async ({ limit = 25 } = {}) => {
     } catch (error) {
       if ([OUTBOX_EVENT.ORDER_STATUS, OUTBOX_EVENT.ORDER_UPDATED, OUTBOX_EVENT.PAYMENT_RECEIVED].includes(event.eventType)) {
         const order = await getOrderForNotification(event.aggregateId).catch(() => null);
-        await logOrderWhatsAppStage({
-          order,
-          eventType: event.eventType,
-          payload: event.payload || {},
-          outcome: 'FAILED',
-          error: error?.message || error,
-          templateName: error?.templateName || null,
-        }).catch((stageError) => {
-          console.error('[outbox] failed to log WhatsApp failure stage:', stageError?.message || stageError);
-        });
+        if (event.eventType === OUTBOX_EVENT.PAYMENT_RECEIVED && !order) {
+          await prisma.$transaction((tx) => writeAuditEvent(tx, {
+            actorType: 'system', actorName: 'WhatsApp worker', action: 'PAYMENT_RECEIVED_WHATSAPP_FAILED', status: 'FAILURE',
+            resource: 'order', resourceId: event.aggregateId,
+            description: `Payment WhatsApp failed: ${String(error?.message || error).slice(0, 180)}`,
+            metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome: 'FAILED', outboxEventType: event.eventType, outboxEventId: event.id, paymentId: event.payload?.paymentId || null, errorCode: error?.code || null, retryable: error?.retryable !== false, error: String(error?.message || error).slice(0, 500) },
+          })).catch((auditError) => console.error('[outbox] failed to log payment notification failure:', auditError?.code || 'AUDIT_ERROR'));
+        } else {
+          await logOrderWhatsAppStage({
+            order,
+            eventType: event.eventType,
+            payload: event.payload || {},
+            outcome: 'FAILED',
+            error: error?.message || error,
+            errorCode: error?.code || null,
+            templateName: error?.templateName || null,
+            outboxEventId: event.id,
+          }).catch((stageError) => {
+            console.error('[outbox] failed to log WhatsApp failure stage:', stageError?.message || stageError);
+          });
+        }
       } else if (DAILY_IRON_NOTIFICATION_EVENTS.has(event.eventType)) {
         await logDailyIronWhatsAppAudit({
           event,
@@ -561,7 +600,7 @@ const processOutboxBatch = async ({ limit = 25 } = {}) => {
           actorType: 'system', actorName: 'WhatsApp worker', action: 'INVOICE_PAYMENT_WHATSAPP_FAILED', status: 'FAILURE',
           resource: 'invoice', resourceId: event.aggregateId,
           description: `Invoice payment WhatsApp failed: ${String(error?.message || error).slice(0, 180)}`,
-          metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome: 'FAILED', templateName: error?.templateName || null, outboxEventId: event.id, paymentId: event.payload?.paymentId || null, error: String(error?.message || error).slice(0, 500) },
+          metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome: 'FAILED', templateName: error?.templateName || null, outboxEventId: event.id, paymentId: event.payload?.paymentId || null, errorCode: error?.code || null, retryable: error?.retryable !== false, error: String(error?.message || error).slice(0, 500) },
         })).catch((auditError) => console.error('[outbox] failed to log invoice payment WhatsApp failure:', auditError?.code || 'AUDIT_ERROR'));
       } else if ([OUTBOX_EVENT.PICKUP_REQUEST_CREATED, OUTBOX_EVENT.PICKUP_REQUEST_CUSTOMER_CONFIRMATION].includes(event.eventType)) {
         await prisma.$transaction((tx) => writeAuditEvent(tx, {
@@ -579,7 +618,7 @@ const processOutboxBatch = async ({ limit = 25 } = {}) => {
           status: dead ? 'DEAD' : 'FAILED',
           nextAttemptAt: new Date(Date.now() + delayMs),
           lockedAt: null,
-          lastError: String(error?.message || error).slice(0, 1000),
+          lastError: `${error?.code ? `${error.code}: ` : ''}${String(error?.message || error)}`.slice(0, 1000),
         },
       });
     }

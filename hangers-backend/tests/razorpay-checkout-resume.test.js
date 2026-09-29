@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { canResumeUnattemptedCheckout } = require('../src/services/razorpay-invoice-checkout.service');
+const { canResumeUnattemptedCheckout, getUnattemptedCheckoutResumeBlockReason, matchesExpectedCheckoutBinding } = require('../src/services/razorpay-invoice-checkout.service');
 
 const attempt = {
   id: 'attempt_123',
@@ -67,4 +67,33 @@ test('requires an authoritative empty payments collection and complete provider-
     assert.equal(canResumeUnattemptedCheckout({ attempt, providerOrder, providerPayments }), false);
   }
   assert.equal(canResumeUnattemptedCheckout({ attempt, providerOrder: undefined, providerPayments: { items: [] } }), false);
+});
+
+test('returns safe diagnostic codes for every condition that blocks checkout resume', () => {
+  const cases = [
+    [{ attempt: { ...attempt, status: 'PENDING' }, providerOrder, providerPayments: { items: [] } }, 'CRM_ATTEMPT_NOT_RESUMABLE'],
+    [{ attempt, providerOrder: undefined, providerPayments: { items: [] } }, 'PROVIDER_ORDER_MISSING'],
+    [{ attempt, providerOrder: { ...providerOrder, id: 'order_other' }, providerPayments: { items: [] } }, 'PROVIDER_ORDER_ID_MISMATCH'],
+    [{ attempt, providerOrder: { ...providerOrder, status: 'paid' }, providerPayments: { items: [] } }, 'PROVIDER_ORDER_NOT_CREATED'],
+    [{ attempt, providerOrder: { ...providerOrder, attempts: 1 }, providerPayments: { items: [] } }, 'PROVIDER_ATTEMPTS_EXIST'],
+    [{ attempt, providerOrder: { ...providerOrder, amount: 'invalid' }, providerPayments: { items: [] } }, 'PROVIDER_AMOUNT_INVALID'],
+    [{ attempt, providerOrder: { ...providerOrder, amount: 15901 }, providerPayments: { items: [] } }, 'PROVIDER_AMOUNT_MISMATCH'],
+    [{ attempt, providerOrder: { ...providerOrder, amount_due: 15901 }, providerPayments: { items: [] } }, 'PROVIDER_AMOUNT_DUE_MISMATCH'],
+    [{ attempt, providerOrder: { ...providerOrder, amount_paid: 1 }, providerPayments: { items: [] } }, 'PROVIDER_AMOUNT_ALREADY_PAID'],
+    [{ attempt, providerOrder: { ...providerOrder, currency: 'USD' }, providerPayments: { items: [] } }, 'PROVIDER_CURRENCY_MISMATCH'],
+    [{ attempt, providerOrder: { ...providerOrder, notes: { ...providerOrder.notes, invoice_id: 'invoice_other' } }, providerPayments: { items: [] } }, 'PROVIDER_INVOICE_BINDING_MISMATCH'],
+    [{ attempt, providerOrder, providerPayments: undefined }, 'PROVIDER_PAYMENT_LIST_UNAVAILABLE'],
+    [{ attempt, providerOrder, providerPayments: { items: [{ id: 'pay_123', status: 'created' }] } }, 'PROVIDER_PAYMENT_ATTEMPTS_EXIST'],
+  ];
+  for (const [input, expected] of cases) assert.equal(getUnattemptedCheckoutResumeBlockReason(input), expected);
+  assert.equal(getUnattemptedCheckoutResumeBlockReason({ attempt, providerOrder, providerPayments: { items: [] } }), null);
+});
+
+test('settlement binding requires both the expected invoice and public share when supplied', () => {
+  const boundAttempt = { invoiceId: 'invoice_123', publicShareId: 'share_123' };
+  assert.equal(matchesExpectedCheckoutBinding({ attempt: boundAttempt, expectedInvoiceId: 'invoice_123', expectedShareId: 'share_123' }), true);
+  assert.equal(matchesExpectedCheckoutBinding({ attempt: boundAttempt, expectedInvoiceId: 'invoice_other', expectedShareId: 'share_123' }), false);
+  assert.equal(matchesExpectedCheckoutBinding({ attempt: boundAttempt, expectedInvoiceId: 'invoice_123', expectedShareId: 'share_other' }), false);
+  assert.equal(matchesExpectedCheckoutBinding({ attempt: boundAttempt, expectedInvoiceId: 'invoice_123' }), true,
+    'a refreshed valid public token may reconcile the same invoice without matching the original token ID');
 });

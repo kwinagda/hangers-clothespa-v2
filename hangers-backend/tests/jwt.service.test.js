@@ -11,7 +11,7 @@ const {
 } = require('../src/services/jwt.service');
 
 test('customer token carries sessionVersion', () => {
-  const token = generateCustomerToken({ id: 'c1', phone: '9999999999', sessionVersion: 3 }, '1h');
+  const token = generateCustomerToken({ id: 'c1', phone: '9930367267', sessionVersion: 3 }, '1h');
   const decoded = verifyToken(token);
   assert.equal(decoded.id, 'c1');
   assert.equal(decoded.sessionVersion, 3);
@@ -19,7 +19,7 @@ test('customer token carries sessionVersion', () => {
 });
 
 test('staff token carries sessionVersion, role, and unique jti', () => {
-  const token = generateStaffToken({ id: 's1', phone: '9999999999', email: 'a@b.com', role: 'MANAGER', sessionVersion: 4, jti: 'session-1' }, '1h');
+  const token = generateStaffToken({ id: 's1', phone: '9930367267', email: 'a@b.com', role: 'MANAGER', sessionVersion: 4, jti: 'session-1' }, '1h');
   const decoded = verifyToken(token);
   assert.equal(decoded.id, 's1');
   assert.equal(decoded.sessionVersion, 4);
@@ -30,7 +30,7 @@ test('staff token carries sessionVersion, role, and unique jti', () => {
 
 test('staff token requires caller-provided jti', () => {
   assert.throws(
-    () => generateStaffToken({ id: 's1', phone: '9999999999', email: 'a@b.com', role: 'MANAGER', sessionVersion: 4 }, '1h'),
+    () => generateStaffToken({ id: 's1', phone: '9930367267', email: 'a@b.com', role: 'MANAGER', sessionVersion: 4 }, '1h'),
     /unique jti/
   );
 });

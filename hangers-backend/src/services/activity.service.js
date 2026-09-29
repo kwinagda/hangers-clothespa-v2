@@ -77,12 +77,15 @@ const log = async (event) => {
 /**
  * Helper: extract IP and User-Agent from Express request
  */
-const getRequestMeta = (req) => ({
-  ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
-  userAgent: req.headers['user-agent'] || null,
+const getRequestMeta = (req = {}) => {
+  const headers = req.headers || {};
+  return {
+  ipAddress: req.ip || headers['x-forwarded-for'] || null,
+  userAgent: headers['user-agent'] || null,
   route: req.originalUrl || req.path || null,
   method: req.method || null,
-  requestId: req.id || req.headers['x-request-id'] || null,
-});
+  requestId: req.id || headers['x-request-id'] || null,
+  };
+};
 
 module.exports = { buildEventData, log, writeAuditEvent, getRequestMeta };

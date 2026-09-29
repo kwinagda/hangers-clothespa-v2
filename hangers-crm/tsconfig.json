@@ -8,6 +8,10 @@
     "plugins": [{ "name": "next" }],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next-razorpay-qa/types/**/*.ts"],
+  "include": [
+    "next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts",
+    ".next-razorpay-qa/types/**/*.ts", ".next-finance-audit/types/**/*.ts",
+    ".next-local/types/**/*.ts", ".next-login-fix/types/**/*.ts", ".next-staging-qa/types/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }
