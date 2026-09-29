@@ -13,7 +13,7 @@ const outDir = path.resolve(process.env.PUBLIC_STATIC_OUT_DIR || 'dist-public');
 
 // The marketing site is published as static HTML to S3. Keep analytics here so
 // it is present in the initial document on marketing pages only, never in CRM.
-const marketingAnalyticsHead = '\n<script defer src="/marketing-analytics.js?v=2026-09-29.2"></script>';
+const marketingAnalyticsHead = '\n<script defer src="/marketing-analytics.js?v=2026-09-29.3"></script>';
 
 const staticHtmlRoutes = [
   '/',
@@ -27,6 +27,7 @@ const staticHtmlRoutes = [
   '/pickup-zones',
   '/blog',
   '/faq',
+  '/sitemap',
 ];
 
 // Blog posts and suburb pages are DB-backed content (hangers-backend BlogPost/
@@ -49,10 +50,13 @@ const [blogPosts, suburbPages, servicePages] = await Promise.all([
   fetchItems('/public/service-pages'),
 ]);
 
+const serviceHubSlugs = [...new Set(servicePages.map((page) => page.serviceSlug))];
+
 const htmlRoutes = [
   ...staticHtmlRoutes,
   ...blogPosts.map((post) => `/blog/${post.slug}`),
   ...suburbPages.map((page) => `/pickup-zones/${page.slug}`),
+  ...serviceHubSlugs.map((slug) => `/services/${slug}`),
   ...servicePages.map((page) => `/services/${page.serviceSlug}/${page.suburbSlug}`),
 ];
 

@@ -4,6 +4,7 @@ import RateChartClient from './RateChartClient'
 import { PublicContentPage } from '@/components/public/PublicContentPage'
 import { getPublicSiteProfile } from '@/lib/publicSite'
 import { SITE_URL } from '@/lib/seo'
+import { organizationRef } from '@/lib/schema'
 
 export const dynamic = 'force-dynamic'
 
@@ -415,5 +416,23 @@ export default async function PublicRateChartPage() {
     </div>
   )
 
-  return profile ? <PublicContentPage profile={profile} eyebrow="Rate chart" title="Current rates for every active service." intro="Search by garment or browse by service category. Prices below come directly from the active Hangers pricing catalog.">{content}</PublicContentPage> : content
+  const offersSchema = categories.length ? {
+    '@context': 'https://schema.org',
+    '@type': 'OfferCatalog',
+    name: 'Hangers service rates',
+    itemListElement: categories.flatMap((category: any) =>
+      Array.isArray(category.items) ? category.items.map((item: any) => ({
+        '@type': 'Offer',
+        itemOffered: { '@type': 'Service', name: item.name, category: category.label || category.name },
+        price: Number(item.price || 0),
+        priceCurrency: 'INR',
+        seller: organizationRef(),
+      })) : []
+    ),
+  } : null
+
+  return profile ? <PublicContentPage profile={profile} crumbs={[{label:'Home',href:'/'},{label:'Rate chart'}]} title="Current rates for every active service." intro="Search by garment or browse by service category. Prices below come directly from the active Hangers pricing catalog.">
+    {offersSchema && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(offersSchema).replace(/</g, '\\u003c') }} />}
+    {content}
+  </PublicContentPage> : content
 }

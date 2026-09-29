@@ -4,6 +4,7 @@ import { PublicContentPage, PublicUnavailable } from '@/components/public/Public
 import { getPublicSiteProfile } from '@/lib/publicSite'
 import { getPublicServicePage, getPublicServicePages } from '@/lib/publicContent'
 import { buildPublicMetadata, SITE_URL } from '@/lib/seo'
+import { organizationRef } from '@/lib/schema'
 import type { Metadata } from 'next'
 
 export async function generateMetadata({ params }: { params: Promise<{ service: string; suburb: string }> }): Promise<Metadata> {
@@ -29,7 +30,7 @@ export default async function ServiceSuburbPage({ params }: { params: Promise<{ 
     name: page.title,
     description: page.metaDescription,
     areaServed: { '@type': 'Place', name: page.suburbName },
-    provider: { '@type': 'Organization', name: 'Hangers Clothes Spa' },
+    provider: organizationRef(),
     url: `${SITE_URL}/services/${page.serviceSlug}/${page.suburbSlug}`,
   }
   const faqSchema = page.faqs?.length ? {
@@ -42,7 +43,7 @@ export default async function ServiceSuburbPage({ params }: { params: Promise<{ 
     })),
   } : null
 
-  return <PublicContentPage profile={profile} eyebrow={page.serviceName} title={page.title} intro={page.intro} heroActions={
+  return <PublicContentPage profile={profile} crumbs={[{label:'Home',href:'/'},{label:'Services',href:'/services'},{label:page.serviceName,href:`/services/${page.serviceSlug}`},{label:page.suburbName}]} title={page.title} intro={page.intro} heroActions={
     <>
       <a className="dp-btn" href="/book-pickup">Book a pickup</a>
       <a className="dp-btn secondary" href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer">Ask on WhatsApp</a>

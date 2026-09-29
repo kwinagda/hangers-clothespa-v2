@@ -14,6 +14,7 @@ const staticPages: Array<{ path: string; changeFrequency: 'weekly' | 'monthly'; 
   { path: '/blog', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/faq', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/contact', changeFrequency: 'monthly', priority: 0.7 },
+  { path: '/sitemap', changeFrequency: 'monthly', priority: 0.3 },
 ]
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
@@ -54,5 +55,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     images: [`${SITE_URL}/services/${page.serviceSlug}/${page.suburbSlug}/opengraph-image`],
   }))
 
-  return [...staticEntries, ...blogEntries, ...suburbEntries, ...serviceEntries]
+  const serviceHubSlugs = Array.from(new Set(servicePages.map((page) => page.serviceSlug)))
+  const serviceHubEntries = serviceHubSlugs.map((slug) => ({
+    url: `${SITE_URL}/services/${slug}`,
+    lastModified,
+    changeFrequency: 'monthly' as const,
+    priority: 0.8,
+    images: [`${SITE_URL}/services/${slug}/opengraph-image`],
+  }))
+
+  return [...staticEntries, ...serviceHubEntries, ...blogEntries, ...suburbEntries, ...serviceEntries]
 }

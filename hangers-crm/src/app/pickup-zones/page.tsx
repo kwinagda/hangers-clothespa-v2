@@ -11,7 +11,7 @@ export default async function PickupZonesPage() {
   const phone = profile.phone.replace(/\D/g, '')
   const map = `https://www.google.com/maps?q=${encodeURIComponent(profile.address)}&output=embed`
   const pagesBySuburb = new Map(suburbPages.map((page) => [page.suburbName, page]))
-  return <PublicContentPage profile={profile} eyebrow="Pickup zones" title="Where we collect and deliver." intro={`Pickup and delivery are available across ${profile.pickupZones.join(', ')} for eligible orders above Rs. ${profile.pickupMinimumOrder}. The team confirms the collection window before a rider is assigned.`}>
+  return <PublicContentPage profile={profile} crumbs={[{label:'Home',href:'/'},{label:'Pickup zones'}]} title="Where we collect and deliver." intro={`Pickup and delivery are available across ${profile.pickupZones.join(', ')} for eligible orders above Rs. ${profile.pickupMinimumOrder}. The team confirms the collection window before a rider is assigned.`}>
     <section className="dp-split"><div><div className="dp-grid two">{profile.pickupZones.map((zone) => {
       const page = pagesBySuburb.get(zone)
       return page ? (

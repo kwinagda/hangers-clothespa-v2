@@ -7,7 +7,7 @@ export const metadata = buildPublicMetadata({ title: 'Book Dry Cleaning Pickup i
 export default async function BookPickupPage() {
   const profile = await getPublicSiteProfile()
   if (!profile) return <PublicUnavailable />
-  return <PublicContentPage profile={profile} eyebrow="Book a pickup" title="Book a pickup in about two minutes." intro={`Tell us what needs care, choose a preferred time and add the collection address. The Hangers team confirms availability across ${profile.pickupZones.join(', ')} for eligible orders above Rs. ${profile.pickupMinimumOrder}.`}>
+  return <PublicContentPage profile={profile} crumbs={[{label:'Home',href:'/'},{label:'Book a pickup'}]} title="Book a pickup in about two minutes." intro={`Tell us what needs care, choose a preferred time and add the collection address. The Hangers team confirms availability across ${profile.pickupZones.join(', ')} for eligible orders above Rs. ${profile.pickupMinimumOrder}.`}>
     <PickupRequestForm services={profile.featuredServices} pickupTimeSlots={profile.pickupTimeSlots} />
   </PublicContentPage>
 }

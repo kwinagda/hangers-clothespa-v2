@@ -31,7 +31,13 @@ export async function GET() {
     `- Live rate chart: ${siteUrl}/rate-chart`,
     `- Book a pickup: ${siteUrl}/book-pickup`,
     `- Pickup areas: ${siteUrl}/pickup-zones`,
+    `- Care journal (articles): ${siteUrl}/blog`,
     `- Contact: ${siteUrl}/contact`,
+    '',
+    '## Service coverage pattern',
+    `- Service pages follow ${siteUrl}/services/{service}/{suburb} — 6 services across ${profile.pickupZones.length} areas (${profile.pickupZones.join(', ')}).`,
+    `- Each service also has an index page at ${siteUrl}/services/{service} listing every area it is available in.`,
+    `- Full URL list: ${siteUrl}/sitemap.xml`,
     '',
     'Prices are subject to item and fabric inspection. Use the live rate chart as the current pricing source.',
   ].join('\n')
