@@ -27,7 +27,7 @@ test('status polling settles a captured payment through a refreshed token for th
   const fakePrisma = {
     razorpayCheckoutAttempt: {
       findFirst: async ({ where }) => {
-        assert.deepEqual(where, { invoiceId: invoice.id });
+        assert.deepEqual(where, { OR: [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }] });
         return attempt;
       },
       findUnique: async ({ where }) => {
@@ -50,12 +50,13 @@ test('status polling settles a captured payment through a refreshed token for th
 
   await getPublicRazorpayCheckoutStatus({
     params: { slug: refreshedShareId },
-    query: {},
+    query: { invoiceId: invoice.id },
     headers: {},
     id: 'request_123',
   }, res, undefined, {
-    getPublicInvoiceForPayment: async (slug) => {
+    getPublicInvoiceForPayment: async (slug, options) => {
       assert.equal(slug, refreshedShareId);
+      assert.deepEqual(options, { invoiceId: invoice.id });
       return { share: { id: refreshedShareId }, invoice };
     },
     getRazorpay: () => provider,
@@ -76,7 +77,7 @@ test('status polling settles a captured payment through a refreshed token for th
     providerOrderId: 'order_123',
     source: 'STATUS_POLL',
     expectedInvoiceId: invoice.id,
-    expectedShareId: refreshedShareId,
+    expectedShareId: originalShareId,
   });
 });
 
@@ -86,7 +87,7 @@ test('status recovery resolves the latest invoice attempt without a browser-cach
   const fakePrisma = {
     razorpayCheckoutAttempt: {
       findFirst: async ({ where, orderBy }) => {
-        assert.deepEqual(where, { invoiceId: invoice.id });
+        assert.deepEqual(where, { OR: [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }] });
         assert.deepEqual(orderBy, { createdAt: 'desc' });
         return attempt;
       },
@@ -230,7 +231,7 @@ test('status recovery returns NONE for an invoice without any checkout attempt',
   const fakePrisma = {
     razorpayCheckoutAttempt: {
       findFirst: async ({ where, orderBy }) => {
-        assert.deepEqual(where, { invoiceId: invoice.id });
+        assert.deepEqual(where, { OR: [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }] });
         assert.deepEqual(orderBy, { createdAt: 'desc' });
         return null;
       },

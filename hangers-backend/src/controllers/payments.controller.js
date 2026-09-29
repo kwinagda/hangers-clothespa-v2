@@ -116,11 +116,15 @@ const getOrderPayments = async (req, res) => {
   try {
     const { orderId } = req.params;
     const payments = await prisma.payment.findMany({
-      where:   { orderId },
-      include: { collectedByStaff: { select: { name: true } } },
+      where: { OR: [{ orderId }, { allocations: { some: { orderId, status: 'POSTED' } } }] },
+      include: { collectedByStaff: { select: { name: true } }, allocations: { where: { orderId, status: 'POSTED' } } },
       orderBy: { createdAt: 'asc' },
     });
-    return success(res, { payments });
+    return success(res, { payments: payments.map((payment) => payment.orderId === orderId ? payment : {
+      ...payment,
+      totalPaymentAmount: payment.amount,
+      amount: payment.allocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0),
+    }) });
   } catch (err) {
     return paymentApiError(res, { code: 'PAYMENT_HISTORY_LOAD_FAILED', message: 'Failed to fetch payments', requestId: req.id });
   }

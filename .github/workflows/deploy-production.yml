@@ -7,6 +7,11 @@ on:
         description: Full Git commit SHA to deploy (defaults to the selected branch SHA)
         required: false
         type: string
+      migrate_combined_checkout:
+        description: Apply approved allocationPlan-only migration after a verified production backup
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -154,6 +159,14 @@ jobs:
           set -euo pipefail
           cd /opt/hangers
           runuser -u ubuntu -- git fetch --prune origin main
+          if [[ '${{ inputs.migrate_combined_checkout }}' == 'true' ]]; then
+            install -d -m 0700 -o ubuntu -g ubuntu /var/backups/hangers
+            migration_script=\$(mktemp /tmp/hangers-combined-migration.XXXXXX.cjs)
+            runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/migrate-combined-checkout.cjs' > "\$migration_script"
+            chmod 0644 "\$migration_script"
+            flock -n /var/lock/hangers-code-deploy.lock runuser -u ubuntu -- node "\$migration_script" '$COMMIT'
+            rm -f "\$migration_script"
+          fi
           deploy_script=\$(mktemp /tmp/hangers-deploy-code.XXXXXX)
           trap 'rm -f "\$deploy_script"' EXIT
           runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/deploy-ec2-code.sh' > "\$deploy_script"

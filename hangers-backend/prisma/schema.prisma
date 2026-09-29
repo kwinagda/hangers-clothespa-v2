@@ -1261,6 +1261,7 @@ model RazorpayCheckoutAttempt {
   customerId            String
   publicShareId         String?
   amountPaise           BigInt
+  allocationPlan        Json?
   currency              String    @default("INR")
   mode                  String
   status                String    @default("CREATING")

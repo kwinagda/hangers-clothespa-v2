@@ -362,7 +362,7 @@ const handleOutboxEvent = async (event) => {
           where: { id: event.aggregateId },
           include: { customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } } },
         }),
-        prisma.payment.findUnique({ where: { id: payload.paymentId } }),
+        prisma.payment.findUnique({ where: { id: payload.paymentId }, include: { allocations: { where: { status: 'POSTED' }, include: { invoice: true } } } }),
       ]);
       if (!invoice) throw outboxDataError('INVOICE_NOTIFICATION_INVOICE_NOT_FOUND', 'Invoice payment notification references a missing invoice');
       if (!payment) throw outboxDataError('INVOICE_NOTIFICATION_PAYMENT_NOT_FOUND', 'Invoice payment notification references a missing payment');
@@ -386,13 +386,14 @@ const handleOutboxEvent = async (event) => {
         await audit('SKIPPED', `payment is ${payment.kind}/${payment.status}`);
         return;
       }
+      const combined = payment.allocations.length > 1;
       const resource = {
         id: invoice.id,
-        resourceType: 'INVOICE',
-        resourceId: invoice.id,
-        orderNumber: invoice.invoiceNumber,
-        totalAmount: invoice.totalAmount,
-        balanceDue: invoice.balanceDue,
+        resourceType: combined ? 'CUSTOMER' : 'INVOICE',
+        resourceId: combined ? invoice.customerId : invoice.id,
+        orderNumber: combined ? payment.allocations.map((item) => item.invoice.invoiceNumber).join(', ') : invoice.invoiceNumber,
+        totalAmount: combined ? payment.amount : invoice.totalAmount,
+        balanceDue: combined ? payment.allocations.reduce((sum, item) => sum + Number(item.invoice.balanceDue), 0) : invoice.balanceDue,
         customer: invoice.customer,
       };
       let templateName = null;

@@ -70,8 +70,8 @@ const server = http.createServer((req, res) => {
       items: [{ serviceName: 'Dry Clean', garmentType: 'SERVICE', quantity: 1, unitPrice: balanceDue, subtotal: balanceDue }],
     })
     const receivables = [
-      ...(summaryCapturedInvoiceId === 'summary-invoice-42' ? [] : [receivable('summary-invoice-42', 'INV-SUMMARY-42', 'HCS-SUM-42', 42)]),
-      receivable('summary-invoice-55', 'INV-SUMMARY-55', 'HCS-SUM-55', 55),
+      ...(['ALL', 'summary-invoice-42'].includes(summaryCapturedInvoiceId) ? [] : [receivable('summary-invoice-42', 'INV-SUMMARY-42', 'HCS-SUM-42', 42)]),
+      ...(['ALL', 'summary-invoice-55'].includes(summaryCapturedInvoiceId) ? [] : [receivable('summary-invoice-55', 'INV-SUMMARY-55', 'HCS-SUM-55', 55)]),
     ]
     const totals = receivables.reduce((sum, item) => ({
       totalAmount: sum.totalAmount + item.totalAmount,
@@ -148,13 +148,13 @@ const server = http.createServer((req, res) => {
       req.on('end', () => {
         try {
           const requestBody = JSON.parse(rawBody)
-          if (requestBody.invoiceId !== 'summary-invoice-42' || summaryCapturedInvoiceId) {
+          if (requestBody.invoiceId !== 'summary-invoice-42' || requestBody.paymentScope !== 'CUSTOMER_OUTSTANDING' || summaryCapturedInvoiceId) {
             res.writeHead(409).end(JSON.stringify({ success: false, code: 'SUMMARY_INVOICE_NOT_PAYABLE' }))
             return
           }
           summaryCreatedInvoiceIds.push(requestBody.invoiceId)
           res.writeHead(200).end(JSON.stringify({ success: true, data: {
-            key: 'rzp_test_ui_fixture', amount: 4200, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
+            key: 'rzp_test_ui_fixture', amount: 9700, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
             checkoutAttemptId: 'summary-ui-test-attempt', razorpayOrderId: 'order_summary_ui_test', invoiceNumber: 'INV-SUMMARY-42',
           } }))
         } catch {
@@ -195,7 +195,7 @@ const server = http.createServer((req, res) => {
           res.writeHead(400).end(JSON.stringify({ success: false, code: 'INVALID_FIXTURE_TUPLE' }))
           return
         }
-        summaryCapturedInvoiceId = tuple.invoiceId
+        summaryCapturedInvoiceId = 'ALL'
         summaryVerifiedInvoiceIds.push(tuple.invoiceId)
         res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', paymentId: tuple.razorpayPaymentId } }))
       } catch {
@@ -238,7 +238,7 @@ const server = http.createServer((req, res) => {
       res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', attemptId: 'server-resolved-attempt', invoice: { status: 'PAID', balanceDue: 0 }, paymentId: 'pay_ui_test_captured' } }))
       return
     }
-    if (slug === 'customer-summary' && invoiceId === summaryCapturedInvoiceId) {
+    if (slug === 'customer-summary' && (summaryCapturedInvoiceId === 'ALL' || invoiceId === summaryCapturedInvoiceId)) {
       res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', attemptId: 'summary-ui-test-attempt', invoice: { status: 'PAID', balanceDue: 0 }, paymentId: 'pay_summary_ui_captured' } }))
       return
     }
