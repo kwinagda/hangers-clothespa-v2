@@ -16,6 +16,7 @@ const revision = process.argv[2];
 const run = (bin, args, options = {}) => execFileSync(bin, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], timeout: 300000, ...options });
 
 async function main() {
+  process.umask(0o077);
   if (!/^[a-f0-9]{40}$/.test(revision || '')) throw new Error('An exact reviewed revision is required');
   if (run('git', ['rev-parse', 'origin/main']).toString().trim() !== revision) throw new Error('Revision is not origin/main');
   const url = new URL(process.env.DATABASE_URL);
