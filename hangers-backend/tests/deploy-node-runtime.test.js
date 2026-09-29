@@ -32,6 +32,12 @@ test('production public-asset smoke checks stay within login and Finance scope',
   assert.doesNotMatch(script, /verify_public_next_assets "\/dashboard\/iron\//);
 });
 
+test('production deployment refreshes CRM dependencies using incremental install', () => {
+  const script = fs.readFileSync(deployScript, 'utf8');
+  assert.match(script, /npm install --prefix hangers-crm --no-audit --no-fund/);
+  assert.doesNotMatch(script, /npm ci --prefix hangers-crm/);
+});
+
 test('production deployment revalidates backend and worker PM2 state after restart', () => {
   const script = fs.readFileSync(deployScript, 'utf8');
   const restartIndex = script.indexOf('run_as_deploy_user env PM2_HOME="$PM2_HOME" pm2 restart');
