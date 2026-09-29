@@ -24,12 +24,23 @@ The command:
 5. generates Prisma Client when required, but never changes the database;
 6. builds Next.js and uploads its immutable `/_next/static` files to S3 before restart;
 7. retains older hashed chunks so already-open CRM tabs continue working;
-8. restarts the API, worker, and CRM through the existing Ubuntu PM2 service,
-   then waits for the backend and worker to report online on Node.js 24 before
-   saving the PM2 process list;
-9. verifies API liveness, API/database readiness, local CRM login, public CRM pages,
+8. retrieves the two fixed Live Razorpay secret names in memory, rejects anything
+   except a well-formed `rzp_live_` key pair and non-empty separate webhook secret,
+   restarts only `hangers-backend` and `hangers-worker` with those values, then
+   verifies their live process environments without printing the values;
+9. restarts the CRM separately (never adding Razorpay credentials to its process),
+   verifies backend/worker Node.js 24 runtime, and saves the PM2 process list;
+10. verifies API liveness, API/database readiness, local CRM login, public CRM pages,
    public Next.js asset availability, and the deployed commit;
-10. prints an explicit completion marker for SSM and CI logs.
+11. prints an explicit completion marker for SSM and CI logs.
+
+The helper does not restart `hangers-razorpay-staging-api`; however, AWS
+instance-profile permissions are host-wide. Because the Test API is co-hosted
+on this EC2 instance, it can technically request the two narrowly named Live
+secrets through the shared instance role even though the deploy helper never
+loads them into the Test API process. Do not describe this as process-level IAM
+isolation. A strict isolation boundary requires moving Test to a separate host
+or redesigning credentials around independently scoped runtime identities.
 
 ## Git-to-Deployment Contract
 
@@ -101,7 +112,9 @@ The AWS identity provider and least-privilege role are managed by
 The AWS role should trust only this repository's protected `production`
 environment and should have only the SSM permissions needed to send and inspect
 commands for the production instance. Do not store long-lived AWS access keys in
-GitHub.
+GitHub. The EC2 role gets `secretsmanager:GetSecretValue` only for
+`hangers/production/razorpay/live-api` and
+`hangers/production/razorpay/live-webhook`; it has no list or write permission.
 
 Require approval on the GitHub `production` environment. Deploy an exact commit
 from **Actions > Deploy Production CRM > Run workflow** after CI passes.

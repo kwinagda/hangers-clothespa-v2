@@ -121,8 +121,9 @@ run_as_deploy_user aws s3 sync \
   --only-show-errors
 
 echo "Restarting application processes..."
-run_as_deploy_user env PM2_HOME="$PM2_HOME" pm2 restart \
-  hangers-backend hangers-worker hangers-crm --update-env
+run_as_deploy_user env PM2_HOME="$PM2_HOME" AWS_REGION=ap-south-1 node \
+  "$REPO_ROOT/scripts/deploy/load-live-razorpay-secrets.js"
+run_as_deploy_user env PM2_HOME="$PM2_HOME" pm2 restart hangers-crm --update-env
 echo "Waiting for backend and worker PM2 processes to return online on supported Node.js..."
 payment_processes_ready=false
 for attempt in {1..30}; do

@@ -35,9 +35,14 @@ test('production public-asset smoke checks stay within login and Finance scope',
 test('production deployment revalidates backend and worker PM2 state after restart', () => {
   const script = fs.readFileSync(deployScript, 'utf8');
   const restartIndex = script.indexOf('run_as_deploy_user env PM2_HOME="$PM2_HOME" pm2 restart');
+  const credentialActivationIndex = script.indexOf('load-live-razorpay-secrets.js');
   const postRestartCheckIndex = script.indexOf('check-pm2-node-runtime.js', restartIndex);
   const saveIndex = script.indexOf('pm2 save', restartIndex);
-  assert.ok(restartIndex >= 0, 'deployment must restart the existing PM2 processes');
+  assert.ok(credentialActivationIndex >= 0, 'deployment must activate validated Live credentials');
+  assert.ok(restartIndex >= 0, 'deployment must restart the CRM separately');
+  assert.ok(credentialActivationIndex < restartIndex, 'Live backend/worker must restart before the CRM');
+  assert.match(script, /pm2 restart hangers-crm --update-env/);
+  assert.doesNotMatch(script, /pm2 restart\s+hang ers-razorpay-staging-api/);
   assert.ok(postRestartCheckIndex > restartIndex, 'deployment must recheck both payment processes after restart');
   assert.ok(saveIndex > postRestartCheckIndex, 'deployment must not save PM2 state before the post-restart check passes');
 });
