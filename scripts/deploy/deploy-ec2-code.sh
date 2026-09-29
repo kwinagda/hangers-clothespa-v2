@@ -104,7 +104,7 @@ fi
 
 if grep -Eq '^hangers-crm/package(-lock)?\.json$' <<<"$changed_files"; then
   echo "Refreshing CRM dependencies..."
-  run_as_deploy_user npm ci --prefix hangers-crm
+  run_as_deploy_user npm install --prefix hangers-crm --no-audit --no-fund
 fi
 
 echo "Building CRM..."
