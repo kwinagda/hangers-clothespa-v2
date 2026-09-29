@@ -442,8 +442,17 @@ const getOrder = async (req, res) => {
       },
     });
     if (!order) return notFound(res, 'Order not found');
+    const allocatedPayments = await prisma.payment.findMany({
+      where: { orderId: null, allocations: { some: { orderId: order.id, status: 'POSTED' } } },
+      include: { allocations: { where: { orderId: order.id, status: 'POSTED' } } },
+    });
     const safeOrder = {
       ...order,
+      payments: [...order.payments, ...allocatedPayments.map((payment) => ({
+        ...payment,
+        totalPaymentAmount: payment.amount,
+        amount: payment.allocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0),
+      }))].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
       razorpayRefundAttempts: (order.razorpayRefundAttempts || []).map(serializeRefundAttempt),
     };
     return success(res, { order: withDerivedPaymentState(safeOrder) });

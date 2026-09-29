@@ -91,7 +91,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .summary-label { color: #7d91a7; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
           .summary-value { margin-top: 6px; color: #182538; font-weight: 900; overflow-wrap: anywhere; }
           .summary-receivables { padding: 8px 26px 24px; }
-          .summary-receivable-head, .summary-receivable { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(95px, .7fr) minmax(110px, .8fr) minmax(110px, .8fr) minmax(170px, 1fr); gap: 12px; align-items: center; }
+          .summary-receivable-head, .summary-receivable { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(95px, .7fr) minmax(110px, .8fr) minmax(110px, .8fr); gap: 12px; align-items: center; }
           .summary-receivable-head { padding: 12px 14px; color: #476581; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
           .summary-receivable { padding: 16px 14px; border-top: 1px solid #edf3f8; }
           .summary-receivable-main { min-width: 0; }
@@ -99,10 +99,6 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .summary-receivable-sub { color: #6b7fa3; font-size: 12px; margin-top: 3px; }
           .summary-receivable-amount { text-align: right; }
           .summary-receivable-balance { color: #b91c1c; font-weight: 900; text-align: right; }
-          .summary-receivable-pay { min-width: 0; }
-          .summary-receivable-pay > div { margin: 0 !important; padding: 10px !important; border: 0 !important; background: transparent !important; }
-          .summary-receivable-pay > div > div:first-child > div:first-child { display: none !important; }
-          .summary-receivable-pay button { width: 100%; }
           .summary-receivable-lines { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; padding-top: 10px; }
           .summary-receivable-line { min-width: 0; padding: 9px 10px; background: #f7fafc; border-radius: 8px; }
           .summary-detail-name { font-weight: 800; color: #24364b; overflow-wrap: anywhere; }
@@ -167,9 +163,19 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             </div>
           </div>
 
+          <div style={{ padding: '0 26px 18px' }}>
+            {rows.length > 0 && <InvoicePaymentButton
+              slug={slug}
+              invoiceId={rows[0].invoiceId}
+              balanceDue={Number(summary?.totals?.balanceDue)}
+              customerName={summary.customer?.name}
+              customerPhone={summary.customer?.phone}
+              paymentScope="CUSTOMER_OUTSTANDING"
+            />}
+          </div>
           <section className="summary-receivables" aria-label="Unpaid invoices">
             <div className="summary-receivable-head" aria-hidden="true">
-              <div>Bill / Order</div><div>Due</div><div style={{ textAlign: 'right' }}>Total / Paid</div><div style={{ textAlign: 'right' }}>Balance due</div><div>Payment</div>
+              <div>Bill / Order</div><div>Due</div><div style={{ textAlign: 'right' }}>Total / Paid</div><div style={{ textAlign: 'right' }}>Balance due</div>
             </div>
             {rows.map((item: any) => (
               <article className="summary-receivable" key={item.invoiceId}>
@@ -180,11 +186,6 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
                 <div className="summary-receivable-sub">{dateLabel(item.dueDate)}</div>
                 <div className="summary-receivable-amount" data-label="Total / Paid">{money(item.totalAmount)} <span style={{ color: '#15803d' }}>· {money(item.paidAmount)} paid</span></div>
                 <div className="summary-receivable-balance" data-label="Balance due">{money(item.balanceDue)}</div>
-                <div className="summary-receivable-pay">
-                  {Number(item.balanceDue) > 0 ? (
-                    <InvoicePaymentButton key={`${slug}:${item.invoiceId}`} slug={slug} invoiceId={item.invoiceId} balanceDue={Number(item.balanceDue)} customerName={summary.customer?.name} customerPhone={summary.customer?.phone} />
-                  ) : <span style={{ color: '#15803d', fontWeight: 800 }}>Paid</span>}
-                </div>
                 {!!item.items?.length && <div className="summary-receivable-lines">
                   {item.items.map((line: any, index: number) => (
                     <div className="summary-receivable-line" key={`${item.invoiceId}-line-${index}`}>

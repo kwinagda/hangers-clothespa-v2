@@ -144,6 +144,19 @@ from **Actions > Deploy Production CRM > Run workflow** after CI passes.
 
 ## Database Releases
 
+The combined-outstanding release has an explicitly approved optional workflow
+input, `migrate_combined_checkout`. It runs only the reviewed
+`20260929000000_razorpay_checkout_allocation_plan` addition before code deployment.
+The helper refuses other pending/failed migrations, verifies a custom-format
+production `pg_dump` in `/var/backups/hangers` using `pg_restore --list`, then
+runs Prisma migrate deploy under the deployment lock. It verifies the new JSONB
+column afterward. Backup files are mode 0600 in a mode 0700 directory. No dump
+is downloaded or restored and no local database participates.
+
+For application rollback, retain the nullable column and deploy a reviewed
+forward revert through normal CI. Do not drop allocation history or restore the
+backup over newer payments. A backup restore is a separate recovery operation.
+
 Schema changes are not automatically applied by code deployment. A database
 release must have its own backup confirmation, migration review, migration lock,
 `prisma migrate deploy`, and post-migration verification. Never use `prisma db

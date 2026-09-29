@@ -134,6 +134,7 @@ const createCapturedPayment = async (tx, {
   providerMethodDetail,
   mode,
   razorpaySignature,
+  allocations,
 }) => {
   const normalizedAmount = roundMoney(Number(amount || 0));
   if (!(normalizedAmount > 0)) return null;
@@ -163,17 +164,17 @@ const createCapturedPayment = async (tx, {
         razorpaySignature: razorpaySignature || null,
       },
     });
-    await tx.paymentAllocation.create({
-      data: {
-        paymentId: payment.id,
-        orderId: order?.id || orderId || null,
-        invoiceId,
-        amount: normalizedAmount,
-        status: 'POSTED',
-        reason: 'Captured payment applied to invoice balance',
-        createdAt: effectiveAt || undefined,
-      },
-    });
+    const allocationRows = (allocations || [{ invoiceId, orderId: order?.id || orderId || null, amount: normalizedAmount }]).map((allocation) => ({
+      paymentId: payment.id,
+      orderId: allocation.orderId || null,
+      invoiceId: allocation.invoiceId,
+      amount: roundMoney(Number(allocation.amount)),
+      status: 'POSTED',
+      reason: allocations ? 'Captured payment allocated across customer invoices' : 'Captured payment applied to invoice balance',
+      createdAt: effectiveAt || undefined,
+    }));
+    if (allocations) await tx.paymentAllocation.createMany({ data: allocationRows });
+    else await tx.paymentAllocation.create({ data: allocationRows[0] });
     await issueReceipt(tx, { payment, invoiceId, staffId });
     return payment;
   } catch (error) {
@@ -185,6 +186,91 @@ const createCapturedPayment = async (tx, {
     }
     throw error;
   }
+};
+
+const recordInvoiceAllocationsSettlement = async (tx, {
+  allocations,
+  expectedCustomerId,
+  expectedCurrency,
+  amount,
+  method,
+  reference,
+  notes,
+  idempotencyKey,
+  razorpayOrderId,
+  razorpayPaymentId,
+  providerMethod,
+  providerMethodDetail,
+  mode,
+  providerCaptureVerified = false,
+}) => {
+  assertSettlementMethodAllowed(method, { providerCaptureVerified });
+  if (!Array.isArray(allocations) || allocations.length < 2) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'At least two invoice allocations are required');
+  const normalized = allocations.map((item) => ({ invoiceId: String(item.invoiceId), amount: roundMoney(Number(item.amount)) }));
+  if (new Set(normalized.map((item) => item.invoiceId)).size !== normalized.length || normalized.some((item) => !Number.isFinite(item.amount) || item.amount <= 0)) {
+    throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'The invoice allocation plan is invalid');
+  }
+  const expectedTotal = roundMoney(normalized.reduce((sum, item) => sum + item.amount, 0));
+  if (expectedTotal !== roundMoney(Number(amount))) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Allocation total does not match the captured payment');
+
+  const ids = normalized.map((item) => item.invoiceId).sort();
+  const initialRows = await tx.invoice.findMany({ where: { id: { in: ids } }, select: { id: true, orderId: true } });
+  const initialOrderIds = [...new Set(initialRows.map((invoice) => invoice.orderId).filter(Boolean))].sort();
+  for (const orderId of initialOrderIds) {
+    const locked = await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`;
+    if (!locked.length) throw new PaymentRuleError('ORDER_NOT_FOUND', 'An order in this payment could not be found', 404);
+  }
+  for (const id of ids) {
+    const locked = await tx.$queryRaw`SELECT "id" FROM "invoices" WHERE "id" = ${id} FOR UPDATE`;
+    if (!locked.length) throw new PaymentRuleError('INVOICE_NOT_FOUND', 'An invoice in this payment could not be found', 404);
+  }
+  const invoices = await tx.invoice.findMany({ where: { id: { in: ids } } });
+  const byId = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+  const customerId = invoices[0]?.customerId;
+  const currency = String(invoices[0]?.currency || 'INR').toUpperCase();
+  if (!expectedCustomerId || customerId !== expectedCustomerId || currency !== String(expectedCurrency || '').toUpperCase()) {
+    throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Invoice ownership or currency does not match the checkout attempt', 409);
+  }
+  const orderIds = new Set();
+  for (const allocation of normalized) {
+    const invoice = byId.get(allocation.invoiceId);
+    if (!invoice || invoice.customerId !== customerId || String(invoice.currency || 'INR').toUpperCase() !== currency
+      || invoice.voidedAt || invoice.status === 'VOID'
+      || roundMoney(Number(invoice.balanceDue || 0)) !== allocation.amount) {
+      throw new PaymentRuleError('ALLOCATION_BALANCE_CHANGED', 'An invoice balance changed while payment was being completed. Finance review is required.', 409);
+    }
+    if (invoice.orderId) {
+      const order = await tx.order.findUnique({ where: { id: invoice.orderId }, select: { status: true } });
+      if (!order || order.status === 'CANCELLED') throw new PaymentRuleError('ORDER_CANCELLED', 'A cancelled order cannot accept a new payment', 409);
+      orderIds.add(invoice.orderId);
+    }
+  }
+
+  const payment = await createCapturedPayment(tx, {
+    customerId,
+    invoiceId: normalized[0].invoiceId,
+    amount: expectedTotal,
+    method,
+    reference,
+    notes,
+    idempotencyKey,
+    razorpayOrderId,
+    razorpayPaymentId,
+    providerMethod,
+    providerMethodDetail,
+    mode,
+    allocations: normalized.map((item) => ({ ...item, orderId: byId.get(item.invoiceId).orderId || null })),
+  });
+  const syncedInvoices = [];
+  for (const orderId of [...orderIds].sort()) {
+    const synced = await syncOrderPaymentState(tx, orderId);
+    if (synced.invoice) syncedInvoices.push(synced.invoice);
+  }
+  for (const allocation of normalized) {
+    const invoice = byId.get(allocation.invoiceId);
+    if (!invoice.orderId) syncedInvoices.push(await syncInvoiceBalance(tx, invoice.id));
+  }
+  return { payment, invoice: syncedInvoices.find((invoice) => invoice.id === normalized[0].invoiceId) || await tx.invoice.findUnique({ where: { id: normalized[0].invoiceId } }), invoices: syncedInvoices };
 };
 
 const recordOrderSettlement = async (tx, {
@@ -843,6 +929,7 @@ module.exports = {
   creditOverpayment,
   getLedgerState,
   paymentReferenceFingerprint,
+  recordInvoiceAllocationsSettlement,
   recordInvoiceSettlement,
   recordOrderRefund,
   reverseInvoicePaymentCorrection,

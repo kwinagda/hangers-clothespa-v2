@@ -72,14 +72,15 @@ test('invoice checkout A/B presentation stays responsive without starting a paym
   expect(await stats.json()).toMatchObject({ createOrderRequests: 0, assignmentRequests: 8 })
 })
 
-test('customer outstanding summary offers invoice-scoped Pay actions at phone, tablet, and desktop widths', async ({ page, request }) => {
+test('customer outstanding summary offers one total Pay action at phone, tablet, and desktop widths', async ({ page, request }) => {
   const before = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   const viewportsToCheck = [320, 390, 768, 1440]
   for (const width of viewportsToCheck) {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/invoice/customer-summary')
     await expect(page.getByRole('heading', { name: 'Outstanding Summary' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(2)
+    await expect(page.getByRole('button', { name: 'Pay total outstanding · ₹97', exact: true })).toHaveCount(1)
+    await expect(page.locator('.summary-receivable-pay button')).toHaveCount(0)
     await expect(page.getByText('Home QA')).toBeVisible()
     const dimensions = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
@@ -92,14 +93,14 @@ test('customer outstanding summary offers invoice-scoped Pay actions at phone, t
     const response = await request.get('http://127.0.0.1:55102/__test__/stats')
     const stats = await response.json()
     return new Set(stats.summaryStatusInvoiceIds).size
-  }).toBe(2)
+  }).toBe(1)
   const stats = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
-  expect(stats.summaryStatusInvoiceIds).toEqual(expect.arrayContaining(['summary-invoice-42', 'summary-invoice-55']))
-  expect(stats.summaryAssignmentInvoiceIds).toEqual(expect.arrayContaining(['summary-invoice-42', 'summary-invoice-55']))
+  expect(stats.summaryStatusInvoiceIds).toEqual(expect.arrayContaining(['summary-invoice-42']))
+  expect(stats.summaryAssignmentInvoiceIds).toEqual(expect.arrayContaining(['summary-invoice-42']))
   expect(stats.createOrderRequests).toBe(before.createOrderRequests)
 })
 
-test('captured summary invoice leaves receivables after server refresh and reload without a second checkout', async ({ page, request }) => {
+test('captured combined summary payment clears both receivables after refresh and reload', async ({ page, request }) => {
   await page.addInitScript(() => {
     const checkoutWindow = window as Window & { Razorpay?: new (options: Record<string, any>) => { open: () => void; on: () => void } }
     checkoutWindow.Razorpay = class {
@@ -121,21 +122,19 @@ test('captured summary invoice leaves receivables after server refresh and reloa
     await request.post('http://127.0.0.1:55102/__test__/reset-summary-payment')
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/invoice/customer-summary')
-    const capturedRow = page.locator('article').filter({ hasText: 'INV-SUMMARY-42' })
-    await expect(capturedRow).toBeVisible()
-    await capturedRow.getByRole('button', { name: 'Pay ₹42', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Pay total outstanding · ₹97', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Pay total outstanding · ₹97', exact: true }).click()
 
-    await expect(page.locator('article').filter({ hasText: 'INV-SUMMARY-42' })).toHaveCount(0)
-    await expect(page.getByText('1 open bills/orders')).toBeVisible()
-    await expect(page.locator('article').filter({ hasText: 'INV-SUMMARY-55' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Pay ₹55', exact: true })).toBeVisible()
-    await expect(page.locator('.summary-meta-card').filter({ hasText: 'Balance Due' })).toContainText('₹55')
+    await expect(page.locator('article')).toHaveCount(0)
+    await expect(page.getByText('0 open bills/orders')).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
+    await expect(page.locator('.summary-meta-card').filter({ hasText: 'Balance Due' })).toContainText('₹0')
     const dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth }))
     expect(dimensions.content, `captured summary width ${width} must not overflow`).toBeLessThanOrEqual(dimensions.viewport + 2)
 
     await page.reload()
-    await expect(page.locator('article').filter({ hasText: 'INV-SUMMARY-42' })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(1)
+    await expect(page.locator('article')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
   }
 
   const after = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()

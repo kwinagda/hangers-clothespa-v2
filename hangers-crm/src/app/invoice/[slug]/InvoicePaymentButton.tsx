@@ -21,7 +21,7 @@ const newExperimentId = () => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, customerName, customerPhone, enabled = true }: { slug: string; invoiceId?: string; balanceDue: number; customerName?: string; customerPhone?: string; enabled?: boolean }) {
+export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, customerName, customerPhone, enabled = true, paymentScope }: { slug: string; invoiceId?: string; balanceDue: number; customerName?: string; customerPhone?: string; enabled?: boolean; paymentScope?: 'CUSTOMER_OUTSTANDING' }) {
   const router = useRouter()
   const experimentEnabled = process.env.NEXT_PUBLIC_RAZORPAY_CHECKOUT_AB_ENABLED === 'true'
   const [busy, setBusy] = useState(false)
@@ -135,7 +135,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
       const createResponse = await fetch(`${API_BASE_URL}/public/invoices/${encodeURIComponent(slug)}/payment/create-order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': activeIdempotencyKey.current },
-        body: JSON.stringify({ ...(invoiceId ? { invoiceId } : {}), ...(experimentAssignment.current ? { experiment: { visitorId: experimentAssignment.current.visitorId, eventId: experimentAssignment.current.exposureEventId, variant: experimentAssignment.current.variant } } : {}) }),
+        body: JSON.stringify({ ...(invoiceId ? { invoiceId } : {}), ...(paymentScope ? { paymentScope } : {}), ...(experimentAssignment.current ? { experiment: { visitorId: experimentAssignment.current.visitorId, eventId: experimentAssignment.current.exposureEventId, variant: experimentAssignment.current.variant } } : {}) }),
         cache: 'no-store',
       })
       const created = await createResponse.json()
@@ -462,7 +462,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
           <span role="status" style={{ borderRadius: 8, padding: '11px 16px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>{recoveryUnavailable ? 'Payment status unavailable' : 'Checking payment status…'}</span>
         ) : (
           <button type="button" onClick={() => void pay()} disabled={busy || success || !experimentReady || !statusReady} style={{ border: 0, borderRadius: 8, padding: '11px 16px', background: success ? '#167b4b' : '#023c62', color: '#fff', fontWeight: 800, cursor: busy || success || !experimentReady || !statusReady ? 'default' : 'pointer', opacity: busy || !experimentReady || !statusReady ? 0.7 : 1 }}>
-            {success ? 'Payment received' : busy ? 'Processing…' : !experimentReady ? 'Preparing secure checkout…' : resumeAvailable && resumeMode ? 'Resume secure checkout' : experimentVariant === 'B' ? `Pay invoice · ₹${balanceDue.toLocaleString('en-IN')}` : `Pay ₹${balanceDue.toLocaleString('en-IN')}`}
+            {success ? 'Payment received' : busy ? 'Processing…' : !experimentReady ? 'Preparing secure checkout…' : resumeAvailable && resumeMode ? 'Resume secure checkout' : `${paymentScope ? 'Pay total outstanding ·' : experimentVariant === 'B' ? 'Pay invoice ·' : 'Pay'} ₹${balanceDue.toLocaleString('en-IN')}`}
           </button>
         )}
       </div>

@@ -110,7 +110,6 @@ const reserveRefund = async ({ orderId, sourcePaymentId, amount, reasonCode, rea
     const source = await tx.payment.findFirst({
       where: {
         id: sourcePaymentId,
-        orderId,
         kind: 'RECEIPT',
         status: { in: ['CAPTURED', 'SUCCESS'] },
         razorpayPaymentId: { not: null },
