@@ -20,7 +20,10 @@ The command:
 1. prevents concurrent deployments with `flock`;
 2. refuses to deploy over tracked source edits on EC2;
 3. fetches Git and permits fast-forward deployments only;
-4. installs dependencies only when package manifests changed;
+4. installs backend and CRM dependencies when their committed manifest/schema
+   fingerprints differ from the last successful install; the fingerprint is
+   recorded only after `npm ci` completes, so failed or interrupted installs are
+   repaired on retry even when EC2 already advanced to the target commit;
 5. generates Prisma Client when required, but never changes the database;
 6. builds Next.js and uploads its immutable `/_next/static` files to S3 before restart;
 7. retains older hashed chunks so already-open CRM tabs continue working;
@@ -131,6 +134,14 @@ from **Actions > Deploy Production CRM > Run workflow** after CI passes.
   the new build assets before restarting the CRM. The deploy command intentionally
   does not delete older hashed chunks during release, because open browser tabs may
   still reference them.
+- Backend and CRM dependency installs are keyed to committed manifests and the
+  Prisma schema where applicable. Their fingerprints are written under
+  `/var/lib/hangers-deploy/dependencies` only after `npm ci` succeeds, so a retry
+  repairs an interrupted install even if Git already advanced to that commit.
+  Production installs cap the Node.js heap at 640 MiB and limit npm network
+  concurrency; npm audit/funding requests are omitted from the deploy path.
+  On the first deployment using this fingerprint mechanism, both packages are
+  installed once to establish the successful-install baseline.
 
 ## Database Releases
 

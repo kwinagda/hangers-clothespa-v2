@@ -47,6 +47,22 @@ test('production deployment revalidates backend and worker PM2 state after resta
   assert.ok(saveIndex > postRestartCheckIndex, 'deployment must not save PM2 state before the post-restart check passes');
 });
 
+test('production dependency installs are bounded and recover after an interrupted install', () => {
+  const script = fs.readFileSync(deployScript, 'utf8');
+  const installIndex = script.indexOf('npm ci --prefix "$name"');
+  const markerWriteIndex = script.indexOf('mv "$2.tmp" "$2"', installIndex);
+  const crmInstallIndex = script.indexOf('refresh_dependencies hangers-crm');
+
+  assert.match(script, /NODE_OPTIONS=.*--max-old-space-size=640/);
+  assert.match(script, /--foreground-scripts --maxsockets=2 --no-audit --no-fund/);
+  assert.match(script, /\/var\/lib\/hangers-deploy\/dependencies/);
+  assert.match(script, /if \[\[ -f "\$marker" \]\] && \[\[ "\$\(<"\$marker"\)" == "\$fingerprint" \]\]; then/);
+  assert.ok(markerWriteIndex > installIndex, 'failed npm ci must not mark dependencies as installed');
+  assert.ok(crmInstallIndex > markerWriteIndex, 'CRM dependency state must be checked on every deploy retry');
+  assert.match(script, /hangers-backend\/prisma\/schema\.prisma/);
+  assert.doesNotMatch(script, /if grep -Eq '\^hangers-crm\/package/);
+});
+
 test('production workflow checks out the exact resolved commit it will deploy', () => {
   const workflow = fs.readFileSync(path.resolve(__dirname, '../../.github/workflows/deploy-production.yml'), 'utf8');
   assert.match(workflow, /ref: \$\{\{ steps\.revision\.outputs\.commit \}\}/);
