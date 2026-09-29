@@ -29,9 +29,9 @@ export async function PolicyPage({ title, intro, sections }: {
         <h2 className="dp-title">{section.title}</h2>
         {section.paragraphs.map((paragraph, index) => <p className="dp-copy" key={index} style={{ marginBottom: 14 }}>{paragraph}</p>)}
         {section.link && <p className="dp-copy"><Link href={section.link.href}>{section.link.label}</Link></p>}
-        {section.bullets && <ul style={{ margin: '8px 0 0', paddingLeft: 22, color: '#4b6479', fontSize: 15.5, lineHeight: 1.8 }}>
-          {section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
-        </ul>}
+        {section.bullets && <div className="dp-list">
+          {section.bullets.map((bullet) => <div key={bullet}>{bullet}</div>)}
+        </div>}
       </section>)}
       <section className="dp-band">
         <h2 className="dp-title">Questions about this policy?</h2>
