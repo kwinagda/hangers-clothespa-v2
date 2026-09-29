@@ -1,7 +1,8 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { PublicContentPage, PublicUnavailable } from '@/components/public/PublicContentPage'
 import { getPublicSiteProfile } from '@/lib/publicSite'
-import { getPublicSuburbPage } from '@/lib/publicContent'
+import { getPublicSuburbPage, getPublicServicePages } from '@/lib/publicContent'
 import { buildPublicMetadata } from '@/lib/seo'
 import type { Metadata } from 'next'
 
@@ -14,9 +15,10 @@ export async function generateMetadata({ params }: { params: Promise<{ suburb: s
 
 export default async function SuburbPage({ params }: { params: Promise<{ suburb: string }> }) {
   const { suburb } = await params
-  const [profile, page] = await Promise.all([getPublicSiteProfile(), getPublicSuburbPage(suburb)])
+  const [profile, page, servicePages] = await Promise.all([getPublicSiteProfile(), getPublicSuburbPage(suburb), getPublicServicePages()])
   if (!profile) return <PublicUnavailable />
   if (!page) return notFound()
+  const servicesHere = servicePages.filter((sp) => sp.suburbSlug === suburb)
 
   const phone = profile.phone.replace(/\D/g, '')
   const map = `https://www.google.com/maps?q=${encodeURIComponent(profile.address)}&output=embed`
@@ -59,6 +61,19 @@ export default async function SuburbPage({ params }: { params: Promise<{ suburb:
         </div>
       </div>
     </section>
+    {servicesHere.length ? (
+      <section className="dp-section">
+        <h2 className="dp-title">Services in {page.suburbName}</h2>
+        <div className="dp-grid two">
+          {servicesHere.map((sp) => (
+            <Link className="dp-card" key={sp.serviceSlug} href={`/services/${sp.serviceSlug}/${sp.suburbSlug}`} style={{ color: 'inherit' }}>
+              <h3>{sp.title}</h3>
+              <p>{sp.intro}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+    ) : null}
     {page.faqs?.length ? (
       <section className="dp-section">
         <h2 className="dp-title">Frequently asked</h2>

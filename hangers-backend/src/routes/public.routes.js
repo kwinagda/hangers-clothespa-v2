@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getPublicInvoice, getPublicDailyIronLogs, getPublicQuotation, getPublicRateChart, getPublicSiteProfile, getPublicBlogPosts, getPublicBlogPost, getPublicSuburbPages, getPublicSuburbPage, createPublicPickupRequest, ingestQueuedPickupRequest, sendPublicPickupOtp, verifyPublicPickupOtp, createPublicRazorpayOrder, verifyPublicRazorpayPayment, getPublicRazorpayCheckoutStatus, assignPublicRazorpayCheckoutExperiment, recordPublicRazorpayCheckoutExperimentEvent } = require('../controllers/public.controller');
+const { getPublicInvoice, getPublicDailyIronLogs, getPublicQuotation, getPublicRateChart, getPublicSiteProfile, getPublicBlogPosts, getPublicBlogPost, getPublicSuburbPages, getPublicSuburbPage, getPublicServicePages, getPublicServicePage, createPublicPickupRequest, ingestQueuedPickupRequest, sendPublicPickupOtp, verifyPublicPickupOtp, createPublicRazorpayOrder, verifyPublicRazorpayPayment, getPublicRazorpayCheckoutStatus, assignPublicRazorpayCheckoutExperiment, recordPublicRazorpayCheckoutExperimentEvent } = require('../controllers/public.controller');
 const { publicShareLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimit');
 
 router.use(publicShareLimiter);
@@ -18,6 +18,8 @@ router.get('/blog-posts', getPublicBlogPosts);
 router.get('/blog-posts/:slug', getPublicBlogPost);
 router.get('/pickup-zones', getPublicSuburbPages);
 router.get('/pickup-zones/:slug', getPublicSuburbPage);
+router.get('/service-pages', getPublicServicePages);
+router.get('/service-pages/:service/:suburb', getPublicServicePage);
 router.post('/pickup-requests/send-otp', otpSendLimiter, sendPublicPickupOtp);
 router.post('/pickup-requests/verify-otp', otpVerifyLimiter, verifyPublicPickupOtp);
 router.post('/pickup-requests', otpVerifyLimiter, createPublicPickupRequest);

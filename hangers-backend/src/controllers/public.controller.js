@@ -1185,6 +1185,46 @@ const getPublicSuburbPage = async (req, res) => {
   }
 };
 
+const servicePageListSelect = {
+  serviceSlug: true,
+  serviceName: true,
+  suburbSlug: true,
+  suburbName: true,
+  title: true,
+  intro: true,
+  heroImage: true,
+  heroImageAlt: true,
+};
+
+const getPublicServicePages = async (req, res) => {
+  try {
+    const serviceSlug = req.query.service ? String(req.query.service).trim() : undefined;
+    const pages = await prisma.servicePage.findMany({
+      where: { status: 'PUBLISHED', ...(serviceSlug ? { serviceSlug } : {}) },
+      select: servicePageListSelect,
+      orderBy: [{ serviceSlug: 'asc' }, { suburbName: 'asc' }],
+    });
+    return success(res, { items: pages });
+  } catch (err) {
+    console.error('getPublicServicePages error:', err);
+    return error(res, 'Failed to load service pages');
+  }
+};
+
+const getPublicServicePage = async (req, res) => {
+  try {
+    const serviceSlug = String(req.params.service || '').trim();
+    const suburbSlug = String(req.params.suburb || '').trim();
+    if (!serviceSlug || !suburbSlug) return badRequest(res, 'service and suburb are required');
+    const page = await prisma.servicePage.findUnique({ where: { serviceSlug_suburbSlug: { serviceSlug, suburbSlug } } });
+    if (!page || page.status !== 'PUBLISHED') return notFound(res, 'Page not found');
+    return success(res, { page });
+  } catch (err) {
+    console.error('getPublicServicePage error:', err);
+    return error(res, 'Failed to load page');
+  }
+};
+
 module.exports = {
   createPublicPickupRequest,
   ingestQueuedPickupRequest,
@@ -1199,6 +1239,8 @@ module.exports = {
   getPublicBlogPost,
   getPublicSuburbPages,
   getPublicSuburbPage,
+  getPublicServicePages,
+  getPublicServicePage,
   createPublicRazorpayOrder,
   verifyPublicRazorpayPayment,
   getPublicRazorpayCheckoutStatus,

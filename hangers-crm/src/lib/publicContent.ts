@@ -63,3 +63,36 @@ export async function getPublicSuburbPage(slug: string): Promise<PublicSuburbPag
   const payload = await response.json()
   return payload?.data?.page || payload?.page || null
 }
+
+export type PublicServicePageSummary = {
+  serviceSlug: string
+  serviceName: string
+  suburbSlug: string
+  suburbName: string
+  title: string
+  intro: string
+  heroImage: string
+  heroImageAlt: string
+}
+
+export type PublicServicePage = PublicServicePageSummary & {
+  metaDescription: string
+  sections: { heading: string; body: string }[]
+  faqs?: PublicFaqEntry[] | null
+}
+
+export async function getPublicServicePages(service?: string): Promise<PublicServicePageSummary[]> {
+  const query = service ? `?service=${encodeURIComponent(service)}` : ''
+  const response = await fetch(`${API_BASE_URL}/public/service-pages${query}`, { cache: 'no-store' })
+  if (!response.ok) return []
+  const payload = await response.json()
+  const items = payload?.data?.items || payload?.items
+  return Array.isArray(items) ? items : []
+}
+
+export async function getPublicServicePage(service: string, suburb: string): Promise<PublicServicePage | null> {
+  const response = await fetch(`${API_BASE_URL}/public/service-pages/${encodeURIComponent(service)}/${encodeURIComponent(suburb)}`, { cache: 'no-store' })
+  if (!response.ok) return null
+  const payload = await response.json()
+  return payload?.data?.page || payload?.page || null
+}

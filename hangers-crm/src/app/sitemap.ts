@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next'
 import { SITE_URL } from '@/lib/seo'
-import { getPublicBlogPosts, getPublicSuburbPages } from '@/lib/publicContent'
+import { getPublicBlogPosts, getPublicSuburbPages, getPublicServicePages } from '@/lib/publicContent'
 
 const staticPages: Array<{ path: string; changeFrequency: 'weekly' | 'monthly'; priority: number }> = [
   { path: '', changeFrequency: 'weekly', priority: 1 },
@@ -18,7 +18,7 @@ const staticPages: Array<{ path: string; changeFrequency: 'weekly' | 'monthly'; 
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const lastModified = new Date()
-  const [blogPosts, suburbPages] = await Promise.all([getPublicBlogPosts(), getPublicSuburbPages()])
+  const [blogPosts, suburbPages, servicePages] = await Promise.all([getPublicBlogPosts(), getPublicSuburbPages(), getPublicServicePages()])
 
   const staticEntries = staticPages.map((page) => ({
     url: `${SITE_URL}${page.path}`,
@@ -46,5 +46,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     images: [`${SITE_URL}/pickup-zones/${page.slug}/opengraph-image`],
   }))
 
-  return [...staticEntries, ...blogEntries, ...suburbEntries]
+  const serviceEntries = servicePages.map((page) => ({
+    url: `${SITE_URL}/services/${page.serviceSlug}/${page.suburbSlug}`,
+    lastModified,
+    changeFrequency: 'monthly' as const,
+    priority: 0.75,
+    images: [`${SITE_URL}/services/${page.serviceSlug}/${page.suburbSlug}/opengraph-image`],
+  }))
+
+  return [...staticEntries, ...blogEntries, ...suburbEntries, ...serviceEntries]
 }

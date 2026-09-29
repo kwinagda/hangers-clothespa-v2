@@ -15,6 +15,11 @@ const {
   updateSuburbPage,
   publishSuburbPage,
   unpublishSuburbPage,
+  getServicePages,
+  createServicePage,
+  updateServicePage,
+  publishServicePage,
+  unpublishServicePage,
 } = require('../controllers/content.controller');
 
 const adminRoles = requireRole('SUPER_ADMIN', 'MANAGER');
@@ -35,5 +40,11 @@ router.post('/pickup-zones', createSuburbPage);
 router.patch('/pickup-zones/:id', updateSuburbPage);
 router.post('/pickup-zones/:id/publish', publishSuburbPage);
 router.post('/pickup-zones/:id/unpublish', unpublishSuburbPage);
+
+router.get('/service-pages', getServicePages);
+router.post('/service-pages', createServicePage);
+router.patch('/service-pages/:id', updateServicePage);
+router.post('/service-pages/:id/publish', publishServicePage);
+router.post('/service-pages/:id/unpublish', unpublishServicePage);
 
 module.exports = router;

@@ -41,9 +41,27 @@ const suburbPageSchema = z.object({
 
 const suburbPageUpdateSchema = suburbPageSchema.partial().strict();
 
+const servicePageSchema = z.object({
+  serviceSlug: slugSchema,
+  serviceName: z.string().trim().min(1).max(80),
+  suburbSlug: slugSchema,
+  suburbName: z.string().trim().min(1).max(80),
+  title: z.string().trim().min(1).max(200),
+  metaDescription: z.string().trim().min(1).max(300),
+  heroImage: z.string().trim().min(1).max(400),
+  heroImageAlt: z.string().trim().min(1).max(200),
+  intro: z.string().trim().min(1).max(1000),
+  sections: z.array(sectionSchema).min(1).max(20),
+  faqs: z.array(faqSchema).max(20).optional().nullable(),
+}).strict();
+
+const servicePageUpdateSchema = servicePageSchema.partial().strict();
+
 module.exports = {
   blogPostSchema,
   blogPostUpdateSchema,
   suburbPageSchema,
   suburbPageUpdateSchema,
+  servicePageSchema,
+  servicePageUpdateSchema,
 };

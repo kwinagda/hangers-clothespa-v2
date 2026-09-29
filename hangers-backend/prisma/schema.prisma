@@ -2031,6 +2031,29 @@ model SuburbPage {
   @@map("suburb_pages")
 }
 
+model ServicePage {
+  id              String    @id @default(cuid())
+  serviceSlug     String
+  serviceName     String
+  suburbSlug      String
+  suburbName      String
+  status          String    @default("DRAFT")
+  title           String
+  metaDescription String
+  heroImage       String
+  heroImageAlt    String
+  intro           String
+  sections        Json
+  faqs            Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  updatedBy       String?
+
+  @@unique([serviceSlug, suburbSlug])
+  @@index([status])
+  @@map("service_pages")
+}
+
 enum StaffRole {
   SUPER_ADMIN
   MANAGER

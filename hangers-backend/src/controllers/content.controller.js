@@ -6,6 +6,8 @@ const {
   blogPostUpdateSchema,
   suburbPageSchema,
   suburbPageUpdateSchema,
+  servicePageSchema,
+  servicePageUpdateSchema,
 } = require('../validation/content.schemas');
 
 const auditContentChange = (req, action, resource, description, metadata) => log({
@@ -149,6 +151,75 @@ const setSuburbPagePublishState = (status) => async (req, res) => {
   }
 };
 
+// ── Service pages (service x suburb) ────────────────────────────────────────
+
+const getServicePages = async (_req, res) => {
+  try {
+    const pages = await prisma.servicePage.findMany({ orderBy: [{ serviceSlug: 'asc' }, { suburbSlug: 'asc' }] });
+    return success(res, pages);
+  } catch (err) {
+    return error(res, 'Failed to fetch service pages');
+  }
+};
+
+const createServicePage = async (req, res) => {
+  try {
+    const parsed = servicePageSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid service page payload');
+    const existing = await prisma.servicePage.findUnique({
+      where: { serviceSlug_suburbSlug: { serviceSlug: parsed.data.serviceSlug, suburbSlug: parsed.data.suburbSlug } },
+    });
+    if (existing) return badRequest(res, 'A service page for this service and suburb already exists');
+    const page = await prisma.servicePage.create({
+      data: { ...parsed.data, updatedBy: req.staff?.id || null },
+    });
+    await auditContentChange(req, 'SERVICE_PAGE_CREATED', 'service_page', `Created service page "${page.title}"`, { servicePageId: page.id, serviceSlug: page.serviceSlug, suburbSlug: page.suburbSlug });
+    return success(res, page);
+  } catch (err) {
+    return error(res, 'Failed to create service page');
+  }
+};
+
+const updateServicePage = async (req, res) => {
+  try {
+    const existing = await prisma.servicePage.findUnique({ where: { id: req.params.id } });
+    if (!existing) return notFound(res, 'Service page not found');
+    const parsed = servicePageUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid service page payload');
+    const nextServiceSlug = parsed.data.serviceSlug || existing.serviceSlug;
+    const nextSuburbSlug = parsed.data.suburbSlug || existing.suburbSlug;
+    if (nextServiceSlug !== existing.serviceSlug || nextSuburbSlug !== existing.suburbSlug) {
+      const slugTaken = await prisma.servicePage.findUnique({
+        where: { serviceSlug_suburbSlug: { serviceSlug: nextServiceSlug, suburbSlug: nextSuburbSlug } },
+      });
+      if (slugTaken) return badRequest(res, 'A service page for this service and suburb already exists');
+    }
+    const page = await prisma.servicePage.update({
+      where: { id: existing.id },
+      data: { ...parsed.data, updatedBy: req.staff?.id || null },
+    });
+    await auditContentChange(req, 'SERVICE_PAGE_UPDATED', 'service_page', `Updated service page "${page.title}"`, { servicePageId: page.id, serviceSlug: page.serviceSlug, suburbSlug: page.suburbSlug });
+    return success(res, page);
+  } catch (err) {
+    return error(res, 'Failed to update service page');
+  }
+};
+
+const setServicePagePublishState = (status) => async (req, res) => {
+  try {
+    const existing = await prisma.servicePage.findUnique({ where: { id: req.params.id } });
+    if (!existing) return notFound(res, 'Service page not found');
+    const page = await prisma.servicePage.update({
+      where: { id: existing.id },
+      data: { status, updatedBy: req.staff?.id || null },
+    });
+    await auditContentChange(req, status === 'PUBLISHED' ? 'SERVICE_PAGE_PUBLISHED' : 'SERVICE_PAGE_UNPUBLISHED', 'service_page', `${status === 'PUBLISHED' ? 'Published' : 'Unpublished'} service page "${page.title}"`, { servicePageId: page.id, serviceSlug: page.serviceSlug, suburbSlug: page.suburbSlug });
+    return success(res, page);
+  } catch (err) {
+    return error(res, 'Failed to update service page status');
+  }
+};
+
 module.exports = {
   getBlogPosts,
   createBlogPost,
@@ -160,4 +231,9 @@ module.exports = {
   updateSuburbPage,
   publishSuburbPage: setSuburbPagePublishState('PUBLISHED'),
   unpublishSuburbPage: setSuburbPagePublishState('DRAFT'),
+  getServicePages,
+  createServicePage,
+  updateServicePage,
+  publishServicePage: setServicePagePublishState('PUBLISHED'),
+  unpublishServicePage: setServicePagePublishState('DRAFT'),
 };

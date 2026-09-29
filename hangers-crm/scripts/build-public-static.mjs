@@ -13,7 +13,7 @@ const outDir = path.resolve(process.env.PUBLIC_STATIC_OUT_DIR || 'dist-public');
 
 // The marketing site is published as static HTML to S3. Keep analytics here so
 // it is present in the initial document on marketing pages only, never in CRM.
-const marketingAnalyticsHead = '\n<script defer src="/marketing-analytics.js?v=2026-09-29.1"></script>';
+const marketingAnalyticsHead = '\n<script defer src="/marketing-analytics.js?v=2026-09-29.2"></script>';
 
 const staticHtmlRoutes = [
   '/',
@@ -36,23 +36,24 @@ const staticHtmlRoutes = [
 // list to forget. This keeps the same "pre-rendered once, published to S3" model
 // as every other public page (see the _next/static comment below): only the ROUTE
 // LIST is dynamic, nothing here becomes a live/on-demand render.
-const fetchSlugs = async (apiPath) => {
+const fetchItems = async (apiPath) => {
   const response = await fetch(`${apiOrigin}${apiPath}`);
   if (!response.ok) throw new Error(`${apiPath} returned ${response.status}`);
   const payload = await response.json();
-  const items = payload?.data?.items ?? payload?.items ?? [];
-  return items.map((item) => item.slug).filter(Boolean);
+  return payload?.data?.items ?? payload?.items ?? [];
 };
 
-const [blogSlugs, suburbSlugs] = await Promise.all([
-  fetchSlugs('/public/blog-posts'),
-  fetchSlugs('/public/pickup-zones'),
+const [blogPosts, suburbPages, servicePages] = await Promise.all([
+  fetchItems('/public/blog-posts'),
+  fetchItems('/public/pickup-zones'),
+  fetchItems('/public/service-pages'),
 ]);
 
 const htmlRoutes = [
   ...staticHtmlRoutes,
-  ...blogSlugs.map((slug) => `/blog/${slug}`),
-  ...suburbSlugs.map((slug) => `/pickup-zones/${slug}`),
+  ...blogPosts.map((post) => `/blog/${post.slug}`),
+  ...suburbPages.map((page) => `/pickup-zones/${page.slug}`),
+  ...servicePages.map((page) => `/services/${page.serviceSlug}/${page.suburbSlug}`),
 ];
 
 const fileRoutes = [

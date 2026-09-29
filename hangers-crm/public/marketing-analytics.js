@@ -3,13 +3,13 @@
   if (window.hangersAnalytics) return;
   var ID = 'G-D23MCHNN38';
   var CLARITY = 'yphkdk0bzr';
-  var VERSION = '2026-09-29.1';
+  var VERSION = '2026-09-29.2';
   // Exact-match routes are the fixed marketing pages. routePrefixes cover growing,
   // DB-backed content under those sections (individual blog posts, suburb pickup
   // pages) so newly published pages are tracked automatically without editing this
   // allowlist for every new slug.
   var routes = ['/', '/services', '/rate-chart', '/book-pickup', '/about', '/contact', '/corporate-accounts', '/monthly-plans', '/pickup-zones', '/blog', '/faq'];
-  var routePrefixes = ['/blog/', '/pickup-zones/'];
+  var routePrefixes = ['/blog/', '/pickup-zones/', '/services/'];
   var hosts = ['hangers-cs.com', 'www.hangers-cs.com'];
   var consentKey = 'hangers_analytics_consent_v1';
   var consent = false, loaded = false, lastPath = '', seen = new Set(), bookingDone = new Set();
@@ -41,7 +41,7 @@
     if (pageEvents++ > 300 && !/^(generate_lead|otp_|pickup_submit)/.test(name)) return;
     var currentPath = path();
     var contentGroup = currentPath === '/' ? 'home'
-      : ['/services', '/rate-chart', '/monthly-plans', '/corporate-accounts'].includes(currentPath) ? 'services_and_pricing'
+      : ['/services', '/rate-chart', '/monthly-plans', '/corporate-accounts'].includes(currentPath) || currentPath.indexOf('/services/') === 0 ? 'services_and_pricing'
       : currentPath === '/book-pickup' ? 'booking'
       : currentPath === '/blog' || currentPath.indexOf('/blog/') === 0 ? 'journal'
       : currentPath === '/pickup-zones' || currentPath.indexOf('/pickup-zones/') === 0 ? 'coverage'
