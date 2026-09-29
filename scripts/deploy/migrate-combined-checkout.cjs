@@ -20,7 +20,9 @@ async function main() {
   if (!/^[a-f0-9]{40}$/.test(revision || '')) throw new Error('An exact reviewed revision is required');
   if (run('git', ['rev-parse', 'origin/main']).toString().trim() !== revision) throw new Error('Revision is not origin/main');
   const url = new URL(process.env.DATABASE_URL);
-  if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== '/hangers_db') throw new Error('Unexpected production database target');
+  if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== '/hangers_prod') throw new Error('Unexpected production database target');
+  const identity = await db.$queryRaw`SELECT current_database() AS name`;
+  if (identity[0]?.name !== 'hangers_prod') throw new Error('Connected database is not production');
   const applied = await db.$queryRaw`SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations"`;
   if (applied.some((row) => !row.finished_at && !row.rolled_back_at)) throw new Error('Resolve existing failed migration first');
   const completed = new Set(applied.filter((row) => row.finished_at && !row.rolled_back_at).map((row) => row.migration_name));
