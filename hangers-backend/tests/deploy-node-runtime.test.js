@@ -45,6 +45,14 @@ test('production deployment revalidates backend and worker PM2 state after resta
 test('production workflow checks out the exact resolved commit it will deploy', () => {
   const workflow = fs.readFileSync(path.resolve(__dirname, '../../.github/workflows/deploy-production.yml'), 'utf8');
   assert.match(workflow, /ref: \$\{\{ steps\.revision\.outputs\.commit \}\}/);
+  assert.match(workflow, /actions: read/);
+  assert.match(workflow, /Require current pushed main commit and successful CI/);
+  assert.match(workflow, /workflows\/ci\.yml\/runs\?head_sha=\$COMMIT/);
+  assert.match(workflow, /main advanced after preflight/);
+  assert.ok(workflow.indexOf('Require current pushed main commit and successful CI')
+    < workflow.indexOf('Configure AWS credentials'));
+  assert.ok(workflow.indexOf('main advanced after preflight')
+    < workflow.indexOf('aws ssm send-command', workflow.indexOf('Start SSM deployment')));
 });
 
 test('PM2 runtime gate requires both payment processes on supported Node binaries', () => {
