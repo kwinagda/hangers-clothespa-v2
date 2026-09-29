@@ -936,8 +936,13 @@ before(async () => {
     throw new Error('Refusing mutating integration suite unless DATABASE_URL points to loopback');
   }
   const [{ database }] = await prisma.$queryRaw`SELECT current_database() AS database`;
-  if (database !== 'hangers_db') {
-    throw new Error('Refusing mutating integration suite unless current database is the existing local hangers_db');
+  const isExistingLocalDatabase = database === 'hangers_db';
+  const isDisposableGitHubDatabase = process.env.GITHUB_ACTIONS === 'true'
+    && process.env.CI === 'true'
+    && database === 'hangers_test'
+    && databaseUrl.pathname === '/hangers_test';
+  if (!isExistingLocalDatabase && !isDisposableGitHubDatabase) {
+    throw new Error('Refusing mutating integration suite unless current database is the existing local hangers_db or the disposable GitHub Actions hangers_test database');
   }
   if (!String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_')) {
     throw new Error('Refusing integration suite unless Razorpay configuration is Test Mode');
