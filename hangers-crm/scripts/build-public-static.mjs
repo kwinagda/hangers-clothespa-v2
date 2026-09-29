@@ -13,7 +13,7 @@ const outDir = path.resolve(process.env.PUBLIC_STATIC_OUT_DIR || 'dist-public');
 
 // The marketing site is published as static HTML to S3. Keep analytics here so
 // it is present in the initial document on marketing pages only, never in CRM.
-const marketingAnalyticsHead = '\n<script defer src="/marketing-analytics.js?v=2026-09-29.4"></script>';
+const marketingAnalyticsHead = '\n<script defer src="/marketing-analytics.js?v=2026-09-29.5"></script>';
 
 const staticHtmlRoutes = [
   '/',

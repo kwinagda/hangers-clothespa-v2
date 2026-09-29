@@ -3,12 +3,12 @@
   if (window.hangersAnalytics) return;
   var ID = 'G-D23MCHNN38';
   var CLARITY = 'yphkdk0bzr';
-  var VERSION = '2026-09-29.3';
+  var VERSION = '2026-09-29.4';
   // Exact-match routes are the fixed marketing pages. routePrefixes cover growing,
   // DB-backed content under those sections (individual blog posts, suburb pickup
   // pages, service hub + leaf pages) so newly published pages are tracked
   // automatically without editing this allowlist for every new slug.
-  var routes = ['/', '/services', '/rate-chart', '/book-pickup', '/about', '/contact', '/corporate-accounts', '/monthly-plans', '/pickup-zones', '/blog', '/faq', '/sitemap'];
+  var routes = ['/', '/services', '/rate-chart', '/book-pickup', '/about', '/contact', '/corporate-accounts', '/monthly-plans', '/pickup-zones', '/blog', '/faq', '/sitemap', '/terms-and-conditions', '/privacy-policy', '/cancellation-refund', '/shipping-exchange'];
   var routePrefixes = ['/blog/', '/pickup-zones/', '/services/'];
   var hosts = ['hangers-cs.com', 'www.hangers-cs.com'];
   var consentKey = 'hangers_analytics_consent_v1';
