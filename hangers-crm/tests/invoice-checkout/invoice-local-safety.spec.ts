@@ -18,7 +18,7 @@ test('existing Home dry-cleaning invoice stays locked while payment status is pe
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: { status: 'PENDING', attemptId: 'local-ui-only', canResumeCheckout: false } }),
+        body: JSON.stringify({ success: true, data: { status: 'PENDING', attemptId: 'local-ui-only', razorpayOrderId: 'order_local_ui', razorpayPaymentId: 'pay_local_ui', canResumeCheckout: false } }),
       })
       return
     }
@@ -43,16 +43,18 @@ test('existing Home dry-cleaning invoice stays locked while payment status is pe
   await expect(page.getByText('+91 9930367267', { exact: true })).toBeVisible()
   await expect(page.getByText('Payment status under review')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Check payment status' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Check Razorpay status' })).toBeVisible()
+  await expect(page.getByText('Razorpay order reference: order_local_ui')).toBeVisible()
+  await expect(page.getByText('Razorpay payment reference: pay_local_ui')).toBeVisible()
 
   for (const width of [320, 390, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await expect(page.getByText('Payment status under review')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Check payment status' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Check Razorpay status' })).toBeVisible()
   }
 
-  await page.getByRole('button', { name: 'Check payment status' }).click()
+  await page.getByRole('button', { name: 'Check Razorpay status' }).click()
   await expect(page.getByText('Razorpay is still processing this payment. Check its status before trying again. If it remains unresolved, contact Hangers Clothes Spa; do not pay again.')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
   expect(blockedPaymentMutations).toBe(0)

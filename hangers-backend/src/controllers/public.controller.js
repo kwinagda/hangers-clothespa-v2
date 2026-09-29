@@ -12,7 +12,7 @@ const { createAuthChallenge, verifyAuthChallengeAndIssueToken, consumeAuthChalle
 const { sendPickupRequestOtp } = require('../services/whatomate.service');
 const { pickupOtpSendSchema, pickupOtpVerifySchema, publicPickupRequestSchema, queuedPickupRequestSchema } = require('../validation/public.schemas');
 const { randomInt } = require('crypto');
-const { RazorpayCheckoutError, canResumeUnattemptedCheckout, createInvoiceCheckout, getRazorpay, markAttemptFailed, markAttemptPending, safeProviderCode, safeProviderMessage, settleCapturedPayment } = require('../services/razorpay-invoice-checkout.service');
+const { RazorpayCheckoutError, canResumeUnattemptedCheckout, createInvoiceCheckout, getRazorpay, markAttemptFailed, markAttemptPending, reconcileAmbiguousOrderCreation, safeProviderCode, safeProviderMessage, settleCapturedPayment } = require('../services/razorpay-invoice-checkout.service');
 const { getRazorpayTestContact } = require('../utils/razorpay-test-contact');
 const { ALLOWED_EVENTS: RAZORPAY_EXPERIMENT_EVENTS, EXPERIMENT_ID: RAZORPAY_EXPERIMENT_ID, assignVariant: assignRazorpayVariant, getExperimentConfig: getRazorpayExperimentConfig, hashVisitorId: hashRazorpayExperimentVisitor, normalizeVisitorId: normalizeRazorpayExperimentVisitor } = require('../utils/razorpay-checkout-experiment');
 const { paymentApiError } = require('../utils/payment-api-error');
@@ -1061,12 +1061,52 @@ const getPublicRazorpayCheckoutStatus = async (req, res, _next, testHooks = {}) 
       attemptId: attempt?.id || null,
       status: attempt?.status || 'NONE',
       canResumeCheckout,
+      razorpayOrderId: attempt?.razorpayOrderId || null,
+      razorpayPaymentId: attempt?.razorpayPaymentId || null,
       invoice,
       paymentId: attempt?.status === 'CAPTURED' ? attempt.razorpayPaymentId : null,
     });
   } catch (err) {
     if (err instanceof RazorpayCheckoutError) return paymentApiError(res, { statusCode: err.statusCode, code: err.code, message: err.message, requestId: req.id, retryable: err.statusCode >= 500, details: err.details });
     return paymentApiError(res, { code: 'CHECKOUT_STATUS_CHECK_FAILED', message: 'Could not check payment status', requestId: req.id, retryable: true });
+  }
+};
+
+const reconcilePublicRazorpayCheckout = async (req, res, _next, testHooks = {}) => {
+  const attemptId = String(req.body?.attemptId || '').trim();
+  const invoiceId = req.body?.invoiceId ? String(req.body.invoiceId).trim() : undefined;
+  if (!attemptId || attemptId.length > 40) return paymentApiError(res, { statusCode: 400, code: 'CHECKOUT_ATTEMPT_INVALID', message: 'The checkout attempt is invalid', requestId: req.id });
+  try {
+    const resolveInvoice = testHooks.getPublicInvoiceForPayment || getPublicInvoiceForPayment;
+    const db = testHooks.prisma || prisma;
+    const target = await resolveInvoice(String(req.params.slug || ''), { invoiceId });
+    if (!target) return paymentApiError(res, { statusCode: 404, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found', requestId: req.id });
+    const attempt = await db.razorpayCheckoutAttempt.findUnique({ where: { id: attemptId } });
+    const belongsToInvoice = attempt && (attempt.invoiceId === target.invoice.id
+      || (Array.isArray(attempt.allocationPlan) && attempt.allocationPlan.some((item) => item.invoiceId === target.invoice.id)));
+    if (!belongsToInvoice || attempt.customerId !== target.invoice.customerId) {
+      return paymentApiError(res, { statusCode: 404, code: 'CHECKOUT_ATTEMPT_NOT_FOUND', message: 'Checkout attempt not found', requestId: req.id });
+    }
+    if (attempt.status !== 'REVIEW') {
+      return success(res, {
+        attemptId: attempt.id,
+        status: attempt.status,
+        razorpayOrderId: attempt.razorpayOrderId || null,
+        razorpayPaymentId: attempt.razorpayPaymentId || null,
+      }, 'Checkout status refreshed');
+    }
+    const reconcile = testHooks.reconcileCheckoutAttempt || reconcileAmbiguousOrderCreation;
+    const result = await reconcile({ attemptId, actor: { requestId: req.id }, provider: testHooks.provider });
+    return success(res, {
+      attemptId: result.attempt.id,
+      status: result.attempt.status,
+      canResumeCheckout: result.reused === true && result.attempt.status === 'CREATED',
+      razorpayOrderId: result.attempt.razorpayOrderId || result.order?.id || null,
+      razorpayPaymentId: result.attempt.razorpayPaymentId || null,
+    }, 'Razorpay checkout status reconciled');
+  } catch (err) {
+    if (err instanceof RazorpayCheckoutError) return paymentApiError(res, { statusCode: err.statusCode, code: err.code, message: err.message, requestId: req.id, retryable: err.statusCode >= 500, details: err.details });
+    return paymentApiError(res, { code: 'CHECKOUT_RECONCILIATION_FAILED', message: 'Could not reconcile payment status', requestId: req.id, retryable: true });
   }
 };
 
@@ -1282,6 +1322,7 @@ module.exports = {
   createPublicRazorpayOrder,
   verifyPublicRazorpayPayment,
   getPublicRazorpayCheckoutStatus,
+  reconcilePublicRazorpayCheckout,
   assignPublicRazorpayCheckoutExperiment,
   recordPublicRazorpayCheckoutExperimentEvent,
 };

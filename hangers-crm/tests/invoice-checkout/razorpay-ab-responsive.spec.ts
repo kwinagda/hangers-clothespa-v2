@@ -227,7 +227,7 @@ test('untrusted payment.failed description is hidden and status is checked befor
   await expect(callbackStatus).not.toContainText('123456')
   await expect(page.getByText('Payment status under review')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Check payment status' }).click()
+  await page.getByRole('button', { name: 'Check Razorpay status' }).click()
   await expect(page.locator('div[role="status"]').filter({ hasText: 'This payment did not complete. You can start a new attempt.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Pay ₹1', exact: true })).toBeEnabled()
 })
@@ -386,7 +386,32 @@ test('a reopened invoice with an unresolved provider attempt blocks a duplicate 
 
   await expect(page.getByText('Payment status under review')).toBeVisible()
   await expect(page.locator('div[role="status"]').filter({ hasText: 'Razorpay is still processing this payment.' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Check payment status' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Check Razorpay status' })).toBeVisible()
+})
+
+test('manual reconciliation resumes only the same provider-confirmed unattempted order', async ({ page }) => {
+  let statusReads = 0
+  let reconciliationCalls = 0
+  await page.route('**/payment/status**', async (route) => {
+    statusReads += 1
+    const data = statusReads <= 2
+      ? { status: 'REVIEW', attemptId: 'attempt_review', razorpayOrderId: 'order_review' }
+      : { status: 'CREATED', attemptId: 'attempt_review', razorpayOrderId: 'order_review', canResumeCheckout: true }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data }) })
+  })
+  await page.route('**/payment/reconcile', async (route) => {
+    reconciliationCalls += 1
+    expect(route.request().method()).toBe('POST')
+    expect(route.request().postDataJSON()).toMatchObject({ attemptId: 'attempt_review' })
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { status: 'CREATED', attemptId: 'attempt_review', razorpayOrderId: 'order_review', canResumeCheckout: true } }) })
+  })
+
+  await page.goto('/invoice/variant-recover-pending')
+  await expect(page.getByText('Payment status under review')).toBeVisible()
+  await expect(page.getByText('Razorpay order reference: order_review')).toBeVisible()
+  await page.getByRole('button', { name: 'Check Razorpay status' }).click()
+  await expect(page.getByRole('button', { name: 'Resume secure checkout' })).toBeVisible()
+  expect(reconciliationCalls).toBe(1)
 })
 
 test('initial status recovery never flashes Pay while an existing attempt is unresolved', async ({ page }) => {
@@ -419,12 +444,12 @@ test('page-return recovery releases the checkout after Razorpay confirms the pay
   await page.goto('/invoice/variant-recover-failed')
 
   await expect(page.getByText('Payment status under review')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Check payment status' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Check Razorpay status' })).toBeVisible()
 
   await page.waitForTimeout(1600)
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
 
   await expect(page.locator('div[role="status"]').filter({ hasText: 'This payment did not complete. You can start a new attempt.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Pay ₹1', exact: true })).toBeEnabled()
-  await expect(page.getByRole('button', { name: 'Check payment status' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Check Razorpay status' })).toHaveCount(0)
 })
