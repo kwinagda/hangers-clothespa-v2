@@ -1545,3 +1545,20 @@ Each domain has a matching route file and Zod validation schema file. All 13 are
 - Real-time order-board updates go through SSE (`sse.service.js`)
 - CRM component library is in `hangers-crm/src/components/ui/`
 - React Query state is managed through the shared `QueryProvider`
+
+## Local SEO Content System (Blog Posts + Suburb Pages)
+
+Date: 2026-09-29
+
+Added to support local SEO growth (target keywords: dry cleaning/laundry pickup across Mulund and 7 nearby suburbs):
+
+- New Prisma models `BlogPost` and `SuburbPage` (DRAFT/PUBLISHED status, JSON `sections`/`faqs`/`landmarks` fields — never raw HTML).
+- Public read endpoints: `GET /api/v1/public/blog-posts[/:slug]`, `GET /api/v1/public/pickup-zones[/:slug]`.
+- Staff-authenticated admin CRUD at `/api/v1/content/blog-posts` and `/api/v1/content/pickup-zones` (`MARKETING` service access + `SUPER_ADMIN`/`MANAGER` role), in `content.controller.js`/`content.routes.js`.
+- CRM dynamic routes `blog/[slug]` and `pickup-zones/[suburb]`, reusing `PublicContentPage`/`dp-*` markup, `buildPublicMetadata`, and `buildOgCard` exactly like the 11 static marketing pages. Each renders `BlogPosting`/`FAQPage` JSON-LD.
+- **These pages stay on the static-publish pipeline (S3/CloudFront), never EC2-live `force-dynamic`.** This preserves the EC2-uptime-independence property established by commit `860223e` (EC2 is intentionally stopped outside business hours). `build-public-static.mjs` and `sitemap.ts` now discover blog/suburb routes from the backend's public listing endpoints (new required `PUBLIC_API_ORIGIN` env var for the build script) instead of a hardcoded array — do not hardcode new content routes there.
+- `pickupZones` in the `public_site_profile` Setting is now the real 8-area list (`Mulund, Bhandup, Thane, Nahur, Vikhroli, Kanjurmarg, Powai, Ghatkopar`), not just the original 3. The global `DryCleaningOrLaundry` JSON-LD in `PublicSiteShell.tsx` derives `areaServed` from this same field.
+- `hangers-crm/public/marketing-analytics.js`'s route allowlist (`routes`) was exact-match only and would have given the new pages zero analytics/Clarity coverage; it now also prefix-matches `/blog/*` and `/pickup-zones/*` (see `isTrackedPath`). Any future new content-type prefix needs the same treatment.
+- WhatsApp "ask for a Google review" (outbox event, `sendReviewRequestMessage`) was scoped but deliberately not built this pass — blocked on a real GBP review-write URL and an approved WhatsApp template, both outside the codebase.
+
+**Incident during this rollout, for future sessions to know about:** `public.controller.js` and `index.js` had unrelated, uncommitted Razorpay-automation-in-progress edits already sitting in the working tree (untracked dependent files like `razorpay-payment-list.js`, `dev-outbox.js`, etc.). Staging "the whole file" for these two files pulled that unrelated WIP into a commit and crashed production with `MODULE_NOT_FOUND` on deploy. Fixed by rebuilding both files from the last known-good commit with only the intended change layered on top. **Lesson: before `git add`ing a file you only partially intended to change, check `git status`/`git diff` for that exact file first — a shared file touched by concurrent in-progress work can silently smuggle in unrelated, unpushed changes.**
