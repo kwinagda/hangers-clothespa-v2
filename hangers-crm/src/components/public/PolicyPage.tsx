@@ -28,10 +28,10 @@ export async function PolicyPage({ title, intro, sections }: {
       {sections.map((section) => <section className="dp-section" key={section.title}>
         <h2 className="dp-title">{section.title}</h2>
         {section.paragraphs.map((paragraph, index) => <p className="dp-copy" key={index} style={{ marginBottom: 14 }}>{paragraph}</p>)}
-        {section.link && <p className="dp-copy"><Link href={section.link.href}>{section.link.label}</Link></p>}
         {section.bullets && <div className="dp-list">
           {section.bullets.map((bullet) => <div key={bullet}>{bullet}</div>)}
         </div>}
+        {section.link && <Link className="dp-btn secondary" href={section.link.href} style={{ marginTop: 18 }}>{section.link.label} →</Link>}
       </section>)}
       <section className="dp-band">
         <h2 className="dp-title">Questions about this policy?</h2>
