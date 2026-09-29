@@ -183,7 +183,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
         amount: created.data?.amount || created.amount,
         currency: created.data?.currency || created.currency || 'INR',
         name: 'Hangers Clothes Spa',
-        description: `Invoice ${created.data?.invoiceNumber || created.invoiceNumber || ''}`,
+        description: paymentScope ? 'Total outstanding invoices' : `Invoice ${created.data?.invoiceNumber || created.invoiceNumber || ''}`,
         order_id: created.data?.razorpayOrderId || created.razorpayOrderId,
         config: {
           display: {

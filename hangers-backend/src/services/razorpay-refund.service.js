@@ -117,7 +117,7 @@ const reserveRefund = async ({ orderId, sourcePaymentId, amount, reasonCode, rea
       },
       include: {
         allocations: { where: { orderId, status: 'POSTED', ...(invoice ? { invoiceId: invoice.id } : {}) } },
-        razorpayRefundAttemptsFromPayment: { where: { status: { in: ACTIVE_REFUND_STATES } }, select: { amountPaise: true } },
+        razorpayRefundAttemptsFromPayment: { where: { orderId, status: { in: ACTIVE_REFUND_STATES } }, select: { amountPaise: true } },
       },
     });
     if (!source || !invoice) throw new PaymentRuleError('RAZORPAY_SOURCE_PAYMENT_NOT_FOUND', 'Captured Razorpay payment was not found for this order invoice', 404);

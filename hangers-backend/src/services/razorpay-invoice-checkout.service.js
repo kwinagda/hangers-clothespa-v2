@@ -201,7 +201,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
     }
 
     const priorFailed = await tx.razorpayCheckoutAttempt.findFirst({
-      where: { invoiceId: current.id, status: 'FAILED', razorpayOrderId: { not: null } },
+      where: { OR: [{ invoiceId: current.id }, { allocationPlan: { array_contains: [{ invoiceId: current.id }] } }], status: 'FAILED', razorpayOrderId: { not: null } },
       orderBy: { createdAt: 'desc' },
       select: { id: true },
     });

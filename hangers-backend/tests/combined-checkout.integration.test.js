@@ -53,6 +53,15 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   assert.equal(denied.statusCode, 404, 'an invoice link cannot be swapped to another invoice');
 
   providerPayment = { id: `pay_${suffix}`, order_id: providerOrder.id, amount: 588000, currency: 'INR', status: 'captured', captured: true, method: 'card' };
+  const originalHash = providerOrder.notes.allocation_plan_hash;
+  providerOrder.notes.allocation_plan_hash = 'invalid';
+  await assert.rejects(settleCapturedPayment({ paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider }), { code: 'PROVIDER_ORDER_BINDING_MISMATCH' });
+  providerOrder.notes.allocation_plan_hash = originalHash;
+  await prisma.invoice.update({ where: { id: invoices[1].id }, data: { balanceDue: 3199 } });
+  await assert.rejects(settleCapturedPayment({ paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider }), { code: 'SETTLEMENT_REQUIRES_REVIEW' });
+  assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: providerPayment.id } }), 0);
+  assert.equal((await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: checkout.attempt.id } })).status, 'REVIEW');
+  await prisma.invoice.update({ where: { id: invoices[1].id }, data: { balanceDue: 3200 } });
   const settled = await settleCapturedPayment({ paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider });
   assert.equal(Number(settled.payment.amount), 5880);
   assert.equal(settled.payment.orderId, null);
