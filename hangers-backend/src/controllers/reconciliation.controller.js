@@ -5,7 +5,14 @@ const { enqueueRazorpayPaymentReconciliation, enqueueRazorpaySettlementReconcili
 const { getBankStatementImport, importBankStatementCsv, listBankStatementImports, previewBankStatementCsv } = require('../services/bank-statement-import.service');
 const { confirmBankSettlementMatch, getBankSettlementCandidates, reverseBankSettlementMatch } = require('../services/bank-settlement-match.service');
 const { getRazorpaySettlementSummaryReport } = require('../services/razorpay-settlement-summary-report.service');
+const { previewRazorpayOrderInventory } = require('../services/razorpay-order-inventory.service');
+const { previewRazorpayDashboardPaymentsReport: buildRazorpayDashboardPaymentsReportPreview } = require('../services/razorpay-dashboard-report-import.service');
+const { previewRazorpayDashboardOrdersReport: buildRazorpayDashboardOrdersReportPreview } = require('../services/razorpay-dashboard-report-import.service');
+const { previewRazorpayHistoricalPaymentReports: buildRazorpayHistoricalPaymentReportsPreview } = require('../services/razorpay-dashboard-report-import.service');
+const { backfillCapturedRazorpayPayment } = require('../services/razorpay-historical-payment-backfill.service');
+const { backfillUnusedRazorpayOrder } = require('../services/razorpay-historical-order-backfill.service');
 const { log, getRequestMeta } = require('../services/activity.service');
+const { paymentApiError } = require('../utils/payment-api-error');
 
 const listRuns = async (_req, res) => {
   try {
@@ -47,6 +54,234 @@ const runRazorpayPaymentsNow = async (req, res) => {
   } catch (err) {
     console.error('Razorpay payment reconciliation:', err?.code || err?.message || 'PROVIDER_ERROR');
     return error(res, 'Razorpay payment reconciliation failed to execute');
+  }
+};
+
+const previewRazorpayOrders = async (req, res) => {
+  try {
+    const preview = await previewRazorpayOrderInventory({ from: req.query.from, to: req.query.to });
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_ORDER_INVENTORY_PREVIEW', resource: 'razorpay_order_inventory',
+      description: 'Razorpay historical Order and Payment inventory preview completed without changing CRM payment records',
+      metadata: {
+        mode: preview.mode, window: preview.window, pages: preview.pages, scanned: preview.scanned,
+        counts: preview.counts, reviewItemsTruncated: preview.reviewItemsTruncated,
+        linkedOrderLookups: preview.linkedOrderLookups,
+        paymentInventory: {
+          pages: preview.paymentInventory.pages, scanned: preview.paymentInventory.scanned,
+          counts: preview.paymentInventory.counts, reviewItemsTruncated: preview.paymentInventory.reviewItemsTruncated,
+        },
+      },
+      ...getRequestMeta(req),
+    });
+    return success(res, { preview }, 'Razorpay Order inventory preview completed');
+  } catch (err) {
+    const statusCode = ['INVALID_ORDER_INVENTORY_WINDOW', 'ORDER_INVENTORY_RETENTION_WINDOW'].includes(err?.code) ? 400
+      : err?.code === 'RAZORPAY_MODE_UNAVAILABLE' ? 503
+      : err?.code === 'RAZORPAY_NOT_CONFIGURED' ? 503
+        : ['ORDER_INVENTORY_PROVIDER_FAILED', 'PAYMENT_INVENTORY_PROVIDER_FAILED'].includes(err?.code) ? 502
+          : ['ORDER_INVENTORY_UNAVAILABLE', 'PAYMENT_INVENTORY_UNAVAILABLE'].includes(err?.code) ? 503 : 500;
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_ORDER_PAYMENT_INVENTORY_PREVIEW_FAILED', resource: 'razorpay_order_inventory',
+      description: 'Razorpay historical Order inventory preview did not complete',
+      metadata: { errorCode: err?.code || 'ORDER_INVENTORY_FAILED', providerCode: err?.providerCode || null },
+      ...getRequestMeta(req), status: 'FAILED',
+    });
+    return paymentApiError(res, {
+      statusCode,
+      code: err?.code || 'ORDER_PAYMENT_INVENTORY_FAILED',
+      message: err?.code === 'ORDER_INVENTORY_RETENTION_WINDOW' ? 'Orders older than 180 days are not available through direct Order fetch. Use Razorpay Dashboard Reports.'
+        : err?.code === 'RAZORPAY_MODE_UNAVAILABLE' ? 'Razorpay mode cannot be verified from the configured API key. No CRM payment records were changed.'
+        : statusCode === 400 ? 'Choose a valid date window of 31 days or less.'
+        : statusCode === 502 ? 'Razorpay Orders or Payments could not be loaded. No CRM payment records were changed.'
+          : 'Razorpay Order and Payment inventory preview could not be completed. No CRM payment records were changed.',
+      requestId: req.id,
+      retryable: statusCode >= 500,
+    });
+  }
+};
+
+const previewRazorpayDashboardPaymentsReport = async (req, res) => {
+  try {
+    const report = await buildRazorpayDashboardPaymentsReportPreview({ csvText: req.body?.csvText });
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_DASHBOARD_PAYMENTS_REPORT_PREVIEW', resource: 'razorpay_dashboard_report',
+      description: 'Finance previewed a Razorpay Dashboard Payments CSV without changing CRM payment records',
+      metadata: { reportType: 'PAYMENTS', configuredMode: report.configuredMode, totalRows: report.totalRows, capturedRows: report.capturedRows, otherStatusRows: report.otherStatusRows, exactCandidateRows: report.exactCandidateRows, previewTruncated: report.truncated },
+      ...getRequestMeta(req),
+    });
+    return success(res, { report }, 'Razorpay Payments report preview completed');
+  } catch (err) {
+    const statusCode = String(err?.code || '').startsWith('RAZORPAY_REPORT_') ? 400
+      : ['RAZORPAY_MODE_UNAVAILABLE', 'RAZORPAY_NOT_CONFIGURED'].includes(err?.code) ? 503 : 500;
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_DASHBOARD_PAYMENTS_REPORT_PREVIEW_FAILED', resource: 'razorpay_dashboard_report',
+      description: 'Finance Razorpay Dashboard Payments report preview did not complete',
+      metadata: { reportType: 'PAYMENTS', errorCode: err?.code || 'RAZORPAY_REPORT_PREVIEW_FAILED' },
+      ...getRequestMeta(req), status: 'FAILED',
+    });
+    const messages = {
+      RAZORPAY_REPORT_EMPTY: 'Select a non-empty Razorpay Payments CSV report.',
+      RAZORPAY_REPORT_TOO_LARGE: 'Razorpay CSV reports must be smaller than 450 KB.',
+      RAZORPAY_REPORT_COLUMNS_UNSUPPORTED: 'This is not a recognized Razorpay Payments report schema.',
+      RAZORPAY_REPORT_COLUMNS_MISSING: 'The Razorpay Payments report is missing required columns.',
+      RAZORPAY_MODE_UNAVAILABLE: 'Razorpay mode cannot be verified from the configured API key. No CRM payment records were changed.',
+    };
+    return paymentApiError(res, {
+      statusCode,
+      code: err?.code || 'RAZORPAY_REPORT_PREVIEW_FAILED',
+      message: messages[err?.code] || (statusCode === 400 ? err.message : 'Razorpay Payments report preview failed.'),
+      requestId: req.id,
+      retryable: statusCode >= 500,
+    });
+  }
+};
+
+const previewRazorpayDashboardOrdersReport = async (req, res) => {
+  try {
+    const report = await buildRazorpayDashboardOrdersReportPreview({ csvText: req.body?.csvText });
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_DASHBOARD_ORDERS_REPORT_PREVIEW', resource: 'razorpay_dashboard_report',
+      description: 'Finance previewed a Razorpay Dashboard Orders CSV without changing CRM payment records',
+      metadata: { reportType: 'ORDERS', configuredMode: report.configuredMode, totalRows: report.totalRows, paidOrders: report.paidOrders, unpaidOrders: report.unpaidOrders, exactAttemptCandidates: report.exactAttemptCandidates, invoiceReferenceCandidates: report.invoiceReferenceCandidates, previewTruncated: report.truncated },
+      ...getRequestMeta(req),
+    });
+    return success(res, { report }, 'Razorpay Orders report preview completed');
+  } catch (err) {
+    const statusCode = String(err?.code || '').startsWith('RAZORPAY_REPORT_') ? 400
+      : ['RAZORPAY_MODE_UNAVAILABLE', 'RAZORPAY_NOT_CONFIGURED'].includes(err?.code) ? 503 : 500;
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_DASHBOARD_ORDERS_REPORT_PREVIEW_FAILED', resource: 'razorpay_dashboard_report',
+      description: 'Finance Razorpay Dashboard Orders report preview did not complete',
+      metadata: { reportType: 'ORDERS', errorCode: err?.code || 'RAZORPAY_REPORT_PREVIEW_FAILED' },
+      ...getRequestMeta(req), status: 'FAILED',
+    });
+    return paymentApiError(res, {
+      statusCode,
+      code: err?.code || 'RAZORPAY_REPORT_PREVIEW_FAILED',
+      message: statusCode === 400 ? err.message : 'Razorpay Orders report preview failed. No CRM payment records were changed.',
+      requestId: req.id,
+      retryable: statusCode >= 500,
+    });
+  }
+};
+
+const previewRazorpayHistoricalPaymentReports = async (req, res) => {
+  try {
+    const report = await buildRazorpayHistoricalPaymentReportsPreview({
+      paymentsCsvText: req.body?.paymentsCsvText,
+      ordersCsvText: req.body?.ordersCsvText,
+    });
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_HISTORICAL_REPORT_PAIR_PREVIEW', resource: 'razorpay_dashboard_report',
+      description: 'Finance previewed paired Razorpay Payments and Orders reports for historical invoice reconciliation',
+      metadata: { mode: report.configuredMode, totalRows: report.totalRows, candidateRows: report.candidateRows, alreadyRecordedRows: report.alreadyRecordedRows, reviewRows: report.reviewRows, previewTruncated: report.truncated },
+      ...getRequestMeta(req),
+    });
+    return success(res, { report }, 'Paired Razorpay Dashboard report preview completed');
+  } catch (err) {
+    const statusCode = String(err?.code || '').startsWith('RAZORPAY_REPORT_') ? 400
+      : ['RAZORPAY_MODE_UNAVAILABLE', 'RAZORPAY_NOT_CONFIGURED'].includes(err?.code) ? 503 : 500;
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_HISTORICAL_REPORT_PAIR_PREVIEW_FAILED', resource: 'razorpay_dashboard_report',
+      description: 'Finance paired Razorpay Dashboard report preview did not complete',
+      metadata: { errorCode: err?.code || 'RAZORPAY_REPORT_PAIR_PREVIEW_FAILED' },
+      ...getRequestMeta(req), status: 'FAILED',
+    });
+    return paymentApiError(res, {
+      statusCode,
+      code: err?.code || 'RAZORPAY_REPORT_PAIR_PREVIEW_FAILED',
+      message: statusCode === 400 ? err.message : 'Paired Razorpay Dashboard report preview failed. No CRM payment records were changed.',
+      requestId: req.id,
+      retryable: statusCode >= 500,
+    });
+  }
+};
+
+const backfillHistoricalRazorpayPayment = async (req, res) => {
+  try {
+    const result = await backfillCapturedRazorpayPayment({
+      paymentId: req.params.paymentId,
+      invoiceId: req.body?.invoiceId,
+      expectedMode: req.body?.mode,
+      idempotencyKey: req.idempotencyKey,
+      actor: req.staff,
+      paymentsCsvText: req.body?.paymentsCsvText,
+      ordersCsvText: req.body?.ordersCsvText,
+    });
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_HISTORICAL_PAYMENT_BACKFILL', resource: 'payment', resourceId: result.razorpayPaymentId,
+      description: result.alreadyRecorded ? 'Finance verified an already-posted Razorpay historical payment' : 'Finance verified and posted a captured historical Razorpay payment through canonical invoice settlement',
+      metadata: {
+        mode: String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_') ? 'TEST' : 'LIVE',
+        invoiceId: result.invoiceId, razorpayOrderId: result.razorpayOrderId, attemptId: result.attemptId,
+        crmPaymentId: result.crmPaymentId, alreadyRecorded: result.alreadyRecorded, status: result.status,
+        verificationSource: result.verificationSource || 'LIVE_ORDER_API',
+      },
+      ...getRequestMeta(req),
+    });
+    return success(res, { backfill: result }, result.alreadyRecorded ? 'Razorpay payment is already recorded in this invoice' : 'Captured Razorpay payment recorded in CRM');
+  } catch (err) {
+    const statusCode = Number(err?.statusCode) || 500;
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_HISTORICAL_PAYMENT_BACKFILL_FAILED', resource: 'payment', resourceId: req.params.paymentId,
+      description: 'Finance historical Razorpay payment verification or settlement did not complete',
+      metadata: { errorCode: err?.code || 'HISTORICAL_PAYMENT_BACKFILL_FAILED', providerCode: err?.details?.providerCode || null },
+      ...getRequestMeta(req), status: 'FAILED',
+    });
+    return paymentApiError(res, {
+      statusCode,
+      code: err?.code || 'HISTORICAL_PAYMENT_BACKFILL_FAILED',
+      message: err?.message || 'Historical Razorpay payment could not be reconciled. No unverified receipt was posted.',
+      requestId: req.id,
+      retryable: statusCode >= 500,
+    });
+  }
+};
+
+const backfillHistoricalRazorpayOrder = async (req, res) => {
+  try {
+    const result = await backfillUnusedRazorpayOrder({
+      orderId: req.params.orderId,
+      invoiceId: req.body?.invoiceId,
+      expectedMode: req.body?.mode,
+      idempotencyKey: req.idempotencyKey,
+      actor: req.staff,
+    });
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_HISTORICAL_ORDER_BACKFILL', resource: 'razorpay_checkout_attempt', resourceId: result.attemptId,
+      description: 'Finance verified and bound an unused Razorpay Order to an exact unpaid CRM invoice',
+      metadata: { mode: result.mode, invoiceId: result.invoiceId, razorpayOrderId: result.razorpayOrderId, attemptId: result.attemptId, status: result.status },
+      ...getRequestMeta(req),
+    });
+    return success(res, { backfill: result }, 'Unused Razorpay Order linked to the unpaid invoice');
+  } catch (err) {
+    const statusCode = Number(err?.statusCode) || 500;
+    await log({
+      actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+      action: 'RAZORPAY_HISTORICAL_ORDER_BACKFILL_FAILED', resource: 'razorpay_order', resourceId: req.params.orderId,
+      description: 'Finance historical Razorpay Order verification or binding did not complete',
+      metadata: { errorCode: err?.code || 'HISTORICAL_ORDER_BACKFILL_FAILED', providerCode: err?.details?.providerCode || null },
+      ...getRequestMeta(req), status: 'FAILED',
+    });
+    return paymentApiError(res, {
+      statusCode,
+      code: err?.code || 'HISTORICAL_ORDER_BACKFILL_FAILED',
+      message: err?.message || 'Historical Razorpay Order could not be verified and linked. No unverified Order was made payable.',
+      requestId: req.id,
+      retryable: statusCode >= 500,
+    });
   }
 };
 
@@ -339,4 +574,4 @@ const reverseBankSettlement = async (req, res) => {
   }
 };
 
-module.exports = { createBankSettlementMatch, getBankStatement, getRazorpaySettlementSummaryReportController, importBankStatement, listBankSettlementCandidates, listBankStatements, listRuns, previewBankStatement, reverseBankSettlement, runNow, runRazorpayPaymentsNow, runRazorpaySettlementsNow, runRazorpaySettlementSummariesNow, listRazorpaySettlementSummaries, listRazorpaySettlementLines };
+module.exports = { backfillHistoricalRazorpayOrder, backfillHistoricalRazorpayPayment, createBankSettlementMatch, getBankStatement, getRazorpaySettlementSummaryReportController, importBankStatement, listBankSettlementCandidates, listBankStatements, listRuns, previewBankStatement, previewRazorpayDashboardOrdersReport, previewRazorpayDashboardPaymentsReport, previewRazorpayHistoricalPaymentReports, previewRazorpayOrders, reverseBankSettlement, runNow, runRazorpayPaymentsNow, runRazorpaySettlementsNow, runRazorpaySettlementSummariesNow, listRazorpaySettlementSummaries, listRazorpaySettlementLines };

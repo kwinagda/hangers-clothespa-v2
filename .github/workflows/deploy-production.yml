@@ -9,6 +9,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
@@ -38,8 +39,38 @@ jobs:
       - name: Checkout preflight revision
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ steps.revision.outputs.commit }}
           persist-credentials: false
+
+      - name: Require current pushed main commit and successful CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ steps.revision.outputs.commit }}
+        run: |
+          main_sha="$(curl -fsS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$GH_REPOSITORY/branches/main" \
+            | jq -er '.commit.sha')"
+          if [[ "$COMMIT" != "$main_sha" ]]; then
+            echo "Refusing deployment: selected $COMMIT is not current origin/main ($main_sha). Push/merge the reviewed commit first, then deploy that exact SHA." >&2
+            exit 1
+          fi
+
+          runs="$(curl -fsS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$GH_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$COMMIT&per_page=100")"
+          if ! jq -e --arg commit "$COMMIT" \
+            '[.workflow_runs[] | select(.head_sha == $commit and .event == "push" and .status == "completed" and .conclusion == "success")] | length > 0' \
+            <<<"$runs" >/dev/null; then
+            echo "Refusing deployment: no successful push-triggered CI run exists for exact commit $COMMIT." >&2
+            exit 1
+          fi
+          echo "Verified pushed main commit $COMMIT has a successful CI run."
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -95,18 +126,30 @@ jobs:
           fi
           node_major="${BASH_REMATCH[1]}"
           node_minor="${BASH_REMATCH[2]}"
-          if (( node_major < 22 || (node_major == 22 && node_minor < 2) )); then
-            echo "EC2 Node.js $node_version is unsupported; backend and worker require >=22.2.0. Deployment was not started." >&2
+          if (( node_major != 24 || node_minor < 11 )); then
+            echo "EC2 Node.js $node_version is unsupported; backend and worker require Node.js 24 >=24.11.0. Deployment was not started." >&2
             exit 1
           fi
-          echo "EC2 Node.js $node_version satisfies >=22.2.0."
+          echo "EC2 Node.js $node_version satisfies Node.js 24 >=24.11.0."
 
       - name: Start SSM deployment
         id: deploy
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
           INSTANCE_ID: ${{ vars.AWS_PRODUCTION_INSTANCE_ID }}
           COMMIT: ${{ steps.revision.outputs.commit }}
         run: |
+          main_sha="$(curl -fsS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$GH_REPOSITORY/branches/main" \
+            | jq -er '.commit.sha')"
+          if [[ "$COMMIT" != "$main_sha" ]]; then
+            echo "Refusing deployment: main advanced after preflight ($COMMIT != $main_sha). Rerun against the new reviewed commit after CI passes." >&2
+            exit 1
+          fi
           parameters="$(jq -cn \
             --arg command "sudo /usr/local/sbin/hangers-deploy-code '$COMMIT'" \
             '{commands: [$command]}')"

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { maskPhone, maskToken, providerErrorSummary, razorpayErrorSummary } = require('../src/utils/redact');
 
 test('maskPhone keeps only the last four digits', () => {
-  assert.equal(maskPhone('+91 98765 43210'), '********3210');
+  assert.equal(maskPhone('+91 99303 67267'), '********7267');
 });
 
 test('maskToken keeps only short token edges', () => {
@@ -17,7 +17,7 @@ test('providerErrorSummary omits raw provider payload shape', () => {
       status: 400,
       data: {
         code: 'BAD_REQUEST',
-        message: 'Invalid recipient phone 919999999999 with payload details',
+        message: 'Invalid recipient phone 919930367267 with payload details',
         fullPayload: { secret: 'do-not-log' },
       },
     },

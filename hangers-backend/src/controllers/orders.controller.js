@@ -1489,6 +1489,13 @@ const updateOrderStatus = async (req, res) => {
         if (hasFinancialImpact) {
           throw new CommercialRuleError('CANCELLATION_REVERSAL_REQUIRED', 'This order has financial activity. Post refunds or reversals before cancellation.');
         }
+        const checkoutAttempt = await tx.razorpayCheckoutAttempt.findFirst({
+          where: { orderId: order.id, status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] } },
+          select: { id: true },
+        });
+        if (checkoutAttempt) {
+          throw new CommercialRuleError('CHECKOUT_ATTEMPT_UNRESOLVED', 'An online payment is active or needs review. Check its status before cancelling this order.', 409, { checkoutAttemptId: checkoutAttempt.id });
+        }
       }
       if ((orderWorkflow.requiresItems || []).includes(status) && order.items.length === 0) {
         throw new CommercialRuleError('ITEMS_REQUIRED', 'Add garment items before moving this order to processing', 422);

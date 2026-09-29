@@ -2,15 +2,19 @@
 'use strict';
 
 const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const REQUIRED_APPS = ['hangers-backend', 'hangers-worker'];
-const MIN_NODE_VERSION = [22, 2, 0];
+const MIN_NODE_VERSION = [24, 11, 0];
 
 function versionSupported(version) {
   const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(String(version).trim());
   if (!match) return false;
   const actual = match.slice(1).map(Number);
-  for (let index = 0; index < MIN_NODE_VERSION.length; index += 1) {
+  if (actual[0] !== MIN_NODE_VERSION[0]) return false;
+  for (let index = 1; index < MIN_NODE_VERSION.length; index += 1) {
     if (actual[index] > MIN_NODE_VERSION[index]) return true;
     if (actual[index] < MIN_NODE_VERSION[index]) return false;
   }
@@ -53,7 +57,7 @@ function checkProcesses(processes, procRoot = '/proc', report = () => {}) {
       continue;
     }
     if (!versionSupported(version)) {
-      problems.push(`${name} is running unsupported Node.js ${version}; requires >=22.2.0`);
+      problems.push(`${name} is running unsupported Node.js ${version}; requires Node.js 24 >=24.11.0`);
       continue;
     }
     report(`${name}: Node.js ${version}`);
@@ -62,8 +66,37 @@ function checkProcesses(processes, procRoot = '/proc', report = () => {}) {
   return problems;
 }
 
+function checkPm2Daemon(pm2Home, isPidAlive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}) {
+  let pid;
+  try {
+    pid = Number(fs.readFileSync(path.join(pm2Home, 'pm2.pid'), 'utf8').trim());
+  } catch {
+    return 'PM2 daemon PID file is unavailable';
+  }
+  if (!Number.isSafeInteger(pid) || pid <= 0) return 'PM2 daemon PID file is invalid';
+  if (!fs.existsSync(path.join(pm2Home, 'rpc.sock')) || !fs.existsSync(path.join(pm2Home, 'pub.sock'))) {
+    return 'PM2 daemon sockets are unavailable';
+  }
+  if (!isPidAlive(pid)) return `PM2 daemon PID ${pid} is not running`;
+  return null;
+}
+
 if (require.main === module) {
   try {
+    const pm2Home = process.env.PM2_HOME || path.join(os.homedir(), '.pm2');
+    const daemonProblem = checkPm2Daemon(pm2Home);
+    if (daemonProblem) {
+      process.stderr.write(`PM2 runtime preflight failed closed: ${daemonProblem}\n`);
+      process.exitCode = 1;
+      return;
+    }
     const processes = JSON.parse(execFileSync('pm2', ['jlist'], {
       encoding: 'utf8',
       env: process.env,
@@ -80,4 +113,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkProcesses, versionSupported };
+module.exports = { checkPm2Daemon, checkProcesses, versionSupported };

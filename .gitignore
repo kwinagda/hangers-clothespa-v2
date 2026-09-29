@@ -23,6 +23,7 @@ dist/
 
 # Local credentials and secrets
 rzp-test-key*.csv
+rzp-key*.csv
 *Creds*.rtf
 *creds*.rtf
 *credential*.rtf

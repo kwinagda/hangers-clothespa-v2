@@ -7,6 +7,7 @@ const { maskPhone, providerErrorSummary } = require('../utils/redact');
 const DEFAULT_TEMPLATE_ENDPOINT = 'https://whatomate-production-949e.up.railway.app/api/messages/template';
 const DEFAULT_TEMPLATE_TIMEOUT_MS = 30000;
 const PAYMENT_RECEIVED_TEMPLATE_NAME = 'hangers_crm_payment_received';
+const HOME_TEST_PHONE = '919930367267';
 
 const templateTimeoutMs = () => {
   const parsed = Number(process.env.WHATOMATE_TEMPLATE_TIMEOUT_MS || DEFAULT_TEMPLATE_TIMEOUT_MS);
@@ -39,9 +40,16 @@ const parsePhoneAllowlist = (value) => new Set(
 );
 
 const isDevPhoneAllowed = (phone) => {
-  if (process.env.DEV_MODE !== 'true') return true;
-  if (process.env.WHATOMATE_SEND_IN_DEV === 'true') return true;
-  return parsePhoneAllowlist(process.env.WHATOMATE_DEV_ALLOWED_PHONES).has(normalizePhone(phone));
+  // Test and unknown modes stay Home-only, even on production-configured hosts.
+  const liveProduction = process.env.NODE_ENV === 'production'
+    && String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_live_')
+    && process.env.DEV_MODE !== 'true';
+  if (liveProduction) return true;
+  const normalized = normalizePhone(phone);
+  const configuredTestContact = process.env.RAZORPAY_TEST_CONTACT_NUMBER;
+  if (configuredTestContact && normalizePhone(configuredTestContact) !== HOME_TEST_PHONE) return false;
+  return normalized === HOME_TEST_PHONE
+    && parsePhoneAllowlist(process.env.WHATOMATE_DEV_ALLOWED_PHONES).has(HOME_TEST_PHONE);
 };
 
 const isEnabled = (phone) => {

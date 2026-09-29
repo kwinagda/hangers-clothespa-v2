@@ -1,10 +1,10 @@
 import { LOGO_BLUE_URL, LOGO_WHITE_URL } from '@/lib/branding'
-import { Fragment } from 'react'
 import InvoicePaymentButton from './InvoicePaymentButton'
 
 export const dynamic = 'force-dynamic'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+const SERVER_API_BASE_URL = process.env.CRM_SERVER_API_URL || API_BASE_URL
 
 const money = (value: any) => `₹${Number(value || 0).toLocaleString('en-IN')}`
 
@@ -16,18 +16,23 @@ const dateLabel = (value: any) => {
 }
 
 async function loadInvoice(slug: string) {
-  const res = await fetch(`${API_BASE_URL}/public/invoices/${encodeURIComponent(slug)}`, {
-    cache: 'no-store',
-  })
-  if (!res.ok) return null
-  const payload = await res.json()
-  return payload?.data?.paymentSummary
-    ? { kind: 'PAYMENT_SUMMARY', paymentSummary: payload.data.paymentSummary }
-    : payload?.data?.invoice
-      ? { kind: 'INVOICE', invoice: payload.data.invoice }
-      : payload?.invoice
-        ? { kind: 'INVOICE', invoice: payload.invoice }
-        : null
+  try {
+    const res = await fetch(`${SERVER_API_BASE_URL}/public/invoices/${encodeURIComponent(slug)}`, {
+      cache: 'no-store',
+    })
+    if (res.status === 404) return null
+    if (!res.ok) return { kind: 'UNAVAILABLE' as const }
+    const payload = await res.json()
+    return payload?.data?.paymentSummary
+      ? { kind: 'PAYMENT_SUMMARY' as const, paymentSummary: payload.data.paymentSummary }
+      : payload?.data?.invoice
+        ? { kind: 'INVOICE' as const, invoice: payload.data.invoice }
+        : payload?.invoice
+          ? { kind: 'INVOICE' as const, invoice: payload.invoice }
+          : null
+  } catch {
+    return { kind: 'UNAVAILABLE' as const }
+  }
 }
 
 const sourceLabel = (sourceType: string) => {
@@ -58,13 +63,14 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
   const { slug } = await params
   const loaded = await loadInvoice(slug)
 
-  if (!loaded) {
+  if (!loaded || loaded.kind === 'UNAVAILABLE') {
+    const unavailable = loaded?.kind === 'UNAVAILABLE'
     return (
       <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#f4f7fb', padding: 24, fontFamily: 'var(--crm-font-ui)' }}>
         <section style={{ width: '100%', maxWidth: 440, background: '#fff', border: '1px solid #e3edf6', borderRadius: 14, padding: 28, textAlign: 'center' }}>
           <img src={LOGO_BLUE_URL} alt="Hangers Clothes Spa" style={{ height: 42, objectFit: 'contain', marginBottom: 18 }} />
-          <h1 style={{ margin: 0, color: '#142033', fontSize: 24 }}>Invoice not found</h1>
-          <p style={{ color: '#6b7fa3', fontSize: 14, lineHeight: 1.6 }}>Please check the invoice link or contact Hangers Clothes Spa.</p>
+          <h1 style={{ margin: 0, color: '#142033', fontSize: 24 }}>{unavailable ? 'Invoice temporarily unavailable' : 'Invoice not found'}</h1>
+          <p style={{ color: '#6b7fa3', fontSize: 14, lineHeight: 1.6 }}>{unavailable ? 'We could not load this invoice right now. Please try again shortly. If the problem continues, contact Hangers Clothes Spa.' : 'Please check the invoice link or contact Hangers Clothes Spa.'}</p>
         </section>
       </main>
     )
@@ -84,11 +90,21 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .summary-meta-card { border: 1px solid #dce8f0; border-radius: 14px; padding: 14px 16px; background: #fff; }
           .summary-label { color: #7d91a7; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
           .summary-value { margin-top: 6px; color: #182538; font-weight: 900; overflow-wrap: anywhere; }
-          .summary-table-wrap { overflow-x: auto; padding: 22px 26px 26px; }
-          .summary-detail-row { background: #fbfdff; }
-          .summary-detail-box { margin: 0 16px 14px; border: 1px solid #e3edf6; border-radius: 12px; overflow: hidden; }
-          .summary-detail-line { display: grid; grid-template-columns: minmax(0, 1fr) 70px 90px 100px; gap: 10px; align-items: center; padding: 10px 12px; border-top: 1px solid #edf3f8; font-size: 12.5px; }
-          .summary-detail-line:first-child { border-top: 0; }
+          .summary-receivables { padding: 8px 26px 24px; }
+          .summary-receivable-head, .summary-receivable { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(95px, .7fr) minmax(110px, .8fr) minmax(110px, .8fr) minmax(170px, 1fr); gap: 12px; align-items: center; }
+          .summary-receivable-head { padding: 12px 14px; color: #476581; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+          .summary-receivable { padding: 16px 14px; border-top: 1px solid #edf3f8; }
+          .summary-receivable-main { min-width: 0; }
+          .summary-receivable-title { color: #023c62; font-weight: 900; overflow-wrap: anywhere; }
+          .summary-receivable-sub { color: #6b7fa3; font-size: 12px; margin-top: 3px; }
+          .summary-receivable-amount { text-align: right; }
+          .summary-receivable-balance { color: #b91c1c; font-weight: 900; text-align: right; }
+          .summary-receivable-pay { min-width: 0; }
+          .summary-receivable-pay > div { margin: 0 !important; padding: 10px !important; border: 0 !important; background: transparent !important; }
+          .summary-receivable-pay > div > div:first-child > div:first-child { display: none !important; }
+          .summary-receivable-pay button { width: 100%; }
+          .summary-receivable-lines { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; padding-top: 10px; }
+          .summary-receivable-line { min-width: 0; padding: 9px 10px; background: #f7fafc; border-radius: 8px; }
           .summary-detail-name { font-weight: 800; color: #24364b; overflow-wrap: anywhere; }
           .summary-detail-service { margin-top: 2px; color: #7b8ca8; font-size: 11px; font-weight: 600; }
           .public-legal-terms { margin: 0 26px 24px; border: 1px solid #dce8f0; border-radius: 14px; background: #fbfdff; padding: 18px; }
@@ -96,22 +112,19 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .public-legal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
           .public-legal-item b { display: block; color: #24364b; font-size: 12px; margin-bottom: 3px; }
           .public-legal-item p { margin: 0; color: #52647e; font-size: 11.5px; line-height: 1.48; }
-          .summary-mobile { display: none; }
           @media (max-width: 640px) {
             main.public-invoice-page { padding: 12px 10px 28px !important; }
             .summary-shell { border-radius: 12px; }
             .summary-header { padding: 18px 16px; display: block; }
             .summary-card { text-align: left; margin-top: 16px; min-width: 0; }
             .summary-meta { padding: 16px; grid-template-columns: 1fr 1fr; gap: 10px; }
-            .summary-table-wrap { display: none; }
-            .summary-mobile { display: grid; gap: 10px; padding: 14px; }
-            .summary-item { border: 1px solid #e3edf6; border-radius: 10px; padding: 12px; background: #fff; }
-            .summary-item-title { font-weight: 900; color: #023c62; overflow-wrap: anywhere; }
-            .summary-item-sub { margin-top: 4px; color: #6b7fa3; font-size: 12px; }
-            .summary-item-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
-            .summary-item-metric { background: #f7fafc; border-radius: 8px; padding: 8px; min-width: 0; }
-            .summary-item-lines { margin-top: 10px; border-top: 1px solid #edf3f8; padding-top: 8px; display: grid; gap: 7px; }
-            .summary-item-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; font-size: 12px; }
+            .summary-receivables { padding: 4px 14px 18px; }
+            .summary-receivable-head { display: none; }
+            .summary-receivable { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: start; padding: 14px 4px; }
+            .summary-receivable-main, .summary-receivable-pay, .summary-receivable-lines { grid-column: 1 / -1; }
+            .summary-receivable-amount, .summary-receivable-balance { text-align: left; }
+            .summary-receivable-amount::before, .summary-receivable-balance::before { content: attr(data-label); display: block; color: #7d91a7; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-bottom: 3px; }
+            .summary-receivable-lines { grid-template-columns: 1fr; }
             .public-legal-terms { margin: 0 14px 16px; padding: 14px; }
             .public-legal-grid { grid-template-columns: 1fr; gap: 10px; }
           }
@@ -119,7 +132,6 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             main.public-invoice-page { padding: 0 !important; }
             .summary-shell { border: 0; border-radius: 0; box-shadow: none; }
             .summary-meta { grid-template-columns: 1fr 1fr; }
-            .summary-item-grid { grid-template-columns: 1fr 1fr; }
           }
         `}</style>
         <section className="summary-shell">
@@ -155,77 +167,35 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             </div>
           </div>
 
-          <div className="summary-table-wrap">
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 680, border: '1px solid #dce8f0', borderRadius: 14, overflow: 'hidden' }}>
-              <thead>
-                <tr style={{ background: '#f4f8fb', color: '#476581', textAlign: 'left', fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase' }}>
-                  <th style={{ padding: '13px 16px' }}>Bill / Order</th>
-                  <th style={{ padding: '13px 16px' }}>Type</th>
-                  <th style={{ padding: '13px 16px' }}>Due Date</th>
-                  <th style={{ padding: '13px 16px', textAlign: 'right' }}>Total</th>
-                  <th style={{ padding: '13px 16px', textAlign: 'right' }}>Paid</th>
-                  <th style={{ padding: '13px 16px', textAlign: 'right' }}>Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((item: any) => (
-                  <Fragment key={item.invoiceId}>
-                    <tr style={{ borderTop: '1px solid #edf3f8' }}>
-                      <td style={{ padding: '14px 16px', fontWeight: 900, color: '#023c62' }}>{item.sourceNumber || item.invoiceNumber}</td>
-                      <td style={{ padding: '14px 16px', color: '#52647e', fontWeight: 700 }}>{sourceLabel(item.sourceType)}</td>
-                      <td style={{ padding: '14px 16px', color: '#6b7fa3' }}>{dateLabel(item.dueDate)}</td>
-                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>{money(item.totalAmount)}</td>
-                      <td style={{ padding: '14px 16px', textAlign: 'right', color: '#15803d' }}>{money(item.paidAmount)}</td>
-                      <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 900, color: '#b91c1c' }}>{money(item.balanceDue)}</td>
-                    </tr>
-                    <tr className="summary-detail-row">
-                      <td colSpan={6} style={{ padding: 0 }}>
-                        <div className="summary-detail-box">
-                          {(item.items || []).map((line: any, index: number) => (
-                            <div className="summary-detail-line" key={`${item.invoiceId}-line-${index}`}>
-                              <div>
-                                <div className="summary-detail-name">{line.serviceName || line.garmentType || 'Service'}</div>
-                                <div className="summary-detail-service">{line.garmentType && line.garmentType !== line.serviceName ? line.garmentType : sourceLabel(item.sourceType)}</div>
-                              </div>
-                              <div style={{ textAlign: 'right', fontWeight: 800 }}>Qty {line.quantity}</div>
-                              <div style={{ textAlign: 'right', color: '#52647e' }}>{money(line.unitPrice)}</div>
-                              <div style={{ textAlign: 'right', fontWeight: 900 }}>{money(line.subtotal)}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="summary-mobile">
+          <section className="summary-receivables" aria-label="Unpaid invoices">
+            <div className="summary-receivable-head" aria-hidden="true">
+              <div>Bill / Order</div><div>Due</div><div style={{ textAlign: 'right' }}>Total / Paid</div><div style={{ textAlign: 'right' }}>Balance due</div><div>Payment</div>
+            </div>
             {rows.map((item: any) => (
-              <article className="summary-item" key={`${item.invoiceId}-mobile`}>
-                <div className="summary-item-title">{item.sourceNumber || item.invoiceNumber}</div>
-                <div className="summary-item-sub">{sourceLabel(item.sourceType)} · Due {dateLabel(item.dueDate)}</div>
-                <div className="summary-item-grid">
-                  <div className="summary-item-metric"><div className="summary-label">Clothes</div><div className="summary-value">{item.totalPieces || 0}</div></div>
-                  <div className="summary-item-metric"><div className="summary-label">Total</div><div className="summary-value">{money(item.totalAmount)}</div></div>
-                  <div className="summary-item-metric"><div className="summary-label">Paid</div><div className="summary-value" style={{ color: '#15803d' }}>{money(item.paidAmount)}</div></div>
-                  <div className="summary-item-metric"><div className="summary-label">Balance</div><div className="summary-value" style={{ color: '#b91c1c' }}>{money(item.balanceDue)}</div></div>
+              <article className="summary-receivable" key={item.invoiceId}>
+                <div className="summary-receivable-main">
+                  <div className="summary-receivable-title">{item.sourceNumber || item.invoiceNumber}</div>
+                  <div className="summary-receivable-sub">{sourceLabel(item.sourceType)} · {item.invoiceNumber}</div>
                 </div>
-                <div className="summary-item-lines">
-                  {(item.items || []).map((line: any, index: number) => (
-                    <div className="summary-item-line" key={`${item.invoiceId}-mobile-line-${index}`}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 800, color: '#24364b', overflowWrap: 'anywhere' }}>{line.serviceName || line.garmentType || 'Service'}</div>
-                        <div style={{ color: '#7b8ca8', marginTop: 2 }}>{line.garmentType && line.garmentType !== line.serviceName ? line.garmentType : sourceLabel(item.sourceType)}</div>
-                      </div>
-                      <div style={{ textAlign: 'right', fontWeight: 900 }}>{line.quantity} x {money(line.unitPrice)}<br /><span style={{ color: '#b91c1c' }}>{money(line.subtotal)}</span></div>
+                <div className="summary-receivable-sub">{dateLabel(item.dueDate)}</div>
+                <div className="summary-receivable-amount" data-label="Total / Paid">{money(item.totalAmount)} <span style={{ color: '#15803d' }}>· {money(item.paidAmount)} paid</span></div>
+                <div className="summary-receivable-balance" data-label="Balance due">{money(item.balanceDue)}</div>
+                <div className="summary-receivable-pay">
+                  {Number(item.balanceDue) > 0 ? (
+                    <InvoicePaymentButton key={`${slug}:${item.invoiceId}`} slug={slug} invoiceId={item.invoiceId} balanceDue={Number(item.balanceDue)} customerName={summary.customer?.name} customerPhone={summary.customer?.phone} />
+                  ) : <span style={{ color: '#15803d', fontWeight: 800 }}>Paid</span>}
+                </div>
+                {!!item.items?.length && <div className="summary-receivable-lines">
+                  {item.items.map((line: any, index: number) => (
+                    <div className="summary-receivable-line" key={`${item.invoiceId}-line-${index}`}>
+                      <div className="summary-detail-name">{line.serviceName || line.garmentType || 'Service'}</div>
+                      <div className="summary-detail-service">{line.quantity} × {money(line.unitPrice)} · {money(line.subtotal)}</div>
                     </div>
                   ))}
-                </div>
+                </div>}
               </article>
             ))}
-          </div>
+          </section>
 
           <p style={{ margin: 0, padding: '0 26px 24px', color: '#6b7fa3', fontSize: 12, lineHeight: 1.6 }}>This summary shows currently unpaid bills and orders in your Hangers Clothes Spa account.</p>
           <LegalTerms terms={summary.legalTerms} />
@@ -603,11 +573,12 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           </div>
         </footer>
         <InvoicePaymentButton
+          key={slug}
           slug={slug}
           balanceDue={Number(invoice.balanceDue || 0)}
           customerName={invoice.customer?.name}
           customerPhone={invoice.customer?.phone}
-          enabled={invoice.invoiceType === 'ORDER'}
+          enabled={String(invoice.status || '').toUpperCase() !== 'CANCELLED'}
         />
         <LegalTerms terms={invoice.legalTerms} />
         <p style={{ margin: 0, padding: '0 26px 24px', color: '#6b7fa3', fontSize: 12, lineHeight: 1.6 }}>Thank you for choosing Hangers Clothes Spa.</p>

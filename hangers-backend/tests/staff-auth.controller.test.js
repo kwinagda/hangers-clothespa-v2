@@ -8,7 +8,7 @@ test('staff auth browser response does not expose bearer token in JSON', () => {
     {
       id: 'staff-1',
       name: 'Manager',
-      phone: '9999999999',
+      phone: '9930367267',
       email: 'manager@example.com',
       role: 'MANAGER',
       mustChangePassword: false,
@@ -23,4 +23,3 @@ test('staff auth browser response does not expose bearer token in JSON', () => {
   assert.equal(response.staff.role, 'MANAGER');
   assert.deepEqual(response.staff.permissions, ['orders.view']);
 });
-

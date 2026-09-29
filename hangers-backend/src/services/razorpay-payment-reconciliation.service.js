@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
-const { getRazorpay, settleCapturedPayment } = require('./razorpay-invoice-checkout.service');
+const { getRazorpay, markAttemptFailed, settleCapturedPayment } = require('./razorpay-invoice-checkout.service');
+const { isCompleteFailedOrderPaymentList } = require('../utils/razorpay-payment-list');
 const { importRazorpaySettlementRecon } = require('./razorpay-settlement-recon.service');
 const { importRazorpaySettlementSummaries, validateWindow: validateSettlementSummaryWindow } = require('./razorpay-settlement-summary.service');
 const { razorpayErrorSummary } = require('../utils/redact');
@@ -365,6 +366,24 @@ const reconcilePendingCheckoutAttempts = async ({ mode, provider, counters, exce
       const items = Array.isArray(response?.items) ? response.items : null;
       if (!items) throw Object.assign(new Error('Razorpay order payment-list response has no items collection'), { code: 'INVALID_ORDER_PAYMENTS_RESPONSE' });
       counters.pendingAttemptsChecked += 1;
+      const allPaymentsFailed = isCompleteFailedOrderPaymentList({
+        response,
+        orderId: attempt.razorpayOrderId,
+        amountPaise: attempt.amountPaise,
+        currency: attempt.currency,
+      });
+      if (allPaymentsFailed && ['CREATED', 'PENDING', 'AUTHORIZED'].includes(attempt.status)) {
+        const latestFailedPayment = items.reduce((latest, payment) => (
+          Number(payment.created_at || 0) > Number(latest?.created_at || 0) ? payment : latest
+        ), null);
+        await markAttemptFailed({
+          attemptId: attempt.id,
+          paymentId: latestFailedPayment.id,
+          providerPayment: latestFailedPayment,
+          source: 'PROVIDER_RECONCILIATION',
+        });
+        counters.pendingAttemptFailures += 1;
+      }
       for (const payment of items) {
         if (String(payment?.status || '').toLowerCase() === 'captured' || payment?.captured === true) {
           counters.pendingAttemptCaptures += 1;
@@ -433,6 +452,7 @@ const runRazorpayPaymentReconciliation = async ({
     pendingAttemptsClaimed: 0,
     pendingAttemptsChecked: 0,
     pendingAttemptCaptures: 0,
+    pendingAttemptFailures: 0,
     pendingAttemptErrors: 0,
     pendingAttemptBatchTruncated: false,
     pendingAttemptsStillDue: 0,

@@ -470,7 +470,7 @@ const PAYMENT_METHODS = [
   { value: 'UPI', label: 'UPI' },
   { value: 'CARD', label: 'Card' },
   { value: 'RAZORPAY', label: 'Razorpay' },
-  { value: 'ONLINE', label: 'Online' },
+  { value: 'ONLINE', label: 'Bank transfer' },
   { value: 'COD', label: 'COD' },
   { value: 'OTHER', label: 'Other' },
   { value: 'WALLET', label: 'Wallet' },
@@ -479,10 +479,10 @@ const PAYMENT_METHODS = [
 ];
 
 const PAYMENT_METHOD_VALUES = PAYMENT_METHODS.map((method) => method.value);
-// Every supported collection method must be available to Finance and the shared payment ledger.
-// Razorpay is an online collection method, not a separate invoice-only path.
+// Razorpay is provider-confirmed only and must not appear in staff-entered tenders.
+const STAFF_COLLECTABLE_PAYMENT_METHOD_VALUES = ['CASH', 'UPI', 'CARD', 'ONLINE'];
 const CORE_PAYMENT_METHODS = PAYMENT_METHODS
-  .filter((method) => ['CASH', 'UPI', 'CARD', 'RAZORPAY'].includes(method.value))
+  .filter((method) => STAFF_COLLECTABLE_PAYMENT_METHOD_VALUES.includes(method.value))
   .map((method) => method.value);
 const PAYMENT_STATUSES = [
   { value: 'UNPAID', label: 'Unpaid', color: '#991b1b', bg: '#fee2e2' },
@@ -776,6 +776,7 @@ module.exports = {
   ACTIVE_IRON_SUB_STATUSES,
   ADDRESS_LABELS,
   CORE_PAYMENT_METHODS,
+  STAFF_COLLECTABLE_PAYMENT_METHOD_VALUES,
   CUSTOMER_TAGS,
   DEFAULT_LANGUAGE,
   DELIVERY_FAIL_REASONS,

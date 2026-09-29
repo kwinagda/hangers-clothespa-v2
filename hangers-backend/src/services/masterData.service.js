@@ -32,6 +32,7 @@ const {
   SERVICE_CATEGORY_UI,
   SERVICE_CODES,
   STAFF_ROLES,
+  STAFF_COLLECTABLE_PAYMENT_METHOD_VALUES,
   WEEKDAY_OPTIONS,
   WHATSAPP_TEMPLATES,
   WEBSITE_PICKUP_REQUEST_STATUSES,
@@ -165,7 +166,10 @@ const getOrderWorkflow = () => getMasterSetting(MASTER_SETTING_KEYS.orderWorkflo
 const getFieldServiceStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.fieldServiceStatuses);
 const getFieldServiceWorkflow = () => getMasterSetting(MASTER_SETTING_KEYS.fieldServiceWorkflow);
 const getPaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.paymentMethods);
-const getCorePaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.corePaymentMethods);
+const getCorePaymentMethods = async () => [...new Set([
+  ...STAFF_COLLECTABLE_PAYMENT_METHOD_VALUES,
+  ...(await getMasterSetting(MASTER_SETTING_KEYS.corePaymentMethods)).filter((method) => method !== 'RAZORPAY'),
+])];
 const getPaymentTransactionStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.paymentTransactionStatuses);
 const getLaunchCapabilities = () => getMasterSetting(MASTER_SETTING_KEYS.launchCapabilities);
 const getLegalTerms = () => getMasterSetting(MASTER_SETTING_KEYS.legalTerms);
@@ -184,7 +188,15 @@ const getMasterMetadata = async () => {
   const entries = await Promise.all(
     Object.entries(MASTER_SETTING_KEYS).map(async ([name, key]) => [name, await getMasterSetting(key)])
   );
-  return Object.fromEntries(entries);
+  const metadata = Object.fromEntries(entries);
+  metadata.corePaymentMethods = [...new Set([
+    ...STAFF_COLLECTABLE_PAYMENT_METHOD_VALUES,
+    ...(metadata.corePaymentMethods || []).filter((method) => method !== 'RAZORPAY'),
+  ])];
+  metadata.paymentMethods = (metadata.paymentMethods || []).map((method) => method.value === 'ONLINE'
+    ? { ...method, label: 'Bank transfer' }
+    : method);
+  return metadata;
 };
 
 const getCollectablePaymentMethods = async () => {
@@ -192,7 +204,9 @@ const getCollectablePaymentMethods = async () => {
     getPaymentMethods(),
     getCorePaymentMethods(),
   ]);
-  return paymentMethods.filter((method) => corePaymentMethods.includes(method.value));
+  return paymentMethods
+    .filter((method) => method.value !== 'RAZORPAY' && corePaymentMethods.includes(method.value))
+    .map((method) => method.value === 'ONLINE' ? { ...method, label: 'Bank transfer' } : method);
 };
 
 const getCapturedPaymentStatusValues = async () => {

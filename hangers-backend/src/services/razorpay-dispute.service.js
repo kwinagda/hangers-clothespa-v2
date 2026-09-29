@@ -1,5 +1,5 @@
 const prisma = require('../config/database');
-const { writeAuditEvent } = require('./activity.service');
+const { writeAuditEvent, log } = require('./activity.service');
 const { getRazorpay } = require('./razorpay-invoice-checkout.service');
 
 const DISPUTE_STATES = new Set(['open', 'under_review', 'won', 'lost', 'closed']);
@@ -41,12 +41,12 @@ const normalizeDispute = (value, disputeId) => {
   };
 };
 
-const reconcileRazorpayDispute = async ({ disputeId, eventId, eventType, provider: injectedProvider } = {}) => {
+const reconcileRazorpayDispute = async ({ disputeId, eventId, eventType, provider: injectedProvider, providerDispute } = {}) => {
   if (typeof disputeId !== 'string' || !/^disp_[A-Za-z0-9]{1,100}$/.test(disputeId)) {
     throw Object.assign(new Error('A valid Razorpay dispute ID is required'), { code: 'DISPUTE_ID_INVALID', permanent: true });
   }
   const provider = injectedProvider || getRazorpay();
-  const fetched = await provider.disputes.fetch(disputeId);
+  const fetched = providerDispute || await provider.disputes.fetch(disputeId);
   const dispute = normalizeDispute(fetched, disputeId);
   const mode = currentMode();
   const matchingPayment = await prisma.payment.findFirst({
@@ -121,4 +121,74 @@ const reconcileRazorpayDispute = async ({ disputeId, eventId, eventType, provide
   };
 };
 
-module.exports = { reconcileRazorpayDispute, normalizeDispute };
+const syncRazorpayDisputePage = async ({ provider, count, skip, to, actor, requestMeta } = {}) => {
+  const mode = currentMode();
+  try {
+    const collection = await provider.disputes.all({ count, skip, to });
+    if (!collection || !Array.isArray(collection.items) || collection.items.length > count) {
+      throw Object.assign(new Error('Razorpay returned an invalid disputes collection'), { code: 'DISPUTE_COLLECTION_INVALID' });
+    }
+
+    let synced = 0;
+    let review = 0;
+    let failed = 0;
+    for (const providerDispute of collection.items) {
+      if (typeof providerDispute?.id !== 'string' || !/^disp_[A-Za-z0-9]{1,100}$/.test(providerDispute.id)) {
+        failed += 1;
+        await log({
+          actorType: 'staff', actorId: actor?.id, actorName: actor?.name,
+          action: 'RAZORPAY_DISPUTE_SYNC_ITEM_REJECTED', status: 'FAILURE',
+          resource: 'razorpay_dispute_sync', description: 'Provider dispute row was rejected because its identity was invalid',
+          metadata: { provider: 'RAZORPAY', mode, pageSkip: skip, errorCode: 'DISPUTE_ID_INVALID' },
+          ...requestMeta,
+        });
+        continue;
+      }
+      try {
+        const result = await reconcileRazorpayDispute({
+          disputeId: providerDispute.id,
+          eventType: 'RAZORPAY_DISPUTE_MANUAL_SYNC',
+          provider,
+          providerDispute,
+        });
+        if (result.state === 'PROCESSED') synced += 1;
+        else review += 1;
+      } catch (error) {
+        failed += 1;
+        await log({
+          actorType: 'staff', actorId: actor?.id, actorName: actor?.name,
+          action: 'RAZORPAY_DISPUTE_SYNC_ITEM_FAILED', status: 'FAILURE',
+          resource: 'razorpay_dispute', resourceId: providerDispute.id,
+          description: 'A provider dispute could not be reconciled; finance review is required',
+          metadata: { provider: 'RAZORPAY', mode, pageSkip: skip, errorCode: String(error?.code || 'DISPUTE_SYNC_ITEM_FAILED').slice(0, 80) },
+          ...requestMeta,
+        });
+      }
+    }
+
+    const nextSkip = skip + collection.items.length;
+    const result = { mode, received: collection.items.length, synced, review, failed, nextSkip, to, hasMore: collection.items.length === count };
+    await log({
+      actorType: 'staff', actorId: actor?.id, actorName: actor?.name,
+      action: failed ? 'RAZORPAY_DISPUTE_BATCH_SYNC_PARTIAL' : 'RAZORPAY_DISPUTE_BATCH_SYNC',
+      status: failed ? 'FAILURE' : 'SUCCESS',
+      resource: 'razorpay_dispute_sync',
+      description: 'Staff synchronized a bounded page of disputes from Razorpay Payment Gateway',
+      metadata: { provider: 'RAZORPAY', ...result, count, skip },
+      ...requestMeta,
+    });
+    return result;
+  } catch (error) {
+    await log({
+      actorType: 'staff', actorId: actor?.id, actorName: actor?.name,
+      action: 'RAZORPAY_DISPUTE_BATCH_SYNC_FAILED', status: 'FAILURE',
+      resource: 'razorpay_dispute_sync',
+      description: 'Razorpay dispute page could not be synchronized',
+      metadata: { provider: 'RAZORPAY', mode, count, skip, errorCode: String(error?.code || 'PROVIDER_OR_SYNC_ERROR').slice(0, 80) },
+      ...requestMeta,
+    });
+    throw error;
+  }
+};
+
+module.exports = { reconcileRazorpayDispute, syncRazorpayDisputePage, normalizeDispute };

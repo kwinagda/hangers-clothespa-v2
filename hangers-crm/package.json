@@ -2,13 +2,16 @@
   "name": "hangers-crm",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=24.11.0 <25"
+  },
   "scripts": {
-    "dev": "next dev -p 5002",
+    "dev": "NEXT_DIST_DIR=.next-local NEXT_PUBLIC_API_URL=http://localhost:5002/api/v1 next dev -p 5002 --hostname localhost",
     "build": "next build",
     "build:public-static": "node scripts/build-public-static.mjs",
     "start": "next start -p 5002",
     "test:responsive": "playwright test tests/responsive/crm-responsive.spec.ts",
-    "test:invoice-ab-responsive": "playwright test --config=playwright.invoice.config.ts"
+    "test:invoice-local": "playwright test --config=playwright.invoice.config.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.0",
@@ -27,7 +30,7 @@
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@types/js-cookie": "^3",
-    "@types/node": "^20",
+    "@types/node": "^24",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^18",
     "@types/react-dom": "^18",

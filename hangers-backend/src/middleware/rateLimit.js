@@ -24,6 +24,12 @@ const publicShareLimiter = buildLimiter(
   'Too many public link requests. Please wait a few minutes and try again.'
 );
 
+const publicCheckoutReconcileLimiter = buildLimiter(
+  10 * 60 * 1000,
+  5,
+  'Too many payment status recovery requests. Please wait before checking again.'
+);
+
 const otpSendLimiter = buildLimiter(
   10 * 60 * 1000,
   5,
@@ -64,6 +70,7 @@ module.exports = {
   buildLimiter,
   globalApiLimiter,
   publicShareLimiter,
+  publicCheckoutReconcileLimiter,
   otpSendLimiter,
   otpVerifyLimiter,
   staffLoginLimiter,

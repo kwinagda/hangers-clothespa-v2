@@ -26,14 +26,14 @@ test('pickup request staff permissions and public time slots are configured', ()
 
 test('pickup OTP and request input reject unstructured or non-digit customer data', () => {
   assert.equal(pickupOtpSendSchema.safeParse({ phone: '99999abc99' }).success, false);
-  assert.equal(pickupOtpVerifySchema.safeParse({ phone: '9999999999', otp: '12345' }).success, false);
-  assert.equal(pickupOtpVerifySchema.safeParse({ phone: '9999999999', otp: '123456' }).success, true);
+  assert.equal(pickupOtpVerifySchema.safeParse({ phone: '9930367267', otp: '12345' }).success, false);
+  assert.equal(pickupOtpVerifySchema.safeParse({ phone: '9930367267', otp: '123456' }).success, true);
   assert.equal(publicPickupRequestSchema.safeParse({
-    phone: '9999999999', verificationToken: 'a'.repeat(43), name: 'Test Customer', addressLine1: 'Shop 8A', city: 'Mumbai', pincode: '400080',
+    phone: '9930367267', verificationToken: 'a'.repeat(43), name: 'Test Customer', addressLine1: 'Shop 8A', city: 'Mumbai', pincode: '400080',
     items: [{ serviceKey: 'dry_cleaning', quantity: 4 }], itemsSummary: '2 shirts for dry cleaning',
   }).success, false);
   assert.equal(publicPickupRequestSchema.safeParse({
-    phone: '9999999999', verificationToken: 'a'.repeat(43), name: 'Test Customer', addressLine1: 'Shop 8A', city: 'Mumbai', pincode: '400080',
+    phone: '9930367267', verificationToken: 'a'.repeat(43), name: 'Test Customer', addressLine1: 'Shop 8A', city: 'Mumbai', pincode: '400080',
     items: [{ serviceKey: 'dry_cleaning', quantity: 4 }],
   }).success, true);
 });

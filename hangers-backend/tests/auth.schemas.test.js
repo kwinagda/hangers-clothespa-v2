@@ -9,19 +9,19 @@ const {
 } = require('../src/validation/auth.schemas');
 
 test('sendOtpSchema accepts valid Indian phone', () => {
-  const parsed = sendOtpSchema.safeParse({ phone: '9876543210' });
+  const parsed = sendOtpSchema.safeParse({ phone: '9930367267' });
   assert.equal(parsed.success, true);
 });
 
 test('verifyOtpSchema rejects invalid otp payload', () => {
-  const parsed = verifyOtpSchema.safeParse({ phone: '9876543210', otp: '12' });
+  const parsed = verifyOtpSchema.safeParse({ phone: '9930367267', otp: '12' });
   assert.equal(parsed.success, false);
 });
 
 test('staffCreateSchema enforces strong password', () => {
   const weak = staffCreateSchema.safeParse({
     name: 'Test User',
-    phone: '9876543210',
+    phone: '9930367267',
     email: 'user@example.com',
     password: 'password123',
     role: 'MANAGER',

@@ -23,7 +23,11 @@ const serializeGroup = (group, paymentsByProviderId) => {
   const reportNetPaise = sum(inrLines, netPaise);
   const bankCreditedPaise = sum(activeMatches, (match) => match.statementAmountPaise);
   const settlementAmountPaise = summary?.amountPaise ?? null;
+  const settlementFeesPaise = summary?.feesPaise ?? null;
+  const settlementTaxPaise = summary?.taxPaise ?? null;
   const reportToSettlementVariancePaise = summary?.status !== 'processed' || settlementAmountPaise === null ? null : reportNetPaise - settlementAmountPaise;
+  const reportToSummaryFeeVariancePaise = settlementFeesPaise === null ? null : feesPaise - settlementFeesPaise;
+  const reportToSummaryTaxVariancePaise = settlementTaxPaise === null ? null : taxPaise - settlementTaxPaise;
   const bankToSettlementVariancePaise = settlementAmountPaise === null || !activeMatches.length ? null : bankCreditedPaise - settlementAmountPaise;
   const settledLines = lines.filter((line) => line.settled && !line.onHold);
   const pendingLines = lines.filter((line) => !line.settled && !line.onHold);
@@ -34,6 +38,8 @@ const serializeGroup = (group, paymentsByProviderId) => {
     settlementCreatedAt: summary?.providerCreatedAt ?? null,
     settlementUtr: summary?.settlementUtr ?? lines.find((line) => line.settlementUtr)?.settlementUtr ?? null,
     settlementAmountPaise: settlementAmountPaise?.toString() ?? null,
+    settlementFeesPaise: settlementFeesPaise?.toString() ?? null,
+    settlementTaxPaise: settlementTaxPaise?.toString() ?? null,
     providerGrossPaise: providerGrossPaise.toString(),
     refundsPaise: refundsPaise.toString(),
     feesPaise: feesPaise.toString(),
@@ -42,6 +48,8 @@ const serializeGroup = (group, paymentsByProviderId) => {
     adjustmentNetPaise: adjustmentNetPaise.toString(),
     reportNetPaise: reportNetPaise.toString(),
     reportToSettlementVariancePaise: reportToSettlementVariancePaise?.toString() ?? null,
+    reportToSummaryFeeVariancePaise: reportToSummaryFeeVariancePaise?.toString() ?? null,
+    reportToSummaryTaxVariancePaise: reportToSummaryTaxVariancePaise?.toString() ?? null,
     bankCreditedPaise: bankCreditedPaise.toString(),
     bankToSettlementVariancePaise: bankToSettlementVariancePaise?.toString() ?? null,
     activeBankMatchCount: activeMatches.length,
@@ -172,6 +180,8 @@ const getRazorpaySettlementSummaryReport = async ({ from, to, mode }) => {
   const failedSummaries = summaries.filter((summary) => summary.status === 'failed');
   const processedSettlementAmountPaise = sum(processedSummaries, (summary) => summary.amountPaise);
   const processedReportNetPaise = sum(groups.filter((group) => group.settlementSummaryStatus === 'processed'), (group) => BigInt(group.reportNetPaise));
+  const reportToSummaryFeeVariancePaise = sum(groups.filter((group) => group.reportToSummaryFeeVariancePaise !== null), (group) => BigInt(group.reportToSummaryFeeVariancePaise));
+  const reportToSummaryTaxVariancePaise = sum(groups.filter((group) => group.reportToSummaryTaxVariancePaise !== null), (group) => BigInt(group.reportToSummaryTaxVariancePaise));
   const matchedProcessedSettlementAmountPaise = sum(groups.filter((group) => group.settlementSummaryStatus === 'processed' && group.activeBankMatchCount > 0), (group) => BigInt(group.settlementAmountPaise));
   const unmatchedProcessedSettlements = groups.filter((group) => group.unmatchedProcessedSettlement);
   const unmatchedBankRows = await prisma.bankStatementRow.findMany({
@@ -201,6 +211,8 @@ const getRazorpaySettlementSummaryReport = async ({ from, to, mode }) => {
     bankCreditedPaise: matchedBankCreditedPaise.toString(),
     bankVariancePaise: (matchedBankCreditedPaise - matchedProcessedSettlementAmountPaise).toString(),
     reportToSettlementVariancePaise: (processedReportNetPaise - processedSettlementAmountPaise).toString(),
+    reportToSummaryFeeVariancePaise: reportToSummaryFeeVariancePaise.toString(),
+    reportToSummaryTaxVariancePaise: reportToSummaryTaxVariancePaise.toString(),
     unmatchedProcessedSettlementCount: unmatchedProcessedSettlements.length,
     unmatchedProcessedSettlementPaise: sum(unmatchedProcessedSettlements.filter((item) => item.settlementAmountPaise != null), (item) => BigInt(item.settlementAmountPaise)).toString(),
     pendingLineCount: allReportLines.filter((line) => !line.settled).length,
