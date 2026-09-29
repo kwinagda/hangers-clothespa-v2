@@ -28,7 +28,7 @@ export async function PolicyPage({ title, intro, sections }: {
       {sections.map((section) => <section className="dp-section" key={section.title}>
         <h2 className="dp-title">{section.title}</h2>
         {section.paragraphs.map((paragraph, index) => <p className="dp-copy" key={index} style={{ marginBottom: 14 }}>{paragraph}</p>)}
-        {section.bullets?.map((bullet, index) => <p className="dp-copy" key={index} style={{ marginBottom: 14 }}>{bullet}</p>)}
+        {section.bullets && <p className="dp-copy" style={{ marginBottom: 14 }}>{section.bullets.join(' ')}</p>}
         {section.link && <Link className="dp-btn secondary" href={section.link.href} style={{ marginTop: 18 }}>{section.link.label} →</Link>}
       </section>)}
       <section className="dp-band">
