@@ -95,17 +95,36 @@ echo "Deploying $previous_commit -> $target_commit"
 echo "$(date -Is) started previous=${previous_commit} target=${target_commit}" >>"$DEPLOY_LOG" 2>/dev/null || true
 run_as_deploy_user git merge --ff-only "$target_commit"
 
-changed_files="$(run_as_deploy_user git diff --name-only "$previous_commit" "$target_commit")"
+refresh_dependencies() {
+  local name="$1"
+  shift
+  local marker_dir="/var/lib/hangers-deploy/dependencies"
+  local marker="$marker_dir/$name.sha256"
+  local fingerprint
+  fingerprint="$(sha256sum "$@" | sha256sum | cut -d ' ' -f 1)"
 
-if grep -Eq '^hangers-backend/(package(-lock)?\.json|prisma/schema\.prisma)$' <<<"$changed_files"; then
-  echo "Refreshing backend dependencies and generated Prisma client (no database migration)..."
-  run_as_deploy_user npm ci --prefix hangers-backend
-fi
+  if [[ -f "$marker" ]] && [[ "$(<"$marker")" == "$fingerprint" ]]; then
+    echo "$name dependencies already match the committed manifests."
+    return
+  fi
 
-if grep -Eq '^hangers-crm/package(-lock)?\.json$' <<<"$changed_files"; then
-  echo "Refreshing CRM dependencies..."
-  run_as_deploy_user npm ci --prefix hangers-crm
-fi
+  echo "Installing $name dependencies (bounded npm concurrency and Node.js heap)..."
+  run_as_deploy_user env \
+    NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=640" \
+    npm ci --prefix "$name" --foreground-scripts --maxsockets=2 --no-audit --no-fund
+
+  install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$marker_dir"
+  run_as_deploy_user sh -c 'printf "%s\n" "$1" > "$2.tmp" && mv "$2.tmp" "$2"' \
+    sh "$fingerprint" "$marker"
+}
+
+# A completed marker makes retries repair interrupted npm ci runs even when
+# Git already advanced to the target commit before the previous run failed.
+refresh_dependencies hangers-backend \
+  hangers-backend/package.json hangers-backend/package-lock.json \
+  hangers-backend/prisma/schema.prisma
+refresh_dependencies hangers-crm \
+  hangers-crm/package.json hangers-crm/package-lock.json
 
 echo "Building CRM..."
 run_as_deploy_user npm run build --prefix hangers-crm
