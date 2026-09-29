@@ -12,16 +12,22 @@ The operator requested one combined payment for the customer outstanding summary
 including the reported INR 5,880 split across INR 2,680 and INR 3,200 invoices.
 This is a new follow-up, not a reversal of the prior Live release closeout.
 
-- In implementation: one summary Pay button, a server-calculated allocation plan,
+- Implemented in PR #7: one summary Pay button, a server-calculated allocation plan,
   one provider order/payment, atomic ledger allocation, one receipt, and one notification.
 - Safety review covers share ownership, overlapping single/combined attempts,
   stale balances, provider note binding, duplicate delivery and order-level history/refunds.
-- Verification: 98 existing release contracts passed locally. Dedicated disposable
-  GitHub database and responsive browser checks are being added; not yet marked passed.
+- Verification: 98 existing release contracts, dedicated disposable GitHub database
+  allocation/duplicate/stale-balance checks and both responsive browser checks passed.
+  Main CI: https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/36612610078.
 - Operator approved the additive nullable `allocationPlan` field migration and
   deployment after backup and CI. No local database will be copied to production.
 - Release remains pending until exact-commit CI, guarded migration, deployment and
   read-only Live invoice checks pass. Do not initiate a real payment for this check.
+- 2026-09-30 IST: first deployment stopped before mutation because the migration
+  helper incorrectly expected the local database name. Read-only SSM verified
+  production is `localhost:5432/hangers_prod`, all other migrations are applied,
+  and pg_dump 16.15 is installed. Correct the exact-name guard, retaining backup,
+  CI and migration-history checks. Local `hangers_db` is not a production target.
 - API reference: https://razorpay.com/docs/api/orders/create/ (one order for the
   combined amount in paise; allocation is recorded by the CRM, not a Razorpay split transfer).
 
