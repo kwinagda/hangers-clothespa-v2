@@ -28,6 +28,10 @@ const staticHtmlRoutes = [
   '/blog',
   '/faq',
   '/sitemap',
+  '/terms-and-conditions',
+  '/privacy-policy',
+  '/cancellation-refund',
+  '/shipping-exchange',
 ];
 
 // Blog posts and suburb pages are DB-backed content (hangers-backend BlogPost/
