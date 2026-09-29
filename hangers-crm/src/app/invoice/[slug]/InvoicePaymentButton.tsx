@@ -27,6 +27,9 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
+  const [razorpayOrderId, setRazorpayOrderId] = useState('')
+  const [razorpayPaymentId, setRazorpayPaymentId] = useState('')
+  const [checkoutAttemptReference, setCheckoutAttemptReference] = useState('')
   const [verificationPending, setVerificationPending] = useState(false)
   const [resumeAvailable, setResumeAvailable] = useState(false)
   const [resumeMode, setResumeMode] = useState<'UNATTEMPTED_SAME_ORDER' | null>(null)
@@ -298,7 +301,10 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
       if (result.data?.attemptId) {
         attemptId = result.data.attemptId
         activeAttemptId.current = attemptId
+        setCheckoutAttemptReference(attemptId)
       }
+      setRazorpayOrderId(result.data?.razorpayOrderId || '')
+      setRazorpayPaymentId(result.data?.razorpayPaymentId || result.data?.paymentId || '')
       let status = result.data?.status
       if (status === 'REVIEW' && attemptId) {
         setMessage('Checking the existing Razorpay order. No new payment will be created…')
@@ -317,7 +323,10 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
         if (result.data?.attemptId) {
           attemptId = result.data.attemptId
           activeAttemptId.current = attemptId
+          setCheckoutAttemptReference(attemptId)
         }
+        setRazorpayOrderId(result.data?.razorpayOrderId || '')
+        setRazorpayPaymentId(result.data?.razorpayPaymentId || result.data?.paymentId || '')
         status = result.data?.status
       }
       setStatusReady(true)
@@ -347,7 +356,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
         setVerificationPending(true)
         setResumeAvailable(false)
         setResumeMode(null)
-        setMessage('We have not confirmed whether this payment completed. Do not pay again while we check the existing Razorpay order.')
+        setMessage('We have not confirmed whether this payment completed. Do not pay again while we check this attempt.')
       } else if (result.data?.canResumeCheckout === true) {
         setVerificationPending(false)
         setResumeAvailable(true)
@@ -393,7 +402,12 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
         setStatusReady(true)
         setRecoveryUnavailable(false)
         if (status === 'NONE') return
-        if (attemptId) activeAttemptId.current = attemptId
+        if (attemptId) {
+          activeAttemptId.current = attemptId
+          setCheckoutAttemptReference(attemptId)
+        }
+        setRazorpayOrderId(result.data?.razorpayOrderId || '')
+        setRazorpayPaymentId(result.data?.razorpayPaymentId || result.data?.paymentId || '')
         trackPaymentClientEvent(status === 'CAPTURED' ? 'STATUS_RECOVERY_CAPTURED' : status === 'FAILED' || status === 'CREATE_FAILED' ? 'STATUS_RECOVERY_FAILED' : status === 'REVIEW' ? 'STATUS_RECOVERY_REVIEW' : 'STATUS_RECOVERY_PENDING', attemptId)
         if (status === 'CAPTURED') {
           setSuccess(true)
@@ -414,7 +428,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
           setVerificationPending(true)
           setResumeAvailable(false)
           setResumeMode(null)
-          setMessage('We have not confirmed whether this payment completed. Do not pay again while we check the existing Razorpay order.')
+        setMessage('We have not confirmed whether this payment completed. Do not pay again while we check this attempt.')
         } else if (result.data?.canResumeCheckout === true) {
           setVerificationPending(false)
           setResumeAvailable(true)
@@ -467,8 +481,13 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
         )}
       </div>
       {message && <div role="status" style={{ marginTop: 10, color: success ? '#167b4b' : '#6b7fa3', fontSize: 12, lineHeight: 1.45 }}>{message}</div>}
+      {(verificationPending || recoveryUnavailable) && (razorpayOrderId || razorpayPaymentId || checkoutAttemptReference) && <div style={{ marginTop: 7, color: '#52677c', fontSize: 11, lineHeight: 1.5, overflowWrap: 'anywhere' }}>
+        {razorpayOrderId && <div>Razorpay order reference: {razorpayOrderId}</div>}
+        {razorpayPaymentId && <div>Razorpay payment reference: {razorpayPaymentId}</div>}
+        {!razorpayOrderId && !razorpayPaymentId && checkoutAttemptReference && <div>CRM attempt reference: {checkoutAttemptReference}</div>}
+      </div>}
       {statusReady && redirectCheckoutAvailable && !verificationPending && !success && !busy && <button type="button" onClick={() => void pay(true)} disabled={!experimentReady} style={{ display: 'block', marginTop: 9, border: 0, padding: '4px 0', background: 'transparent', color: '#315f7d', fontSize: 12, fontWeight: 700, textDecoration: 'underline', cursor: experimentReady ? 'pointer' : 'default' }}>Checkout not opening? Use redirect checkout</button>}
-      {(verificationPending || recoveryUnavailable) && <button type="button" onClick={checkPaymentStatus} disabled={busy} style={{ marginTop: 10, border: '1px solid #cfe2ef', borderRadius: 8, padding: '9px 12px', background: '#fff', color: '#023c62', fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Checking…' : recoveryUnavailable ? 'Retry payment status check' : 'Check payment status'}</button>}
+      {(verificationPending || recoveryUnavailable) && <button type="button" onClick={checkPaymentStatus} disabled={busy} style={{ marginTop: 10, border: '1px solid #cfe2ef', borderRadius: 8, padding: '9px 12px', background: '#fff', color: '#023c62', fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Checking…' : recoveryUnavailable ? 'Retry payment status check' : 'Check Razorpay status'}</button>}
     </div>
   )
 }

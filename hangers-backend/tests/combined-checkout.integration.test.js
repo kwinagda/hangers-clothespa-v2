@@ -2,7 +2,7 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const prisma = require('../src/config/database');
-const { createInvoiceCheckout, settleCapturedPayment } = require('../src/services/razorpay-invoice-checkout.service');
+const { createInvoiceCheckout, reconcileAmbiguousOrderCreation, settleCapturedPayment } = require('../src/services/razorpay-invoice-checkout.service');
 const { getOrderPayments } = require('../src/controllers/payments.controller');
 const { getPublicRazorpayCheckoutStatus } = require('../src/controllers/public.controller');
 const { createPublicShareToken } = require('../src/services/publicShare.service');
@@ -45,6 +45,11 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   assert.equal(checkout.attempt.allocationPlan.length, 2);
   assert.equal((await createInvoiceCheckout(args)).attempt.id, checkout.attempt.id);
   assert.equal(created, 1);
+  await prisma.razorpayCheckoutAttempt.update({ where: { id: checkout.attempt.id }, data: { status: 'REVIEW', failureCode: 'ETIMEDOUT' } });
+  const reconciled = await reconcileAmbiguousOrderCreation({ attemptId: checkout.attempt.id, actor: { requestId: suffix }, provider });
+  assert.equal(reconciled.reused, true, 'only the matching zero-attempt provider order is made resumable');
+  assert.equal(reconciled.attempt.status, 'CREATED');
+  assert.equal(reconciled.attempt.razorpayOrderId, providerOrder.id);
   await assert.rejects(createInvoiceCheckout({ invoice: invoices[1], shareId: `single_${suffix}`, idempotencyKey: `single_${suffix}`, provider }), { code: 'CHECKOUT_ALREADY_IN_PROGRESS' });
 
   const singleToken = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: invoices[0].id, purpose: 'INVOICE_VIEW' });

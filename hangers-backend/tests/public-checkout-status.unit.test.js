@@ -83,7 +83,7 @@ test('status polling settles a captured payment through a refreshed token for th
 
 test('status recovery resolves the latest invoice attempt without a browser-cached attempt ID', async () => {
   const invoice = { id: 'invoice_456', invoiceNumber: 'INV-456', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
-  const attempt = { id: 'attempt_456', invoiceId: invoice.id, status: 'FAILED', razorpayOrderId: 'order_456' };
+  const attempt = { id: 'attempt_456', invoiceId: invoice.id, status: 'FAILED', razorpayOrderId: 'order_456', razorpayPaymentId: 'pay_456' };
   const fakePrisma = {
     razorpayCheckoutAttempt: {
       findFirst: async ({ where, orderBy }) => {
@@ -111,6 +111,8 @@ test('status recovery resolves the latest invoice attempt without a browser-cach
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data.status, 'FAILED');
   assert.equal(res.body.data.attemptId, attempt.id);
+  assert.equal(res.body.data.razorpayOrderId, attempt.razorpayOrderId);
+  assert.equal(res.body.data.razorpayPaymentId, attempt.razorpayPaymentId);
 });
 
 test('status polling refreshes a failed attempt to the latest provider failure on the same Order', async () => {

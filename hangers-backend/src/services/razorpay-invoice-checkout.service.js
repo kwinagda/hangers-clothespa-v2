@@ -335,7 +335,7 @@ const reconcileAmbiguousOrderCreation = async ({ attemptId, actor, provider: inj
   const attempt = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: attemptId } });
   if (!attempt) throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_NOT_FOUND', 'Checkout attempt was not found.', 404);
   if (attempt.mode !== getMode()) throw new RazorpayCheckoutError('RAZORPAY_MODE_MISMATCH', 'Attempt belongs to a different Razorpay mode; no provider lookup was performed.', 409);
-  if (attempt.status !== 'REVIEW' || attempt.razorpayOrderId || attempt.failureCode === 'OVERPAYMENT_NOT_ALLOWED') {
+  if (attempt.status !== 'REVIEW' || attempt.failureCode === 'OVERPAYMENT_NOT_ALLOWED') {
     throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_NOT_RECONCILABLE', 'This checkout attempt is not an ambiguous order-creation attempt.', 409);
   }
 
@@ -364,6 +364,82 @@ const reconcileAmbiguousOrderCreation = async ({ attemptId, actor, provider: inj
   }
 
   const razorpay = injectedProvider || getRazorpay();
+  if (attempt.razorpayOrderId) {
+    let providerOrder;
+    let providerPayments;
+    try {
+      [providerOrder, providerPayments] = await Promise.all([
+        razorpay.orders.fetch(attempt.razorpayOrderId),
+        razorpay.orders.fetchPayments(attempt.razorpayOrderId),
+      ]);
+    } catch (error) {
+      throw new RazorpayCheckoutError('CHECKOUT_RECONCILIATION_PROVIDER_FAILED', 'Could not verify this Razorpay order. The attempt remains blocked; check again later.', 502, { checkoutAttemptId: attempt.id, razorpayOrderId: attempt.razorpayOrderId, providerCode: safeProviderCode(error) });
+    }
+    const allocationHash = attempt.allocationPlan?.length
+      ? digest(JSON.stringify(attempt.allocationPlan.map(({ invoiceId, amount }) => ({ invoiceId, amount }))))
+      : null;
+    const orderMatches = providerOrder?.id === attempt.razorpayOrderId
+      && providerOrder.receipt === `hc-${attempt.id}`.slice(0, 40)
+      && providerOrder.notes?.crm_attempt_id === attempt.id
+      && providerOrder.notes?.invoice_id === attempt.invoiceId
+      && (!allocationHash || providerOrder.notes?.allocation_plan_hash === allocationHash)
+      && Number(providerOrder.amount) === Number(attempt.amountPaise)
+      && String(providerOrder.currency || '').toUpperCase() === String(attempt.currency).toUpperCase();
+    if (!orderMatches || !Array.isArray(providerPayments?.items)) {
+      throw new RazorpayCheckoutError('CHECKOUT_RECONCILIATION_REQUIRES_REVIEW', 'Razorpay could not verify that this order exactly matches the saved invoice. Finance review is required; do not pay again.', 409, { checkoutAttemptId: attempt.id, razorpayOrderId: attempt.razorpayOrderId });
+    }
+    const payments = providerPayments.items;
+    if (payments.some((payment) => String(payment.order_id || '') !== attempt.razorpayOrderId
+      || Number(payment.amount) !== Number(attempt.amountPaise)
+      || String(payment.currency || '').toUpperCase() !== String(attempt.currency).toUpperCase())) {
+      throw new RazorpayCheckoutError('CHECKOUT_RECONCILIATION_REQUIRES_REVIEW', 'Razorpay payment details do not exactly match this checkout. Finance review is required; do not pay again.', 409, { checkoutAttemptId: attempt.id, razorpayOrderId: attempt.razorpayOrderId });
+    }
+    const captured = payments.find((payment) => String(payment.status || '').toLowerCase() === 'captured');
+    if (captured) {
+      const result = await settleCapturedPayment({
+        paymentId: captured.id,
+        providerOrderId: attempt.razorpayOrderId,
+        source: 'STATUS_POLL',
+        expectedInvoiceId: attempt.invoiceId,
+        expectedShareId: attempt.publicShareId,
+        provider: razorpay,
+      });
+      return { attempt: result.attempt || await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } }), order: providerOrder, reused: false, captured: true };
+    }
+    if (payments.length && payments.every((payment) => String(payment.status || '').toLowerCase() === 'failed')) {
+      const latestPayment = payments.reduce((latest, payment) => Number(payment.created_at || 0) > Number(latest?.created_at || 0) ? payment : latest, null);
+      const failed = await markAttemptFailed({ attemptId: attempt.id, paymentId: latestPayment?.id || null, providerPayment: latestPayment, source: 'STATUS_POLL', allowReview: true });
+      return { attempt: failed, order: providerOrder, reused: false, failed: true };
+    }
+    if (payments.length === 0 && canResumeUnattemptedCheckout({ attempt: { ...attempt, status: 'CREATED' }, providerOrder, providerPayments })) {
+      const resumed = await prisma.$transaction(async (tx) => {
+        const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
+        if (!current || current.status !== 'REVIEW' || current.razorpayOrderId !== attempt.razorpayOrderId) {
+          throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_CHANGED', 'Checkout attempt changed during reconciliation. Refresh its status before continuing.', 409, { checkoutAttemptId: attempt.id });
+        }
+        const updated = await tx.razorpayCheckoutAttempt.update({ where: { id: current.id }, data: { status: 'CREATED', ...clearProviderFailure } });
+        await auditAttemptTransition(tx, updated, 'RAZORPAY_ORDER_CREATE_RECONCILED', 'Razorpay confirmed the saved order is an exact, unattempted match; the existing checkout can resume', {
+          actorId: actor?.id || null, razorpayOrderId: providerOrder.id, providerAttempts: 0, priorState: 'REVIEW', nextState: 'CREATED',
+        });
+        return updated;
+      });
+      return { attempt: resumed, order: { id: providerOrder.id, amount: Number(providerOrder.amount), currency: providerOrder.currency }, reused: true };
+    }
+    const latestPayment = payments.reduce((latest, payment) => Number(payment.created_at || 0) > Number(latest?.created_at || 0) ? payment : latest, null);
+    let refreshed = attempt;
+    if (latestPayment?.id) {
+      refreshed = await prisma.$transaction(async (tx) => {
+        const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
+        if (!current || current.status !== 'REVIEW') return current;
+        const updated = await tx.razorpayCheckoutAttempt.update({ where: { id: current.id }, data: { razorpayPaymentId: latestPayment.id, ...getSafeRazorpayPaymentDiagnostics(latestPayment) } });
+        await auditAttemptTransition(tx, updated, 'RAZORPAY_REVIEW_PAYMENT_REFERENCE_REFRESHED', 'Latest nonterminal Razorpay payment reference recorded; checkout remains blocked pending a final provider state', {
+          razorpayOrderId: attempt.razorpayOrderId, razorpayPaymentId: latestPayment.id, providerStatus: latestPayment.status || null, source: 'STATUS_POLL', nextState: 'REVIEW',
+        }, 'FAILURE');
+        return updated;
+      });
+    }
+    return { attempt: refreshed, order: providerOrder, reused: false, pending: payments.length > 0 };
+  }
   const receipt = `hc-${attempt.id}`.slice(0, 40);
   let result;
   try {
@@ -439,9 +515,9 @@ const reconcileAmbiguousOrderCreation = async ({ attemptId, actor, provider: inj
   return { attempt: resumed, order: { id: order.id, amount: Number(order.amount), currency: order.currency }, reused: true };
 };
 
-const markAttemptFailed = async ({ attemptId, paymentId = null, providerPayment = null, source = 'STATUS_POLL' }) => prisma.$transaction(async (tx) => {
+const markAttemptFailed = async ({ attemptId, paymentId = null, providerPayment = null, source = 'STATUS_POLL', allowReview = false }) => prisma.$transaction(async (tx) => {
   const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attemptId } });
-  if (!current || ['CAPTURED', 'REVIEW', 'CREATE_FAILED'].includes(current.status)) return current;
+  if (!current || ['CAPTURED', 'CREATE_FAILED'].includes(current.status) || (current.status === 'REVIEW' && !allowReview)) return current;
   const providerDiagnostics = getSafeRazorpayPaymentDiagnostics(providerPayment);
   if (current.status === 'FAILED') {
     if (!paymentId || current.razorpayPaymentId === paymentId || String(providerPayment?.status || '').toLowerCase() !== 'failed') return current;
