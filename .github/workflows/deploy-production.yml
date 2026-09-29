@@ -150,9 +150,20 @@ jobs:
             echo "Refusing deployment: main advanced after preflight ($COMMIT != $main_sha). Rerun against the new reviewed commit after CI passes." >&2
             exit 1
           fi
-          parameters="$(jq -cn \
-            --arg command "sudo /usr/local/sbin/hangers-deploy-code '$COMMIT'" \
-            '{commands: [$command]}')"
+          remote_script="$(cat <<EOF
+          set -euo pipefail
+          cd /opt/hangers
+          runuser -u ubuntu -- git fetch --prune origin main
+          deploy_script=\$(mktemp /tmp/hangers-deploy-code.XXXXXX)
+          trap 'rm -f "\$deploy_script"' EXIT
+          runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/deploy-ec2-code.sh' > "\$deploy_script"
+          chmod 0755 "\$deploy_script"
+          "\$deploy_script" '$COMMIT'
+          EOF
+          )"
+          encoded_script="$(printf '%s' "$remote_script" | base64 | tr -d '\n')"
+          remote_command="printf '%s' '$encoded_script' | base64 -d | sudo bash"
+          parameters="$(jq -cn --arg command "$remote_command" '{commands: [$command]}')"
           command_id="$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
