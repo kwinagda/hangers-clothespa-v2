@@ -140,6 +140,8 @@ from **Actions > Deploy Production CRM > Run workflow** after CI passes.
   repairs an interrupted install even if Git already advanced to that commit.
   Production installs cap the Node.js heap at 640 MiB and limit npm network
   concurrency; npm audit/funding requests are omitted from the deploy path.
+  On the first deployment using this fingerprint mechanism, both packages are
+  installed once to establish the successful-install baseline.
 
 ## Database Releases
 
