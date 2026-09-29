@@ -1,11 +1,9 @@
 # Production Code Deployment
 
 Production CRM deployments use the GitHub Actions `Deploy Production CRM`
-workflow and one guarded command on EC2:
-
-```bash
-sudo /usr/local/sbin/hangers-deploy-code <full-git-commit-sha>
-```
+workflow. After its exact-SHA and CI checks, it fetches the deploy script from
+that commit on EC2 and runs that script; it does not rely on a possibly stale
+installed launcher.
 
 The backend, worker, and CRM require maintained **Node.js 24 >=24.11.0**. Keep
 CI, the EC2 login-shell runtime, and the actual PM2 backend/worker executables on
@@ -56,10 +54,11 @@ or redesigning credentials around independently scoped runtime identities.
    rejects a SHA that is not the current `origin/main` tip and rejects it unless
    that exact SHA has a successful push-triggered `CI` run. It checks that
    `main` has not advanced again immediately before requesting deployment.
-5. On EC2, the guarded deploy command fetches `origin/main`, requires the
-   selected SHA to belong to it and to be a fast-forward from the installed
-   commit, and uses `git merge --ff-only`. It then verifies the deployed HEAD
-   exactly equals the requested SHA.
+5. On EC2, the workflow fetches the deploy script from the selected commit and
+   runs it. The script requires that SHA to equal the current `origin/main` tip,
+   requires it to be a fast-forward from the installed commit, and uses
+   `git merge --ff-only`. It then verifies the deployed HEAD exactly equals the
+   requested SHA.
 
 If `main` advances between preflight and deploy, the workflow stops before
 issuing the deployment command; rerun CI/deployment using the new exact SHA.

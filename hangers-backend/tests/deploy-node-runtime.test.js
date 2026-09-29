@@ -65,6 +65,7 @@ test('production dependency installs are bounded and recover after an interrupte
 
 test('production workflow checks out the exact resolved commit it will deploy', () => {
   const workflow = fs.readFileSync(path.resolve(__dirname, '../../.github/workflows/deploy-production.yml'), 'utf8');
+  const deploy = fs.readFileSync(deployScript, 'utf8');
   assert.match(workflow, /ref: \$\{\{ steps\.revision\.outputs\.commit \}\}/);
   assert.match(workflow, /actions: read/);
   assert.match(workflow, /Require current pushed main commit and successful CI/);
@@ -74,6 +75,11 @@ test('production workflow checks out the exact resolved commit it will deploy', 
     < workflow.indexOf('Configure AWS credentials'));
   assert.ok(workflow.indexOf('main advanced after preflight')
     < workflow.indexOf('aws ssm send-command', workflow.indexOf('Start SSM deployment')));
+  assert.match(workflow, /git show '\$COMMIT:scripts\/deploy\/deploy-ec2-code\.sh'/);
+  assert.match(workflow, /remote_command="printf '%s' '\$encoded_script' \| base64 -d \| sudo bash"/);
+  assert.match(deploy, /target_commit" == "\$main_commit/);
+  assert.ok(deploy.indexOf('target_commit" == "$main_commit"')
+    < deploy.indexOf('git merge --ff-only "$target_commit"'));
 });
 
 test('PM2 runtime gate requires both payment processes on supported Node binaries', () => {

@@ -85,6 +85,9 @@ else
   target_commit="$(run_as_deploy_user git rev-parse "${TARGET_REVISION}^{commit}")"
 fi
 
+main_commit="$(run_as_deploy_user git rev-parse origin/main)"
+[[ "$target_commit" == "$main_commit" ]] \
+  || fail "target $target_commit is not the current origin/main commit $main_commit"
 run_as_deploy_user git merge-base --is-ancestor "$target_commit" origin/main \
   || fail "target $target_commit is not part of origin/main"
 run_as_deploy_user git merge-base --is-ancestor HEAD "$target_commit" \
