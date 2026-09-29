@@ -72,6 +72,10 @@ export default async function SitemapPage() {
         <div className="dp-card"><Link href="/about">About Hangers</Link></div>
         <div className="dp-card"><Link href="/faq">FAQ</Link></div>
         <div className="dp-card"><Link href="/contact">Contact</Link></div>
+        <div className="dp-card"><Link href="/terms-and-conditions">Terms and Conditions</Link></div>
+        <div className="dp-card"><Link href="/privacy-policy">Privacy Policy</Link></div>
+        <div className="dp-card"><Link href="/cancellation-refund">Cancellation and Refund</Link></div>
+        <div className="dp-card"><Link href="/shipping-exchange">Shipping and Exchange</Link></div>
       </div>
     </section>
   </PublicContentPage>

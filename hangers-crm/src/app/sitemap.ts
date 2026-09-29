@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next'
 import { SITE_URL } from '@/lib/seo'
 import { getPublicBlogPosts, getPublicSuburbPages, getPublicServicePages } from '@/lib/publicContent'
 
-const staticPages: Array<{ path: string; changeFrequency: 'weekly' | 'monthly'; priority: number }> = [
+const staticPages: Array<{ path: string; changeFrequency: 'weekly' | 'monthly' | 'yearly'; priority: number }> = [
   { path: '', changeFrequency: 'weekly', priority: 1 },
   { path: '/services', changeFrequency: 'monthly', priority: 0.9 },
   { path: '/rate-chart', changeFrequency: 'weekly', priority: 0.9 },
@@ -14,6 +14,10 @@ const staticPages: Array<{ path: string; changeFrequency: 'weekly' | 'monthly'; 
   { path: '/blog', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/faq', changeFrequency: 'monthly', priority: 0.6 },
   { path: '/contact', changeFrequency: 'monthly', priority: 0.7 },
+  { path: '/terms-and-conditions', changeFrequency: 'yearly', priority: 0.3 },
+  { path: '/privacy-policy', changeFrequency: 'yearly', priority: 0.3 },
+  { path: '/cancellation-refund', changeFrequency: 'yearly', priority: 0.4 },
+  { path: '/shipping-exchange', changeFrequency: 'yearly', priority: 0.3 },
   { path: '/sitemap', changeFrequency: 'monthly', priority: 0.3 },
 ]
 
