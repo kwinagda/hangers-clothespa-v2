@@ -190,6 +190,9 @@ const createCapturedPayment = async (tx, {
 
 const recordInvoiceAllocationsSettlement = async (tx, {
   allocations,
+  allowPartial = false,
+  staff,
+  effectiveAt,
   expectedCustomerId,
   expectedCurrency,
   amount,
@@ -205,7 +208,7 @@ const recordInvoiceAllocationsSettlement = async (tx, {
   providerCaptureVerified = false,
 }) => {
   assertSettlementMethodAllowed(method, { providerCaptureVerified });
-  if (!Array.isArray(allocations) || allocations.length < 2) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'At least two invoice allocations are required');
+  if (!Array.isArray(allocations) || allocations.length < 1) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'At least one invoice allocation is required');
   const normalized = allocations.map((item) => ({ invoiceId: String(item.invoiceId), amount: roundMoney(Number(item.amount)) }));
   if (new Set(normalized.map((item) => item.invoiceId)).size !== normalized.length || normalized.some((item) => !Number.isFinite(item.amount) || item.amount <= 0)) {
     throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'The invoice allocation plan is invalid');
@@ -236,18 +239,28 @@ const recordInvoiceAllocationsSettlement = async (tx, {
     const invoice = byId.get(allocation.invoiceId);
     if (!invoice || invoice.customerId !== customerId || String(invoice.currency || 'INR').toUpperCase() !== currency
       || invoice.voidedAt || invoice.status === 'VOID'
-      || roundMoney(Number(invoice.balanceDue || 0)) !== allocation.amount) {
+      || (allowPartial
+        ? allocation.amount > roundMoney(Number(invoice.balanceDue || 0))
+        : roundMoney(Number(invoice.balanceDue || 0)) !== allocation.amount)) {
       throw new PaymentRuleError('ALLOCATION_BALANCE_CHANGED', 'An invoice balance changed while payment was being completed. Finance review is required.', 409);
     }
     if (invoice.orderId) {
       const order = await tx.order.findUnique({ where: { id: invoice.orderId }, select: { status: true } });
-      if (!order || order.status === 'CANCELLED') throw new PaymentRuleError('ORDER_CANCELLED', 'A cancelled order cannot accept a new payment', 409);
+      if (!order || ['CANCELLED', 'RETURNED'].includes(order.status)) throw new PaymentRuleError('ORDER_CANCELLED', 'A cancelled or returned order cannot accept a new payment', 409);
       orderIds.add(invoice.orderId);
+    } else if (invoice.ironBillId) {
+      const bill = await tx.ironBill.findUnique({ where: { id: invoice.ironBillId }, select: { status: true } });
+      if (!bill || bill.status === 'VOID') throw new PaymentRuleError('BILL_VOID', 'A voided bill cannot accept payment', 409);
+    } else if (invoice.serviceAppointmentId) {
+      const appointment = await tx.serviceAppointment.findUnique({ where: { id: invoice.serviceAppointmentId }, select: { status: true } });
+      if (!appointment || appointment.status === 'CANCELLED') throw new PaymentRuleError('APPOINTMENT_CANCELLED', 'A cancelled appointment cannot accept payment', 409);
     }
   }
 
   const payment = await createCapturedPayment(tx, {
     customerId,
+    staffId: staff?.id,
+    effectiveAt,
     invoiceId: normalized[0].invoiceId,
     amount: expectedTotal,
     method,

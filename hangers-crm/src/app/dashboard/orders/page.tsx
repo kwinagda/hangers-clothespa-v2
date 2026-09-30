@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { authAPI, ordersAPI, challanAPI, metadataAPI, paymentsAPI } from '@/lib/api'
+import api, { authAPI, ordersAPI, challanAPI, metadataAPI, idempotencyConfig } from '@/lib/api'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { CheckSquare, ChevronRight, ClipboardList, Ellipsis, Lock, MessageCircle, Package, Plus, Printer, Search, Square, X } from 'lucide-react'
@@ -270,7 +270,7 @@ function OrdersPageContent() {
   const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([])
   const [showBulkPayModal, setShowBulkPayModal] = useState(false)
   const [bulkPayBusy, setBulkPayBusy] = useState(false)
-  const [bulkPayForm, setBulkPayForm] = useState({ method: '', reference: '', notes: '', amount: '' })
+  const [bulkPayForm, setBulkPayForm] = useState({ method: '', reference: '', notes: '', amount: '', paymentDate: format(new Date(), 'yyyy-MM-dd') })
   const [whatsAppModal, setWhatsAppModal] = useState<{ open: boolean; order: any | null; type: 'ORDER_DETAILS' | 'PAYMENT_REMINDER_ORDER' | 'PAYMENT_REMINDER_SUMMARY'; confirm: boolean }>({
     open: false,
     order: null,
@@ -438,6 +438,8 @@ function OrdersPageContent() {
   }
 
   const bulkTargetOptions = [
+    { status: 'PROCESSING', label: 'Bulk In Process' },
+    { status: 'IRONING', label: 'Bulk Pending Ironing' },
     { status: 'READY_FOR_DELIVERY', label: 'Bulk Mark Ready' },
     { status: 'OUT_FOR_DELIVERY', label: 'Bulk Out for Delivery' },
     { status: 'DELIVERED', label: 'Bulk Delivered' },
@@ -445,7 +447,10 @@ function OrdersPageContent() {
   const canBulkMove = (order: any, targetStatus: string) => {
     if (!order || order.status === targetStatus || isReturnOrder(order) || plantStatuses.includes(order.status)) return false
     if (orderWorkflow.requiresItems.includes(targetStatus) && !order.items?.length) return false
-    return getTransitionKind(order.status, targetStatus, orderWorkflow) === 'forward'
+    return orderWorkflow.crmEditableStatuses.includes(targetStatus)
+      && (orderWorkflow.allowedForward[order.status]?.includes(targetStatus)
+        || orderWorkflow.next[order.status] === targetStatus)
+      && getTransitionKind(order.status, targetStatus, orderWorkflow) === 'forward'
   }
   const bulkEligibleOrders = (targetStatus: string) => selectedOrders.filter((order: any) => canBulkMove(order, targetStatus))
   const bulkUpdateStatus = async (targetStatus: string) => {
@@ -487,13 +492,13 @@ function OrdersPageContent() {
   }
 
   const submitBulkPayment = async () => {
+    if (bulkPayBusy) return
     const amount = Number(bulkPayForm.amount)
     const payable = selectedOrders
       .filter((order: any) => orderBalanceDue(order) > 0 && !['CANCELLED', 'RETURNED'].includes(order.status))
-      .sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
     const totalDue = payable.reduce((sum: number, order: any) => sum + orderBalanceDue(order), 0)
-    if (!(amount > 0)) {
-      toast.error('Enter received amount')
+    if (!(amount > 0) || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) {
+      toast.error('Enter a positive amount with at most two decimal places')
       return
     }
     if (amount > totalDue) {
@@ -504,31 +509,29 @@ function OrdersPageContent() {
       toast.error('Select payment method')
       return
     }
+    if (!bulkPayForm.paymentDate || bulkPayForm.paymentDate > format(new Date(), 'yyyy-MM-dd')) {
+      toast.error('Select a payment date no later than today')
+      return
+    }
 
     setBulkPayBusy(true)
     try {
-      let remaining = amount
-      for (const order of payable) {
-        if (remaining <= 0) break
-        const allocation = Math.min(orderBalanceDue(order), remaining)
-        if (allocation > 0) {
-          await paymentsAPI.record({
-            orderId: order.id,
-            amount: Number(allocation.toFixed(2)),
-            method: bulkPayForm.method,
-            reference: bulkPayForm.reference || undefined,
-            notes: bulkPayForm.notes || `Bulk payment allocated to ${order.orderNumber}`,
-          })
-          remaining = Number((remaining - allocation).toFixed(2))
-        }
-      }
+      await api.post('/payments/receivables/payments', {
+        customerId: payable[0].customer?.id || payable[0].customerId,
+        orderIds: payable.map((order: any) => order.id),
+        amount,
+        method: bulkPayForm.method,
+        effectiveAt: `${bulkPayForm.paymentDate}T00:00:00+05:30`,
+        reference: bulkPayForm.reference || undefined,
+        notes: bulkPayForm.notes || undefined,
+      }, idempotencyConfig('orders-bulk-payment'))
       toast.success('Bulk payment recorded')
       setSelected(new Set())
       setShowBulkPayModal(false)
       setBulkPayForm((prev) => ({ ...prev, reference: '', notes: '', amount: '' }))
       load()
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to record bulk payment')
+      toast.error(e?.response?.data?.message || e?.message || 'Failed to record bulk payment')
     } finally {
       setBulkPayBusy(false)
     }
@@ -645,6 +648,10 @@ function OrdersPageContent() {
         {selected.size > 0 && (
           <div className="crm-mobile-selection-bar">
             <strong>{selected.size} selected</strong>
+            {bulkTargetOptions.map((option) => {
+              const count = bulkEligibleOrders(option.status).length
+              return count ? <button key={option.status} disabled={Boolean(bulkUpdating)} onClick={() => bulkUpdateStatus(option.status)}>{bulkUpdating === option.status ? 'Updating...' : `${option.label} (${count})`}</button> : null
+            })}
             <button onClick={() => setShowChallanModal(true)}>Challan</button>
             {selectedPayableOrders.length > 0 && <button onClick={openBulkPayModal}>{selectedPayableOrders.length === 1 ? 'Payment' : 'Bulk pay'}</button>}
             <button onClick={() => setSelected(new Set())}>Clear</button>
@@ -867,7 +874,10 @@ function OrdersPageContent() {
                               Mark Cleaned
                             </button>
                           )}
-                          <details className="crm-action-menu" style={{position:'relative'}}>
+                          <details className="crm-action-menu" style={{position:'relative'}} onClick={(event) => {
+                            const target = event.target
+                            if (target instanceof Element && target.closest('button, a')) event.currentTarget.open = false
+                          }}>
                             <summary style={{listStyle:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'7px 10px',borderRadius:8,background:'#fff',color:'#3d5470',fontSize:12,fontWeight:600,border:'1px solid #dce8f0',marginBottom:6}}>
                               Actions <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
                             </summary>
@@ -881,9 +891,9 @@ function OrdersPageContent() {
                             </div>
                           </details>
                           <div style={{display:'flex',gap:6}}>
-                            <span title="Record payment" style={{width:28,height:28,borderRadius:7,background:'#fff',border:'1px solid #dce8f0',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#3d5470',cursor:'pointer',flexShrink:0}}>
+                            <Link href={`/dashboard/orders/${o.id}?returnTo=${encodeURIComponent(returnTo)}&payment=1#payment-panel`} title="Record / manage payment" aria-label={`Record or manage payment for ${o.orderNumber}`} style={{width:28,height:28,borderRadius:7,background:'#fff',border:'1px solid #dce8f0',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#3d5470',cursor:'pointer',flexShrink:0}}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg>
-                            </span>
+                            </Link>
 	                            <button onClick={() => openWhatsAppModal(o)} title="Send WhatsApp message" style={{width:28,height:28,borderRadius:7,background:'#e8f7ef',border:'1px solid #bfe6d2',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#0d7a4e',flexShrink:0,cursor:'pointer'}}>
 	                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20l1.3-3.9A7.5 7.5 0 1 1 9 18.5L4 20z"/></svg>
 	                            </button>
@@ -1021,6 +1031,9 @@ function OrdersPageContent() {
                   <input value={bulkPayForm.reference} onChange={(e)=>setBulkPayForm((prev)=>({...prev,reference:e.target.value}))}
                     placeholder="Optional" style={{width:'100%',border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',boxSizing:'border-box'}} />
                 </div>
+                <label style={{fontSize:12,color:'#6b7fa3',display:'grid',gap:6}}>Payment date
+                  <input aria-label="Bulk payment date" type="date" required max={format(new Date(), 'yyyy-MM-dd')} value={bulkPayForm.paymentDate} onChange={(e)=>setBulkPayForm((prev)=>({...prev,paymentDate:e.target.value}))} style={{width:'100%',minWidth:0,border:'1px solid #dce8f0',borderRadius:8,padding:'10px 12px',boxSizing:'border-box'}} />
+                </label>
                 <div>
                   <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Notes</label>
                   <input value={bulkPayForm.notes} onChange={(e)=>setBulkPayForm((prev)=>({...prev,notes:e.target.value}))}
@@ -1028,7 +1041,7 @@ function OrdersPageContent() {
                 </div>
               </div>
               <div style={{fontSize:12,color:'#6b7fa3',lineHeight:1.45,marginTop:12}}>
-                Allocation is applied to the oldest selected outstanding order first. Each allocation creates the normal payment and timeline entry.
+                Allocation is applied to the oldest selected invoice first. One receipt covers the allocated orders; any unpaid balance stays open.
               </div>
             </div>
             <div style={{display:'flex',justifyContent:'flex-end',gap:10,padding:'14px 22px',borderTop:'1px solid #edf3f8',background:'#f8fafc'}}>

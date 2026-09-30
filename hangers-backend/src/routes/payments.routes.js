@@ -7,6 +7,7 @@ const { requirePermission, requireRole, requireServiceAccess } = require('../mid
 const { idempotent } = require('../middleware/idempotency');
 const {
   recordPayment,
+  recordReceivablesPayment,
   getOrderPayments,
   getDailySummary,
   getReceivables,
@@ -22,6 +23,7 @@ router.use(privateNoStore);
 router.use(requireTrustedWrite);
 
 router.post('/',                      staffAuth, financeAccess, requirePermission('finance.collect_payment'), idempotent(), recordPayment);
+router.post('/receivables/payments', staffAuth, financeAccess, requirePermission('finance.collect_payment'), idempotent({ scope: 'receivables.payment' }), recordReceivablesPayment);
 router.get('/daily',                  staffAuth, financeAccess, financeRoles, getDailySummary);
 router.get('/receivables',            staffAuth, financeAccess, financeRoles, getReceivables);
 router.post('/receivables/reminders/preview', staffAuth, financeAccess, financeRoles, previewReceivablesReminder);

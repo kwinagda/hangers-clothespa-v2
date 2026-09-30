@@ -3,9 +3,10 @@ import { useEffect, useState, useCallback } from 'react'
 import { format, subDays } from 'date-fns'
 import toast from 'react-hot-toast'
 import { AlertTriangle, BarChart3, CalendarDays, CheckCircle2, ChevronDown, ChevronUp, CreditCard, FileSpreadsheet, Landmark, Loader2, MessageCircle, RefreshCw, Smartphone, Tag, Upload, WalletCards, Webhook } from 'lucide-react'
-import api, { authAPI, idempotencyConfig, metadataAPI } from '@/lib/api'
+import api, { authAPI, idempotencyConfig, metadataAPI, paymentsAPI, ironAPI, serviceAppointmentsAPI } from '@/lib/api'
 import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import { ResponsiveDialog } from '@/components/ui/ResponsiveDialog'
 
 const METHOD_ICON = {CASH:Landmark,UPI:Smartphone,CARD:CreditCard,RAZORPAY:WalletCards,ONLINE:WalletCards,COD:Landmark,WALLET:WalletCards,OTHER:Tag,ALL:BarChart3}
 const METHOD_COLOR: Record<string,string> = {CASH:'#22c55e',UPI:'#3b82f6',CARD:'#8b5cf6',RAZORPAY:'#f97316',ONLINE:'#0ea5e9',COD:'#14b8a6',WALLET:'#6366f1',OTHER:'#6b7fa3'}
@@ -36,6 +37,14 @@ const addPaise = (left: string, right: string) => {
   }
   if (carry) result.push(String(carry))
   return result.reverse().join('') || '0'
+}
+const previewFifoAllocation = (invoices: any[], amount: number) => {
+  let remaining = Math.round(amount * 100)
+  return invoices.map((invoice: any) => {
+    const applied = Math.min(Math.max(remaining, 0), Math.round(Number(invoice.balanceDue) * 100))
+    remaining -= applied
+    return { ...invoice, applied: applied / 100 }
+  })
 }
 const paymentSourceNumber = (payment: any) => {
   const invoice = payment.allocations?.[0]?.invoice
@@ -76,6 +85,14 @@ export default function FinancePage() {
   const [receivables, setReceivables] = useState<any[]>([])
   const [receivableGroups, setReceivableGroups] = useState<any[]>([])
   const [receivableTotal, setReceivableTotal] = useState(0)
+  const [arSearch, setArSearch] = useState('')
+  const [canCollect, setCanCollect] = useState(false)
+  const [arPayment, setArPayment] = useState<any>(null)
+  const [arPaymentBusy, setArPaymentBusy] = useState(false)
+  const [arPaymentError, setArPaymentError] = useState('')
+  const [arBulkPayment, setArBulkPayment] = useState<any>(null)
+  const [arBulkBusy, setArBulkBusy] = useState(false)
+  const [arBulkError, setArBulkError] = useState('')
   const [loading, setLoading] = useState(true)
   const [filterMethod, setFilterMethod] = useState('ALL')
   const [methodOptions, setMethodOptions] = useState<Array<{ value: string; label: string }>>([])
@@ -236,6 +253,7 @@ export default function FinancePage() {
     authAPI.me().then((r: any) => {
       const staff = r?.staff || r?.data?.staff
       const permissions = staff?.effectivePermissions || []
+      setCanCollect(staff?.role === 'SUPER_ADMIN' || permissions.includes('*') || permissions.includes('finance.collect_payment'))
       setCanReconcile(staff?.role === 'SUPER_ADMIN' || permissions.includes('*') || permissions.includes('finance.reconcile'))
     }).catch(() => setCanReconcile(false))
   }, [])
@@ -258,7 +276,63 @@ export default function FinancePage() {
 
   const filtered = filterMethod === 'ALL' ? payments : payments.filter(p => p.method === filterMethod)
   const pagedPayments = filtered.slice((dailyPage - 1) * pageSize, dailyPage * pageSize)
-  const pagedReceivableGroups = receivableGroups.slice((receivablesPage - 1) * pageSize, receivablesPage * pageSize)
+  const matchingReceivableGroups = receivableGroups.filter((group: any) => {
+    const query = arSearch.trim().toLowerCase()
+    return !query || [group.customer?.name, group.customer?.phone, ...(group.receivables || []).flatMap((item: any) => [item.invoiceNumber, item.sourceNumber, item.orderNumber])].some((value) => String(value || '').toLowerCase().includes(query))
+  })
+  const pagedReceivableGroups = matchingReceivableGroups.slice((receivablesPage - 1) * pageSize, receivablesPage * pageSize)
+  const submitArBulkPayment = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!arBulkPayment || arBulkBusy || !canCollect) return
+    if (!arBulkPayment.date || arBulkPayment.date > format(new Date(), 'yyyy-MM-dd')) {
+      setArBulkError('Select a payment date no later than today')
+      return
+    }
+    const amount = Number(arBulkPayment.amount)
+    const totalDue = arBulkPayment.invoices.reduce((sum: number, invoice: any) => sum + Number(invoice.balanceDue), 0)
+    if (!Number.isFinite(amount) || amount <= 0 || amount > Math.round(totalDue * 100) / 100 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) {
+      setArBulkError('Enter an amount within the selected balance, with at most two decimal places')
+      return
+    }
+    setArBulkBusy(true)
+    setArBulkError('')
+    try {
+      await api.post('/payments/receivables/payments', {
+        customerId: arBulkPayment.customerId, invoiceIds: arBulkPayment.invoices.map((invoice: any) => invoice.invoiceId), amount, method: arBulkPayment.method,
+        effectiveAt: `${arBulkPayment.date}T00:00:00+05:30`, reference: arBulkPayment.reference || undefined,
+      }, idempotencyConfig('ar-bulk-payment'))
+      toast.success('Payment recorded against selected invoices')
+      setArBulkPayment(null)
+      setSelectedReceivables({})
+      await loadReceivables()
+    } catch (error: any) {
+      setArBulkError(error?.response?.data?.message || error?.message || 'No payment was recorded. Refresh and try again.')
+    } finally { setArBulkBusy(false) }
+  }
+  const submitArPayment = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!arPayment || arPaymentBusy || !canCollect) return
+    const amount = Number(arPayment.amount)
+    if (!Number.isFinite(amount) || amount <= 0 || amount > Number(arPayment.invoice.balanceDue) || !arPayment.date || arPayment.date > format(new Date(), 'yyyy-MM-dd')) {
+      setArPaymentError('Enter an amount within the outstanding balance and a payment date no later than today.')
+      return
+    }
+    setArPaymentBusy(true)
+    setArPaymentError('')
+    try {
+      const invoice = arPayment.invoice
+      const data = { amount, reference: arPayment.reference || undefined, effectiveAt: `${arPayment.date}T00:00:00+05:30` }
+      if (invoice.orderId) await paymentsAPI.record({ ...data, orderId: invoice.orderId, method: arPayment.method })
+      else if (invoice.ironBillId) await ironAPI.recordPayment(invoice.ironBillId, { ...data, paymentMethod: arPayment.method })
+      else if (invoice.serviceAppointmentId) await serviceAppointmentsAPI.pay(invoice.serviceAppointmentId, { ...data, paymentMethod: arPayment.method })
+      else throw new Error('This invoice has no supported payment source')
+      toast.success('Payment recorded')
+      setArPayment(null)
+      await loadReceivables()
+    } catch (error: any) {
+      setArPaymentError(error?.response?.data?.message || error?.message || 'Payment could not be recorded')
+    } finally { setArPaymentBusy(false) }
+  }
   const checkoutMethodRows = Object.values(checkoutMethodOutcomes.reduce((groups: Record<string, any>, outcome: any) => {
     const key = `${outcome.mode}:${outcome.providerMethod || 'UNREPORTED'}`
     const row = groups[key] || (groups[key] = { mode: outcome.mode, method: outcome.providerMethod || 'Method unreported', captured: 0, failed: 0, unresolved: 0, capturedPaise: '0', failedPaise: '0', unresolvedPaise: '0' })
@@ -286,7 +360,7 @@ export default function FinancePage() {
     const key = groupKey(group)
     const selected = selectedReceivables[key]
     const ids = (group?.receivables || []).map((item: any) => item.invoiceId).filter(Boolean)
-    return selected && selected.length ? selected : ids
+    return selected === undefined ? ids : selected
   }
   const selectedTotalForGroup = (group: any) => {
     const selected = new Set(selectedForGroup(group))
@@ -295,7 +369,7 @@ export default function FinancePage() {
   const toggleGroupSelection = (group: any, invoiceId: string) => {
     const key = groupKey(group)
     const allIds: string[] = (group?.receivables || []).map((item: any) => item.invoiceId).filter(Boolean)
-    const current = selectedReceivables[key] && selectedReceivables[key].length ? selectedReceivables[key] : allIds
+    const current = selectedReceivables[key] === undefined ? allIds : selectedReceivables[key]
     const next = current.includes(invoiceId) ? current.filter((id: string) => id !== invoiceId) : [...current, invoiceId]
     setSelectedReceivables((prev) => ({ ...prev, [key]: next }))
   }
@@ -794,6 +868,51 @@ export default function FinancePage() {
 
       {tab === 'receivables' && (
         <>
+          <ResponsiveDialog open={Boolean(arPayment)} title="Record payment" description={arPayment ? `${arPayment.customerName} · ${arPayment.invoice.invoiceNumber} · Outstanding ${S(arPayment.invoice.balanceDue)}` : ''} onClose={() => { if (!arPaymentBusy) setArPayment(null) }} size="sm" closeOnBackdrop={!arPaymentBusy} footer={<button type="submit" form="ar-record-payment" disabled={arPaymentBusy} style={{padding:'12px 18px',border:0,borderRadius:8,background:'#023c62',color:'#fff',fontWeight:600}}>{arPaymentBusy ? 'Recording...' : 'Record payment'}</button>}>
+            {arPayment && <form id="ar-record-payment" onSubmit={submitArPayment} style={{display:'grid',gap:14}}>
+              <label style={{display:'grid',gap:6}}>Amount received
+                <input aria-label="Amount received" type="number" inputMode="decimal" min="0.01" step="0.01" max={arPayment.invoice.balanceDue} required disabled={arPaymentBusy} value={arPayment.amount} onChange={(e) => setArPayment({...arPayment,amount:e.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
+              </label>
+              <label style={{display:'grid',gap:6}}>Payment method
+                <select required disabled={arPaymentBusy} value={arPayment.method} onChange={(e) => setArPayment({...arPayment,method:e.target.value})} style={{padding:10,border:'1px solid #c9ddea',borderRadius:8}}>{methodOptions.filter((method) => !['RAZORPAY','WALLET','SPLIT'].includes(method.value)).map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select>
+              </label>
+              <label style={{display:'grid',gap:6}}>Payment date
+                <input type="date" required disabled={arPaymentBusy} max={format(new Date(), 'yyyy-MM-dd')} value={arPayment.date} onChange={(e) => setArPayment({...arPayment,date:e.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
+              </label>
+              <label style={{display:'grid',gap:6}}>Reference (optional)
+                <input maxLength={120} disabled={arPaymentBusy} value={arPayment.reference} onChange={(e) => setArPayment({...arPayment,reference:e.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
+              </label>
+              {arPaymentError && <p role="alert" style={{color:'#b91c1c',margin:0}}>{arPaymentError}</p>}
+            </form>}
+          </ResponsiveDialog>
+          <ResponsiveDialog open={Boolean(arBulkPayment)} title="Record selected invoices" description={arBulkPayment ? `${arBulkPayment.customerName} · ${arBulkPayment.invoices.length} invoices` : ''} onClose={() => { if (!arBulkBusy) setArBulkPayment(null) }} size="sm" closeOnBackdrop={!arBulkBusy} footer={<button type="submit" form="ar-bulk-payment" disabled={arBulkBusy} style={{padding:'12px 18px',border:0,borderRadius:8,background:'#023c62',color:'#fff',fontWeight:600}}>{arBulkBusy ? 'Recording...' : 'Record payment'}</button>}>
+            {arBulkPayment && <form id="ar-bulk-payment" onSubmit={submitArBulkPayment} style={{display:'grid',gap:14}}>
+              <label style={{display:'grid',gap:6}}>Amount received
+                <input aria-label="Amount received for selected invoices" type="number" inputMode="decimal" min="0.01" step="0.01" max={arBulkPayment.invoices.reduce((sum: number, invoice: any) => sum + Number(invoice.balanceDue), 0)} required disabled={arBulkBusy} value={arBulkPayment.amount} onChange={(event) => setArBulkPayment({...arBulkPayment,amount:event.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
+              </label>
+              <div style={{fontSize:12,color:'#52647e'}}>Applied to oldest invoices first. Any unpaid balance stays open.</div>
+              <div style={{display:'grid',gap:8,maxHeight:220,overflowY:'auto'}}>{previewFifoAllocation(arBulkPayment.invoices, Number(arBulkPayment.amount || 0)).map((invoice: any) =>
+                <div key={invoice.invoiceId} style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',alignItems:'center',gap:8,fontSize:13}}>
+                  <span style={{overflowWrap:'anywhere'}}>{invoice.invoiceNumber} <small>Due {S(Number(invoice.balanceDue))}</small></span>
+                  <strong>{S(invoice.applied)}</strong>
+                </div>)}
+              </div>
+              <strong>Selected outstanding {S(arBulkPayment.invoices.reduce((sum: number, invoice: any) => sum + Number(invoice.balanceDue), 0))}</strong>
+              <label style={{display:'grid',gap:6}}>Payment method
+                <select required disabled={arBulkBusy} value={arBulkPayment.method} onChange={(event) => setArBulkPayment({...arBulkPayment,method:event.target.value})} style={{padding:10,border:'1px solid #c9ddea',borderRadius:8}}>{methodOptions.filter((method) => !['RAZORPAY','WALLET','SPLIT'].includes(method.value)).map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select>
+              </label>
+              <label style={{display:'grid',gap:6}}>Payment date
+                <input type="date" required disabled={arBulkBusy} max={format(new Date(), 'yyyy-MM-dd')} value={arBulkPayment.date} onChange={(event) => setArBulkPayment({...arBulkPayment,date:event.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
+              </label>
+              <label style={{display:'grid',gap:6}}>Reference (optional)
+                <input maxLength={120} disabled={arBulkBusy} value={arBulkPayment.reference} onChange={(event) => setArBulkPayment({...arBulkPayment,reference:event.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
+              </label>
+              {arBulkError && <p role="alert" style={{color:'#b91c1c',margin:0}}>{arBulkError}</p>}
+            </form>}
+          </ResponsiveDialog>
+          <label style={{display:'grid',gap:6,marginBottom:16,fontSize:13,fontWeight:600}}>Search receivables
+            <input type="search" value={arSearch} onChange={(event) => { setArSearch(event.target.value); setReceivablesPage(1) }} placeholder="Customer, phone, order or invoice number" style={{width:'100%',boxSizing:'border-box',padding:12,border:'1px solid #c9ddea',borderRadius:8}} />
+          </label>
           <div className="ar-total-card" style={{background:'linear-gradient(135deg,#7f1d1d,#991b1b)',borderRadius:16,padding:24,color:'#fff',marginBottom:20,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <div>
               <div style={{fontSize:12,color:'rgba(255,200,200,0.7)',fontWeight:600,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:8}}>Total Outstanding Balance</div>
@@ -805,7 +924,7 @@ export default function FinancePage() {
 
           <div style={{display:'grid',gap:12}}>
             {loading ? <div style={{padding:48,textAlign:'center',color:'#9dafc8',background:'#fff',borderRadius:14,border:'1px solid #e3edf6'}}>Loading...</div>
-            : !receivableGroups.length ? <div style={{padding:48,textAlign:'center',color:'#22c55e',background:'#fff',borderRadius:14,border:'1px solid #e3edf6'}}>No outstanding balances.</div>
+            : !matchingReceivableGroups.length ? <div style={{padding:48,textAlign:'center',color:'#52647e',background:'#fff',borderRadius:8,border:'1px solid #e3edf6'}}>{arSearch ? 'No matching customers or invoices.' : 'No outstanding balances.'}</div>
             : pagedReceivableGroups.map((group: any) => {
               const key = groupKey(group)
               const selectedIds = selectedForGroup(group)
@@ -829,6 +948,13 @@ export default function FinancePage() {
                       <input type="checkbox" checked={allSelected} onChange={(e) => setGroupSelection(group, e.target.checked)} />
                       Select all for this customer · Selected {selectedIds.length} · {S(selectedTotalForGroup(group))}
                     </label>
+                    {canCollect && selectedIds.length > 1 && <button type="button" onClick={() => {
+                      setArBulkError('')
+                      setArBulkPayment({ customerId: group.customer.id, customerName: group.customer.name,
+                        invoices: group.receivables.filter((invoice: any) => selectedIds.includes(invoice.invoiceId)).sort((a: any, b: any) => new Date(a.issueDate).getTime() - new Date(b.issueDate).getTime() || new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime() || a.invoiceId.localeCompare(b.invoiceId)),
+                        amount: String(selectedTotalForGroup(group)),
+                        method: 'CASH', date: format(new Date(), 'yyyy-MM-dd'), reference: '' })
+                    }} style={{display:'inline-flex',margin:'0 0 8px 12px',padding:'8px 11px',border:0,borderRadius:7,background:'#023c62',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer'}}>Record selected payment · {selectedIds.length} invoices</button>}
                     <div style={{display:'grid',gap:7}}>
                       {(group.receivables || []).map((o: any) => {
                         const checked = selectedIds.includes(o.invoiceId)
@@ -839,6 +965,7 @@ export default function FinancePage() {
                               <div style={{fontFamily:"var(--crm-font-mono)",fontWeight:800,color:'#023c62',fontSize:13}}>{o.invoiceNumber || o.orderNumber}</div>
                               <div style={{fontSize:11,color:'#7b8ca8',marginTop:2}}>{o.orderNumber || o.sourceNumber}</div>
                               <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
+                                {canCollect && <button type="button" onClick={() => { setArPaymentError(''); setArPayment({ invoice: o, customerName: group.customer?.name, amount: String(o.balanceDue), method: 'CASH', reference: '', date: format(new Date(), 'yyyy-MM-dd') }) }} style={{border:0,background:'#023c62',color:'#fff',borderRadius:7,padding:'8px 10px',fontSize:12,fontWeight:600,cursor:'pointer'}}>Record payment</button>}
                                 <button type="button" disabled={invoiceLinkBusy===o.invoiceId} onClick={() => openInvoice(o.invoiceId, 'open')} style={{border:'1px solid #c9ddea',background:'#fff',color:'#023c62',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>Open invoice</button>
                                 <button type="button" disabled={invoiceLinkBusy===o.invoiceId} onClick={() => openInvoice(o.invoiceId, 'copy')} style={{border:'1px solid #c9ddea',background:'#f7fbff',color:'#356b8e',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>Copy link</button>
                               </div>
@@ -861,7 +988,7 @@ export default function FinancePage() {
           <PaginationControls
             page={receivablesPage}
             pageSize={pageSize}
-            totalItems={receivableGroups.length}
+            totalItems={matchingReceivableGroups.length}
             itemLabel="customers"
             onPageChange={setReceivablesPage}
             onPageSizeChange={(size) => { setPageSize(size); setReceivablesPage(1) }}

@@ -1,10 +1,11 @@
 const prisma = require('../config/database');
 const { error } = require('../utils/response');
+const { openInvoiceWhere } = require('../services/receivables.service');
 
 const getARLedger = async (req, res) => {
   try {
     const invoices = await prisma.invoice.findMany({
-      where: { status: { not: 'VOID' }, balanceDue: { gt: 0 } },
+      where: openInvoiceWhere,
       include: {
         customer: { select: { id: true, name: true, phone: true } },
         order: { select: { id: true, orderNumber: true, status: true } },
