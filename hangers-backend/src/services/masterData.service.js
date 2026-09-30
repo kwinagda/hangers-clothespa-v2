@@ -162,7 +162,20 @@ const getMasterSetting = async (key, tx = prisma) => {
 
 const getOrderStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.orderStatuses);
 const getOrderSources = () => getMasterSetting(MASTER_SETTING_KEYS.orderSources);
-const getOrderWorkflow = () => getMasterSetting(MASTER_SETTING_KEYS.orderWorkflow);
+const getOrderWorkflow = async () => {
+  const workflow = await getMasterSetting(MASTER_SETTING_KEYS.orderWorkflow);
+  // Upgrade the original aggregate queues without overriding custom workflows.
+  for (const [key, legacy] of Object.entries({
+    in_process: ['PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT', 'IRONING'],
+    delivered: ['OUT_FOR_DELIVERY', 'DELIVERED'],
+  })) {
+    const view = workflow.views?.[key];
+    if (Array.isArray(view?.statuses) && view.statuses.length === legacy.length && legacy.every((status) => view.statuses.includes(status))) {
+      workflow.views[key] = { ...view, ...ORDER_WORKFLOW.views[key] };
+    }
+  }
+  return workflow;
+};
 const getFieldServiceStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.fieldServiceStatuses);
 const getFieldServiceWorkflow = () => getMasterSetting(MASTER_SETTING_KEYS.fieldServiceWorkflow);
 const getPaymentMethods = () => getMasterSetting(MASTER_SETTING_KEYS.paymentMethods);

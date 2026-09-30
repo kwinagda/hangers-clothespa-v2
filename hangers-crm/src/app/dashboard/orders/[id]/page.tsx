@@ -682,6 +682,13 @@ export default function OrderDetailPage() {
 
   useEffect(() => { loadOrder() }, [loadOrder])
   useEffect(() => {
+    setShowPaymentPanel(searchParams.get('payment') === '1')
+  }, [orderId, searchParams])
+  useEffect(() => {
+    if (!order || !showPaymentPanel || searchParams.get('payment') !== '1') return
+    document.getElementById('payment-panel')?.scrollIntoView({ block: 'start' })
+  }, [order?.id, showPaymentPanel, searchParams])
+  useEffect(() => {
     const node = leftColumnRef.current
     if (!node) return
 
@@ -1245,7 +1252,9 @@ export default function OrderDetailPage() {
 
           {/* Payment panel (toggled) */}
           {showPaymentPanel && (
+            <section id="payment-panel" aria-label="Record and manage order payments">
             <PaymentPanel orderId={order.id} customerId={order.customer?.id} totalAmount={order.totalAmount||0} paidAmount={order.paidAmount||0} paymentStatus={order.paymentStatus||'UNPAID'} writeOffAlreadyDone={order.writeOffAmount||0} payments={order.payments || []} refundAttempts={order.razorpayRefundAttempts || []} canRefund={canRefund} onPaymentRecorded={loadOrder} />
+            </section>
           )}
 
           {/* Rider assignment */}

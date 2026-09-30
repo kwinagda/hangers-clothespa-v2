@@ -245,10 +245,15 @@ const ORDER_WORKFLOW = {
     in_process: {
       label: 'In Process',
       title: 'In-Process Orders',
-      description: 'Orders currently received, being processed, at plant, or pending ironing.',
+      description: 'Orders currently being processed.',
       metric: 'Working queue',
-      statuses: ['PICKED_UP', 'PROCESSING', 'SENT_TO_PLANT', 'IRONING'],
+      statuses: ['PROCESSING'],
     },
+    pickup_pending: { label: 'Pickup Pending', title: 'Pickup Pending', description: 'Awaiting collection.', statuses: ['PENDING'] },
+    received: { label: 'Received', title: 'Received Orders', description: 'Received and awaiting processing.', statuses: ['PICKED_UP'] },
+    at_plant: { label: 'At Plant', title: 'Orders at Plant', description: 'Sent to a processing partner.', statuses: ['SENT_TO_PLANT'] },
+    pending_ironing: { label: 'Pending Ironing', title: 'Pending Ironing', description: 'Awaiting ironing.', statuses: ['IRONING'] },
+    out_for_delivery: { label: 'Out for Delivery', title: 'Out for Delivery', description: 'Dispatched but not yet delivered.', statuses: ['OUT_FOR_DELIVERY'] },
     ready: {
       label: 'Ready',
       title: 'Ready Orders',
@@ -259,9 +264,9 @@ const ORDER_WORKFLOW = {
     delivered: {
       label: 'Delivered',
       title: 'Delivered Orders',
-      description: 'Completed orders delivered to customers or out for delivery.',
+      description: 'Completed orders delivered to customers.',
       metric: 'Delivered queue',
-      statuses: ['OUT_FOR_DELIVERY', 'DELIVERED'],
+      statuses: ['DELIVERED'],
     },
     cancelled: {
       label: 'Cancelled / Returns',

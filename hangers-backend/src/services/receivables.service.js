@@ -4,6 +4,11 @@ const { roundMoney } = require('../utils/line-pricing');
 const openInvoiceWhere = {
   status: { not: 'VOID' },
   balanceDue: { gt: 0 },
+  AND: [
+    { OR: [{ orderId: null }, { order: { is: { status: { notIn: ['CANCELLED', 'RETURNED'] } } } }] },
+    { OR: [{ ironBillId: null }, { ironBill: { is: { status: { not: 'VOID' } } } }] },
+    { OR: [{ serviceAppointmentId: null }, { serviceAppointment: { is: { status: { not: 'CANCELLED' } } } }] },
+  ],
 };
 
 const invoiceSourceNumber = (invoice) =>
@@ -11,6 +16,29 @@ const invoiceSourceNumber = (invoice) =>
   invoice.ironBill?.billNumber ||
   invoice.serviceAppointment?.appointmentNumber ||
   invoice.invoiceNumber;
+
+const fifoInvoiceOrder = (left, right) =>
+  new Date(left.issueDate).getTime() - new Date(right.issueDate).getTime()
+  || new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime()
+  || String(left.id || left.invoiceId).localeCompare(String(right.id || right.invoiceId));
+
+const allocateReceivablePayment = (invoices, amount) => {
+  const totalPaise = Math.round(Number(amount) * 100);
+  if (!Number.isSafeInteger(totalPaise) || totalPaise <= 0 || Math.abs(Number(amount) * 100 - totalPaise) > 0.000001) {
+    throw new Error('Enter a positive amount with at most two decimal places');
+  }
+  let remaining = totalPaise;
+  const allocations = [];
+  for (const invoice of [...invoices].sort(fifoInvoiceOrder)) {
+    const balancePaise = Math.round(Number(invoice.balanceDue) * 100);
+    if (!Number.isSafeInteger(balancePaise) || balancePaise <= 0) throw new Error('Selected invoice balances have changed. Refresh receivables.');
+    const applied = Math.min(remaining, balancePaise);
+    if (applied > 0) allocations.push({ invoiceId: invoice.id || invoice.invoiceId, amount: applied / 100 });
+    remaining -= applied;
+  }
+  if (remaining > 0) throw new Error('Amount exceeds the selected outstanding balance');
+  return allocations;
+};
 
 const normalizeReceivableInvoice = (invoice) => ({
   invoiceId: invoice.id,
@@ -47,7 +75,7 @@ const findOpenReceivableInvoices = async ({ customerId } = {}) => {
       ironBill: { select: { id: true, billNumber: true, status: true } },
       serviceAppointment: { select: { id: true, appointmentNumber: true, status: true } },
     },
-    orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }],
+    orderBy: [{ issueDate: 'asc' }, { dueDate: 'asc' }, { id: 'asc' }],
   });
   return invoices.map(normalizeReceivableInvoice);
 };
@@ -95,6 +123,8 @@ const groupReceivablesByCustomer = (receivables) => {
 };
 
 module.exports = {
+  openInvoiceWhere,
+  allocateReceivablePayment,
   findOpenReceivableInvoices,
   getCustomerReceivablesSummary,
   groupReceivablesByCustomer,
