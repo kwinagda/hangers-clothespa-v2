@@ -706,22 +706,27 @@ const WHATSAPP_TEMPLATES = {
     PROCESSING: {
       templateName: 'hangers_crm_order_in_process',
       params: ['customerName', 'orderNumber'],
+      paused: true, // Temporarily paused; remove this line to resume sending.
     },
     SENT_TO_PLANT: {
       templateName: 'hangers_crm_order_sent_to_plant',
       params: ['customerName', 'orderNumber'],
+      paused: true, // Temporarily paused; remove this line to resume sending.
     },
     IRONING: {
       templateName: 'hangers_crm_order_pending_ironing',
       params: ['customerName', 'orderNumber'],
+      paused: true, // Temporarily paused; remove this line to resume sending.
     },
     READY_FOR_DELIVERY: {
       templateName: 'hangers_crm_order_ready',
       params: ['customerName', 'orderNumber', 'balanceDue'],
+      paused: true, // Temporarily paused; remove this line to resume sending.
     },
     OUT_FOR_DELIVERY: {
       templateName: 'hangers_crm_order_out_for_delivery',
       params: ['customerName', 'orderNumber', 'balanceDue'],
+      paused: true, // Temporarily paused; remove this line to resume sending.
     },
     DELIVERED: {
       templateName: 'hangers_crm_order_delivered',

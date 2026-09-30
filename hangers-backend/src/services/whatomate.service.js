@@ -278,6 +278,13 @@ const sendOrderStatusMessage = async (order, status, options = {}) => {
       code: 'MISSING_TEMPLATE',
     }));
   }
+  if (template.paused) {
+    // Intentionally paused via config (master-data.js), not a delivery failure: report
+    // success so callers (durable outbox retries, manual resend, audit logging) behave
+    // exactly as if the message had been sent, without actually calling the provider.
+    console.log(`[Whatomate] ${status} template is paused; skipping delivery to ${maskPhone(phone)}`);
+    return true;
+  }
   const invoiceSlug = await invoiceSlugFor(order);
   if (!invoiceSlug) {
     return maybeThrow(options.throwOnFailure, new WhatomateDeliveryError('Could not create public invoice token', {
