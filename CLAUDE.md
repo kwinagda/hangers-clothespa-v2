@@ -74,6 +74,12 @@ anything else). If you're a different tool, read `AGENTS.md`, which points back 
   the live PM2 Node.js runtime first, then runs `scripts/deploy/deploy-ec2-code.sh` on the
   server, which refuses direct-edit drift, enforces fast-forward-only, and health-checks
   `/health`, `/ready`, and `/login` before declaring success.
-- **Known open items (as of 2026-10-01):** PR #3 (GitHub Copilot) fixes a real OOM issue in
-  the CRM dependency install step during deploy — review and merge it. `main` has no GitHub
-  branch protection yet. The repo is currently public on GitHub.
+- **Known open items (as of 2026-10-01):** PR #3 (GitHub Copilot, draft) targeted the CRM
+  `npm ci` OOM during deploy, but PR #4 (merged) already fixed that a different way (bounded
+  `--maxsockets=2`, capped Node heap, retry-safe install markers in
+  `scripts/deploy/deploy-ec2-code.sh`) — PR #3 is superseded and can be closed, not merged.
+  PR #10 (Razorpay Custom Checkout) is an open draft — do not merge or deploy it before
+  real-provider acceptance. `main` has no GitHub branch protection yet
+  (`scripts/admin/enable-branch-protection.sh` exists for the owner to run). The repo is
+  currently public on GitHub. `hangers-staff-app` has no buildable Expo identity yet (see
+  `DEPLOY.md`).
