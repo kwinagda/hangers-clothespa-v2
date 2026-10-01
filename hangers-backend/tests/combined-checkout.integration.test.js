@@ -77,7 +77,9 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   assert.ok(successful.length >= 1, 'at least one concurrent capture must settle');
   for (const result of simultaneous) {
     if (result.status === 'rejected') {
-      assert.equal(result.reason.code, 'P2034', 'only a serializable transaction conflict may defer this replay');
+      const conflict = result.reason.code === 'P2034'
+        || (result.reason.code === 'P2010' && result.reason.meta?.code === '40001');
+      assert.equal(conflict, true, `only a verified serialization conflict may defer this replay (${result.reason.code}/${result.reason.meta?.code || 'none'})`);
       const recovered = await settleCapturedPayment(settlementArgs);
       assert.equal(recovered.alreadyRecorded, true, 'the deferred concurrent request must recover the existing payment');
     }
