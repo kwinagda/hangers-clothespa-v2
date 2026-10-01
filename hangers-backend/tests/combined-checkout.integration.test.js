@@ -30,27 +30,52 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   let providerOrder;
   let providerPayment;
   let created = 0;
+  let receiptMatches = [];
   const provider = {
     orders: {
-      create: async (payload) => { created += 1; return (providerOrder = { ...payload, id: `order_${suffix}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 }); },
+      create: async (payload) => {
+        created += 1;
+        providerOrder = { ...payload, id: `order_${suffix}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
+        throw Object.assign(new Error('Injected lost provider create response'), { code: 'ETIMEDOUT' });
+      },
+      all: async ({ receipt, count, skip }) => {
+        assert.equal(receipt, providerOrder.receipt);
+        assert.equal(count, 100);
+        assert.equal(skip, 0);
+        return { items: receiptMatches };
+      },
       fetch: async () => providerOrder,
       fetchPayments: async () => ({ items: providerPayment ? [providerPayment] : [] }),
     },
     payments: { fetch: async () => providerPayment },
   };
-  const args = { invoice: invoices[0], allocationPlan, shareId: `share_${suffix}`, idempotencyKey: suffix, provider };
+  const args = { invoice: invoices[0], allocationPlan, shareId: `share_${suffix}`, idempotencyKey: suffix, customCheckout: true, provider };
   await assert.rejects(createInvoiceCheckout({ ...args, allocationPlan: [{ ...allocationPlan[0], amount: 1 }, allocationPlan[1]] }), { code: 'CHECKOUT_ATTEMPT_STALE' });
   assert.equal(created, 0);
-  const checkout = await createInvoiceCheckout(args);
-  assert.equal(checkout.order.amount, 588000);
-  assert.equal(checkout.attempt.allocationPlan.length, 2);
-  assert.equal((await createInvoiceCheckout(args)).attempt.id, checkout.attempt.id);
+  await assert.rejects(createInvoiceCheckout(args), { code: 'CHECKOUT_RESULT_UNKNOWN' });
+  const lost = await prisma.razorpayCheckoutAttempt.findFirst({ where: { invoiceId: invoices[0].id } });
+  assert.equal(lost.status, 'REVIEW');
+  assert.equal(lost.razorpayOrderId, null);
   assert.equal(created, 1);
-  await prisma.razorpayCheckoutAttempt.update({ where: { id: checkout.attempt.id }, data: { status: 'REVIEW', failureCode: 'ETIMEDOUT' } });
-  const reconciled = await reconcileAmbiguousOrderCreation({ attemptId: checkout.attempt.id, actor: { requestId: suffix }, provider });
+  await assert.rejects(createInvoiceCheckout({ ...args, idempotencyKey: `retry_${suffix}` }), { code: 'CHECKOUT_ALREADY_IN_PROGRESS' });
+  for (const matches of [[], [providerOrder, { ...providerOrder, id: `duplicate_${suffix}` }]]) {
+    receiptMatches = matches;
+    await assert.rejects(reconcileAmbiguousOrderCreation({ attemptId: lost.id, actor: { requestId: suffix }, customCheckout: true, provider }), { code: 'CHECKOUT_RECONCILIATION_NO_UNIQUE_ORDER' });
+    const blocked = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: lost.id } });
+    assert.equal(blocked.status, 'REVIEW');
+    assert.equal(blocked.razorpayOrderId, null);
+    assert.equal(created, 1);
+  }
+  receiptMatches = [providerOrder];
+  const reconciled = await reconcileAmbiguousOrderCreation({ attemptId: lost.id, actor: { requestId: suffix }, customCheckout: true, provider });
   assert.equal(reconciled.reused, true, 'only the matching zero-attempt provider order is made resumable');
   assert.equal(reconciled.attempt.status, 'CREATED');
   assert.equal(reconciled.attempt.razorpayOrderId, providerOrder.id);
+  const checkout = await createInvoiceCheckout(args);
+  assert.equal(checkout.order.amount, 588000);
+  assert.equal(checkout.attempt.allocationPlan.length, 2);
+  assert.equal(checkout.attempt.id, lost.id);
+  assert.equal(created, 1, 'lost response recovery must never create a replacement provider order');
   await assert.rejects(createInvoiceCheckout({ invoice: invoices[1], shareId: `single_${suffix}`, idempotencyKey: `single_${suffix}`, provider }), { code: 'CHECKOUT_ALREADY_IN_PROGRESS' });
 
   const singleToken = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: invoices[0].id, purpose: 'INVOICE_VIEW' });
