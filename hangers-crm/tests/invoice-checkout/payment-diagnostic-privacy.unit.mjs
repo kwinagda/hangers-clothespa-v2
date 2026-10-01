@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { providerError, safePaymentDiagnostic } from '../../src/app/invoice/[slug]/checkout/razorpay-sdk.ts'
 
 test('SDK diagnostics redact sensitive values before displaying provider fields', () => {
-  for (const text of ['123', 'CVV=123', 'OTP 123456', 'key_secret=AbcSecretValue', 'signature=' + 'a'.repeat(64), 'token_ABcd1234', 'card_ABcd1234', 'cust_ABcd1234', 'rzp_live_SecretValue']) {
+  for (const text of ['123', 'CVV=123', 'CVV=1234', 'CID: 1234', 'OTP 123456', 'key_secret=AbcSecretValue', 'signature=' + 'a'.repeat(64), 'token_ABcd1234', 'card_ABcd1234', 'cust_ABcd1234', 'rzp_live_SecretValue']) {
     assert.notEqual(safePaymentDiagnostic(text), text)
     assert.ok(safePaymentDiagnostic(text).includes('[redacted-'))
   }

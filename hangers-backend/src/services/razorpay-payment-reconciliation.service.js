@@ -3,7 +3,6 @@ const { auditAttemptTransition, getRazorpay, markAttemptFailed, reconcileAmbiguo
 const { isCompleteFailedOrderPaymentList } = require('../utils/razorpay-payment-list');
 const { importRazorpaySettlementRecon } = require('./razorpay-settlement-recon.service');
 const { importRazorpaySettlementSummaries, validateWindow: validateSettlementSummaryWindow } = require('./razorpay-settlement-summary.service');
-const { razorpayErrorSummary } = require('../utils/redact');
 const { providerRetryAfterMs } = require('../utils/provider-retry-after');
 
 const PAGE_SIZE = 100;
@@ -21,7 +20,11 @@ const getMode = () => String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_
 const runTypeForMode = (mode) => `RAZORPAY_PAYMENTS_${mode}`;
 const settlementRunTypeForMode = (mode) => `RAZORPAY_SETTLEMENTS_${mode}`;
 const settlementSummaryRunTypeForMode = (mode) => `RAZORPAY_SETTLEMENT_SUMMARIES_${mode}`;
-const safeCode = (error) => String(razorpayErrorSummary(error).code || 'PROVIDER_ERROR').slice(0, 80);
+const safeCode = (error) => {
+  const root = error?.response?.data?.error || error?.error;
+  const code = root && typeof root === 'object' ? root.code : null;
+  return typeof code === 'string' && code.length ? code : null;
+};
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const businessDateKey = require('../utils/business-time').businessDateKey;
 

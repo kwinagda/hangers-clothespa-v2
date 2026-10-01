@@ -448,7 +448,7 @@ export default function RazorpayCustomCheckout({
     const sequence = ++credSequence.current
     setCredEligible(false)
     setCredBusy(false)
-    if (!/^\+\d{8,15}$/.test(contact) || !instanceRef.current?.checkCREDEligibility) {
+    if (!contact.trim().startsWith('+') || !instanceRef.current?.checkCREDEligibility) {
       invalidFields(['contact'], 'Enter your mobile number with its country code to check CRED eligibility.')
       return
     }
@@ -554,7 +554,7 @@ export default function RazorpayCustomCheckout({
         return setError('Select your saved card again before paying.')
       }
       const cvv = String(values.get('card-cvv') || '')
-      if (!detectedNetwork || networkUnavailable || ((savedCard.cvvRequired !== false || cvv) && !(detectedNetwork === 'AMEX' ? /^\d{4}$/ : /^\d{3}$/).test(cvv))) {
+      if (!detectedNetwork || networkUnavailable || (savedCard.cvvRequired !== false && !cvv)) {
         return invalidFields(['card-cvv'], 'Check this saved card is enabled and enter its security code.')
       }
       payment = { ...common, ...savedCard.sdk, ...(cvv ? { 'card[cvv]': cvv } : {}) }
@@ -573,11 +573,9 @@ export default function RazorpayCustomCheckout({
       const currentMonth = new Date()
       currentMonth.setDate(1)
       currentMonth.setHours(0, 0, 0, 0)
-      const amex = detectedNetwork === 'AMEX' || ['amex', 'American Express'].includes(cardNetwork)
       const legacyMaestro = cardNetwork === 'maestro'
       if (networkUnavailable || !cardFieldRef.current?.isValid() || (!legacyMaestro && (!expiryFieldRef.current?.isValid() || !/^\d{2}$/.test(expiryMonth) || month < 1 || month > 12
-        || !/^(\d{2}|\d{4})$/.test(expiryYear) || !Number.isFinite(expiry.getTime()) || expiry < currentMonth
-        || !(amex ? /^\d{4}$/ : /^\d{3}$/).test(cvv)))) {
+        || !/^\d{2}$/.test(expiryYear) || !Number.isFinite(expiry.getTime()) || expiry < currentMonth || !cvv))) {
         invalidFields(['card-number', ...(!legacyMaestro ? ['card-expiry', 'card-cvv'] : [])], 'Check the card number, expiry date and security code, then try again.')
         return
       }
@@ -678,7 +676,7 @@ export default function RazorpayCustomCheckout({
           {fieldMessage('email')}
         </div>}
         {collectContact && <div className={styles.row}>
-          <label>Mobile number with country code<input name="contact" {...fieldProps('contact')} type="tel" autoComplete="tel" value={contact} onChange={(event) => { credSequence.current += 1; setCredBusy(false); setCredEligible(false); setContact(event.target.value) }} readOnly={Boolean(order.testContact)} disabled={submitting} pattern="\+\d{8,15}" required />{fieldMessage('contact')}</label>
+          <label>Mobile number with country code<input name="contact" {...fieldProps('contact')} type="tel" autoComplete="tel" value={contact} onChange={(event) => { credSequence.current += 1; setCredBusy(false); setCredEligible(false); setContact(event.target.value) }} readOnly={Boolean(order.testContact)} disabled={submitting} required />{fieldMessage('contact')}</label>
         </div>}
         <fieldset className={styles.methods} disabled={submitting}>
           <legend>Payment method</legend>
@@ -696,7 +694,7 @@ export default function RazorpayCustomCheckout({
             onSaveRequested={setSaveRequested} onBusy={(value) => { savedCardsBusyRef.current = value; setSavedCardsBusy(value) }} />}
           {method === 'card' && savedCard?.sdk.token ? <>
             <p>{savedCard.network || 'Card'} ending {savedCard.last4}</p>
-            <label>{savedCard.cvvRequired === false ? 'CVV (optional)' : 'CVV'}<input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" maxLength={4} disabled={submitting} required={savedCard.cvvRequired !== false} />{fieldMessage('card-cvv')}</label>
+            <label>{savedCard.cvvRequired === false ? 'CVV (optional)' : 'CVV'}<input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" disabled={submitting} required={savedCard.cvvRequired !== false} />{fieldMessage('card-cvv')}</label>
           </> : <>
           {method === 'emi' && <label>EMI duration
             <select name="emi-duration" {...fieldProps('emi-duration')} value={emiDuration} onChange={(event) => setEmiDuration(event.target.value)} required>
@@ -705,7 +703,7 @@ export default function RazorpayCustomCheckout({
             {fieldMessage('emi-duration')}
             {!emiDurations.length && <small>Enter your card and check issuer eligibility to see available plans.</small>}
           </label>}
-          <label>Name on card<input name="card-name" {...fieldProps('card-name')} autoComplete="cc-name" maxLength={80} defaultValue={customerName || ''} required />{fieldMessage('card-name')}</label>
+          <label>Name on card<input name="card-name" {...fieldProps('card-name')} autoComplete="cc-name" defaultValue={customerName || ''} required />{fieldMessage('card-name')}</label>
           <label>Card number
             <div className={styles.cardNumber}>
               <input name="card-number" {...fieldProps('card-number')} inputMode="numeric" autoComplete="cc-number" placeholder="Card number" disabled={submitting || !cardFormatterReady} onBlur={() => void checkCardEligibility()} required />
@@ -720,8 +718,8 @@ export default function RazorpayCustomCheckout({
             <div>{networkAssets.map((asset) => <img key={asset.code} src={asset.url} alt={asset.label} width={48} height={30} loading="lazy" referrerPolicy="no-referrer" />)}</div>
           </div> : <small>Razorpay will validate this card during payment.</small>}
           <div className={styles.row}>
-            <label hidden={cardNetwork === 'maestro'}>Expiry<input name="card-expiry" {...fieldProps('card-expiry')} inputMode="numeric" autoComplete="cc-exp" maxLength={7} placeholder="MM / YY" disabled={submitting || cardNetwork === 'maestro'} required={cardNetwork !== 'maestro'} />{fieldMessage('card-expiry')}</label>
-            <label hidden={cardNetwork === 'maestro'}>CVV<input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" maxLength={4} disabled={submitting || cardNetwork === 'maestro'} required={cardNetwork !== 'maestro'} />{fieldMessage('card-cvv')}</label>
+            <label hidden={cardNetwork === 'maestro'}>Expiry<input name="card-expiry" {...fieldProps('card-expiry')} inputMode="numeric" autoComplete="cc-exp" placeholder="MM / YY" disabled={submitting || cardNetwork === 'maestro'} required={cardNetwork !== 'maestro'} />{fieldMessage('card-expiry')}</label>
+            <label hidden={cardNetwork === 'maestro'}>CVV<input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" disabled={submitting || cardNetwork === 'maestro'} required={cardNetwork !== 'maestro'} />{fieldMessage('card-cvv')}</label>
           </div>
           <button type="button" disabled={submitting || eligibilityBusy} onClick={() => void checkCardEligibility()}>{eligibilityBusy ? 'Checking card...' : method === 'emi' ? 'Check EMI eligibility' : 'Check card eligibility'}</button>
           {method === 'emi' && eligibility && <small>{eligibility.issuerName || eligibility.issuerCode}: {eligibility.emiAvailable === true ? 'Select an available plan.' : 'EMI availability is not confirmed for this card.'}</small>}

@@ -4,7 +4,7 @@ const prisma = require('../config/database');
 const { PaymentRuleError, getLedgerState, recordInvoiceAllocationsSettlement, recordInvoiceSettlement } = require('./payment.service');
 const { enqueueOutboxEvent, OUTBOX_EVENT } = require('./outbox.service');
 const { writeAuditEvent } = require('./activity.service');
-const { razorpayErrorSummary, safeText } = require('../utils/redact');
+const { safeText } = require('../utils/redact');
 const { getSafeRazorpayPaymentMethod, getSafeRazorpayPaymentDiagnostics } = require('../utils/razorpay-payment-method');
 
 class RazorpayCheckoutError extends Error {
@@ -32,7 +32,11 @@ const getMode = (keyId = process.env.RAZORPAY_KEY_ID) => {
 };
 const digest = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 const isSerializationConflict = (error) => error?.code === 'P2034' || error?.meta?.code === '40001' || error?.meta?.code === '40P01';
-const safeProviderCode = (error) => String(razorpayErrorSummary(error).code || 'PROVIDER_ERROR').slice(0, 80);
+const safeProviderCode = (error) => {
+  const root = error?.response?.data?.error || error?.error;
+  const code = root && typeof root === 'object' ? root.code : null;
+  return typeof code === 'string' && code.length ? code : null;
+};
 const safeProviderMessage = () => 'Provider request failed; use the request and attempt IDs for provider-side investigation.';
 const clearProviderFailure = {
   failureCode: null,
@@ -423,7 +427,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
         await auditAttemptTransition(tx, updated, 'RAZORPAY_ORDER_CREATE_REJECTED', 'Razorpay returned a definitive client error and rejected order creation; no payable order was created', {
           errorCode: providerCode,
           providerStatus,
-          ...(customCheckout ? { providerError: razorpayErrorSummary(error) } : {}),
+          ...(customCheckout ? { providerError: getProviderError(error) } : {}),
           priorState: 'CREATING',
           nextState: 'CREATE_FAILED',
         }, 'FAILURE');
@@ -444,7 +448,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
       });
       await auditAttemptTransition(tx, updated, 'RAZORPAY_ORDER_CREATE_OUTCOME_UNKNOWN', 'Order creation outcome is ambiguous and requires reconciliation before another attempt', {
         errorCode: safeProviderCode(error),
-        providerError: razorpayErrorSummary(error),
+        providerError: getProviderError(error),
         priorState: 'CREATING',
         nextState: 'REVIEW',
       }, 'FAILURE');

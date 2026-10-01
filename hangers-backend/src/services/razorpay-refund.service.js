@@ -6,6 +6,10 @@ const { writeAuditEvent } = require('./activity.service');
 const { razorpayErrorSummary } = require('../utils/redact');
 
 const ACTIVE_REFUND_STATES = ['CREATING', 'PENDING', 'REVIEW'];
+const providerErrorSummary = (error) => {
+  const root = error?.response?.data?.error || error?.error;
+  return root && typeof root === 'object' ? razorpayErrorSummary({ error: root }) : {};
+};
 const serializeRefundAttempt = (attempt) => {
   if (!attempt) return null;
   return {
@@ -259,7 +263,7 @@ const persistProviderRefund = async ({ attempt, refund }) => {
   validateProviderRefund(attempt, refund);
   const state = String(refund.status).toLowerCase();
   if (state === 'processed') return finalizeProcessedRefund({ attemptId: attempt.id, refund });
-  const updated = await updateRefundState({ attemptId: attempt.id, refund, state: state === 'pending' ? 'PENDING' : 'FAILED', failureCode: state === 'failed' ? 'PROVIDER_REFUND_FAILED' : null });
+  const updated = await updateRefundState({ attemptId: attempt.id, refund, state: state === 'pending' ? 'PENDING' : 'FAILED' });
   return { attempt: updated };
 };
 
@@ -286,11 +290,11 @@ const createRazorpayRefund = async ({ orderId, sourcePaymentId, amount, reasonCo
       throw error;
     }
     const definitiveProviderRejection = statusCode >= 400 && statusCode < 500 && statusCode !== 409;
-    const providerError = razorpayErrorSummary(error);
-    const failureCode = String(providerError.code || (definitiveProviderRejection ? 'PROVIDER_REFUND_REJECTED' : 'PROVIDER_RESULT_UNKNOWN')).slice(0, 80);
+    const providerError = providerErrorSummary(error);
+    const failureCode = providerError.code || null;
     const failed = await updateRefundState({ attemptId: attempt.id, refund: null, state: definitiveProviderRejection ? 'FAILED' : 'REVIEW', failureCode, providerError });
     if (!definitiveProviderRejection) return { attempt: failed, pending: true, review: true };
-    throw new PaymentRuleError(failureCode, 'Razorpay rejected the refund request. No CRM refund was posted.', 400);
+    throw new PaymentRuleError(failureCode || 'RAZORPAY_REFUND_REJECTED', 'Razorpay rejected the refund request. No CRM refund was posted.', 400);
   }
 };
 
@@ -350,8 +354,8 @@ const reconcileRazorpayRefundAttempt = async ({ orderId, attemptId, staff, reque
     try {
       refund = await fetcher(attempt.razorpayRefundId);
     } catch (error) {
-      const providerError = razorpayErrorSummary(error);
-      const failureCode = String(providerError.code || 'PROVIDER_RESULT_UNKNOWN').slice(0, 80);
+      const providerError = providerErrorSummary(error);
+      const failureCode = providerError.code || null;
       const updated = await updateRefundState({ attemptId: attempt.id, refund: null, state: 'REVIEW', failureCode, providerError });
       return { attempt: updated, pending: true, review: true };
     }
@@ -381,8 +385,8 @@ const reconcileRazorpayRefundAttempt = async ({ orderId, attemptId, staff, reque
   } catch (error) {
     const statusCode = Number(error?.response?.status || error?.statusCode || 0);
     const definitiveProviderRejection = statusCode >= 400 && statusCode < 500 && statusCode !== 409;
-    const providerError = razorpayErrorSummary(error);
-    const failureCode = String(providerError.code || (definitiveProviderRejection ? 'PROVIDER_REFUND_REJECTED' : 'PROVIDER_RESULT_UNKNOWN')).slice(0, 80);
+    const providerError = providerErrorSummary(error);
+    const failureCode = providerError.code || null;
     const state = definitiveProviderRejection ? 'FAILED' : 'REVIEW';
     const updated = await updateRefundState({ attemptId: attempt.id, refund: null, state, failureCode, providerError });
     if (!definitiveProviderRejection) return { attempt: updated, pending: true, review: true };

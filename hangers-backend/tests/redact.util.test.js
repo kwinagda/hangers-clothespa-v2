@@ -59,7 +59,7 @@ test('razorpayErrorSummary preserves documented nested fields and safe reference
 test('payment diagnostics exclude credentials and digit-only webhook fields', () => {
   const { safeText } = require('../src/utils/redact');
   const { getSafeRazorpayPaymentDiagnostics } = require('../src/utils/razorpay-payment-method');
-  for (const value of ['123', 'CVV=123', 'OTP 123456', 'key_secret=AbcSecretValue', 'signature=' + 'a'.repeat(64), 'token_ABcd1234', 'card_ABcd1234', 'cust_ABcd1234', 'rzp_live_SecretValue']) {
+  for (const value of ['123', 'CVV=123', 'CVV=1234', 'CID: 1234', 'OTP 123456', 'key_secret=AbcSecretValue', 'signature=' + 'a'.repeat(64), 'token_ABcd1234', 'card_ABcd1234', 'cust_ABcd1234', 'rzp_live_SecretValue']) {
     const result = safeText(value, 1000);
     assert.notEqual(result, value);
     assert.ok(result.includes('[redacted-'));
