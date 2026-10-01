@@ -7,6 +7,8 @@ node_modules/
 **/.expo/
 dist/
 **/dist/
+build/
+**/build/
 
 # Next.js
 .next/
@@ -34,6 +36,8 @@ rzp-key*.csv
 *.key
 *.p12
 *.pfx
+*.jks
+*.keystore
 
 # Logs
 *.log
