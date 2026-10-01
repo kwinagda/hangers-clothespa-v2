@@ -33,7 +33,8 @@ const invoice = {
 }
 
 const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://127.0.0.1:55103')
+  const origin = req.headers.origin
+  if (['http://127.0.0.1:55103', 'http://127.0.0.1:55104'].includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin)
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'content-type,idempotency-key')
   res.setHeader('Cache-Control', 'no-store')
