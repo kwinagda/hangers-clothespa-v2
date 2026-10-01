@@ -23,8 +23,8 @@ const claimWebhookBatch = async (limit, onlyEventId = null, leaseMs = DEFAULT_LE
     SELECT "id"
     FROM "razorpay_webhook_events"
     WHERE (
-      ("status" IN ('RECEIVED', 'RETRY') AND "nextAttemptAt" <= NOW())
-      OR ("status" = 'PROCESSING' AND "lockedAt" < NOW() - (${leaseMs} * INTERVAL '1 millisecond'))
+      ("status" IN ('RECEIVED', 'RETRY') AND "nextAttemptAt" <= (NOW() AT TIME ZONE 'UTC'))
+      OR ("status" = 'PROCESSING' AND "lockedAt" < (NOW() AT TIME ZONE 'UTC') - (${leaseMs} * INTERVAL '1 millisecond'))
     )
     AND (${onlyEventId}::text IS NULL OR "id" = ${onlyEventId})
     AND (${onlyEventIds}::text[] IS NULL OR "id" = ANY(${onlyEventIds}::text[]))
@@ -33,7 +33,7 @@ const claimWebhookBatch = async (limit, onlyEventId = null, leaseMs = DEFAULT_LE
     LIMIT ${limit}
   )
   UPDATE "razorpay_webhook_events" AS events
-  SET "status" = 'PROCESSING', "lockedAt" = NOW(), "attempts" = events."attempts" + 1, "updatedAt" = NOW()
+  SET "status" = 'PROCESSING', "lockedAt" = (NOW() AT TIME ZONE 'UTC'), "attempts" = events."attempts" + 1, "updatedAt" = (NOW() AT TIME ZONE 'UTC')
   FROM candidates
   WHERE events."id" = candidates."id"
     RETURNING events."id", events."eventId", events."event", events."mode", events."paymentId", events."orderId", events."refundId", events."refundAttemptId", events."settlementId", events."disputeId", events."payload", events."attempts"
@@ -255,7 +255,7 @@ const auditOutcome = (event, action, status, metadata = {}) => log({
 
 const renewWebhookLease = (event) => prisma.$executeRaw`
   UPDATE "razorpay_webhook_events"
-  SET "lockedAt" = NOW()
+  SET "lockedAt" = (NOW() AT TIME ZONE 'UTC')
   WHERE "id" = ${event.id} AND "status" = 'PROCESSING' AND "attempts" = ${event.attempts}
 `;
 

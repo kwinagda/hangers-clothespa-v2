@@ -1,0 +1,98 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+require('dotenv').config();
+const prisma = require('../src/config/database');
+const { handleRazorpayWebhook } = require('../src/controllers/webhooks.controller');
+const { processRazorpayWebhookBatch } = require('../src/services/razorpay-webhook-worker.service');
+
+test('local Test webhook is durably accepted once and an expired worker lease is recovered', {
+  skip: process.env.RUN_LOCAL_WEBHOOK_INTEGRATION !== '1',
+}, async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  assert.equal(url.hostname, 'localhost');
+  assert.equal(url.port || '5432', '5432');
+  const database = process.env.CI === 'true' && process.env.GITHUB_ACTIONS === 'true' ? 'hangers_test' : 'hangers_db';
+  assert.equal(url.pathname, `/${database}`);
+  assert.match(process.env.RAZORPAY_KEY_ID, /^rzp_test_/);
+  assert.equal((await prisma.$queryRaw`SELECT current_database() AS name`)[0].name, database);
+  const previous = process.env.RAZORPAY_WEBHOOK_SECRET_TEST;
+  const previousOld = process.env.RAZORPAY_WEBHOOK_SECRET_TEST_PREVIOUS;
+  process.env.RAZORPAY_WEBHOOK_SECRET_TEST = crypto.randomBytes(32).toString('hex');
+  delete process.env.RAZORPAY_WEBHOOK_SECRET_TEST_PREVIOUS;
+  const eventId = `qa-local-recovery-${crypto.randomUUID()}`;
+  const body = { event: 'qa.recovery.probe', payload: {} };
+  const rawBody = Buffer.from(JSON.stringify(body));
+  const signature = crypto.createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET_TEST).update(rawBody).digest('hex');
+  const request = (bytes = rawBody, signatureValue = signature) => ({
+    id: eventId, params: { mode: 'test' }, body, rawBody: bytes,
+    headers: { 'x-razorpay-event-id': eventId, 'x-razorpay-signature': signatureValue },
+  });
+  const response = () => ({ statusCode: 200, status(code) { this.statusCode = code; return this; }, json(value) { this.body = value; return this; } });
+  try {
+    const invalid = response();
+    await handleRazorpayWebhook(request(Buffer.from(`${rawBody} `)), invalid);
+    assert.equal(invalid.statusCode, 400);
+    assert.equal(await prisma.razorpayWebhookEvent.count({ where: { eventId } }), 0);
+
+    const accepted = response();
+    await handleRazorpayWebhook(request(), accepted);
+    assert.equal(accepted.statusCode, 200);
+    assert.equal(accepted.body.accepted, true);
+    const stored = await prisma.razorpayWebhookEvent.findUnique({ where: { eventId } });
+    assert.equal(stored.status, 'RECEIVED');
+    assert.equal(stored.mode, 'TEST');
+    assert.equal(stored.payloadHash, crypto.createHash('sha256').update(rawBody).digest('hex'));
+
+    const duplicate = response();
+    await handleRazorpayWebhook(request(), duplicate);
+    assert.equal(duplicate.body.duplicate, true);
+    assert.equal(await prisma.razorpayWebhookEvent.count({ where: { eventId } }), 1);
+
+    // Simulate a worker that died after claiming, without waiting five minutes.
+    await prisma.razorpayWebhookEvent.update({ where: { id: stored.id }, data: {
+      status: 'PROCESSING', attempts: 1, lockedAt: new Date(Date.now() - 600000),
+    } });
+    const retryStart = Date.now();
+    await processRazorpayWebhookBatch({ onlyEventId: stored.id, concurrency: 1,
+      processor: async (event) => {
+        assert.equal(event.attempts, 2);
+        const error = new Error('Isolated transient provider failure');
+        error.statusCode = 429;
+        error.headers = { 'retry-after': '60' };
+        throw error;
+      },
+    });
+    const retry = await prisma.razorpayWebhookEvent.findUnique({ where: { eventId } });
+    assert.equal(retry.status, 'RETRY');
+    assert.equal(retry.lockedAt, null);
+    assert.ok(retry.nextAttemptAt.getTime() >= retryStart + 60000);
+    assert.equal(await processRazorpayWebhookBatch({ onlyEventId: stored.id,
+      processor: async () => { throw new Error('Future retry must not be claimed'); },
+    }), 0);
+    await prisma.razorpayWebhookEvent.update({ where: { id: stored.id }, data: { nextAttemptAt: new Date(Date.now() - 1000) } });
+    let processed = 0;
+    assert.equal(await processRazorpayWebhookBatch({ onlyEventId: stored.id, concurrency: 1,
+      processor: async (event) => {
+        assert.equal(event.id, stored.id);
+        assert.equal(event.attempts, 3);
+        processed += 1;
+        return { state: 'IGNORED' };
+      },
+    }), 1);
+    const recovered = await prisma.razorpayWebhookEvent.findUnique({ where: { eventId } });
+    assert.equal(recovered.status, 'IGNORED');
+    assert.equal(recovered.lockedAt, null);
+    assert.equal(processed, 1);
+    assert.equal(await processRazorpayWebhookBatch({ onlyEventId: stored.id,
+      processor: async () => { throw new Error('Terminal event must not be claimed again'); },
+    }), 0);
+  } finally {
+    await prisma.razorpayWebhookEvent.deleteMany({ where: { eventId } });
+    if (previous === undefined) delete process.env.RAZORPAY_WEBHOOK_SECRET_TEST;
+    else process.env.RAZORPAY_WEBHOOK_SECRET_TEST = previous;
+    if (previousOld === undefined) delete process.env.RAZORPAY_WEBHOOK_SECRET_TEST_PREVIOUS;
+    else process.env.RAZORPAY_WEBHOOK_SECRET_TEST_PREVIOUS = previousOld;
+    await prisma.$disconnect();
+  }
+});
