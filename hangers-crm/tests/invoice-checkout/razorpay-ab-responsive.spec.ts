@@ -258,8 +258,21 @@ test('untrusted payment.failed description is hidden and status is checked befor
 
 test('custom checkout shows one invoice lookup error and never labels it a pending payment', async ({ page, request }) => {
   const before = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
+  let capabilitiesLookups = 0
+  let statusLookups = 0
+  const corsHeaders = { 'access-control-allow-origin': 'http://127.0.0.1:55104', 'access-control-allow-credentials': 'true' }
+  await page.route('**/payment/custom/capabilities**', (route) => {
+    capabilitiesLookups += 1
+    return route.fulfill({ status: 404, headers: corsHeaders, contentType: 'application/json', body: JSON.stringify({ message: 'Invoice not found' }) })
+  })
+  await page.route('**/payment/status**', (route) => {
+    statusLookups += 1
+    return route.fulfill({ status: 404, headers: corsHeaders, contentType: 'application/json', body: JSON.stringify({ message: 'Invoice not found' }) })
+  })
   await page.goto('http://127.0.0.1:55104/invoice/variant-a/checkout')
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
+  await expect.poll(() => capabilitiesLookups).toBe(1)
+  await expect.poll(() => statusLookups).toBe(1)
   const lookupError = page.getByText('Invoice not found', { exact: true })
   await expect(lookupError).toHaveCount(1)
   await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)

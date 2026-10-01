@@ -33,8 +33,7 @@ const invoice = {
 }
 
 const server = http.createServer((req, res) => {
-  const origin = req.headers.origin
-  if (['http://127.0.0.1:55103', 'http://127.0.0.1:55104'].includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin)
+  res.setHeader('Access-Control-Allow-Origin', 'http://127.0.0.1:55103')
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'content-type,idempotency-key')
   res.setHeader('Cache-Control', 'no-store')
@@ -224,20 +223,12 @@ const server = http.createServer((req, res) => {
     })
     return
   }
-  if (req.method === 'GET' && slug === 'variant-a' && path.endsWith('/payment/custom/capabilities')) {
-    res.writeHead(404).end(JSON.stringify({ success: false, message: 'Invoice not found' }))
-    return
-  }
   if (req.method === 'GET' && path.endsWith('/payment/status')) {
     const searchParams = new URL(req.url || '/', 'http://127.0.0.1').searchParams
     const hasAttemptId = Boolean(searchParams.get('attemptId'))
     const invoiceId = searchParams.get('invoiceId')
     if (invoiceId) summaryStatusInvoiceIds.push(invoiceId)
     if (!hasAttemptId) serverSideStatusLookups += 1
-    if (slug === 'variant-a') {
-      res.writeHead(404).end(JSON.stringify({ success: false, message: 'Invoice not found' }))
-      return
-    }
     if (slug === 'variant-recover-captured' && !hasAttemptId) {
       recoverCaptured = true
       res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', attemptId: 'server-resolved-attempt', invoice: { status: 'PAID', balanceDue: 0 }, paymentId: 'pay_test_captured' } }))
