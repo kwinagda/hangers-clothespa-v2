@@ -198,6 +198,37 @@ test('misconfigured Test contact blocks the Home template send before any Whatom
   }
 });
 
+test('lost template response remains uncertain and retry preserves the payment idempotency key', async () => {
+  const previousAdapter = axios.defaults.adapter;
+  const requests = [];
+  axios.defaults.adapter = async (config) => {
+    requests.push({ key: config.headers.get('X-Idempotency-Key'), body: JSON.parse(config.data) });
+    if (requests.length === 1) throw Object.assign(new Error('Injected lost response'), { code: 'ECONNABORTED' });
+    return { data: { success: true }, status: 200, statusText: 'OK', headers: {}, config };
+  };
+  try {
+    await withEnvAsync({
+      NODE_ENV: 'development', DEV_MODE: 'true', RAZORPAY_KEY_ID: 'rzp_test_unit_test',
+      RAZORPAY_TEST_CONTACT_NUMBER: '9930367267', WHATOMATE_DEV_ALLOWED_PHONES: '919930367267',
+      WHATOMATE_API_KEY: 'whm_valid_local_test_key',
+    }, async () => {
+      const input = {
+        phone: '9930367267', templateName: 'hangers_crm_payment_received',
+        templateParams: { amount: '10' }, idempotencyKey: 'payment-received:local-unit-payment', throwOnFailure: true,
+      };
+      await assert.rejects(postTemplate(input), (error) => error.code === 'PROVIDER_RETRYABLE_FAILURE'
+        && error.retryable === true && error.statusCode === null);
+      assert.equal(await postTemplate(input), true);
+    });
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].key, 'payment-received:local-unit-payment');
+    assert.deepEqual(requests[1], requests[0]);
+    assert.equal(requests[0].body.phone_number, '919930367267');
+  } finally {
+    axios.defaults.adapter = previousAdapter;
+  }
+});
+
 test('Whatomate dev gate does not restrict production sends', () => {
   withEnv({
     NODE_ENV: 'production',

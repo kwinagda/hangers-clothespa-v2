@@ -75,7 +75,7 @@ jobs:
         run: node --test tests/razorpay-custom-capabilities.unit.test.js tests/razorpay-saved-cards.unit.test.js tests/razorpay-downtime.unit.test.js tests/razorpay-refund-binding.unit.test.js tests/razorpay-dispute.unit.test.js tests/razorpay-webhook-dispatch.unit.test.js tests/razorpay-bank-transfer.unit.test.js
 
       - name: Verify Home-only Test notification dispatch
-        run: node --test tests/local-outbox-scope.test.js tests/dev-outbox.test.js tests/outbox-retry.test.js
+        run: node --test tests/local-outbox-scope.test.js tests/dev-outbox.test.js tests/outbox-retry.test.js tests/whatomate-dev-gate.test.js
 
       - name: Verify combined invoice checkout against disposable database
         run: RUN_COMBINED_CHECKOUT_INTEGRATION=1 node --test tests/combined-checkout.integration.test.js
