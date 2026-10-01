@@ -76,9 +76,9 @@ export default async function PublicInvoiceCheckoutPage({
   const invoiceId = outstanding
     ? items[0]?.invoiceId || query.invoiceId
     : invoice?.id
-  if (outstanding && availability === 'NO_BALANCE' && query.invoiceId) {
+  if (availability === 'NO_BALANCE' && invoiceId) {
     try {
-      const statusQuery = new URLSearchParams({ invoiceId: query.invoiceId, checkoutIntegration: 'CUSTOM' })
+      const statusQuery = new URLSearchParams({ invoiceId, checkoutIntegration: 'CUSTOM' })
       const response = await fetch(`${SERVER_API_BASE_URL}/public/invoices/${encodeURIComponent(slug)}/payment/status?${statusQuery}`, {
         cache: 'no-store', signal: AbortSignal.timeout(15000),
       })
