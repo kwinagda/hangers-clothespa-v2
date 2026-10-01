@@ -258,22 +258,12 @@ test('untrusted payment.failed description is hidden and status is checked befor
 
 test('custom checkout shows one invoice lookup error and never labels it a pending payment', async ({ page, request }) => {
   const before = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
-  await page.route('**/payment/custom/capabilities**', (route) => route.fulfill({
-    status: 404,
-    contentType: 'application/json',
-    body: JSON.stringify({ message: 'Invoice not found' }),
-  }))
-  await page.route('**/payment/status**', (route) => route.fulfill({
-    status: 404,
-    contentType: 'application/json',
-    body: JSON.stringify({ message: 'Invoice not found' }),
-  }))
-
   await page.goto('/invoice/variant-a/checkout')
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
-  await expect(page.getByText('Invoice not found', { exact: true })).toHaveCount(1)
+  await expect(page.getByRole('alert')).toHaveCount(1)
+  await expect(page.getByRole('alert')).toContainText('Invoice not found')
   await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Retry loading payment methods' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry loading payment details' })).toBeVisible()
   const after = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   expect(after.createOrderRequests).toBe(before.createOrderRequests)
 })
