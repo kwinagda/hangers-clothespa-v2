@@ -339,6 +339,18 @@ test('missing payer email does not block SDK submission or invent an address', a
   expect(payment.data).not.toHaveProperty('email')
 })
 
+test('nonempty payer email reaches Razorpay without a browser-invented format rule', async ({ page }) => {
+  await installCustomCheckoutMock(page)
+  await mockInvoicePaymentApi(page, [])
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page, false)
+  await page.getByRole('textbox', { name: 'Email address (optional)', exact: true }).fill('customer-at-example')
+  await page.getByRole('radio', { name: 'Netbanking' }).check()
+  await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
+  const payment = await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)
+  expect(payment.data).toMatchObject({ method: 'netbanking', email: 'customer-at-example' })
+})
+
 test('redirect recovery passes the server callback URL to Custom Checkout without changing the order reference', async ({ page }) => {
   await installCustomCheckoutMock(page)
   await page.addInitScript(() => { (window as any).__customRedirect = true })
