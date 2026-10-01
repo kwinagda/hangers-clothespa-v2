@@ -11,6 +11,48 @@ const { createRazorpayRefund, reconcileRazorpayRefundWebhook } = require('../src
 after(() => prisma.$disconnect());
 const response = () => ({ statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
 
+test('historical unpaid invoices prepare and reuse checkout across every billing source', { skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' }, async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  assert.equal(process.env.GITHUB_ACTIONS, 'true');
+  assert.equal(process.env.CI, 'true');
+  assert.equal(url.hostname, 'localhost');
+  assert.equal(url.pathname, '/hangers_test');
+  assert.equal((await prisma.$queryRaw`SELECT current_database() AS name`)[0].name, 'hangers_test');
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_combined_ci';
+  const suffix = crypto.randomUUID();
+  const customer = await prisma.customer.create({ data: { name: `Source CI ${suffix}`, phone: '9930367267', notifWhatsApp: false } });
+  for (const sourceType of ['ORDER', 'DAILY_IRON', 'FIELD_SERVICE']) {
+    const invoice = await prisma.invoice.create({ data: {
+      invoiceNumber: `SOURCE-${sourceType}-${suffix}`, customerId: customer.id, sourceType,
+      status: 'OPEN', currency: 'INR', subtotal: 10, totalAmount: 10, balanceDue: 10,
+      issueDate: new Date('2023-01-01T00:00:00Z'), dueDate: new Date('2023-01-02T00:00:00Z'),
+    } });
+    let calls = 0;
+    let providerOrder;
+    const provider = { orders: {
+      create: async (payload) => {
+        calls += 1;
+        providerOrder = { ...payload, id: `order_${sourceType}_${suffix}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
+        return providerOrder;
+      },
+      fetch: async () => providerOrder,
+      fetchPayments: async () => ({ items: [] }),
+    } };
+    const args = { invoice, shareId: `share_${sourceType}_${suffix}`, idempotencyKey: `${sourceType}_${suffix}`, customCheckout: true, provider };
+    const prepared = await createInvoiceCheckout(args);
+    assert.equal(prepared.order.amount, 1000);
+    assert.equal(prepared.attempt.invoiceId, invoice.id);
+    assert.equal(prepared.attempt.razorpayOrderId, providerOrder.id);
+    const replay = await createInvoiceCheckout(args);
+    assert.equal(replay.attempt.id, prepared.attempt.id);
+    assert.equal(replay.order.id, providerOrder.id);
+    assert.equal(calls, 1);
+    const unchanged = await prisma.invoice.findUnique({ where: { id: invoice.id } });
+    assert.equal(Number(unchanged.paidAmount), 0);
+    assert.equal(Number(unchanged.balanceDue), 10);
+  }
+});
+
 test('combined checkout atomically settles two invoices and refuses overlap, stale balances and foreign links', { skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' }, async () => {
   const url = new URL(process.env.DATABASE_URL);
   assert.equal(process.env.GITHUB_ACTIONS, 'true');
