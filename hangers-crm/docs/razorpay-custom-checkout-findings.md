@@ -2,6 +2,8 @@
 
 ## Acceptance Findings - 1 October 2026
 
+- F49 (new, report-only provider coverage discrepancy): the documented Indian Visa insufficient-funds Test card followed by mock-bank Failure returned `BAD_REQUEST_ERROR`, `Payment failed`, source `gateway`, step `payment_authorization`, reason `payment_failed`, payment `pay_TiaUIouvF2u0GD`. The read-only Payments API confirmed these exact fields. This is real generic-failure coverage, not proof of the documented `insufficient_fund` branch. Preserve actual provider wording; do not translate or fabricate the expected reason. Official reference: https://razorpay.com/docs/payments/payments/test-card-details/.
+
 - F48 (new, report-only): `publicShare.service.js` computes expiry using `Date.setDate(currentDay + ttlDays)`, which truncates fractional days. A QA call with `ttlDays: 1/24` created an immediately expired token; resolution returned null. Ordinary integer-day links are not shown affected. The subsequent QA link used integer-day creation followed by an exact one-hour timestamp, then was revoked after verification. No expiry implementation change is part of this acceptance turn.
 
 - F47 (bounded A17 validation repair): local PostgreSQL session timezone is Asia/Kolkata and Prisma inbox timestamps are UTC `timestamp without time zone`. Plain `NOW()` comparison claimed a future retry immediately. Worker claim/expiry, lock and heartbeat SQL now explicitly use `NOW() AT TIME ZONE 'UTC'`. The existing-local-DB signed inbox/recovery regression reproduced the failure before repair and passed afterward, including future retry exclusion. No schema or production change. CI includes this regression under an India-timezone disposable role.
