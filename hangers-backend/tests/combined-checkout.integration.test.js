@@ -51,7 +51,22 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
       fetchPayments: async () => ({ items: [] }),
     } };
     const args = { invoice, shareId: `share_${sourceType}_${suffix}`, idempotencyKey: `${sourceType}_${suffix}`, customCheckout: true, provider };
-    const prepared = await createInvoiceCheckout(args);
+    const simultaneous = await Promise.allSettled([
+      createInvoiceCheckout(args),
+      createInvoiceCheckout({ ...args, idempotencyKey: `parallel_${sourceType}_${suffix}` }),
+    ]);
+    const accepted = simultaneous.filter((result) => result.status === 'fulfilled');
+    assert.ok(accepted.length >= 1, 'one simultaneous checkout must prepare');
+    const prepared = accepted[0].value;
+    for (const result of simultaneous) {
+      if (result.status === 'fulfilled') {
+        assert.equal(result.value.attempt.id, prepared.attempt.id);
+        assert.equal(result.value.order.id, providerOrder.id);
+      } else {
+        assert.ok(['CHECKOUT_ALREADY_IN_PROGRESS', 'CHECKOUT_ATTEMPT_UNRESOLVED'].includes(result.reason.code), `unexpected concurrency error: ${result.reason.code}`);
+      }
+    }
+    assert.equal(await prisma.razorpayCheckoutAttempt.count({ where: { invoiceId: invoice.id } }), 1);
     assert.equal(prepared.order.amount, 1000);
     assert.equal(prepared.attempt.invoiceId, invoice.id);
     assert.equal(prepared.attempt.razorpayOrderId, providerOrder.id);
