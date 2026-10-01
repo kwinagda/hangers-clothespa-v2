@@ -11,12 +11,14 @@ const {
   sendPaymentReceivedMessage,
   sendPickupRequestAlert,
   sendPickupRequestCustomerConfirmation,
+  normalizePhone,
+  isEnabled,
 } = require('./whatomate.service');
 const { getOrderStatuses } = require('./masterData.service');
 const { formatDailyIronLogItems } = require('../utils/daily-iron-summary');
 const { writeAuditEvent } = require('./activity.service');
 const { classifyOutboxFailure } = require('../utils/outbox-retry');
-const { isRazorpayTestPayment } = require('../utils/razorpay-test-notification');
+const { shouldSuppressRazorpayTestNotification } = require('../utils/razorpay-test-notification');
 
 const CAPTURED_PAYMENT_STATUSES = new Set(['CAPTURED', 'SUCCESS', 'PAID']);
 
@@ -330,7 +332,7 @@ const handleOutboxEvent = async (event) => {
       ]);
       if (!order) throw outboxDataError('PAYMENT_NOTIFICATION_ORDER_NOT_FOUND', 'Payment notification references a missing order');
       if (!payment) throw outboxDataError('PAYMENT_NOTIFICATION_PAYMENT_NOT_FOUND', 'Payment notification references a missing payment');
-      if (isRazorpayTestPayment(payment)) {
+      if (shouldSuppressRazorpayTestNotification(payment, normalizePhone(order.customer?.phone), isEnabled(order.customer?.phone))) {
         await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: 'Razorpay Test-mode notification suppressed', outboxEventId: event.id });
         return;
       }
@@ -374,7 +376,7 @@ const handleOutboxEvent = async (event) => {
         description: `Invoice payment WhatsApp ${outcome.toLowerCase()}${error ? `: ${String(error).slice(0, 180)}` : ''}`,
         metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome, templateName, invoiceNumber: invoice.invoiceNumber, paymentId: payment.id, outboxEventId: event.id, error: error ? String(error).slice(0, 500) : null },
       }));
-      if (isRazorpayTestPayment(payment)) {
+      if (shouldSuppressRazorpayTestNotification(payment, normalizePhone(invoice.customer?.phone), isEnabled(invoice.customer?.phone))) {
         await audit('SKIPPED', 'Razorpay Test-mode notification suppressed');
         return;
       }

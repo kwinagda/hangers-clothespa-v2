@@ -176,6 +176,9 @@ const beginLocalCustomCheckout = async (page: import('@playwright/test').Page) =
   await expect(page).toHaveURL(/\/checkout(?:\?|$)/)
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Invoice payment' })).toBeVisible()
+  const email = page.getByRole('textbox', { name: 'Email address', exact: true })
+  await expect(email).toBeVisible()
+  await email.fill('kevinnagda@gmail.com')
 }
 
 test('local Test Mode UPI selection submits the selected Razorpay intent app and verifies server-side', async ({ page }) => {
@@ -243,8 +246,20 @@ test('local custom checkout submits Razorpay-enabled netbanking options', async 
   await page.getByLabel('Select bank').selectOption('SBIN')
   await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
   const payment = await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)
-  expect(payment.data).toMatchObject({ method: 'netbanking', bank: 'SBIN' })
+  expect(payment.data).toMatchObject({ method: 'netbanking', bank: 'SBIN', email: 'kevinnagda@gmail.com' })
   expect(verifiedPayloads).toHaveLength(0)
+})
+
+test('missing payer email blocks SDK submission without inventing an address', async ({ page }) => {
+  await installCustomCheckoutMock(page)
+  await mockInvoicePaymentApi(page, [])
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page)
+  await page.getByRole('radio', { name: 'Netbanking' }).check()
+  await page.getByRole('textbox', { name: 'Email address', exact: true }).fill('')
+  await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
+  expect(await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)).toBeUndefined()
+  await expect(page.getByRole('textbox', { name: 'Email address', exact: true })).toHaveValue('')
 })
 
 test('redirect recovery passes the server callback URL to Custom Checkout without changing the order reference', async ({ page }) => {

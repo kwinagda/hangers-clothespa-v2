@@ -543,7 +543,7 @@ export default function RazorpayCustomCheckout({
       method,
       ...(order.redirect && order.callbackUrl ? { callback_url: order.callbackUrl } : {}),
       ...(collectContact && contact ? { contact } : order.testContact ? { contact: order.testContact } : {}),
-      ...(order.email ? { email: order.email } : {}),
+      ...((order.email || values.get('email')) ? { email: order.email || String(values.get('email')).trim() } : {}),
     }
     let payment: Record<string, any> = common
     let options: Record<string, any> | undefined
@@ -673,6 +673,9 @@ export default function RazorpayCustomCheckout({
       {apiBase && method && <button type="button" className={styles.retry} disabled={submitting} onClick={() => setDowntimeRefresh((value) => value + 1)}>Refresh availability</button>}
       {!!availableMethods.length && <>
         <fieldset disabled={submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        {!order.email && <div className={styles.row}>
+          <label>Email address<input name="email" {...fieldProps('email')} type="email" autoComplete="email" required disabled={submitting} />{fieldMessage('email')}</label>
+        </div>}
         {collectContact && <div className={styles.row}>
           <label>Mobile number with country code<input name="contact" {...fieldProps('contact')} type="tel" autoComplete="tel" value={contact} onChange={(event) => { credSequence.current += 1; setCredBusy(false); setCredEligible(false); setContact(event.target.value) }} readOnly={Boolean(order.testContact)} disabled={submitting} pattern="\+\d{8,15}" required />{fieldMessage('contact')}</label>
         </div>}
