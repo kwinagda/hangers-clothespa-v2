@@ -625,6 +625,37 @@ Repository evidence: `hangers-backend/src/services/billing.service.js` creates i
 | A23 | Capture configuration, webhook handler/subscription match, mode isolation, builds, TypeScript, focused backend, finite browser/device matrix and measured loading/interaction stability. | Sanitized config + final CI/local and labelled lab results; C06/C24. |
 | A24 | Reviewable Git diff/CI, configuration/migration prerequisites, rollback and monitoring instructions; separately authorized release only. | Release checklist; C25. |
 
+### Current Acceptance Disposition - 1 October 2026
+
+This register records evidence and gaps, not blanket acceptance. Historical build-only restrictions below are superseded by the current execution authorization at the top. Passing mocks do not establish issuer/account/device acceptance; an unverified required case remains unfinished. Newly discovered F46/F48/F49/F50 are report-only under the existing findings instruction.
+
+| Case | Current evidence | Remaining acceptance / disposition |
+| --- | --- | --- |
+| A01 | Public source/share implementation and guarded combined database contracts. | Complete source-type and old-unpaid route matrix not established; no blanket pass. |
+| A02 | Real single Netbanking capture and paid refresh; combined allocation/UI CI; real zero-balance navigation. | Remaining-one-invoice UI case must be explicitly verified. |
+| A03 | 23 mocked browser cases include 320px layout; real paid confirmation keyboard checks pass at 320/768/1440. | VoiceOver, contrast, zoom, long-error layout and measured performance remain. Final artwork is separately deferred. |
+| A04 | Read-only Test discovery; capabilities unit suite; SDK timeout/no-method/disabled-flag browser mocks. | Tested contract subset passes; F35 lifecycle limitation remains explicitly deferred. |
+| A05 | Formatter/network/card input browser mocks, including AmEx and unavailable networks. | Real network matrix unverified; real IIN lookup discrepancy F46; artwork separate; F35 deferred. |
+| A06 | Real Visa mock-bank failure, exact provider fields, same-order retry and browser interruption. | Success submission remains created at provider; do not reset or claim capture. F49 generic error differs from documented insufficient-funds scenario. |
+| A07 | Mobile app identifier discovery/submission and desktop QR request mocks. | Actual Android/iOS Intent/QR handoff requires supported-mode device evidence and separate Live authorization; not provable by Test mocks. |
+| A08 | Actual Custom Test Netbanking capture; bank/wallet selection and callback contract mocks. | Real wallet and redirect-failure/return acceptance unverified. |
+| A09 | EMI options/plans, disabled flags, issuer eligibility and SDK calculator contract mocks. | Actual IIN/issuer response and fee disclosure unresolved; F11 deferred. |
+| A10 | Cardless/pay-later payload and enabled/disabled provider mocks; CRED infrastructure. | Each actually enabled provider's end-to-end eligibility/payment remains unverified. |
+| A11 | 12 saved-card ownership/lifecycle unit tests, including token races. | Real authenticated customer consent/token creation/reuse/delete depends on verified activation; currently disabled. |
+| A12 | 11 bank-transfer boundary tests; additive local association schema. | Conditional feature disabled; no real instructions, credit, fee or closure acceptance claimed. |
+| A13 | Guarded combined CI covers overlapping bindings and duplicate settlement; UI mocks enforce one order during recovery. | True concurrent two-tab/device execution remains unverified. |
+| A14 | Closed-flow mocks; actual Chrome crash/reopen retains pending payment and same order. | Offline/back/sleep and lost-create-response subcases need distinct evidence. |
+| A15 | Actual Test capture and created/attempted recovery; worker/reconciliation contracts. | Lost callback/verification response, late authorization and outage matrix not fully established. |
+| A16 | Callback signature/scope/fixed-return negatives; combined stale/foreign/allocation rejection. | Verify every listed tamper subcase has an explicit assertion before claiming full pass. |
+| A17 | Existing-local HTTP exact raw-body/altered/duplicate checks and durable inbox retry/crash-lease regression. | Public HTTPS provider delivery unverified; local signed-event subset passes. |
+| A18 | Disposable CI verifies immutable split, atomic capture, stale/overlap/foreign rejection and duplicate protection. | Real combined provider capture/customer-fee acceptance unverified; merchant-fee configuration is not proof of customer-fee support. |
+| A19 | Real capture ledger, receipt and Home notification; automatic Home-only dispatch and non-Home exclusion verified. | Finance browser history and uncertain-send-response reconciliation remain unverified; provider acceptance is not handset receipt. |
+| A20 | Refund binding/dispute/dispatch/controller contracts; combined CI partial refund, over-refund and idempotent replay. | Applicable mocked/database subset passes; no actual refund/dispute provider lifecycle or Live transaction claimed. |
+| A21 | 10 downtime constraint/snapshot/event/lease/account tests; UI availability mocks. | Contract subset passes; actual provider outage/device behavior unverified. |
+| A22 | Browser PAN/CVV request/storage exclusion and saved-card ownership/mode/key tests. | Full OTP/telemetry/log and all endpoint authentication/rate-limit audit still required. |
+| A23 | Verified local Test target, migration/build/type checks and finite mocked matrix; CI records below. | Final aggregate requires remaining applicable rows, config/event subscriptions and measured performance; not passed. |
+| A24 | Scoped branch/draft PR #10 and successful earlier CI; explicit backup/schema/rollback/monitoring gates. | Latest SHA CI must finish; production migration approval/backup, release and post-checks remain gated. |
+
 Finish line: documentation review is complete only when source discovery, applicable contracts, conflicts and every required acceptance row are recorded. Implementation acceptance is a later gate: every required C01-C30 item must pass its applicable cases; conditional dependencies require evidence and an explicit disposition, never a fabricated pass. No weighted completion percentage is inferred from rows or test counts.
 
 ## Purpose
