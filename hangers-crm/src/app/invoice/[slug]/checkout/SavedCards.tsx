@@ -177,7 +177,7 @@ export default function SavedCards({ mode, keyId, disabled, onChange, onBusy, on
           const result = await request<Context & SavedCardSelection>('/select', { mode, keyId, selector: card.selector })
           if (current()) publish(result, card.selector)
         })}>{card.network || 'Card'} ending {card.last4 || 'unavailable'}</button>
-        <button type="button" disabled={disabled || busy} onClick={() => void act(async (current) => {
+        <button type="button" disabled={disabled || busy} aria-label={`Remove saved ${card.network || 'card'} ending ${card.last4 || 'unavailable'}`} onClick={() => void act(async (current) => {
           clearSelection(); resetSaveRequested()
           const deleted = await request<Context>('/', { mode, keyId, selector: card.selector }, 'DELETE')
           if (!current()) return
