@@ -68,7 +68,22 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: providerPayment.id } }), 0);
   assert.equal((await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: checkout.attempt.id } })).status, 'REVIEW');
   await prisma.invoice.update({ where: { id: invoices[1].id }, data: { balanceDue: 3200 } });
-  const settled = await settleCapturedPayment({ paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider });
+  const settlementArgs = { paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider };
+  const simultaneous = await Promise.allSettled([
+    settleCapturedPayment(settlementArgs),
+    settleCapturedPayment(settlementArgs),
+  ]);
+  const successful = simultaneous.filter((result) => result.status === 'fulfilled');
+  assert.ok(successful.length >= 1, 'at least one concurrent capture must settle');
+  for (const result of simultaneous) {
+    if (result.status === 'rejected') {
+      assert.equal(result.reason.code, 'P2034', 'only a serializable transaction conflict may defer this replay');
+      const recovered = await settleCapturedPayment(settlementArgs);
+      assert.equal(recovered.alreadyRecorded, true, 'the deferred concurrent request must recover the existing payment');
+    }
+  }
+  const settled = successful[0].value;
+  for (const result of successful) assert.equal(result.value.payment.id, settled.payment.id);
   assert.equal(Number(settled.payment.amount), 5880);
   assert.equal(settled.payment.orderId, null);
   const allocations = await prisma.paymentAllocation.findMany({ where: { paymentId: settled.payment.id }, orderBy: { amount: 'asc' } });
