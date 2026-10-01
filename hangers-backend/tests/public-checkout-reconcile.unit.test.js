@@ -82,6 +82,37 @@ test('public checkout reconciliation requires an attempt reference', async () =>
   assert.equal(res.body.code, 'CHECKOUT_ATTEMPT_INVALID');
 });
 
+test('public recovery rejects foreign customer/share, combined scope and mode before provider access', async () => {
+  for (const [patch, statusCode, code] of [
+    [{ customerId: 'foreign-customer' }, 404, 'CHECKOUT_ATTEMPT_NOT_FOUND'],
+    [{ publicShareId: 'foreign-share' }, 404, 'CHECKOUT_ATTEMPT_NOT_FOUND'],
+    [{ allocationPlan: [{ invoiceId: 'invoice_123', amount: 100 }] }, 404, 'CHECKOUT_ATTEMPT_NOT_FOUND'],
+    [{ mode: 'LIVE' }, 409, 'RAZORPAY_MODE_MISMATCH'],
+  ]) {
+    const res = response();
+    let providerCalls = 0;
+    const forbidden = async () => { providerCalls += 1; throw new Error('Unexpected provider access'); };
+    await reconcilePublicRazorpayCheckout({
+      params: { slug: 'public-link' }, body: { attemptId: 'attempt_123', invoiceId: 'invoice_123' }, id: 'scope-negative',
+    }, res, undefined, {
+      getPublicInvoiceForPayment: async () => ({
+        invoice: { id: 'invoice_123', customerId: 'customer_123' },
+        share: { id: 'share_123', resourceType: 'INVOICE' },
+      }),
+      prisma: { razorpayCheckoutAttempt: { findUnique: async () => ({
+        id: 'attempt_123', invoiceId: 'invoice_123', customerId: 'customer_123',
+        publicShareId: 'share_123', mode: 'TEST', status: 'REVIEW', allocationPlan: null, ...patch,
+      }) } },
+      reconcileCheckoutAttempt: forbidden,
+      getRazorpay: forbidden,
+    });
+    assert.equal(res.statusCode, statusCode);
+    assert.equal(res.body.code, code);
+    assert.equal(providerCalls, 0);
+    assert.equal(res.body.data, undefined);
+  }
+});
+
 test('the invoice recovery URL used by the customer UI is registered', () => {
   const registered = publicRouter.stack.some((layer) => layer.route?.path === '/invoices/:slug/payment/reconcile' && layer.route.methods.post);
   assert.equal(registered, true);
