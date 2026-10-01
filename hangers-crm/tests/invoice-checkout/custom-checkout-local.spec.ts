@@ -203,6 +203,49 @@ test('invoice lookup failure is shown once and is not mislabeled as a pending pa
   await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)
 })
 
+test('long method error reflows at narrow width and retry remains keyboard accessible', async ({ page }) => {
+  const longMessage = `Payment methods are temporarily unavailable. ${'configuration-check-'.repeat(40)}`
+  await page.route('**/api/v1/public/invoices/**/payment/**', async (route) => {
+    const request = route.request()
+    const endpoint = new URL(request.url()).pathname.split('/').pop()
+    if (request.method() === 'GET' && endpoint === 'capabilities') {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ success: false, message: longMessage }) })
+      return
+    }
+    if (request.method() === 'GET' && endpoint === 'status') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { status: 'NONE' } }) })
+      return
+    }
+    if (request.method() === 'POST' && ['client-events', 'assign', 'events'].includes(endpoint || '')) {
+      await route.fulfill({ status: 204, body: '' })
+      return
+    }
+    if (request.method() === 'POST') {
+      await route.fulfill({ status: 409, contentType: 'application/json', body: '{"success":false}' })
+      return
+    }
+    await route.continue()
+  })
+
+  await openLocalTestCheckout(page)
+  await page.setViewportSize({ width: 720, height: 900 })
+  await page.getByRole('button', { name: /^Pay/ }).click()
+  const alert = page.getByRole('region', { name: 'Invoice payment' }).getByRole('alert')
+  await expect(alert).toContainText(longMessage)
+  await expect(alert.getByRole('button', { name: 'Reload payment methods' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+  const retry = alert.getByRole('button', { name: 'Reload payment methods' })
+  await page.locator('body').click({ position: { x: 1, y: 1 } })
+  for (let tab = 0; tab < 50; tab++) {
+    if (await retry.evaluate((button) => button === document.activeElement)) break
+    await page.keyboard.press('Tab')
+  }
+  await expect(retry).toBeFocused()
+  expect(await retry.evaluate((button) => getComputedStyle(button).outlineStyle)).not.toBe('none')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
 test('local Test Mode UPI selection submits the selected Razorpay intent app and verifies server-side', async ({ page }) => {
   await installCustomCheckoutMock(page)
   const verifiedPayloads: any[] = []
