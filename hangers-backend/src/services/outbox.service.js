@@ -19,6 +19,7 @@ const { formatDailyIronLogItems } = require('../utils/daily-iron-summary');
 const { writeAuditEvent } = require('./activity.service');
 const { classifyOutboxFailure } = require('../utils/outbox-retry');
 const { shouldSuppressRazorpayTestNotification } = require('../utils/razorpay-test-notification');
+const { homeOutboxScope } = require('../utils/local-outbox-scope');
 
 const CAPTURED_PAYMENT_STATUSES = new Set(['CAPTURED', 'SUCCESS', 'PAID']);
 
@@ -533,7 +534,22 @@ const handleOutboxEvent = async (event) => {
   }
 };
 
-const claimOutboxBatch = async (limit = 25, onlyEventId = null) => prisma.$transaction(async (tx) => {
+const claimOutboxBatch = async (limit = 25, onlyEventId = null, homeOnly = false) => prisma.$transaction(async (tx) => {
+  let scopedIds = null;
+  if (homeOnly) {
+    // Select recipients before claiming so unrelated events retain their queue state.
+    const scope = await homeOutboxScope(tx);
+    const candidates = await tx.outboxEvent.findMany({
+      where: {
+        AND: [scope, { OR: [{ lockedAt: null }, { lockedAt: { lt: new Date(Date.now() - 300_000) } }] }],
+        status: { in: ['PENDING', 'FAILED'] }, nextAttemptAt: { lte: new Date() },
+        ...(onlyEventId ? { id: onlyEventId } : {}),
+      },
+      select: { id: true }, orderBy: { createdAt: 'asc' }, take: limit,
+    });
+    if (!candidates.length) return [];
+    scopedIds = candidates.map((event) => event.id);
+  }
   const rows = await tx.$queryRaw`
     SELECT "id"
     FROM "outbox_events"
@@ -541,6 +557,7 @@ const claimOutboxBatch = async (limit = 25, onlyEventId = null) => prisma.$trans
       AND "nextAttemptAt" <= NOW()
       AND ("lockedAt" IS NULL OR "lockedAt" < NOW() - INTERVAL '5 minutes')
       AND (${onlyEventId}::text IS NULL OR "id" = ${onlyEventId})
+      AND (${scopedIds}::text[] IS NULL OR "id" = ANY(${scopedIds}::text[]))
     ORDER BY "createdAt"
     FOR UPDATE SKIP LOCKED
     LIMIT ${limit}
@@ -554,11 +571,14 @@ const claimOutboxBatch = async (limit = 25, onlyEventId = null) => prisma.$trans
   return tx.outboxEvent.findMany({ where: { id: { in: ids } }, orderBy: { createdAt: 'asc' } });
 });
 
-const processOutboxBatch = async ({ limit = 25, onlyEventId = null } = {}) => {
+const processOutboxBatch = async ({ limit = 25, onlyEventId = null, homeOnly = false } = {}) => {
   if (onlyEventId !== null && (typeof onlyEventId !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(onlyEventId))) {
     throw new TypeError('A valid outbox event ID is required for targeted processing');
   }
-  const events = await claimOutboxBatch(limit, onlyEventId);
+  if (homeOnly && (process.env.NODE_ENV === 'production' || !String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_'))) {
+    throw new Error('Home-only dispatch requires a non-production Razorpay Test runtime');
+  }
+  const events = await claimOutboxBatch(limit, onlyEventId, homeOnly);
   for (const event of events) {
     try {
       await handleOutboxEvent(event);

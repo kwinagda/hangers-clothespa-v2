@@ -56,6 +56,7 @@ const { syncMasterDataSettings } = require('./services/masterData.service');
 const { processOutboxBatch } = require('./services/outbox.service');
 const { globalApiLimiter } = require('./middleware/rateLimit');
 const { matchesLocalQaConfiguration, matchesLocalQaProfile } = require('./utils/local-qa-profile');
+const { shouldRunDevOutbox } = require('./utils/dev-outbox');
 const app  = express();
 const PORT = process.env.PORT || 5001;
 const environment = validateEnvironment();
@@ -85,6 +86,7 @@ const databaseMatchesLocalQaProfile = (database) => matchesLocalQaProfile({
   databasePort: Number(database?.port),
   razorpayKeyId: process.env.RAZORPAY_KEY_ID,
   outboxWorker: process.env.DEV_OUTBOX_WORKER,
+  outboxHomeOnly: process.env.DEV_OUTBOX_HOME_ONLY,
   skipStartupSync: process.env.LOCAL_SKIP_STARTUP_SYNC,
 });
 
@@ -244,6 +246,7 @@ const runStartupChecks = async () => {
         databaseUrl: process.env.DATABASE_URL,
         razorpayKeyId: process.env.RAZORPAY_KEY_ID,
         outboxWorker: process.env.DEV_OUTBOX_WORKER,
+        outboxHomeOnly: process.env.DEV_OUTBOX_HOME_ONLY,
         skipStartupSync: process.env.LOCAL_SKIP_STARTUP_SYNC,
       });
       if (environment.isProduction || !configurationMatches) {
@@ -280,14 +283,15 @@ let devOutboxTimer = null;
 let devOutboxRunning = false;
 
 const startDevOutboxPoller = () => {
-  if (environment.isProduction || process.env.DEV_OUTBOX_WORKER === 'false' || devOutboxTimer) return;
+  if (!localQaReadOnlyRequested || !shouldRunDevOutbox({ isProduction: environment.isProduction, workerEnabled: process.env.DEV_OUTBOX_WORKER,
+    homeOnly: process.env.DEV_OUTBOX_HOME_ONLY, razorpayKeyId: process.env.RAZORPAY_KEY_ID }) || devOutboxTimer) return;
   const drainOutbox = async () => {
     if (devOutboxRunning) return;
     devOutboxRunning = true;
     try {
       let processed;
       do {
-        processed = await processOutboxBatch({ limit: 25 });
+        processed = await processOutboxBatch({ limit: 25, homeOnly: true });
       } while (processed === 25);
     } catch (err) {
       console.error('[api-dev-outbox] drain failed:', err?.message || err);
@@ -297,7 +301,7 @@ const startDevOutboxPoller = () => {
   };
   devOutboxTimer = setInterval(drainOutbox, 2_000);
   drainOutbox();
-  console.info('[api-dev-outbox] local outbox processor active');
+  console.info('[api-dev-outbox] Home-only Test outbox processor active');
 };
 
 const startServer = async () => {
