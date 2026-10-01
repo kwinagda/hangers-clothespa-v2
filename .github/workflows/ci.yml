@@ -81,7 +81,7 @@ jobs:
         run: node --test tests/checkout-callback-recovery-acceptance.unit.test.js tests/checkout-concurrency-acceptance.unit.test.js tests/checkout-downtime-acceptance.unit.test.js tests/checkout-refund-acceptance.unit.test.js
 
       - name: Verify payment diagnostic privacy
-        run: node --test tests/redact.util.test.js
+        run: node --test tests/redact.util.test.js tests/activity-provider-error-redaction.test.js
 
       - name: Verify guarded Custom schema release policy
         run: node --test tests/deploy-custom-checkout-migrations.test.js
