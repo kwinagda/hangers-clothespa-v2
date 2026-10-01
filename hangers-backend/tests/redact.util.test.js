@@ -33,7 +33,7 @@ test('razorpayErrorSummary preserves documented nested fields and safe reference
       status: 400,
       data: { error: {
         code: 'BAD_REQUEST_ERROR',
-        description: 'Invalid OTP 654321 for +91 9930367267 user@example.com',
+        description: 'Invalid OTP 654321 for +91 9930367267 kevinnagda@gmail.com',
         field: 'amount', source: 'business', step: 'payment_initiation', reason: 'input_validation_failed',
         metadata: { payment_id: 'pay_ABC12345678901', order_id: 'order_XYZ1234567890', card: 'never-log' },
         otp: '654321',
