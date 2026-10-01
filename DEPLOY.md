@@ -81,10 +81,22 @@ URL from the `EXPO_PUBLIC_API_URL` environment variable at build time
 (`src/services/api.ts` in each app), falling back to a local-dev address — so the API URL
 is not hardcoded, which is good.
 
-**Gap found, not yet fixed:** neither app has an `eas.json` in this repo, so there are no
-committed `development`/`preview`/`production` build profiles yet. I didn't fabricate one —
-EAS profile values (project ID, credential source, per-profile env) need to come from your
-actual Expo/EAS project, not a guess. Next step: run `eas build:configure` in each app folder
-and commit the resulting `eas.json`, then set `EXPO_PUBLIC_API_URL` per-profile via EAS
-environment variables (not hardcoded in `app.json`). Build/submit once that exists:
-`eas build --profile production --platform android`, then `eas submit`.
+**`hangers-app`:** added `eas.json` with `development`/`preview`/`production` profiles.
+`production`'s `EXPO_PUBLIC_API_URL` is set to `https://api.hangers-cs.com/api/v1`,
+verified against the live Caddy config on the EC2 server (that domain really does proxy to
+the backend). `preview` deliberately has no API URL set — **there is no staging domain**
+(checked the live Caddyfile: only `hangers-cs.com`, `api.hangers-cs.com`, and the server's
+raw IP are configured) — it falls back to the app's local-dev address until a real staging
+endpoint exists. You still need to run `eas init`/`eas build:configure` once yourself to
+link this to your actual EAS project (that step needs your EAS login, not something I can
+do), which will add a `projectId` to `app.json`.
+
+**`hangers-staff-app`: bigger gap, left alone on purpose.** Its `app.json` is essentially
+empty — no `expo.name`, `slug`, Android `package`, or iOS `bundleIdentifier` at all. That
+means this app doesn't have a real buildable identity yet, and writing an `eas.json` on top
+of it would be pointless (nothing to build against). This needs a decision from you — what
+bundle ID / package name this should actually ship under (ideally matching whatever you've
+already registered in Play Console / App Store Connect, if anything) — not a guess, since
+getting it wrong after a real release would be hard to undo. Once that's decided, the fix is
+two steps: fill in `app.json`'s `expo` block, then add `eas.json` following the same pattern
+as `hangers-app`.
