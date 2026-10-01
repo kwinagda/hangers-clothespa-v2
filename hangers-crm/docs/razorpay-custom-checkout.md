@@ -958,7 +958,7 @@ Verification: focused redaction/persistence tests pass 8/8; `npm run test:razorp
 
 Source review found both customer and delivery OTP services treated missing MSG91 credentials or development flags as sufficient to enter fixed-code mode, without first excluding production. Both mode predicates now return false in production. Startup environment validation also rejects development OTP flags and missing/short MSG91 credentials so production cannot silently boot into a non-delivering state. Added regression tests to the focused release suite.
 
-Verification: `node --test tests/env.config.test.js tests/otp-production-dev-mode.test.js tests/activity-provider-error-redaction.test.js tests/redact.util.test.js` passes 15/15; `npm run test:razorpay-release` passes 122/122 with the configuration and mode tests included. Exact-SHA PR CI run `36908314811` passed both jobs at `ed162c9f878561879e7a43a37a60b1e2859b953b`. No OTP was requested/sent and no production environment was inspected or changed. Deployment/runtime configuration remains unverified.
+Verification: `node --test tests/env.config.test.js tests/otp-production-dev-mode.test.js tests/activity-provider-error-redaction.test.js tests/redact.util.test.js` passes 15/15; `npm run test:razorpay-release` passes 122/122 with the configuration and mode tests included. Exact-SHA PR CI runs `36908314811` (code revision `ed162c9f878561879e7a43a37a60b1e2859b953b`) and `36908720722` (plan revision `b42f3f3d8d7401a0750994a68386c2a5e19de6bc`) passed both jobs. No OTP was requested/sent and no production environment was inspected or changed. Deployment/runtime configuration remains unverified.
 
 ## Not a Live-Payment Authorization
 
