@@ -573,10 +573,11 @@ export default function RazorpayCustomCheckout({
       const currentMonth = new Date()
       currentMonth.setDate(1)
       currentMonth.setHours(0, 0, 0, 0)
-      const legacyMaestro = cardNetwork === 'maestro'
-      if (networkUnavailable || !cardFieldRef.current?.isValid() || (!legacyMaestro && (!expiryFieldRef.current?.isValid() || !/^\d{2}$/.test(expiryMonth) || month < 1 || month > 12
-        || !/^\d{2}$/.test(expiryYear) || !Number.isFinite(expiry.getTime()) || expiry < currentMonth || !cvv))) {
-        invalidFields(['card-number', ...(!legacyMaestro ? ['card-expiry', 'card-cvv'] : [])], 'Check the card number, expiry date and security code, then try again.')
+      if (!name.trim()) return invalidFields(['card-name'], 'Enter the name on the card.')
+      if (networkUnavailable || !cardFieldRef.current?.isValid() || !expiryFieldRef.current?.isValid()
+        || !/^\d{2}$/.test(expiryMonth) || month < 1 || month > 12 || !/^\d{2}$/.test(expiryYear)
+        || !Number.isFinite(expiry.getTime()) || expiry < currentMonth || !cvv) {
+        invalidFields(['card-number', 'card-expiry', 'card-cvv'], 'Check the card number, expiry date and security code, then try again.')
         return
       }
       payment = {
@@ -586,7 +587,9 @@ export default function RazorpayCustomCheckout({
         ...(method === 'emi' ? { emi_duration: Number(emiDuration) } : {}),
         'card[name]': name,
         'card[number]': number,
-        ...(!legacyMaestro ? { 'card[cvv]': cvv, 'card[expiry_month]': expiryMonth, 'card[expiry_year]': expiryYear.slice(-2) } : {}),
+        'card[cvv]': cvv,
+        'card[expiry_month]': expiryMonth,
+        'card[expiry_year]': expiryYear.slice(-2),
       }
       if (method === 'emi' && !plans.some((plan) => String(plan.duration) === emiDuration)) {
         invalidFields(['emi-duration'], 'Choose an EMI duration available for this invoice amount.')
@@ -718,8 +721,8 @@ export default function RazorpayCustomCheckout({
             <div>{networkAssets.map((asset) => <img key={asset.code} src={asset.url} alt={asset.label} width={48} height={30} loading="lazy" referrerPolicy="no-referrer" />)}</div>
           </div> : <small>Razorpay will validate this card during payment.</small>}
           <div className={styles.row}>
-            <label hidden={cardNetwork === 'maestro'}>Expiry<input name="card-expiry" {...fieldProps('card-expiry')} inputMode="numeric" autoComplete="cc-exp" placeholder="MM / YY" disabled={submitting || cardNetwork === 'maestro'} required={cardNetwork !== 'maestro'} />{fieldMessage('card-expiry')}</label>
-            <label hidden={cardNetwork === 'maestro'}>CVV<input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" disabled={submitting || cardNetwork === 'maestro'} required={cardNetwork !== 'maestro'} />{fieldMessage('card-cvv')}</label>
+            <label>Expiry<input name="card-expiry" {...fieldProps('card-expiry')} inputMode="numeric" autoComplete="cc-exp" placeholder="MM / YY" disabled={submitting} required />{fieldMessage('card-expiry')}</label>
+            <label>CVV<input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" disabled={submitting} required />{fieldMessage('card-cvv')}</label>
           </div>
           <button type="button" disabled={submitting || eligibilityBusy} onClick={() => void checkCardEligibility()}>{eligibilityBusy ? 'Checking card...' : method === 'emi' ? 'Check EMI eligibility' : 'Check card eligibility'}</button>
           {method === 'emi' && eligibility && <small>{eligibility.issuerName || eligibility.issuerCode}: {eligibility.emiAvailable === true ? 'Select an available plan.' : 'EMI availability is not confirmed for this card.'}</small>}

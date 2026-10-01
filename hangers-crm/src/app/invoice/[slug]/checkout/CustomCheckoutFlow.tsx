@@ -259,10 +259,12 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
 
   const canPrepare = Boolean(paymentAllowed && status && !status.providerLookupUnavailable && (['NONE', 'CREATE_FAILED'].includes(status.status) || status.canResumeCheckout))
   const showForm = Boolean(capabilities && (canPrepare || order))
+  const showPaymentReview = Boolean(paymentAllowed && !loading && status && !status.canResumeCheckout
+    && (status.providerLookupUnavailable || ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'].includes(status.status)))
   const provisional: CheckoutOrder | null = capabilities ? { key: capabilities.key, amount: amountPaise, currency: 'INR', razorpayOrderId: '' } : null
   return <section aria-label="Invoice payment" aria-busy={loading}>
     {loading && <p role="status">Loading secure payment details...</p>}
-    {methodsError && <div className={styles.notice} role="alert"><p>{methodsError}</p><button type="button" className={styles.retry} disabled={offline || retryAt > 0} onClick={reloadMethods}>Reload payment methods</button></div>}
+    {methodsError && methodsError !== loadError && <div className={styles.notice} role="alert"><p>{methodsError}</p><button type="button" className={styles.retry} disabled={offline || retryAt > 0} onClick={reloadMethods}>Reload payment methods</button></div>}
     {loadError && <div className={styles.notice} role="alert"><p>{loadError}</p><button type="button" className={styles.retry} disabled={busy || offline || retryAt > 0} onClick={() => { reloadMethods(); void recover() }}>Retry loading payment details</button></div>}
     {status?.status === 'FAILED' && status.canResumeCheckout && !status.providerLookupUnavailable && <p role="status">
       Razorpay reports the previous attempt failed. You can retry using the same checkout order.
@@ -278,7 +280,7 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
         setMessage(value?.error?.description || 'The payment result is unconfirmed. Check its status before retrying.')
         lastCheck.current = 0; void recover()
       }} onCheckStatus={() => void recover()} onCancel={() => { setOrder(null); setSubmitted(true); void recover() }} />}
-    {paymentAllowed && !loading && !showForm && <div className={styles.notice} role="status">
+    {showPaymentReview && <div className={styles.notice} role="status">
       <h2>Payment status under review</h2><p>We are checking the existing payment. Do not pay again until its status is confirmed.</p>
     </div>}
     {message && <p role="status" aria-live="polite">{message}</p>}

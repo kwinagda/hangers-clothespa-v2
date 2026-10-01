@@ -183,6 +183,22 @@ const beginLocalCustomCheckout = async (page: import('@playwright/test').Page, c
   }
 }
 
+test('invoice lookup failure is shown once and is not mislabeled as a pending payment', async ({ page }) => {
+  await openLocalTestCheckout(page)
+  await page.route('**/api/v1/public/invoices/**/payment/**', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'Invoice not found' }) })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.getByRole('button', { name: /^Pay/ }).click()
+  await expect(page).toHaveURL(/\/checkout(?:\?|$)/)
+  await expect(page.getByText('Invoice not found', { exact: true })).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)
+})
+
 test('local Test Mode UPI selection submits the selected Razorpay intent app and verifies server-side', async ({ page }) => {
   await installCustomCheckoutMock(page)
   const verifiedPayloads: any[] = []
@@ -483,6 +499,45 @@ test('SDK card validation blocks an invalid number before payment submission', a
   await page.getByLabel('CVV').fill('123')
   await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
   await expect(page.locator('form').getByRole('alert')).toContainText('Check the card number')
+  expect(await page.evaluate(() => (window as any).__customPayment)).toBeUndefined()
+})
+
+test('card input always submits the documented card fields without network-specific omissions', async ({ page }) => {
+  await installCustomCheckoutMock(page)
+  await page.addInitScript(() => {
+    const testWindow = window as any
+    testWindow.__customFormatterNetwork = 'maestro'
+    testWindow.__customCardEligibility = { network: 'Maestro', type: 'debit', issuerCode: 'HDFC', issuerName: 'HDFC Bank', emiAvailable: false }
+    testWindow.__customCheckoutMethods.card_networks.MAES = 1
+  })
+  await mockInvoicePaymentApi(page, [])
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page)
+  await page.getByRole('radio', { name: 'Credit or debit card' }).check()
+  await page.getByLabel('Card number').fill('6759649826438453')
+  await page.getByLabel('Name on card').fill('Kevin Test')
+  await page.getByLabel('Expiry', { exact: true }).fill('12 / 30')
+  await page.getByLabel('CVV').fill('123')
+  await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
+  const payment = await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)
+  expect(payment.data).toMatchObject({
+    method: 'card', 'card[name]': 'Kevin Test', 'card[number]': '6759649826438453',
+    'card[cvv]': '123', 'card[expiry_month]': '12', 'card[expiry_year]': '30',
+  })
+})
+
+test('blank cardholder name is blocked because Razorpay documents it as a required card field', async ({ page }) => {
+  await installCustomCheckoutMock(page)
+  await mockInvoicePaymentApi(page, [])
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page)
+  await page.getByRole('radio', { name: 'Credit or debit card' }).check()
+  await page.getByLabel('Name on card').fill('   ')
+  await page.getByLabel('Card number').fill('4100 2800 0000 1007')
+  await page.getByLabel('Expiry', { exact: true }).fill('12 / 30')
+  await page.getByLabel('CVV').fill('123')
+  await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
+  await expect(page.locator('form').getByRole('alert')).toContainText('Enter the name on the card.')
   expect(await page.evaluate(() => (window as any).__customPayment)).toBeUndefined()
 })
 
