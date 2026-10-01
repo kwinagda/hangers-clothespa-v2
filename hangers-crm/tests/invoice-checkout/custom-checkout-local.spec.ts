@@ -325,20 +325,18 @@ test('local custom checkout submits Razorpay-enabled netbanking options', async 
   expect(verifiedPayloads).toHaveLength(0)
 })
 
-test('missing payer email blocks SDK submission without inventing an address', async ({ page }) => {
+test('missing payer email does not block SDK submission or invent an address', async ({ page }) => {
   await installCustomCheckoutMock(page)
   await mockInvoicePaymentApi(page, [])
   await openLocalTestCheckout(page)
-  await beginLocalCustomCheckout(page)
+  await beginLocalCustomCheckout(page, false)
   await page.getByRole('radio', { name: 'Netbanking' }).check()
-  await page.getByRole('textbox', { name: 'Email address', exact: true }).fill('')
-  await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
-  expect(await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)).toBeUndefined()
-  const email = page.getByRole('textbox', { name: 'Email address', exact: true })
+  const email = page.getByRole('textbox', { name: 'Email address (optional)', exact: true })
   await expect(email).toHaveValue('')
-  await expect(email).toHaveAttribute('aria-invalid', 'true')
-  await expect(email).toHaveAccessibleDescription(/.+/)
-  await expect(email).toBeFocused()
+  await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
+  const payment = await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)
+  expect(payment).toMatchObject({ data: { method: 'netbanking', bank: 'HDFC' } })
+  expect(payment.data).not.toHaveProperty('email')
 })
 
 test('redirect recovery passes the server callback URL to Custom Checkout without changing the order reference', async ({ page }) => {

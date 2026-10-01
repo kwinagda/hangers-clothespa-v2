@@ -675,7 +675,7 @@ export default function RazorpayCustomCheckout({
       {!!availableMethods.length && <>
         <fieldset disabled={submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {!order.email && <div className={styles.row}>
-          <label>Email address<input name="email" {...fieldProps('email')} type="email" autoComplete="email" required disabled={submitting} /></label>
+          <label>Email address (optional)<input name="email" {...fieldProps('email')} type="email" autoComplete="email" disabled={submitting} /></label>
           {fieldMessage('email')}
         </div>}
         {collectContact && <div className={styles.row}>
