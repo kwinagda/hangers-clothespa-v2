@@ -772,6 +772,12 @@ Historical implementation checks on 30 September 2026, before the final document
 
 These mocked browser tests prove the local UI-to-SDK contract and server verification request shape. They do not establish which methods are enabled for the merchant account or substitute for Razorpay Test Mode end-to-end payment acceptance.
 
+### Confirmation Accessibility Acceptance - 1 October 2026
+
+Home-only worker revision `21706e3542c17d125a6caf9d2ea5122d4c5f449c` passed both CI jobs in run `36842768131`, including the new scoped notification checks.
+
+Three real local confirmation-page browser checks passed at widths 320, 768 and 1440 using the existing captured Home fixture. Evidence: accessible brand image and heading, current Confirmation breadcrumb, visible original provider payment reference, keyboard Tab/Enter expansion and collapse of Paid invoice split, no Pay/resume action, no horizontal overflow and no create-order/verify POST. This covers the paid-state subset of A03, not a comprehensive screen-reader, contrast, performance or payment-form audit. The original QA share was renewed temporarily for this check and then revoked; the unused fresh diagnostic share was also revoked. Invoice remains INR 10 paid, balance zero; no payment or notification was submitted by these checks. Initial test failures corrected a fixture assumption (new share does not expose the old share-bound attempt) and a selector assumption (captured references are inline; the collapsible control is Paid invoice split). Record the new-share limitation as F50 rather than expanding implementation scope.
+
 ### Saved-Card Integration Findings
 
 The documented consent flow uses a server-created Razorpay customer, `save: 1` only with explicit consent, and customer-scoped token fetch/reuse/delete APIs. Public invoice possession does not establish the payer's identity. Authenticated payer-to-provider mapping, separate mode/key binding, consent and owner-scoped token operations are now implemented in the saved-card service/routes/UI. Source review identified F13 consent-state/payload and F14 mapping-recovery defects, recorded for later work per user instruction. Account activation and complete acceptance remain unverified; source integration is not a claim of successful tokenisation.
