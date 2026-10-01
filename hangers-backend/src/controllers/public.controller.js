@@ -1159,6 +1159,42 @@ const getPublicRazorpayCheckoutStatus = async (req, res, _next, testHooks = {}) 
         ...(attemptId ? { id: attemptId } : {}) },
       orderBy: { createdAt: 'desc' },
     });
+    // Checkout creation guards active attempts invoice-wide. A newly issued
+    // invoice link must see that same guard in status polling, without gaining
+    // permission to resume or reconcile an order bound to a different link.
+    if (!attempt && !attemptId) {
+      const activeAttempt = await db.razorpayCheckoutAttempt.findFirst({
+        where: {
+          customerId: target.invoice.customerId,
+          OR: [{ invoiceId: target.invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: target.invoice.id }] } }],
+          status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (activeAttempt) {
+        const invoice = await db.invoice.findUnique({
+          where: { id: target.invoice.id },
+          select: { invoiceNumber: true, status: true, balanceDue: true, paidAmount: true },
+        });
+        return success(res, {
+          attemptId: null,
+          status: 'PENDING',
+          canResumeCheckout: false,
+          providerLookupUnavailable: false,
+          observedAt: new Date().toISOString(),
+          ...(customCheckout ? { providerError: null, retryPolicyGate: null } : {}),
+          ...publicCheckoutRedirectOptions(req.params.slug, target.invoice.id),
+          razorpayOrderId: activeAttempt.razorpayOrderId || null,
+          razorpayPaymentId: activeAttempt.razorpayPaymentId || null,
+          invoice,
+          paymentId: null,
+          capturedAmountPaise: null,
+          currency: activeAttempt.currency || target.invoice.currency || 'INR',
+          capturedAt: null,
+          allocations: [],
+        });
+      }
+    }
     if (attempt && Boolean(attempt.allocationPlan) !== (target.share.resourceType === 'CUSTOMER')) {
       throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_BINDING_MISMATCH', 'Checkout attempt does not match this payment scope.', 409);
     }

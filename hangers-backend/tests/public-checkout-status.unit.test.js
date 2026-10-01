@@ -242,8 +242,16 @@ test('status recovery returns NONE for an invoice without any checkout attempt',
   const fakePrisma = {
     razorpayCheckoutAttempt: {
       findFirst: async ({ where, orderBy }) => {
-        assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'share_789', invoiceId: invoice.id });
         assert.deepEqual(orderBy, { createdAt: 'desc' });
+        if (where.publicShareId) {
+          assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'share_789', invoiceId: invoice.id });
+        } else {
+          assert.deepEqual(where, {
+            customerId: invoice.customerId,
+            OR: [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }],
+            status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] },
+          });
+        }
         return null;
       },
     },
@@ -265,4 +273,53 @@ test('status recovery returns NONE for an invoice without any checkout attempt',
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data.status, 'NONE');
   assert.equal(res.body.data.attemptId, null);
+});
+
+test('a fresh invoice link sees another link’s unresolved attempt but cannot resume it', async () => {
+  const invoice = { id: 'invoice_790', customerId: 'customer_790', invoiceNumber: 'INV-790', status: 'OPEN', balanceDue: 73, paidAmount: 0 };
+  const activeAttempt = boundAttempt(invoice, 'original_share', {
+    id: 'attempt_original', status: 'PENDING', razorpayOrderId: 'order_existing', razorpayPaymentId: 'pay_existing', amountPaise: 7300n,
+  });
+  let lookup = 0;
+  let providerCalls = 0;
+  const fakePrisma = {
+    razorpayCheckoutAttempt: {
+      findFirst: async ({ where, orderBy }) => {
+        assert.deepEqual(orderBy, { createdAt: 'desc' });
+        lookup += 1;
+        if (lookup === 1) {
+          assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'fresh_share', invoiceId: invoice.id });
+          return null;
+        }
+        assert.deepEqual(where, {
+          customerId: invoice.customerId,
+          OR: [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }],
+          status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] },
+        });
+        return activeAttempt;
+      },
+    },
+    invoice: { findUnique: async () => invoice },
+  };
+  const res = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'fresh_link' }, query: { checkoutIntegration: 'CUSTOM' }, headers: {}, id: 'request_790',
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'fresh_share'),
+    prisma: fakePrisma,
+    getRazorpay: () => { providerCalls += 1; throw new Error('must not query another link’s order'); },
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.status, 'PENDING');
+  assert.equal(res.body.data.canResumeCheckout, false);
+  assert.equal(res.body.data.attemptId, null);
+  assert.equal(res.body.data.razorpayOrderId, 'order_existing');
+  assert.equal(res.body.data.razorpayPaymentId, 'pay_existing');
+  assert.equal(providerCalls, 0);
 });
