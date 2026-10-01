@@ -83,6 +83,9 @@ jobs:
       - name: Verify payment diagnostic privacy
         run: node --test tests/redact.util.test.js
 
+      - name: Verify guarded Custom schema release policy
+        run: node --test tests/deploy-custom-checkout-migrations.test.js
+
       - name: Verify combined invoice checkout against disposable database
         run: RUN_COMBINED_CHECKOUT_INTEGRATION=1 node --test tests/combined-checkout.integration.test.js
 
