@@ -69,7 +69,7 @@ test('A20 authoritative failed refund records failure without posting a refund o
   assert.equal(result.providerStatus, 'failed', 'Authoritative status overrides the event label');
   assert.equal(attempt.status, 'FAILED');
   assert.equal(attempt.providerStatus, 'failed');
-  assert.equal(attempt.failureCode, 'PROVIDER_REFUND_FAILED');
+  assert.equal(attempt.failureCode, null, 'Do not synthesize a provider error code when the fetched refund has none');
   assert.ok(attempt.completedAt instanceof Date);
   assert.equal(attempt.localRefundPaymentId, null);
   assert.equal(attempt.sourcePaymentId, 'payment-fixture');
