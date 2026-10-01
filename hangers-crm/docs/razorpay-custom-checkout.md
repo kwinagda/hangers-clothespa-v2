@@ -631,6 +631,8 @@ Repository evidence: `hangers-backend/src/services/billing.service.js` creates i
 
 ### Current Acceptance Disposition - 1 October 2026
 
+Git continuation: PR #10 was unable to start CI for `93b2051` because `main` independently added `receivables-workflow.test.js` (add/add conflict). Compared both versions: the difference was the new verified-Razorpay customer/currency negative test. Merged `origin/main`, retaining that test and all upstream changes, as `fba481d0f395fe43fc58a60e9a0ad5f2111ee502`; 13 focused receivables/worker/Test-recipient tests pass locally. CI `36846221570` started for the merged revision. Unrelated preview files and generated `next-env.d.ts` remain protected and uncommitted. Upstream's five paused WhatsApp templates remain paused; F52 records that their success-shaped result must not be interpreted as actual sending.
+
 A16 continuation: revision `45fb078e4a7bb14a942f97bfa5eb9b968a3681b4`, GitHub CI run `36845643527`, completed successfully for backend contracts, combined disposable-database settlement negatives, migration rehearsal, signed inbox recovery and CRM type-check/build/responsive checks. The seven callback tests also passed locally without a database/provider call. This validates the newly enumerated tampering subset below, not real provider lifecycle acceptance or production deployment.
 
 This register records evidence and gaps, not blanket acceptance. Historical build-only restrictions below are superseded by the current execution authorization at the top. Passing mocks do not establish issuer/account/device acceptance; an unverified required case remains unfinished. Newly discovered F46/F48/F49/F50 are report-only under the existing findings instruction.
