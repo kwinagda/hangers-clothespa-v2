@@ -59,6 +59,43 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   assert.equal(denied.statusCode, 404, 'an invoice link cannot be swapped to another invoice');
 
   providerPayment = { id: `pay_${suffix}`, order_id: providerOrder.id, amount: 588000, currency: 'INR', status: 'captured', captured: true, method: 'card' };
+  const verificationArgs = { paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider };
+  const assertNoSettlement = async () => {
+    assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: providerPayment.id } }), 0);
+    for (const invoice of invoices) {
+      const unchanged = await prisma.invoice.findUnique({ where: { id: invoice.id } });
+      assert.equal(Number(unchanged.paidAmount), 0);
+      assert.equal(Number(unchanged.balanceDue), Number(invoice.totalAmount));
+    }
+  };
+  for (const [extra, code] of [
+    [{ signature: 'forged' }, 'INVALID_CHECKOUT_SIGNATURE'],
+    [{ expectedInvoiceId: 'foreign-invoice' }, 'CHECKOUT_ATTEMPT_BINDING_MISMATCH'],
+    [{ expectedShareId: 'foreign-share' }, 'CHECKOUT_ATTEMPT_BINDING_MISMATCH'],
+    [{ providerOrderId: `unknown_${suffix}` }, 'CHECKOUT_ATTEMPT_NOT_FOUND'],
+  ]) {
+    await assert.rejects(settleCapturedPayment({ ...verificationArgs, ...extra }), { code });
+    await assertNoSettlement();
+  }
+  for (const [entity, field, value, code] of [
+    [providerPayment, 'order_id', 'foreign-order', 'PROVIDER_PAYMENT_BINDING_MISMATCH'],
+    [providerPayment, 'id', 'foreign-payment', 'PROVIDER_PAYMENT_BINDING_MISMATCH'],
+    [providerPayment, 'amount', 588001, 'PROVIDER_AMOUNT_MISMATCH'],
+    [providerOrder, 'amount', 588001, 'PROVIDER_AMOUNT_MISMATCH'],
+    [providerPayment, 'currency', 'USD', 'PROVIDER_CURRENCY_MISMATCH'],
+    [providerOrder, 'currency', 'USD', 'PROVIDER_CURRENCY_MISMATCH'],
+    [providerOrder.notes, 'invoice_id', 'foreign-invoice', 'PROVIDER_ORDER_BINDING_MISMATCH'],
+    [providerOrder.notes, 'share_id', 'foreign-share', 'PROVIDER_ORDER_BINDING_MISMATCH'],
+  ]) {
+    const original = entity[field];
+    try {
+      entity[field] = value;
+      await assert.rejects(settleCapturedPayment(verificationArgs), { code });
+      await assertNoSettlement();
+    } finally {
+      entity[field] = original;
+    }
+  }
   const originalHash = providerOrder.notes.allocation_plan_hash;
   providerOrder.notes.allocation_plan_hash = 'invalid';
   await assert.rejects(settleCapturedPayment({ paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider }), { code: 'PROVIDER_ORDER_BINDING_MISMATCH' });
