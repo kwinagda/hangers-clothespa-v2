@@ -122,6 +122,9 @@ jobs:
       - name: Verify SDK diagnostic privacy
         run: node --experimental-strip-types --test tests/invoice-checkout/payment-diagnostic-privacy.unit.mjs
 
+      - name: Verify staging API proxy privacy headers
+        run: node --test tests/staging-api-proxy.test.js
+
       - name: Build
         run: npm run build
         env:

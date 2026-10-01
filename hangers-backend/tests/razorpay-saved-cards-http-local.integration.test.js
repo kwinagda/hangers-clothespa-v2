@@ -32,6 +32,7 @@ test('existing local saved-card routes deny missing or invalid customer authenti
         });
         assert.equal(response.status, 401);
         assert.match(response.headers.get('cache-control') || '', /private.*no-store/);
+        assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
         const result = await response.json();
         assert.equal(result.success, false);
         if (label === 'staff token') assert.equal(result.message, 'Invalid token type');

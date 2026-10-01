@@ -962,6 +962,12 @@ Verification: `node --test tests/env.config.test.js tests/otp-production-dev-mod
 
 F54/F55 consolidated plan verification: exact-SHA PR CI run `36909134047` passed both jobs at `5fcedc41ac9939bd4012b73fd926ee5e7527b17f`. Existing local API was gracefully restarted to load these backend changes; CRM and PostgreSQL were left running. Health checks returned HTTP 200 for API `localhost:5001` and CRM `localhost:5002`; PostgreSQL on `localhost:5432` accepted connections. The API's startup profile remained Home-only Test outbox processing; its startup database checks were reads. No messages or payments were dispatched by this restart.
 
+### F51/F53 Checkout Privacy Headers - 2 October 2026
+
+The local browser-facing API proxy previously replaced the saved-card endpoint's `Referrer-Policy: no-referrer` with the site's general policy. Next.js now applies `no-referrer` only to `/api/v1/customer/payments/razorpay/saved-cards/:path*`; all other pages retain the existing site policy. Public invoice-share and payment routes now set `private, no-store` before their limiter and handlers, covering denied/invalid-share responses as well as successful responses without changing marketing, quotation or Daily Iron caching behavior.
+
+Verification on the existing `localhost:5002` -> API `localhost:5001` -> `hangers_db` path: the local public-checkout HTTP integration passed all 10 invalid-share invoice/status/custom-method/create/verify/reconcile/callback cases, asserting HTTP 404, `private, no-store`, and rate-limit headers. The saved-card HTTP integration passed all 24 missing/invalid-auth requests across config/list/consent/prepare/select/delete, asserting HTTP 401, `private, no-store`, exact `Referrer-Policy: no-referrer`, and no provider/customer/card secrets in the response. No valid customer session, token, provider request, payment, outbox action or database write was used. This closes F51/F53's tested header discrepancies only; broader C22 privacy acceptance remains Partial.
+
 ## Not a Live-Payment Authorization
 
 ### Real Chrome Test Netbanking acceptance - 1 October 2026

@@ -29,9 +29,7 @@ test('existing local public payment routes reject an invalid invoice share', {
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
       assert.equal(response.status, 404);
-      if (path.startsWith('/payment/custom/')) {
-        assert.match(response.headers.get('cache-control') || '', /private.*no-store/);
-      }
+      assert.match(response.headers.get('cache-control') || '', /private.*no-store/);
       assert.equal(response.headers.get('ratelimit-limit'), '60');
       const result = await response.json();
       assert.equal(result.success, false);

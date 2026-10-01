@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getPublicInvoice, getPublicDailyIronLogs, getPublicQuotation, getPublicRateChart, getPublicSiteProfile, getPublicBlogPosts, getPublicBlogPost, getPublicSuburbPages, getPublicSuburbPage, getPublicServicePages, getPublicServicePage, createPublicPickupRequest, ingestQueuedPickupRequest, sendPublicPickupOtp, verifyPublicPickupOtp, createPublicRazorpayOrder, verifyPublicRazorpayPayment, getPublicRazorpayCheckoutStatus, reconcilePublicRazorpayCheckout, assignPublicRazorpayCheckoutExperiment, recordPublicRazorpayCheckoutExperimentEvent } = require('../controllers/public.controller');
 const { publicShareLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimit');
+const { privateNoStore } = require('../middleware/privateCache');
 const { handlePublicRazorpayCallback } = require('../controllers/public.controller');
 const { getPublicCustomCapabilities, getPublicCustomCardEligibility, getPublicCustomDowntime, preparePublicCustomBankTransfer } = require('../controllers/public.controller');
 
@@ -12,18 +13,18 @@ const { getPublicCustomCapabilities, getPublicCustomCardEligibility, getPublicCu
 // into several of them server-side (metadata + page body each fetch independently), so a
 // tight per-share-link budget was starving ordinary page loads. They still sit behind the
 // generous app-wide globalApiLimiter (1200 req/15min) applied at the /api/v1 level.
-router.get('/invoices/:slug', publicShareLimiter, getPublicInvoice);
-router.post('/invoices/:slug/payment/experiment/assign', publicShareLimiter, assignPublicRazorpayCheckoutExperiment);
-router.post('/invoices/:slug/payment/experiment/events', publicShareLimiter, recordPublicRazorpayCheckoutExperimentEvent);
-router.post('/invoices/:slug/payment/create-order', publicShareLimiter, createPublicRazorpayOrder);
-router.post('/invoices/:slug/payment/verify', publicShareLimiter, verifyPublicRazorpayPayment);
-router.post('/invoices/:slug/payment/callback', publicShareLimiter, handlePublicRazorpayCallback);
-router.get('/invoices/:slug/payment/status', publicShareLimiter, getPublicRazorpayCheckoutStatus);
-router.get('/invoices/:slug/payment/custom/capabilities', publicShareLimiter, getPublicCustomCapabilities);
-router.post('/invoices/:slug/payment/custom/card-eligibility', publicShareLimiter, getPublicCustomCardEligibility);
-router.get('/invoices/:slug/payment/custom/downtime', publicShareLimiter, getPublicCustomDowntime);
-router.post('/invoices/:slug/payment/custom/bank-transfer', publicShareLimiter, preparePublicCustomBankTransfer);
-router.post('/invoices/:slug/payment/reconcile', publicShareLimiter, reconcilePublicRazorpayCheckout);
+router.get('/invoices/:slug', privateNoStore, publicShareLimiter, getPublicInvoice);
+router.post('/invoices/:slug/payment/experiment/assign', privateNoStore, publicShareLimiter, assignPublicRazorpayCheckoutExperiment);
+router.post('/invoices/:slug/payment/experiment/events', privateNoStore, publicShareLimiter, recordPublicRazorpayCheckoutExperimentEvent);
+router.post('/invoices/:slug/payment/create-order', privateNoStore, publicShareLimiter, createPublicRazorpayOrder);
+router.post('/invoices/:slug/payment/verify', privateNoStore, publicShareLimiter, verifyPublicRazorpayPayment);
+router.post('/invoices/:slug/payment/callback', privateNoStore, publicShareLimiter, handlePublicRazorpayCallback);
+router.get('/invoices/:slug/payment/status', privateNoStore, publicShareLimiter, getPublicRazorpayCheckoutStatus);
+router.get('/invoices/:slug/payment/custom/capabilities', privateNoStore, publicShareLimiter, getPublicCustomCapabilities);
+router.post('/invoices/:slug/payment/custom/card-eligibility', privateNoStore, publicShareLimiter, getPublicCustomCardEligibility);
+router.get('/invoices/:slug/payment/custom/downtime', privateNoStore, publicShareLimiter, getPublicCustomDowntime);
+router.post('/invoices/:slug/payment/custom/bank-transfer', privateNoStore, publicShareLimiter, preparePublicCustomBankTransfer);
+router.post('/invoices/:slug/payment/reconcile', privateNoStore, publicShareLimiter, reconcilePublicRazorpayCheckout);
 router.get('/daily-iron/:slug', publicShareLimiter, getPublicDailyIronLogs);
 router.get('/quotations/:slug', publicShareLimiter, getPublicQuotation);
 router.get('/rate-chart', getPublicRateChart);
