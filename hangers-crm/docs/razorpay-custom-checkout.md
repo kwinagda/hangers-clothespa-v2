@@ -560,7 +560,19 @@ Implementation ownership is explicit: invoice/checkout routes and `RazorpayCusto
 
 Local public payment route suffixes currently are `/invoices/:slug/payment/create-order`, `/verify`, `/callback`, `/status` and `/reconcile` under the existing public router. They are Hangers routes, not Razorpay endpoints. `webhooks.routes.js` exposes `/razorpay/:mode(test|live)` plus the existing generic route; deployment/mount configuration and raw-body middleware must be verified independently before claiming a public webhook URL works.
 
-Worker audit at this revision finds payment captured/authorized/failed, order paid, refund created/processed/failed/speed_changed and dispute branches. Bank-transfer credited and downtime handling are not evidenced in that worker. A ticked Dashboard subscription does not implement a handler; build the event-to-consumer matrix and close its gaps before acceptance. Do not remove existing approved events merely because this custom UI uses fewer method types.
+Current worker dispatch includes the event-to-consumer matrix below. A ticked Dashboard subscription does not prove provider delivery or account activation. Do not remove existing approved events merely because this custom UI uses fewer method types.
+
+| Event family | Current worker consumer / evidence |
+| --- | --- |
+| `payment.captured`, `order.paid` | Authoritative capture lookup and existing invoice/allocation settlement; release and combined database tests. |
+| `payment.authorized`, `payment.failed` | Authoritative payment-state reconciliation; no event payload alone marks paid. |
+| `refund.created`, `refund.processed`, `refund.failed`, `refund.speed_changed` | Refund ID/reservation reconciliation; dispatch, binding and combined refund database tests. |
+| `payment.dispute.*` | Dispute provider lookup and finance-case synchronization; review state preserved by dispatch; dispute regression tests. |
+| `payment.downtime.started`, `payment.downtime.updated`, `payment.downtime.resolved` | Dedicated downtime reconciliation; exact instrument/account/lease tests plus dispatch contract tests. |
+| `virtual_account.credited` | Dedicated virtual-account credit reconciliation; dispatch tested, actual provider acceptance conditional on activation. |
+| Other signed events | Explicit finance handling/review error, not silent settlement. |
+
+`node --test tests/razorpay-webhook-dispatch.unit.test.js` passed 8 tests (parent plus 7 subcases). Dedicated-consumer arguments, review-state preservation, mode mismatch before dispatch and unknown-event rejection were verified with injected consumers. Included in CI; no database/provider calls. This proves routing contracts, not real event delivery.
 
 These are Hangers acceptance requirements, not claims that Razorpay guarantees every recovery outcome. Each applicable row receives a result and evidence link; parameterized subcases are listed before execution. Re-run only failed or change-affected rows. No open-ended payment generation, unrelated service testing or unsupported method activation.
 
