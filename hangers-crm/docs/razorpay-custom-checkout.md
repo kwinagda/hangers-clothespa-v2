@@ -631,6 +631,8 @@ Repository evidence: `hangers-backend/src/services/billing.service.js` creates i
 
 ### Current Acceptance Disposition - 1 October 2026
 
+A16 continuation: revision `45fb078e4a7bb14a942f97bfa5eb9b968a3681b4`, GitHub CI run `36845643527`, completed successfully for backend contracts, combined disposable-database settlement negatives, migration rehearsal, signed inbox recovery and CRM type-check/build/responsive checks. The seven callback tests also passed locally without a database/provider call. This validates the newly enumerated tampering subset below, not real provider lifecycle acceptance or production deployment.
+
 This register records evidence and gaps, not blanket acceptance. Historical build-only restrictions below are superseded by the current execution authorization at the top. Passing mocks do not establish issuer/account/device acceptance; an unverified required case remains unfinished. Newly discovered F46/F48/F49/F50 are report-only under the existing findings instruction.
 
 | Case | Current evidence | Remaining acceptance / disposition |
@@ -650,7 +652,7 @@ This register records evidence and gaps, not blanket acceptance. Historical buil
 | A13 | Guarded combined CI covers overlapping bindings, simultaneous capture calls and duplicate settlement; UI mocks enforce one order during recovery. | Concurrent settlement/replay passes; actual two-tab/device order-creation race remains unverified. |
 | A14 | Closed-flow mocks; actual Chrome crash/reopen retains pending payment and same order; real local offline/reconnect/refresh check passes. | Back/sleep and lost-create-response subcases need distinct evidence. |
 | A15 | Actual Test capture and created/attempted recovery; worker/reconciliation contracts. | Lost callback/verification response, late authorization and outage matrix not fully established. |
-| A16 | Callback signature/scope/fixed-return negatives; combined stale/foreign/allocation rejection. | Verify every listed tamper subcase has an explicit assertion before claiming full pass. |
+| A16 | Seven callback tests pass; disposable CI verifies forged signature, wrong expected invoice/share, unknown order, mismatched payment/order IDs, changed provider order/payment amount or currency, changed provider invoice/share notes, allocation-hash rejection and stale balances. Negative verification assertions preserve zero payments and unpaid invoice balances. | Explicit wrong-customer allocation coverage still needs verification before full pass. |
 | A17 | Existing-local HTTP exact raw-body/altered/duplicate checks and durable inbox retry/crash-lease regression. | Public HTTPS provider delivery unverified; local signed-event subset passes. |
 | A18 | Disposable CI verifies immutable split, atomic capture, stale/overlap/foreign rejection and duplicate protection. | Real combined provider capture/customer-fee acceptance unverified; merchant-fee configuration is not proof of customer-fee support. |
 | A19 | Real capture ledger, receipt and Home notification; automatic Home-only dispatch and non-Home exclusion verified. | Finance browser history and uncertain-send-response reconciliation remain unverified; provider acceptance is not handset receipt. |
