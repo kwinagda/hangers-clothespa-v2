@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test'
 
 const invoiceUrl = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_URL || ''
 const invoiceId = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_INVOICE_ID || ''
+const invoiceNumber = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_INVOICE_NUMBER || process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_ORDER_NUMBER || ''
 const orderNumber = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_ORDER_NUMBER || ''
+const qaAmountPaise = Number(process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_AMOUNT_PAISE || '18000')
 
 // All SDK/API responses below are contract mocks, not merchant activation or payment evidence.
 const installCustomCheckoutMock = async (page: import('@playwright/test').Page, mobile = true, ready = true, emiShape: 'options' | 'plans' = 'options') => {
@@ -74,13 +76,13 @@ const mockInvoicePaymentApi = async (page: import('@playwright/test').Page, veri
     }
     if (request.method() === 'GET' && endpoint === 'status') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: captured
-        ? { status: 'CAPTURED', razorpayOrderId: 'order_custom_local_test', razorpayPaymentId: 'pay_custom_local_test', capturedAmountPaise: 18000, currency: 'INR' }
+        ? { status: 'CAPTURED', razorpayOrderId: 'order_custom_local_test', razorpayPaymentId: 'pay_custom_local_test', capturedAmountPaise: qaAmountPaise, currency: 'INR' }
         : { status: 'NONE' } }) })
       return
     }
     if (request.method() === 'POST' && endpoint === 'create-order') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: {
-        key: 'rzp_test_local_custom', amount: 18000, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
+        key: 'rzp_test_local_custom', amount: qaAmountPaise, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
         razorpayOrderId: 'order_custom_local_test', invoiceNumber: 'INV-001643', checkoutAttemptId: 'attempt_custom_local_test',
         callbackUrl: 'http://localhost:5002/api/v1/public/invoices/local-test/payment/callback?invoiceId=invoice_test',
         redirect: await page.evaluate(() => (window as any).__customRedirect === true),
@@ -249,19 +251,27 @@ test('long method error reflows at narrow width and retry remains keyboard acces
 test('local Test Mode UPI selection submits the selected Razorpay intent app and verifies server-side', async ({ page }) => {
   await installCustomCheckoutMock(page)
   const verifiedPayloads: any[] = []
+  let orderCreateRequests = 0
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && /\/payment\/create-order(?:\?|$)/.test(request.url())) orderCreateRequests += 1
+  })
   await mockInvoicePaymentApi(page, verifiedPayloads)
   await openLocalTestCheckout(page)
 
   await beginLocalCustomCheckout(page)
-  await expect(page.locator('form').getByText('Invoice').filter({ hasText: orderNumber })).toBeVisible()
+  await expect.poll(() => orderCreateRequests).toBe(1)
+  await expect(page.locator('form').getByText('Invoice').filter({ hasText: invoiceNumber })).toBeVisible()
   await expect(page.locator('form').getByText('Order').filter({ hasText: orderNumber })).toBeVisible()
   await page.getByRole('radio', { name: 'UPI', exact: true }).check()
   await page.getByRole('group', { name: 'UPI apps' }).getByRole('button', { name: 'phonepe', exact: true }).click()
   await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
+  expect(orderCreateRequests).toBe(1)
+  const payment = await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)
+  expect(payment).toBeDefined()
+  expect(payment.data).toMatchObject({ method: 'upi', order_id: 'order_custom_local_test' })
   expect(await page.evaluate(() => (window as Window & { __emitCustomSuccess?: () => boolean }).__emitCustomSuccess?.())).toBe(true)
 
   await expect(page.getByRole('heading', { name: 'Payment received' })).toBeVisible()
-  const payment = await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)
   expect(payment).toMatchObject({ data: { method: 'upi', order_id: 'order_custom_local_test' }, options: { app: 'phonepe' } })
   expect(verifiedPayloads).toEqual([{
     razorpayOrderId: 'order_custom_local_test', razorpayPaymentId: 'pay_custom_local_test',
