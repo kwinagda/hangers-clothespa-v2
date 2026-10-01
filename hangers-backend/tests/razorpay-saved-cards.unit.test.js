@@ -79,6 +79,46 @@ test('saved-card ownership and lifecycle fail closed without provider or databas
     await assert.rejects(service.listSavedCards(customer), { code: 'SAVED_CARD_MAPPING_REVIEW_REQUIRED' });
     prisma.razorpaySavedCardCustomer.findUnique = async ({ where }) => mapping(where.customerId_mode.customerId);
   });
+  await t.test('all inactive and unknown lifecycle states are listed but cannot be selected', async () => {
+    for (const status of ['initiated', 'suspended', 'failed', 'deactivated', 'unexpected']) {
+      tokens[0].status = status;
+      const result = await service.listSavedCards(customer);
+      assert.equal(result.cards[0].selectable, false);
+      assert.equal(result.cards[0].status, status === 'unexpected' ? 'unknown' : status);
+      await assert.rejects(service.selectSavedCard(customer, { selector }), { code: 'SAVED_CARD_NOT_USABLE' });
+    }
+    tokens[0].status = 'active';
+  });
+  await t.test('active token still requires explicit compliance and valid masked card metadata', async () => {
+    const original = { ...tokens[0], card: { ...tokens[0].card } };
+    for (const compliant of [false, undefined, 'true']) {
+      tokens[0].compliant_with_tokenisation_guidelines = compliant;
+      assert.equal((await service.listSavedCards(customer)).cards[0].selectable, false);
+      await assert.rejects(service.selectSavedCard(customer, { selector }), { code: 'SAVED_CARD_NOT_USABLE' });
+    }
+    tokens[0] = { ...original, card: { ...original.card, last4: 'invalid' } };
+    await assert.rejects(service.selectSavedCard(customer, { selector }), { code: 'SAVED_CARD_NOT_USABLE' });
+    tokens[0] = original;
+  });
+  await t.test('empty current list invalidates an earlier selector for payment and deletion', async () => {
+    const original = tokens;
+    tokens = [];
+    assert.deepEqual((await service.listSavedCards(customer)).cards, []);
+    await assert.rejects(service.selectSavedCard(customer, { selector }), { code: 'SAVED_CARD_NOT_FOUND' });
+    await assert.rejects(service.deleteSavedCard(customer, { selector }), { code: 'SAVED_CARD_NOT_FOUND' });
+    tokens = original;
+  });
+  await t.test('selected token is rechecked after listing and cannot change identity or usability', async () => {
+    const originalFetch = provider.customers.fetchToken;
+    try {
+      provider.customers.fetchToken = async () => ({ ...tokens[0], status: 'suspended' });
+      await assert.rejects(service.selectSavedCard(customer, { selector }), { code: 'SAVED_CARD_NOT_USABLE' });
+      provider.customers.fetchToken = async () => ({ ...tokens[0], id: 'token_other' });
+      await assert.rejects(service.selectSavedCard(customer, { selector }), { code: 'SAVED_CARD_PROVIDER_RESPONSE_INVALID' });
+      provider.customers.fetchToken = async () => undefined;
+      await assert.rejects(service.selectSavedCard(customer, { selector }), { code: 'SAVED_CARD_PROVIDER_RESPONSE_INVALID' });
+    } finally { provider.customers.fetchToken = originalFetch; }
+  });
   await t.test('incomplete token collection cannot become a successful empty list', async () => {
     provider.customers.fetchTokens = async () => ({ entity: 'collection', count: 2, items: tokens });
     await assert.rejects(service.listSavedCards(customer), { code: 'SAVED_CARD_PROVIDER_RESPONSE_INVALID' });

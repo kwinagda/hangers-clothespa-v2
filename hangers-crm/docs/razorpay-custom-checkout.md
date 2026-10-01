@@ -801,6 +801,8 @@ TokenHQ's linked Optimizer/S2S page is not the chosen browser tokenisation archi
 
 A11/A22 include consent/refusal, duplicate-customer mapping collisions, concurrent creation, empty/outage listing, all documented/unknown lifecycle states, inactive/expired/deleted-token races, cross-customer and cross-mode denial on every action, deletion success/failure, current network restrictions and optional genuine CVV. Real Test token lifecycle still requires activation evidence.
 
+1 October acceptance continuation: saved-card unit suite now passes 12 tests, extending the previous 8 with all inactive/unknown lifecycle states, explicit boolean compliance and valid masked metadata, empty-list invalidation of payment/deletion selectors, and independent selected-token refetch detecting suspension, identity change or disappearance. Existing payer/key/mode boundaries and confirmed deletion checks remain covered. Provider and mapping are injected; no database, token creation, card saving/deletion or real payment occurs. This is A11/A22 server contract evidence, not activated-account or authenticated browser acceptance. Customer saved-card sign-in is distinct from staff Finance sign-in; local capability remains disabled until verified activation, without guessed configuration changes.
+
 ## Not a Live-Payment Authorization
 
 ### Real Chrome Test Netbanking acceptance - 1 October 2026
