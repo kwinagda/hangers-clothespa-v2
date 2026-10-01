@@ -91,6 +91,7 @@ export default async function PublicInvoiceCheckoutPage({
     }
   }
   const noPaymentRequired = confirmed || availability === 'NO_BALANCE'
+  const balanceComplete = noPaymentRequired && !confirmed
   const invoiceNumber = outstanding ? undefined : invoice?.invoiceNumber
   const orderNumber = outstanding ? undefined : invoice?.orderNumber
   const customerName = summary?.customer?.name || invoice?.customer?.name
@@ -121,8 +122,8 @@ export default async function PublicInvoiceCheckoutPage({
         <section className={styles.main}>
           <nav className={styles.steps} aria-label="Checkout progress">
             <Link className={styles.complete} href={backHref}>1 <b>Invoice</b></Link><i aria-hidden="true" />
-            <span className={confirmed ? styles.complete : styles.active} aria-current={!confirmed ? 'step' : undefined}>2 <b>Payment</b></span><i aria-hidden="true" />
-            <span className={confirmed ? styles.active : undefined} aria-current={confirmed ? 'step' : undefined}>3 <b>Confirmation</b></span>
+            <span className={noPaymentRequired ? styles.complete : styles.active} aria-current={!noPaymentRequired ? 'step' : undefined}>2 <b>Payment</b></span><i aria-hidden="true" />
+            <span className={noPaymentRequired ? styles.active : undefined} aria-current={noPaymentRequired ? 'step' : undefined}>3 <b>{balanceComplete ? 'Complete' : 'Confirmation'}</b></span>
           </nav>
           <div className={styles.heading}>
             <h1>{confirmed ? outstanding ? 'Payment received' : 'Invoice paid' : availability === 'NO_BALANCE' ? 'No balance due' : payable ? 'Complete your payment' : 'Online payment unavailable'}</h1>

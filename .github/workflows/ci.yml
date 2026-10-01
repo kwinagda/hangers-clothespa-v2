@@ -119,6 +119,9 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      - name: Verify invoice checkout state rendering
+        run: node --experimental-strip-types --test tests/invoice-checkout/checkout-page.unit.mjs
+
       - name: Verify SDK diagnostic privacy
         run: node --experimental-strip-types --test tests/invoice-checkout/payment-diagnostic-privacy.unit.mjs
 

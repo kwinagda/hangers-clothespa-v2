@@ -29,7 +29,10 @@ new Function('require', 'module', 'exports', compiled)(dependencies, module, mod
 
 async function render(payload, query = {}, status = 200) {
   const previousFetch = globalThis.fetch
-  globalThis.fetch = async () => ({ ok: status >= 200 && status < 300, status, json: async () => payload })
+  globalThis.fetch = async (url) => {
+    const body = String(url).includes('/payment/status') ? { data: { status: 'NONE' } } : payload
+    return { ok: status >= 200 && status < 300, status, json: async () => body }
+  }
   try {
     return renderToStaticMarkup(await module.exports.default({ params: Promise.resolve({ slug: 'local-qa' }), searchParams: Promise.resolve(query) }))
   } finally { globalThis.fetch = previousFetch }
@@ -41,6 +44,16 @@ test('paid invoice renders confirmation and invoice link without payment action'
   assert.match(html, /aria-current="step">3/)
   assert.match(html, /View invoice details/)
   assert.doesNotMatch(html, /<button/)
+})
+
+test('zero-balance invoice advances to complete without claiming a Razorpay capture', async () => {
+  const html = await render({ data: { invoice: {
+    id: 'invoice-settled', invoiceNumber: 'INV-SETTLED', balanceDue: 0, paidAmount: 10, status: 'PICKED_UP',
+  } } })
+  assert.match(html, /No balance due/)
+  assert.match(html, /aria-current="step">3 <b>Complete<\/b>/)
+  assert.match(html, /2 <b>Payment<\/b>/)
+  assert.doesNotMatch(html, /aria-current="step">2|Payment received|Invoice paid|<button/)
 })
 
 test('combined checkout uses full server total and first anchor regardless of supplied selection', async () => {
