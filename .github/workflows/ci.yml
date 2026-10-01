@@ -71,6 +71,9 @@ jobs:
       - name: Run scoped Razorpay Payment Gateway and deployment contracts
         run: npm run test:razorpay-release
 
+      - name: Verify Custom Checkout method and IIN contracts
+        run: node --test tests/razorpay-custom-capabilities.unit.test.js
+
       - name: Verify combined invoice checkout against disposable database
         run: RUN_COMBINED_CHECKOUT_INTEGRATION=1 node --test tests/combined-checkout.integration.test.js
 

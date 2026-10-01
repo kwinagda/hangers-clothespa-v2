@@ -47,6 +47,8 @@ model Customer {
   invoices               Invoice[]
   payments               Payment[]
   razorpayRefundAttempts RazorpayRefundAttempt[]
+  razorpaySavedCardCustomers RazorpaySavedCardCustomer[]
+  razorpaySavedCardConsents  RazorpaySavedCardConsent[]
   creditNotes            CreditNote[]
   receipts               Receipt[]
   returnCases            ReturnCase[]
@@ -171,6 +173,42 @@ model CustomerSession {
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@map("customer_sessions")
+}
+
+model RazorpaySavedCardCustomer {
+  id                    String    @id @default(uuid())
+  customerId            String
+  mode                  String
+  credentialFingerprint String
+  razorpayCustomerId    String?
+  status                String    @default("CREATING")
+  verifiedAt            DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  customer              Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict, map: "saved_card_customers_customer_fkey")
+
+  @@unique([customerId, mode], map: "saved_card_customers_payer_mode_key")
+  @@unique([mode, razorpayCustomerId], map: "saved_card_customers_provider_mode_key")
+  @@index([status, createdAt], map: "saved_card_customers_status_created_idx")
+  @@map("razorpay_saved_card_customers")
+}
+
+model RazorpaySavedCardConsent {
+  id                    String    @id @default(uuid())
+  customerId            String
+  mode                  String
+  credentialFingerprint String
+  requestId             String
+  granted               Boolean
+  wordingVersion        String
+  wording               String
+  createdAt             DateTime  @default(now())
+  consumedAt            DateTime?
+  customer              Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict, map: "saved_card_consents_customer_fkey")
+
+  @@unique([customerId, mode, requestId], map: "saved_card_consents_payer_mode_request_key")
+  @@index([customerId, mode, createdAt], map: "saved_card_consents_payer_mode_created_idx")
+  @@map("razorpay_saved_card_consents")
 }
 
 model StaffSession {
@@ -2053,6 +2091,21 @@ model ServicePage {
   @@unique([serviceSlug, suburbSlug])
   @@index([status])
   @@map("service_pages")
+}
+
+model RazorpayVirtualAccountBinding {
+  id               String   @id @default(uuid())
+  attemptId        String   @unique
+  virtualAccountId String
+  providerOrderId  String
+  mode             String
+  accountId        String
+  amountPaise      BigInt
+  currency         String
+  createdAt        DateTime @default(now())
+
+  @@unique([mode, accountId, virtualAccountId])
+  @@map("razorpay_virtual_account_bindings")
 }
 
 enum StaffRole {

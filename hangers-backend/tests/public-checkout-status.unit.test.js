@@ -2,11 +2,27 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { getPublicRazorpayCheckoutStatus } = require('../src/controllers/public.controller');
 
-test('status polling settles a captured payment through a refreshed token for the same invoice', async () => {
+process.env.RAZORPAY_KEY_ID = 'rzp_test_status_unit';
+const targetFor = (invoice, shareId) => ({ invoice, share: { id: shareId, resourceType: 'INVOICE', resourceId: invoice.id } });
+const boundAttempt = (invoice, shareId, fields) => ({
+  customerId: invoice.customerId, invoiceId: invoice.id, publicShareId: shareId,
+  amountPaise: BigInt(Math.round(invoice.balanceDue * 100)), currency: 'INR', mode: 'TEST', ...fields,
+});
+const boundProvider = (attempt, payments) => ({ orders: {
+  fetchPayments: async () => ({ count: payments.length, items: payments.map((payment) => ({
+    order_id: attempt.razorpayOrderId, amount: Number(attempt.amountPaise), currency: attempt.currency, ...payment,
+  })) }),
+  fetch: async () => ({
+    id: attempt.razorpayOrderId, amount: Number(attempt.amountPaise), currency: attempt.currency,
+    status: 'created', attempts: payments.length, amount_due: Number(attempt.amountPaise), amount_paid: 0,
+    notes: { crm_attempt_id: attempt.id, invoice_id: attempt.invoiceId, share_id: attempt.publicShareId },
+  }),
+} });
+
+test('status polling settles a captured payment bound to the same invoice share', async () => {
   const originalShareId = 'share_original';
-  const refreshedShareId = 'share_refreshed';
-  const invoice = { id: 'invoice_123', invoiceNumber: 'INV-123', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
-  let attempt = {
+  const invoice = { id: 'invoice_123', customerId: 'customer_123', invoiceNumber: 'INV-123', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
+  let attempt = boundAttempt(invoice, originalShareId, {
     id: 'attempt_123',
     invoiceId: invoice.id,
     publicShareId: originalShareId,
@@ -14,20 +30,13 @@ test('status polling settles a captured payment through a refreshed token for th
     amountPaise: 10000n,
     currency: 'INR',
     status: 'CREATED',
-  };
-  const provider = {
-    orders: {
-      fetchPayments: async (orderId) => {
-        assert.equal(orderId, attempt.razorpayOrderId);
-        return { count: 1, items: [{ id: 'pay_123', order_id: orderId, status: 'captured' }] };
-      },
-    },
-  };
+  });
+  const provider = boundProvider(attempt, [{ id: 'pay_123', status: 'captured' }]);
   let settlementArgs;
   const fakePrisma = {
     razorpayCheckoutAttempt: {
       findFirst: async ({ where }) => {
-        assert.deepEqual(where, { OR: [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }] });
+        assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: originalShareId, invoiceId: invoice.id });
         return attempt;
       },
       findUnique: async ({ where }) => {
@@ -49,15 +58,15 @@ test('status polling settles a captured payment through a refreshed token for th
   };
 
   await getPublicRazorpayCheckoutStatus({
-    params: { slug: refreshedShareId },
+    params: { slug: originalShareId },
     query: { invoiceId: invoice.id },
     headers: {},
     id: 'request_123',
   }, res, undefined, {
     getPublicInvoiceForPayment: async (slug, options) => {
-      assert.equal(slug, refreshedShareId);
+      assert.equal(slug, originalShareId);
       assert.deepEqual(options, { invoiceId: invoice.id });
-      return { share: { id: refreshedShareId }, invoice };
+      return targetFor(invoice, originalShareId);
     },
     getRazorpay: () => provider,
     prisma: fakePrisma,
@@ -82,12 +91,12 @@ test('status polling settles a captured payment through a refreshed token for th
 });
 
 test('status recovery resolves the latest invoice attempt without a browser-cached attempt ID', async () => {
-  const invoice = { id: 'invoice_456', invoiceNumber: 'INV-456', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
-  const attempt = { id: 'attempt_456', invoiceId: invoice.id, status: 'FAILED', razorpayOrderId: 'order_456', razorpayPaymentId: 'pay_456' };
+  const invoice = { id: 'invoice_456', customerId: 'customer_456', invoiceNumber: 'INV-456', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
+  const attempt = boundAttempt(invoice, 'new_share_id', { id: 'attempt_456', status: 'FAILED', razorpayOrderId: 'order_456', razorpayPaymentId: 'pay_456' });
   const fakePrisma = {
     razorpayCheckoutAttempt: {
       findFirst: async ({ where, orderBy }) => {
-        assert.deepEqual(where, { OR: [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }] });
+        assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'new_share_id', invoiceId: invoice.id });
         assert.deepEqual(orderBy, { createdAt: 'desc' });
         return attempt;
       },
@@ -103,9 +112,9 @@ test('status recovery resolves the latest invoice attempt without a browser-cach
   await getPublicRazorpayCheckoutStatus({
     params: { slug: 'refreshed_public_link' }, query: {}, headers: {}, id: 'request_456',
   }, res, undefined, {
-    getPublicInvoiceForPayment: async () => ({ share: { id: 'new_share_id' }, invoice }),
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'new_share_id'),
     prisma: fakePrisma,
-    getRazorpay: () => ({ orders: { fetchPayments: async () => ({ items: [] }) } }),
+    getRazorpay: () => boundProvider(attempt, []),
   });
 
   assert.equal(res.statusCode, 200);
@@ -116,8 +125,8 @@ test('status recovery resolves the latest invoice attempt without a browser-cach
 });
 
 test('status polling refreshes a failed attempt to the latest provider failure on the same Order', async () => {
-  const invoice = { id: 'invoice_retry', invoiceNumber: 'INV-RETRY', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
-  let attempt = { id: 'attempt_retry', invoiceId: invoice.id, status: 'FAILED', razorpayOrderId: 'order_retry', razorpayPaymentId: 'pay_old' };
+  const invoice = { id: 'invoice_retry', customerId: 'customer_retry', invoiceNumber: 'INV-RETRY', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
+  let attempt = boundAttempt(invoice, 'share_retry', { id: 'attempt_retry', status: 'FAILED', razorpayOrderId: 'order_retry', razorpayPaymentId: 'pay_old' });
   let failureArgs;
   const res = {
     statusCode: 200,
@@ -132,8 +141,8 @@ test('status polling refreshes a failed attempt to the latest provider failure o
   await getPublicRazorpayCheckoutStatus({
     params: { slug: 'share_retry' }, query: {}, headers: {}, id: 'request_retry',
   }, res, undefined, {
-    getPublicInvoiceForPayment: async () => ({ share: { id: 'share_retry' }, invoice }),
-    getRazorpay: () => ({ orders: { fetchPayments: async () => ({ items: providerPayments }) } }),
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'share_retry'),
+    getRazorpay: () => boundProvider(attempt, providerPayments),
     prisma: {
       razorpayCheckoutAttempt: {
         findFirst: async () => attempt,
@@ -155,8 +164,8 @@ test('status polling refreshes a failed attempt to the latest provider failure o
 });
 
 test('status polling settles a captured retry even when the local attempt was previously failed', async () => {
-  const invoice = { id: 'invoice_retry_capture', invoiceNumber: 'INV-RETRY-CAPTURE', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
-  let attempt = { id: 'attempt_retry_capture', invoiceId: invoice.id, status: 'FAILED', razorpayOrderId: 'order_retry_capture' };
+  const invoice = { id: 'invoice_retry_capture', customerId: 'customer_retry_capture', invoiceNumber: 'INV-RETRY-CAPTURE', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
+  let attempt = boundAttempt(invoice, 'share_retry_capture', { id: 'attempt_retry_capture', status: 'FAILED', razorpayOrderId: 'order_retry_capture' });
   let settledPaymentId;
   const res = {
     statusCode: 200,
@@ -167,11 +176,11 @@ test('status polling settles a captured retry even when the local attempt was pr
   await getPublicRazorpayCheckoutStatus({
     params: { slug: 'share_retry_capture' }, query: {}, headers: {}, id: 'request_retry_capture',
   }, res, undefined, {
-    getPublicInvoiceForPayment: async () => ({ share: { id: 'share_retry_capture' }, invoice }),
-    getRazorpay: () => ({ orders: { fetchPayments: async () => ({ items: [
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'share_retry_capture'),
+    getRazorpay: () => boundProvider(attempt, [
       { id: 'pay_retry_fail', status: 'failed', created_at: 100 },
       { id: 'pay_retry_captured', status: 'captured', captured: true, created_at: 200 },
-    ] }) } }),
+    ]),
     prisma: {
       razorpayCheckoutAttempt: {
         findFirst: async () => attempt,
@@ -192,8 +201,8 @@ test('status polling settles a captured retry even when the local attempt was pr
 });
 
 test('status polling restores pending state when a retry on a failed attempt is nonterminal', async () => {
-  const invoice = { id: 'invoice_retry_pending', invoiceNumber: 'INV-RETRY-PENDING', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
-  let attempt = { id: 'attempt_retry_pending', invoiceId: invoice.id, status: 'FAILED', razorpayOrderId: 'order_retry_pending' };
+  const invoice = { id: 'invoice_retry_pending', customerId: 'customer_retry_pending', invoiceNumber: 'INV-RETRY-PENDING', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
+  let attempt = boundAttempt(invoice, 'share_retry_pending', { id: 'attempt_retry_pending', status: 'FAILED', razorpayOrderId: 'order_retry_pending' });
   let pendingPaymentId;
   const res = {
     statusCode: 200,
@@ -204,11 +213,11 @@ test('status polling restores pending state when a retry on a failed attempt is 
   await getPublicRazorpayCheckoutStatus({
     params: { slug: 'share_retry_pending' }, query: {}, headers: {}, id: 'request_retry_pending',
   }, res, undefined, {
-    getPublicInvoiceForPayment: async () => ({ share: { id: 'share_retry_pending' }, invoice }),
-    getRazorpay: () => ({ orders: { fetchPayments: async () => ({ items: [
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'share_retry_pending'),
+    getRazorpay: () => boundProvider(attempt, [
       { id: 'pay_retry_old', status: 'failed', created_at: 100 },
       { id: 'pay_retry_pending', status: 'created', created_at: 200 },
-    ] }) } }),
+    ]),
     prisma: {
       razorpayCheckoutAttempt: {
         findFirst: async () => attempt,
@@ -229,11 +238,11 @@ test('status polling restores pending state when a retry on a failed attempt is 
 });
 
 test('status recovery returns NONE for an invoice without any checkout attempt', async () => {
-  const invoice = { id: 'invoice_789', invoiceNumber: 'INV-789', status: 'OPEN', balanceDue: 73, paidAmount: 0 };
+  const invoice = { id: 'invoice_789', customerId: 'customer_789', invoiceNumber: 'INV-789', status: 'OPEN', balanceDue: 73, paidAmount: 0 };
   const fakePrisma = {
     razorpayCheckoutAttempt: {
       findFirst: async ({ where, orderBy }) => {
-        assert.deepEqual(where, { OR: [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }] });
+        assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'share_789', invoiceId: invoice.id });
         assert.deepEqual(orderBy, { createdAt: 'desc' });
         return null;
       },
@@ -249,7 +258,7 @@ test('status recovery returns NONE for an invoice without any checkout attempt',
   await getPublicRazorpayCheckoutStatus({
     params: { slug: 'valid_public_link' }, query: {}, headers: {}, id: 'request_789',
   }, res, undefined, {
-    getPublicInvoiceForPayment: async () => ({ share: { id: 'share_789' }, invoice }),
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'share_789'),
     prisma: fakePrisma,
   });
 

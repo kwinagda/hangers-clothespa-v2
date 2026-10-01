@@ -18,6 +18,7 @@ const paymentsRoutes      = require('./routes/payments.routes');
 const customerOrderRoutes = require('./routes/customer-orders.routes');
 const addressesRoutes     = require('./routes/addresses.routes');
 const razorpayRoutes      = require('./routes/razorpay.routes');
+const razorpaySavedCardRoutes = require('./routes/razorpay-saved-cards.routes');
 const plantRoutes         = require('./routes/plant.routes');
 const deliveryRoutes      = require('./routes/delivery.routes');
 const servicesRoutes      = require('./routes/services.routes');
@@ -105,6 +106,7 @@ app.use(cors({
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
+  exposedHeaders: ['Retry-After'],
 }));
 
 // Stamp the request before body parsers so malformed or oversized requests also
@@ -189,6 +191,7 @@ app.use('/api/v1/security',                    securityRoutes);
 app.use('/api/v1/checkout',                    checkoutRoutes);
 // Customer app
 app.use('/api/v1/customer/orders',    customerOrderRoutes);
+app.use('/api/v1/customer/payments/razorpay/saved-cards', razorpaySavedCardRoutes);
 app.use('/api/v1/customer/payments',  razorpayRoutes);
 app.use('/api/v1/addresses',          addressesRoutes);
 // Phase 4 — Plant & Delivery apps

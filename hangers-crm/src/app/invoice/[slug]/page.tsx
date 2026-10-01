@@ -1,5 +1,6 @@
 import { LOGO_BLUE_URL, LOGO_WHITE_URL } from '@/lib/branding'
 import InvoicePaymentButton from './InvoicePaymentButton'
+import CallbackDiagnostic from './CallbackDiagnostic'
 
 export const dynamic = 'force-dynamic'
 
@@ -164,6 +165,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           </div>
 
           <div style={{ padding: '0 26px 18px' }}>
+            <CallbackDiagnostic />
             {rows.length > 0 && <InvoicePaymentButton
               slug={slug}
               invoiceId={rows[0].invoiceId}
@@ -573,9 +575,12 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             ))}
           </div>
         </footer>
+        <CallbackDiagnostic />
         <InvoicePaymentButton
           key={slug}
           slug={slug}
+          invoiceNumber={invoice.invoiceNumber}
+          orderNumber={invoice.orderNumber}
           balanceDue={Number(invoice.balanceDue || 0)}
           customerName={invoice.customer?.name}
           customerPhone={invoice.customer?.phone}

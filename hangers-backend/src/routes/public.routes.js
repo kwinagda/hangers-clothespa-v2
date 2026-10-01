@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { getPublicInvoice, getPublicDailyIronLogs, getPublicQuotation, getPublicRateChart, getPublicSiteProfile, getPublicBlogPosts, getPublicBlogPost, getPublicSuburbPages, getPublicSuburbPage, getPublicServicePages, getPublicServicePage, createPublicPickupRequest, ingestQueuedPickupRequest, sendPublicPickupOtp, verifyPublicPickupOtp, createPublicRazorpayOrder, verifyPublicRazorpayPayment, getPublicRazorpayCheckoutStatus, reconcilePublicRazorpayCheckout, assignPublicRazorpayCheckoutExperiment, recordPublicRazorpayCheckoutExperimentEvent } = require('../controllers/public.controller');
 const { publicShareLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimit');
+const { handlePublicRazorpayCallback } = require('../controllers/public.controller');
+const { getPublicCustomCapabilities, getPublicCustomCardEligibility, getPublicCustomDowntime, preparePublicCustomBankTransfer } = require('../controllers/public.controller');
 
 // publicShareLimiter guards guessable share-token lookups (invoice/daily-iron/quotation
 // slugs) and the payment flows behind them, where brute-force enumeration is a real risk.
@@ -15,7 +17,12 @@ router.post('/invoices/:slug/payment/experiment/assign', publicShareLimiter, ass
 router.post('/invoices/:slug/payment/experiment/events', publicShareLimiter, recordPublicRazorpayCheckoutExperimentEvent);
 router.post('/invoices/:slug/payment/create-order', publicShareLimiter, createPublicRazorpayOrder);
 router.post('/invoices/:slug/payment/verify', publicShareLimiter, verifyPublicRazorpayPayment);
+router.post('/invoices/:slug/payment/callback', publicShareLimiter, handlePublicRazorpayCallback);
 router.get('/invoices/:slug/payment/status', publicShareLimiter, getPublicRazorpayCheckoutStatus);
+router.get('/invoices/:slug/payment/custom/capabilities', publicShareLimiter, getPublicCustomCapabilities);
+router.post('/invoices/:slug/payment/custom/card-eligibility', publicShareLimiter, getPublicCustomCardEligibility);
+router.get('/invoices/:slug/payment/custom/downtime', publicShareLimiter, getPublicCustomDowntime);
+router.post('/invoices/:slug/payment/custom/bank-transfer', publicShareLimiter, preparePublicCustomBankTransfer);
 router.post('/invoices/:slug/payment/reconcile', publicShareLimiter, reconcilePublicRazorpayCheckout);
 router.get('/daily-iron/:slug', publicShareLimiter, getPublicDailyIronLogs);
 router.get('/quotations/:slug', publicShareLimiter, getPublicQuotation);

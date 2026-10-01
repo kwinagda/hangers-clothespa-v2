@@ -1,9 +1,10 @@
 const prisma = require('../config/database');
-const { getRazorpay, markAttemptFailed, settleCapturedPayment } = require('./razorpay-invoice-checkout.service');
+const { auditAttemptTransition, getRazorpay, markAttemptFailed, reconcileAmbiguousOrderCreation, settleCapturedPayment } = require('./razorpay-invoice-checkout.service');
 const { isCompleteFailedOrderPaymentList } = require('../utils/razorpay-payment-list');
 const { importRazorpaySettlementRecon } = require('./razorpay-settlement-recon.service');
 const { importRazorpaySettlementSummaries, validateWindow: validateSettlementSummaryWindow } = require('./razorpay-settlement-summary.service');
 const { razorpayErrorSummary } = require('../utils/redact');
+const { providerRetryAfterMs } = require('../utils/provider-retry-after');
 
 const PAGE_SIZE = 100;
 const DEFAULT_OVERLAP_SECONDS = 10 * 60;
@@ -12,6 +13,8 @@ const MAX_PAGES = 1000;
 const PENDING_ATTEMPT_BATCH_SIZE = 50;
 const PENDING_ATTEMPT_RECHECK_MINUTES = 30;
 const PENDING_ATTEMPT_ERROR_RETRY_MINUTES = 5;
+const FINANCE_ATTENTION_MINUTES = 15;
+const FINANCE_ATTENTION_ACTION = 'RAZORPAY_UNRESOLVED_ATTEMPT_FINANCE_ATTENTION';
 const SETTLEMENT_RECON_LOOKBACK_MONTHS_DEFAULT = 2;
 const SETTLEMENT_SUMMARY_LOOKBACK_DAYS_DEFAULT = 30;
 const getMode = () => String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_') ? 'TEST' : 'LIVE';
@@ -31,7 +34,10 @@ const providerCall = async (fn) => {
       lastError = error;
       const status = Number(error?.statusCode || error?.response?.status || error?.status);
       if (attempt === 2 || (status && status < 500 && status !== 429)) throw error;
-      await delay(200 * (2 ** attempt));
+      const providerDelay = providerRetryAfterMs(error);
+      // Long provider delays belong to the durable schedule, not a held worker.
+      if (providerDelay !== null && providerDelay > 2000) throw error;
+      await delay(Math.max(200 * (2 ** attempt), providerDelay || 0));
     }
   }
   throw lastError;
@@ -191,6 +197,8 @@ const claimQueuedRazorpayPaymentReconciliation = async () => {
 
 const processQueuedRazorpayPaymentReconciliation = async ({ provider } = {}) => {
   if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) return null;
+  // The queue tick continues recovery independently of the hourly payment scan.
+  await reconcileUnresolvedCheckoutAttempts({ mode: getMode(), provider: provider || getRazorpay(), now: new Date() });
   const claimed = await claimQueuedRazorpayPaymentReconciliation();
   if (!claimed) return null;
   const mode = getMode();
@@ -306,7 +314,7 @@ const reconcilePagePayment = async (payment, { mode, provider, counters, excepti
       source: 'PROVIDER_RECONCILIATION',
       provider,
     });
-    if (result.pending) {
+    if (result.pending || result.failed || result.attempt?.status !== 'CAPTURED') {
       counters.providerStatePending += 1;
       if (exceptions.length < 250) exceptions.push({ code: 'CAPTURE_NOT_CONFIRMED_BY_FETCH', attemptId: attempt.id, paymentId, orderId });
     } else if (wasAlreadyCaptured || result.alreadyRecorded) {
@@ -318,6 +326,97 @@ const reconcilePagePayment = async (payment, { mode, provider, counters, excepti
   } catch (error) {
     counters.reviewRequired += 1;
     if (exceptions.length < 250) exceptions.push({ code: safeCode(error), attemptId: attempt.id, paymentId, orderId });
+  }
+};
+
+const persistFinanceAttention = async ({ mode, now }) => prisma.$transaction(async (tx) => {
+  // Age triggers Hangers attention only; it is not evidence of provider failure.
+  const attempts = await tx.$queryRaw`
+    SELECT attempts.* FROM razorpay_checkout_attempts AS attempts
+    WHERE attempts.mode = ${mode}
+      AND attempts.status IN ('CREATING', 'PENDING', 'AUTHORIZED', 'REVIEW')
+      AND attempts."createdAt" <= ${new Date(now.getTime() - FINANCE_ATTENTION_MINUTES * 60_000)}
+      AND NOT EXISTS (
+        SELECT 1 FROM audit_logs AS audit
+        WHERE audit.resource = 'razorpay_checkout_attempt'
+          AND audit."resourceId" = attempts.id AND audit.action = ${FINANCE_ATTENTION_ACTION}
+      )
+    ORDER BY attempts."createdAt" ASC
+    LIMIT ${PENDING_ATTEMPT_BATCH_SIZE}
+    FOR UPDATE OF attempts SKIP LOCKED
+  `;
+  for (const attempt of attempts) {
+    await auditAttemptTransition(tx, attempt, FINANCE_ATTENTION_ACTION,
+      'Unresolved checkout reached the Hangers Finance attention threshold; do not pay again', {
+        attentionAt: now.toISOString(),
+        thresholdMinutes: FINANCE_ATTENTION_MINUTES,
+        thresholdPolicy: 'HANGERS_OPERATIONAL_ATTENTION_NOT_PROVIDER_TIMEOUT',
+        razorpayOrderId: attempt.razorpayOrderId,
+        razorpayPaymentId: attempt.razorpayPaymentId,
+        nextState: attempt.status,
+      }, 'FAILURE');
+  }
+  return attempts.length;
+});
+
+const reconcileUnresolvedCheckoutAttempts = async ({ mode, provider, now, counters, exceptions }) => {
+  const attentionCount = await persistFinanceAttention({ mode, now });
+  if (counters) counters.financeAttentionPersisted += attentionCount;
+  const attempts = await prisma.$transaction((tx) => tx.$queryRaw`
+    WITH due AS (
+      SELECT id FROM razorpay_checkout_attempts
+      WHERE mode = ${mode}
+        AND (status = 'REVIEW' OR (status = 'CREATING' AND "razorpayOrderId" IS NULL
+          AND "createdAt" <= ${new Date(now.getTime() - PENDING_ATTEMPT_ERROR_RETRY_MINUTES * 60_000)}))
+        AND ("failureCode" IS NULL OR "failureCode" <> 'OVERPAYMENT_NOT_ALLOWED')
+        AND ("nextProviderCheckAt" IS NULL OR "nextProviderCheckAt" <= ${now})
+      ORDER BY "nextProviderCheckAt" ASC NULLS FIRST, "createdAt" ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT ${PENDING_ATTEMPT_BATCH_SIZE}
+    )
+    UPDATE razorpay_checkout_attempts AS attempts
+    SET "nextProviderCheckAt" = ${new Date(now.getTime() + PENDING_ATTEMPT_ERROR_RETRY_MINUTES * 60_000)}
+    FROM due WHERE attempts.id = due.id
+    RETURNING attempts.id
+  `);
+  if (counters) counters.ambiguousAttemptsClaimed += attempts.length;
+  for (const attempt of attempts) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        const changed = await tx.razorpayCheckoutAttempt.updateMany({
+          where: { id: attempt.id, mode, status: 'CREATING', razorpayOrderId: null },
+          data: { status: 'REVIEW' },
+        });
+        if (!changed.count) return;
+        const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
+        await auditAttemptTransition(tx, current, 'RAZORPAY_ORDER_CREATE_RECOVERY_STARTED',
+          'Unresolved order creation entered receipt reconciliation; replacement remains blocked', {
+            priorState: 'CREATING', nextState: 'REVIEW', source: 'PROVIDER_RECONCILIATION',
+          }, 'FAILURE');
+      });
+      // Strict binding and receipt uniqueness belong to the shared checkout API.
+      // Always use its safe path, never legacy rejection/replacement heuristics.
+      await reconcileAmbiguousOrderCreation({ attemptId: attempt.id, provider, customCheckout: true });
+      if (counters) counters.ambiguousAttemptsChecked += 1;
+    } catch (error) {
+      if (counters) counters.ambiguousAttemptErrors += 1;
+      if (exceptions && exceptions.length < 250) exceptions.push({ code: safeCode(error), attemptId: attempt.id });
+      await prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw`
+          SELECT * FROM razorpay_checkout_attempts
+          WHERE id = ${attempt.id} AND mode = ${mode} AND status = 'REVIEW'
+          FOR UPDATE
+        `;
+        if (!rows[0]) return;
+        await auditAttemptTransition(tx, rows[0], 'RAZORPAY_ORDER_CREATE_RECOVERY_DEFERRED',
+          'Order recovery remains unresolved; durable retry retained and replacement remains blocked', {
+            errorCode: safeCode(error), source: 'PROVIDER_RECONCILIATION', nextState: 'REVIEW',
+            nextProviderCheckAt: rows[0].nextProviderCheckAt?.toISOString() || null,
+          }, 'FAILURE');
+      });
+      // The claim already persisted a bounded retry, including across crashes.
+      // A lookup error or no unique match never permits another order.
+    }
   }
 };
 
@@ -395,7 +494,10 @@ const reconcilePendingCheckoutAttempts = async ({ mode, provider, counters, exce
       if (exceptions.length < 250) exceptions.push({ code: safeCode(error), attemptId: attempt.id, orderId: attempt.razorpayOrderId });
       await prisma.razorpayCheckoutAttempt.updateMany({
         where: { id: attempt.id, status: { in: ['CREATED', 'PENDING', 'AUTHORIZED', 'FAILED'] } },
-        data: { nextProviderCheckAt: new Date(now.getTime() + PENDING_ATTEMPT_ERROR_RETRY_MINUTES * 60_000) },
+        data: { nextProviderCheckAt: new Date(Date.now() + Math.max(
+          PENDING_ATTEMPT_ERROR_RETRY_MINUTES * 60_000,
+          providerRetryAfterMs(error) || 0,
+        )) },
       });
     }
   }
@@ -456,9 +558,31 @@ const runRazorpayPaymentReconciliation = async ({
     pendingAttemptErrors: 0,
     pendingAttemptBatchTruncated: false,
     pendingAttemptsStillDue: 0,
+    financeAttentionPersisted: 0,
+    ambiguousAttemptsClaimed: 0,
+    ambiguousAttemptsChecked: 0,
+    ambiguousAttemptErrors: 0,
   };
   const exceptions = [];
   try {
+    const throttledRun = await prisma.reconciliationRun.findFirst({
+      where: {
+        runType,
+        status: 'ERROR',
+        summary: { path: ['providerRetryAt'], string_gt: new Date().toISOString() },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { summary: true },
+    });
+    const retryAt = throttledRun?.summary?.providerRetryAt;
+    if (typeof retryAt === 'string' && Number.isFinite(Date.parse(retryAt)) && Date.parse(retryAt) > Date.now()) {
+      throw Object.assign(new Error('Razorpay reconciliation is waiting for the provider retry deadline'), {
+        code: 'PROVIDER_RETRY_DEFERRED',
+        details: { retryAfter: new Date(retryAt).toUTCString() },
+      });
+    }
+    const provider = injectedProvider || getRazorpay();
+    await reconcileUnresolvedCheckoutAttempts({ mode, provider, counters, exceptions, now });
     const window = await getScanWindow({
       mode,
       nowSeconds: Math.floor(now.getTime() / 1000),
@@ -466,7 +590,6 @@ const runRazorpayPaymentReconciliation = async ({
       to,
       overlapSeconds,
     });
-    const provider = injectedProvider || getRazorpay();
     const attempts = await prisma.razorpayCheckoutAttempt.findMany({
       where: { mode, razorpayOrderId: { not: null }, createdAt: { lte: new Date(window.to * 1000) } },
       select: { id: true, invoiceId: true, invoiceNumber: true, orderId: true, customerId: true, publicShareId: true, amountPaise: true, currency: true, mode: true, status: true, razorpayOrderId: true },
@@ -498,19 +621,21 @@ const runRazorpayPaymentReconciliation = async ({
     return prisma.reconciliationRun.update({
       where: { id: run.id },
       data: {
-        status: counters.reviewRequired || counters.providerStatePending || counters.pendingAttemptErrors ? 'FAILED' : 'PASSED',
+        status: counters.reviewRequired || counters.providerStatePending || counters.pendingAttemptErrors || counters.ambiguousAttemptErrors ? 'FAILED' : 'PASSED',
         finishedAt: new Date(),
         summary,
-        exceptions: { items: exceptions, truncated: counters.reviewRequired + counters.pendingAttemptErrors > exceptions.length },
+        exceptions: { items: exceptions, truncated: counters.reviewRequired + counters.pendingAttemptErrors + counters.ambiguousAttemptErrors > exceptions.length },
       },
     });
   } catch (error) {
+    const retryDelay = providerRetryAfterMs(error);
+    const providerRetryAt = retryDelay === null ? null : new Date(Date.now() + retryDelay).toISOString();
     await prisma.reconciliationRun.update({
       where: { id: run.id },
       data: {
         status: 'ERROR',
         finishedAt: new Date(),
-        summary: { mode, ...counters, errorCode: safeCode(error) },
+        summary: { mode, ...counters, errorCode: safeCode(error), providerRetryAt },
         exceptions: { items: exceptions, truncated: false },
       },
     }).catch(() => {});

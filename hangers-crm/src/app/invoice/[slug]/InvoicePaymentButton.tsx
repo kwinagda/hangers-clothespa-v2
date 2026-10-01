@@ -2,14 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-
-declare global {
-  interface Window {
-    Razorpay?: new (options: Record<string, any>) => { open: () => void; on: (event: string, handler: (payload: any) => void) => void }
-  }
-}
+import RazorpayCustomCheckout from './RazorpayCustomCheckout'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+type StandardRazorpay = new (options: Record<string, any>) => { open: () => void; on: (event: string, handler: (payload: any) => void) => void }
 const newExperimentId = () => {
   const secureCrypto = typeof window !== 'undefined' ? window.crypto : undefined
   if (!secureCrypto) throw new Error('Secure browser randomness is unavailable')
@@ -21,7 +17,7 @@ const newExperimentId = () => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, customerName, customerPhone, enabled = true, paymentScope }: { slug: string; invoiceId?: string; balanceDue: number; customerName?: string; customerPhone?: string; enabled?: boolean; paymentScope?: 'CUSTOMER_OUTSTANDING' }) {
+export default function InvoicePaymentButton({ slug, invoiceId, invoiceNumber, orderNumber, balanceDue, customerName, customerPhone, enabled = true, paymentScope, checkoutPage = false }: { slug: string; invoiceId?: string; invoiceNumber?: string; orderNumber?: string; balanceDue: number; customerName?: string; customerPhone?: string; enabled?: boolean; paymentScope?: 'CUSTOMER_OUTSTANDING'; checkoutPage?: boolean }) {
   const router = useRouter()
   const experimentEnabled = process.env.NEXT_PUBLIC_RAZORPAY_CHECKOUT_AB_ENABLED === 'true'
   const [busy, setBusy] = useState(false)
@@ -34,6 +30,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
   const [resumeAvailable, setResumeAvailable] = useState(false)
   const [resumeMode, setResumeMode] = useState<'UNATTEMPTED_SAME_ORDER' | null>(null)
   const [redirectCheckoutAvailable, setRedirectCheckoutAvailable] = useState(false)
+  const [customCheckoutOrder, setCustomCheckoutOrder] = useState<{ key: string; amount: number; currency: string; razorpayOrderId: string; testContact?: string; email?: string; callbackUrl?: string; redirect?: boolean } | null>(null)
   const [statusReady, setStatusReady] = useState(false)
   const [recoveryUnavailable, setRecoveryUnavailable] = useState(false)
   const [experimentReady, setExperimentReady] = useState(!experimentEnabled)
@@ -43,6 +40,14 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
   const recoveryInFlight = useRef(false)
   const lastRecoveryAt = useRef(0)
   const experimentAssignment = useRef<{ visitorId: string; exposureEventId: string; variant: 'A' | 'B' } | null>(null)
+
+  const continueToCheckout = () => {
+    const params = new URLSearchParams()
+    if (paymentScope) params.set('scope', 'outstanding')
+    if (invoiceId) params.set('invoiceId', invoiceId)
+    const query = params.size ? `?${params.toString()}` : ''
+    router.push(`/invoice/${encodeURIComponent(slug)}/checkout${query}`)
+  }
 
   useEffect(() => {
     if (!experimentEnabled) return
@@ -101,7 +106,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
   }
 
   const loadCheckout = () => new Promise<void>((resolve, reject) => {
-    if (window.Razorpay) return resolve()
+    if ((window as Window & { Razorpay?: StandardRazorpay }).Razorpay) return resolve()
     trackPaymentClientEvent('CHECKOUT_SCRIPT_LOAD_STARTED')
     const existing = document.querySelector('script[data-razorpay-checkout]')
     if (existing) {
@@ -118,6 +123,78 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
     document.body.appendChild(script)
   })
 
+  const verifyPaymentResponse = async (response: any) => {
+    setMessage('Confirming payment…')
+    try {
+      const verifyPayload = {
+        razorpayOrderId: response?.razorpay_order_id,
+        razorpayPaymentId: response?.razorpay_payment_id,
+        razorpaySignature: response?.razorpay_signature,
+        ...(invoiceId ? { invoiceId } : {}),
+      }
+      if (!verifyPayload.razorpayOrderId || !verifyPayload.razorpayPaymentId || !verifyPayload.razorpaySignature) {
+        throw new Error('Razorpay returned an incomplete payment confirmation. Check payment status before trying again.')
+      }
+      trackPaymentClientEvent('VERIFY_REQUESTED', activeAttemptId.current || undefined)
+      const verifyResponse = await fetch(`${API_BASE_URL}/public/invoices/${encodeURIComponent(slug)}/payment/verify`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(verifyPayload), cache: 'no-store',
+      })
+      const verified = await verifyResponse.json()
+      if (!verifyResponse.ok && verified?.code === 'RAZORPAY_PAYMENT_FAILED') {
+        setVerificationPending(false)
+        setResumeAvailable(false)
+        setResumeMode(null)
+        setCustomCheckoutOrder(null)
+        setMessage(verified?.message || 'Razorpay confirmed this payment failed. You can start a new payment attempt.')
+        activeIdempotencyKey.current = ''
+        activeAttemptId.current = ''
+        return
+      }
+      if (!verifyResponse.ok) throw new Error(verified?.message || 'Payment could not be confirmed')
+      if (verified.data?.status === 'PENDING') {
+        trackPaymentClientEvent('VERIFY_PENDING', activeAttemptId.current || undefined)
+        setVerificationPending(true)
+        setCustomCheckoutOrder(null)
+        setRazorpayOrderId(verifyPayload.razorpayOrderId)
+        setRazorpayPaymentId(verifyPayload.razorpayPaymentId)
+        setMessage('Razorpay is still processing this payment. Check its status before trying again. If it remains unresolved, contact Hangers Clothes Spa; do not pay again.')
+      } else {
+        trackPaymentClientEvent('VERIFY_SUCCEEDED', activeAttemptId.current || undefined)
+        setSuccess(true)
+        setCustomCheckoutOrder(null)
+        setResumeAvailable(false)
+        setMessage('Payment received successfully. Updating this invoice…')
+        activeIdempotencyKey.current = ''
+        activeAttemptId.current = ''
+        router.refresh()
+      }
+    } catch (error: any) {
+      trackPaymentClientEvent('VERIFY_FAILED', activeAttemptId.current || undefined)
+      setVerificationPending(true)
+      setCustomCheckoutOrder(null)
+      setRazorpayOrderId(response?.razorpay_order_id || '')
+      setRazorpayPaymentId(response?.razorpay_payment_id || '')
+      setMessage(`${error?.message || 'Payment confirmation is pending.'} Do not start another payment while we verify this attempt.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleCustomPaymentError = (payload: any) => {
+    const providerError = payload?.error || payload || {}
+    const paymentId = providerError?.metadata?.payment_id || ''
+    const orderId = providerError?.metadata?.order_id || customCheckoutOrder?.razorpayOrderId || ''
+    const errorLabel = [providerError?.code, providerError?.source, providerError?.step, providerError?.reason].filter(Boolean).join(' / ')
+    trackPaymentClientEvent('PAYMENT_FAILED_CALLBACK', activeAttemptId.current || undefined)
+    setCustomCheckoutOrder(null)
+    setBusy(false)
+    setVerificationPending(true)
+    setResumeAvailable(false)
+    setRazorpayOrderId(orderId)
+    setRazorpayPaymentId(paymentId)
+    setMessage(`${providerError?.description || 'Payment result unavailable.'}${errorLabel ? ` (${errorLabel})` : ''} Check its status before trying again.`)
+  }
+
   const pay = async (useRedirectCallback = false) => {
     if (busy || success || verificationPending || !statusReady || !enabled || balanceDue < 1 || !experimentReady) return
     if (useRedirectCallback && !redirectCheckoutAvailable) return
@@ -128,7 +205,6 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
     setResumeAvailable(false)
     setMessage('Preparing secure payment…')
     try {
-      await loadCheckout()
       if (!activeIdempotencyKey.current) {
         activeIdempotencyKey.current = typeof crypto !== 'undefined' && 'randomUUID' in crypto
           ? crypto.randomUUID()
@@ -180,8 +256,32 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
         throw new Error('Redirect checkout is unavailable. Use the standard secure checkout or contact the store.')
       }
       activeAttemptId.current = created.data?.checkoutAttemptId || created.checkoutAttemptId || ''
-      if (!window.Razorpay) throw new Error('Razorpay checkout is unavailable')
-      const checkout = new window.Razorpay({
+      const checkoutOrder = {
+        key: checkoutData.key,
+        amount: Number(checkoutData.amount),
+        currency: checkoutData.currency || 'INR',
+        razorpayOrderId: checkoutData.razorpayOrderId,
+        ...(useRedirectCallback ? { callbackUrl: checkoutData.callbackUrl, redirect: true } : {}),
+        ...(checkoutData.testContact ? { testContact: checkoutData.testContact } : {}),
+        ...(customerPhone ? { contact: customerPhone } : {}),
+      }
+      if (process.env.NEXT_PUBLIC_RAZORPAY_CUSTOM_CHECKOUT === 'true'
+        && window.location.hostname === 'localhost'
+        && checkoutData.mode === 'TEST') {
+        if (!checkoutOrder.key || !checkoutOrder.razorpayOrderId || !Number.isSafeInteger(checkoutOrder.amount) || checkoutOrder.amount < 1) {
+          throw new Error('Razorpay returned incomplete Test Mode checkout details.')
+        }
+        setCustomCheckoutOrder(checkoutOrder)
+        setResumeAvailable(false)
+        setMessage('Select a payment method below. Your payment will remain in Razorpay Test Mode.')
+        setBusy(false)
+        trackPaymentClientEvent('CUSTOM_CHECKOUT_READY', activeAttemptId.current || undefined)
+        return
+      }
+      await loadCheckout()
+      const Razorpay = (window as Window & { Razorpay?: StandardRazorpay }).Razorpay
+      if (!Razorpay) throw new Error('Razorpay checkout is unavailable')
+      const checkout = new Razorpay({
         key: created.data?.key || created.key,
         amount: created.data?.amount || created.amount,
         currency: created.data?.currency || created.currency || 'INR',
@@ -217,50 +317,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
         ...(!useRedirectCallback ? { handler: async (response: any) => {
           trackPaymentClientEvent('CHECKOUT_HANDLER_RETURNED', activeAttemptId.current || undefined)
           trackExperimentEvent('CHECKOUT_HANDLER_RETURNED', activeAttemptId.current || undefined)
-          setMessage('Confirming payment…')
-          try {
-            const verifyPayload = {
-              razorpayOrderId: response?.razorpay_order_id,
-              razorpayPaymentId: response?.razorpay_payment_id,
-              razorpaySignature: response?.razorpay_signature,
-              ...(invoiceId ? { invoiceId } : {}),
-            }
-            if (!verifyPayload.razorpayOrderId || !verifyPayload.razorpayPaymentId || !verifyPayload.razorpaySignature) {
-              throw new Error('Razorpay returned an incomplete payment confirmation. Please retry; no CRM payment was posted.')
-            }
-            trackPaymentClientEvent('VERIFY_REQUESTED', activeAttemptId.current || undefined)
-            const verifyResponse = await fetch(`${API_BASE_URL}/public/invoices/${encodeURIComponent(slug)}/payment/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(verifyPayload), cache: 'no-store' })
-            const verified = await verifyResponse.json()
-            if (!verifyResponse.ok && verified?.code === 'RAZORPAY_PAYMENT_FAILED') {
-              setVerificationPending(false)
-              setResumeAvailable(false)
-              setResumeMode(null)
-              setMessage(verified?.message || 'Razorpay confirmed this payment failed. You can start a new payment attempt.')
-              activeIdempotencyKey.current = ''
-              activeAttemptId.current = ''
-              return
-            }
-            if (!verifyResponse.ok) throw new Error(verified?.message || 'Payment could not be confirmed')
-            if (verified.data?.status === 'PENDING') {
-              trackPaymentClientEvent('VERIFY_PENDING', activeAttemptId.current || undefined)
-              setVerificationPending(true)
-              setMessage('Razorpay is still processing this payment. Check its status before trying again. If it remains unresolved, contact Hangers Clothes Spa; do not pay again.')
-            } else {
-              trackPaymentClientEvent('VERIFY_SUCCEEDED', activeAttemptId.current || undefined)
-              setSuccess(true)
-              setResumeAvailable(false)
-              setMessage('Payment received successfully. Updating this invoice…')
-              activeIdempotencyKey.current = ''
-              activeAttemptId.current = ''
-              router.refresh()
-            }
-          } catch (error: any) {
-            trackPaymentClientEvent('VERIFY_FAILED', activeAttemptId.current || undefined)
-            setVerificationPending(true)
-            setMessage(`${error?.message || 'Payment confirmation is pending.'} Do not start another payment while we verify this attempt.`)
-          } finally {
-            setBusy(false)
-          }
+          await verifyPaymentResponse(response)
         } } : {}),
       })
       checkout.on('payment.failed', (payload: any) => {
@@ -334,6 +391,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
       trackPaymentClientEvent(status === 'CAPTURED' ? 'STATUS_CHECK_CAPTURED' : status === 'FAILED' || status === 'CREATE_FAILED' ? 'STATUS_CHECK_FAILED' : status === 'REVIEW' ? 'STATUS_CHECK_REVIEW' : 'STATUS_CHECK_PENDING', attemptId || undefined)
       if (status === 'CAPTURED') {
         setSuccess(true)
+        setCustomCheckoutOrder(null)
         setVerificationPending(false)
         setResumeAvailable(false)
         setMessage('Payment received and recorded in the CRM.')
@@ -342,6 +400,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
         router.refresh()
       } else if (status === 'FAILED' || status === 'CREATE_FAILED') {
         setVerificationPending(false)
+        setCustomCheckoutOrder(null)
         setResumeAvailable(false)
         setResumeMode(null)
         setMessage('This payment did not complete. You can start a new attempt.')
@@ -386,8 +445,8 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
   useEffect(() => {
     if (!enabled || balanceDue < 1) return
     let mounted = true
-    const recover = async () => {
-      if (!mounted || document.visibilityState === 'hidden' || recoveryInFlight.current || Date.now() - lastRecoveryAt.current < 1500) return
+    const recover = async (initial = false) => {
+      if (!mounted || document.visibilityState === 'hidden' || (!initial && (recoveryInFlight.current || Date.now() - lastRecoveryAt.current < 1500))) return
       recoveryInFlight.current = true
       lastRecoveryAt.current = Date.now()
       try {
@@ -411,6 +470,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
         trackPaymentClientEvent(status === 'CAPTURED' ? 'STATUS_RECOVERY_CAPTURED' : status === 'FAILED' || status === 'CREATE_FAILED' ? 'STATUS_RECOVERY_FAILED' : status === 'REVIEW' ? 'STATUS_RECOVERY_REVIEW' : 'STATUS_RECOVERY_PENDING', attemptId)
         if (status === 'CAPTURED') {
           setSuccess(true)
+          setCustomCheckoutOrder(null)
           setVerificationPending(false)
           setResumeAvailable(false)
           setMessage('Payment received and recorded in the CRM.')
@@ -418,6 +478,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
           activeAttemptId.current = ''
           router.refresh()
         } else if (status === 'FAILED' || status === 'CREATE_FAILED') {
+          setCustomCheckoutOrder(null)
           setVerificationPending(false)
           setResumeAvailable(false)
           setResumeMode(null)
@@ -452,7 +513,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
       }
     }
     const onVisible = () => { if (document.visibilityState === 'visible') void recover() }
-    void recover()
+    void recover(true)
     window.addEventListener('focus', onVisible)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
@@ -470,16 +531,29 @@ export default function InvoicePaymentButton({ slug, invoiceId, balanceDue, cust
           <strong style={{ color: '#023c62', display: 'block', fontSize: 15 }}>{experimentVariant === 'B' ? 'Pay this invoice online' : 'Pay online'}</strong>
           <span style={{ color: '#6b7fa3', fontSize: 12 }}>{experimentVariant === 'B' ? 'Continue to Razorpay’s secure checkout' : 'Secure checkout via Razorpay'}</span>
         </div>
-        {verificationPending ? (
+      {verificationPending ? (
           <span role="status" style={{ borderRadius: 8, padding: '11px 16px', background: '#fff4d6', color: '#795500', fontWeight: 800 }}>Payment status under review</span>
-        ) : !statusReady ? (
+      ) : !statusReady ? (
           <span role="status" style={{ borderRadius: 8, padding: '11px 16px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>{recoveryUnavailable ? 'Payment status unavailable' : 'Checking payment status…'}</span>
-        ) : (
-          <button type="button" onClick={() => void pay()} disabled={busy || success || !experimentReady || !statusReady} style={{ border: 0, borderRadius: 8, padding: '11px 16px', background: success ? '#167b4b' : '#023c62', color: '#fff', fontWeight: 800, cursor: busy || success || !experimentReady || !statusReady ? 'default' : 'pointer', opacity: busy || !experimentReady || !statusReady ? 0.7 : 1 }}>
-            {success ? 'Payment received' : busy ? 'Processing…' : !experimentReady ? 'Preparing secure checkout…' : resumeAvailable && resumeMode ? 'Resume secure checkout' : `${paymentScope ? 'Pay total outstanding ·' : experimentVariant === 'B' ? 'Pay invoice ·' : 'Pay'} ₹${balanceDue.toLocaleString('en-IN')}`}
+      ) : customCheckoutOrder ? (
+        <span role="status" style={{ borderRadius: 8, padding: '11px 16px', background: '#eff8fc', color: '#075985', fontWeight: 800 }}>Choose a payment method below</span>
+      ) : (
+          <button type="button" onClick={() => checkoutPage ? void pay() : continueToCheckout()} disabled={busy || success || !experimentReady || !statusReady} style={{ border: 0, borderRadius: 8, padding: '11px 16px', background: success ? '#167b4b' : '#023c62', color: '#fff', fontWeight: 800, cursor: busy || success || !experimentReady || !statusReady ? 'default' : 'pointer', opacity: busy || !experimentReady || !statusReady ? 0.7 : 1 }}>
+            {success ? 'Payment received' : busy ? (checkoutPage ? 'Processing…' : 'Checking payment…') : !experimentReady ? 'Preparing secure checkout…' : resumeAvailable && resumeMode ? (checkoutPage ? 'Resume secure checkout' : 'Continue to secure checkout') : checkoutPage ? `Continue · ₹${balanceDue.toLocaleString('en-IN')}` : `Pay ${paymentScope ? 'total outstanding' : 'online'} · ₹${balanceDue.toLocaleString('en-IN')}`}
           </button>
         )}
       </div>
+      {checkoutPage && customCheckoutOrder && <RazorpayCustomCheckout
+        order={customCheckoutOrder}
+        invoiceNumber={invoiceNumber}
+        orderNumber={orderNumber}
+        customerName={customerName}
+        customerPhone={customerPhone}
+        onSuccess={(response) => { trackPaymentClientEvent('CUSTOM_CHECKOUT_HANDLER_RETURNED', activeAttemptId.current || undefined); void verifyPaymentResponse(response) }}
+        onError={handleCustomPaymentError}
+        onCheckStatus={() => { setCustomCheckoutOrder(null); setVerificationPending(true); void checkPaymentStatus() }}
+        onCancel={() => { setCustomCheckoutOrder(null); setMessage('Checkout closed. The same unattempted Razorpay order can be resumed.') }}
+      />}
       {message && <div role="status" style={{ marginTop: 10, color: success ? '#167b4b' : '#6b7fa3', fontSize: 12, lineHeight: 1.45 }}>{message}</div>}
       {(verificationPending || recoveryUnavailable) && (razorpayOrderId || razorpayPaymentId || checkoutAttemptReference) && <div style={{ marginTop: 7, color: '#52677c', fontSize: 11, lineHeight: 1.5, overflowWrap: 'anywhere' }}>
         {razorpayOrderId && <div>Razorpay order reference: {razorpayOrderId}</div>}

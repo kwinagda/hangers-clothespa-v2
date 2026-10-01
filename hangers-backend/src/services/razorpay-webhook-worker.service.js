@@ -3,6 +3,9 @@ const { log } = require('./activity.service');
 const { auditAttemptTransition, getMode, getRazorpay, settleCapturedPayment } = require('./razorpay-invoice-checkout.service');
 const { reconcileRazorpayRefundWebhook } = require('./razorpay-refund.service');
 const { reconcileRazorpayDispute } = require('./razorpay-dispute.service');
+const { DOWNTIME_EVENTS, reconcileRazorpayDowntimeWebhook } = require('./razorpay-downtime.service');
+const { reconcileRazorpayVirtualAccountCredit, validateRazorpayBankTransferPayment } = require('./razorpay-bank-transfer.service');
+const { persistWebhookEvidence } = require('./razorpay-checkout-account.service');
 const { razorpayErrorSummary } = require('../utils/redact');
 const { getSafeRazorpayPaymentDiagnostics } = require('../utils/razorpay-payment-method');
 
@@ -12,6 +15,7 @@ const MAX_WORKER_CONCURRENCY = 20;
 const DEFAULT_LEASE_MS = 5 * 60 * 1000;
 const DEFAULT_HEARTBEAT_MS = 60 * 1000;
 const safeErrorCode = (error) => String(razorpayErrorSummary(error).code || 'PROCESSING_ERROR').slice(0, 80);
+const { providerRetryAfterMs } = require('../utils/provider-retry-after');
 const retryDelayMs = (attempt) => Math.min(15 * 60 * 1000, 1000 * (2 ** Math.min(attempt, 10))) + Math.floor(Math.random() * 1000);
 
 const claimWebhookBatch = async (limit, onlyEventId = null, leaseMs = DEFAULT_LEASE_MS, onlyEventIds = null) => prisma.$transaction((tx) => tx.$queryRaw`
@@ -43,6 +47,7 @@ const markWebhook = (event, data) => prisma.razorpayWebhookEvent.updateMany({
 const setAttemptState = async (orderId, state, paymentId, reasonCode = null, diagnostics = {}, providerPayment = null) => {
   if (!orderId) throw Object.assign(new Error('Payment event has no Razorpay order reference'), { code: 'MISSING_ORDER_REFERENCE', permanent: true });
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "razorpay_checkout_attempts" WHERE "razorpayOrderId" = ${orderId} FOR UPDATE`;
     const attempt = await tx.razorpayCheckoutAttempt.findUnique({ where: { razorpayOrderId: orderId } });
     if (!attempt) throw Object.assign(new Error('Payment event does not match a CRM checkout attempt'), { code: 'CHECKOUT_ATTEMPT_NOT_FOUND', permanent: true });
     if (['CAPTURED', 'REVIEW'].includes(attempt.status)) return attempt;
@@ -97,6 +102,23 @@ const diagnosticsFromPayment = (payment) => {
   });
 };
 
+const settleWebhookPayment = async (event, paymentId, provider, source) => {
+  // Read the current method, not the signed snapshot or an order payment list.
+  const payment = await provider.payments.fetch(paymentId);
+  if (!payment || payment.id !== paymentId || payment.order_id !== event.orderId) {
+    throw Object.assign(new Error('Fetched payment does not match the signed webhook references'), {
+      code: 'PROVIDER_PAYMENT_REFERENCE_MISMATCH', permanent: true,
+    });
+  }
+  if (payment.method === 'bank_transfer') {
+    const binding = await validateRazorpayBankTransferPayment(payment, {
+      provider, event: { ...event, paymentId },
+    });
+    await persistWebhookEvidence(prisma, event, { bankTransferReconciliation: binding });
+  }
+  return settleCapturedPayment({ paymentId, providerOrderId: event.orderId, source, provider });
+};
+
 const reconcilePaymentState = async (event, provider) => {
   if (!event.paymentId || !event.orderId) {
     throw Object.assign(new Error('Payment event is missing provider references'), { code: 'MISSING_PROVIDER_REFERENCE', permanent: true });
@@ -107,7 +129,7 @@ const reconcilePaymentState = async (event, provider) => {
   }
   const status = String(payment.status || '').toLowerCase();
   if (status === 'captured') {
-    const result = await settleCapturedPayment({ paymentId: payment.id, providerOrderId: event.orderId, source: 'WEBHOOK_PAYMENT_STATE_RECONCILIATION', provider });
+    const result = await settleWebhookPayment(event, payment.id, provider, 'WEBHOOK_PAYMENT_STATE_RECONCILIATION');
     if (result.pending) throw Object.assign(new Error('Razorpay has not yet exposed a captured payment state'), { code: 'PROVIDER_STATE_PENDING' });
     return { state: 'PROCESSED', paymentId: payment.id, invoiceId: result.attempt?.invoiceId || null };
   }
@@ -125,7 +147,13 @@ const reconcilePaymentState = async (event, provider) => {
   throw Object.assign(new Error('Razorpay payment state requires Finance review'), { code: 'PROVIDER_PAYMENT_STATE_REVIEW', permanent: true });
 };
 
-const processWebhook = async (event, { refundReconciler = reconcileRazorpayRefundWebhook, disputeReconciler = reconcileRazorpayDispute, razorpayProvider = null } = {}) => {
+const processWebhook = async (event, {
+  refundReconciler = reconcileRazorpayRefundWebhook,
+  disputeReconciler = reconcileRazorpayDispute,
+  downtimeReconciler = reconcileRazorpayDowntimeWebhook,
+  bankTransferReconciler = reconcileRazorpayVirtualAccountCredit,
+  razorpayProvider = null,
+} = {}) => {
   if (event.mode && !process.env.RAZORPAY_KEY_ID) {
     throw Object.assign(new Error('Razorpay API credentials are not configured for webhook processing'), { code: 'RAZORPAY_NOT_CONFIGURED' });
   }
@@ -133,9 +161,17 @@ const processWebhook = async (event, { refundReconciler = reconcileRazorpayRefun
     throw Object.assign(new Error('Webhook mode does not match the active Razorpay API credentials'), { code: 'RAZORPAY_MODE_MISMATCH', permanent: true });
   }
   const type = String(event.event || '').toLowerCase();
+  if (DOWNTIME_EVENTS.includes(type)) {
+    return downtimeReconciler(event, { provider: razorpayProvider || undefined });
+  }
+
+  if (type === 'virtual_account.credited') {
+    return bankTransferReconciler(event, { provider: razorpayProvider || undefined });
+  }
+
   if (type === 'payment.captured') {
     if (!event.paymentId || !event.orderId) throw Object.assign(new Error('Captured event is missing provider references'), { code: 'MISSING_PROVIDER_REFERENCE', permanent: true });
-    const result = await settleCapturedPayment({ paymentId: event.paymentId, providerOrderId: event.orderId, source: 'WEBHOOK', provider: razorpayProvider || undefined });
+    const result = await settleWebhookPayment(event, event.paymentId, razorpayProvider || getRazorpay(), 'WEBHOOK');
     if (result.pending) throw Object.assign(new Error('Razorpay has not yet exposed a captured payment state'), { code: 'PROVIDER_STATE_PENDING' });
     return { state: 'PROCESSED', paymentId: event.paymentId, invoiceId: result.attempt?.invoiceId || null };
   }
@@ -156,7 +192,7 @@ const processWebhook = async (event, { refundReconciler = reconcileRazorpayRefun
     if (!captured.length) throw Object.assign(new Error('No captured payment is visible for the paid order yet'), { code: 'ORDER_PAYMENT_PENDING' });
     const results = [];
     for (const payment of captured) {
-      const result = await settleCapturedPayment({ paymentId: payment.id, providerOrderId: event.orderId, source: 'ORDER_PAID_WEBHOOK', provider });
+      const result = await settleWebhookPayment(event, payment.id, provider, 'ORDER_PAID_WEBHOOK');
       if (result.pending) {
         throw Object.assign(new Error('Razorpay order is paid but a listed payment is not yet confirmed captured by the payment lookup'), {
           code: 'PROVIDER_STATE_PENDING',
@@ -272,7 +308,9 @@ const processRazorpayWebhookBatch = async ({
       const code = safeErrorCode(error);
       const permanent = error?.permanent || event.attempts >= MAX_ATTEMPTS;
       const status = permanent ? 'REVIEW' : 'RETRY';
-      const retryAt = permanent ? null : new Date(Date.now() + retryDelayMs(event.attempts));
+      const retryAt = permanent ? null : new Date(Date.now() + Math.max(
+        retryDelayMs(event.attempts), providerRetryAfterMs(error) || 0,
+      ));
       const marked = await markWebhook(event, {
         status,
         nextAttemptAt: retryAt || new Date('9999-12-31T23:59:59.999Z'),
