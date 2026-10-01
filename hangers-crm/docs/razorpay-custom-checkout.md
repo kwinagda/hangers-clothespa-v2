@@ -38,7 +38,23 @@ Build configuration is declared in the backend `.env.example`: Custom Live relea
 
 CVV-less token reuse has separate mode-specific verified-key and exact-network prerequisites; RuPay also requires verified issuer entries. Missing evidence leaves CVV required. An explicitly verified CVV-less selection omits an absent CVV from the SDK payload. Saved-card authentication and token fields stay in memory, and asynchronous saved-card actions lock the Pay action until preparation finishes.
 
-Two additive migrations are written and unapplied: `20260930160000_razorpay_saved_cards` and `20260930170000_razorpay_virtual_account_bindings`. The latter stores the checkout/virtual-account association after an authoritative provider fetch verifies server-issued association notes. It does not invent an `order_id` field on a virtual-account entity. Combined payments retain the existing checkout attempt's invoice allocation plan and captured-payment settlement path.
+Two additive migrations are applied to the existing local `hangers_db`, but production application remains pending: `20260930160000_razorpay_saved_cards` and `20260930170000_razorpay_virtual_account_bindings`. The latter stores the checkout/virtual-account association after an authoritative provider fetch verifies server-issued association notes. It does not invent an `order_id` field on a virtual-account entity. Combined payments retain the existing checkout attempt's invoice allocation plan and captured-payment settlement path.
+
+#### Finite Custom Checkout Release Gates
+
+These gates supplement A24 within this master plan; they do not authorize production changes or represent completed deployment.
+
+| Gate | Required evidence / action | Current disposition |
+| --- | --- | --- |
+| Acceptance | Label every A01-A24 result as real provider, database integration, mocked contract, conditional or deferred. F35/F11 remain explicitly deferred; no invented provider acceptance. | In progress. |
+| Exact revision | Successful backend/CRM CI for the exact release SHA; review scoped PR #10 without unrelated preview or generated changes. | Earlier revisions passed; latest revision must be checked. |
+| Schema | Review production migration history, confirm only the two named additive migrations are intended, obtain explicit production schema approval and verified production backup before application. Never copy `hangers_db`. | Local applied; production pending. Existing combined-only migration script cannot apply these migrations. |
+| Account configuration | Verify mode/account/key binding and required event handlers. Keep saved cards, bank transfer and CVV-less reuse disabled until their exact activation evidence is recorded. Do not populate verified-key settings from discovery alone. | Provider acceptance remains separate from Methods discovery. |
+| Activation | Build frontend with `NEXT_PUBLIC_RAZORPAY_CUSTOM_CHECKOUT` only after acceptance. Enable backend `RAZORPAY_CUSTOM_CHECKOUT_LIVE_ENABLED` only in the authorized release. Do not activate bank transfer or saved cards merely because the schema exists. | Existing Standard Checkout remains the release fallback. |
+| Rollback | Stop new Custom submissions using `RAZORPAY_CUSTOM_CHECKOUT_DISABLED=true`; restore the prior frontend/Standard entry point and known-good code revision. Preserve attempts, mappings, allocations and additive tables. Keep webhook workers and status reconciliation operating for in-flight payments. | Procedure documented; production rehearsal/post-check not performed. |
+| Post-deploy | Record deployed SHA, health, invoice/checkout route response, mode/config binding and recovery of existing paid/pending links. No unsolicited Live charge/refund or unrestricted WhatsApp dispatch. | Pending authorized deployment. |
+
+Rollback must not delete payment evidence or roll back these additive tables while pending attempts depend on them. The submission-disable flag does not justify disabling status, callback or webhook reconciliation.
 
 ### Build Completion Tracker
 
