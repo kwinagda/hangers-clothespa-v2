@@ -4,6 +4,18 @@ Plain-English guide to how deploys actually work today (verified against the liv
 and the real GitHub Actions workflow on 2026-10-01 — not the generic version of this
 process, the real one).
 
+## One-time admin tasks (run these yourself — need your own login/permissions)
+
+These three were deliberately not run by the AI agent that wrote this doc: each one needs
+either your GitHub admin permission, your AWS credentials after you've generated new keys
+in the Razorpay dashboard, or is a local git operation that's safer coming from you.
+
+- `scripts/admin/rotate-razorpay-live-secret.sh` — run after generating new live keys in
+  the Razorpay dashboard; updates AWS Secrets Manager and reloads the live server.
+- `scripts/admin/enable-branch-protection.sh` — protects `main` (PR + passing CI required).
+- `scripts/admin/post-audit-git-cleanup.sh` — fixes the stale local `main` ref and removes
+  2 already-merged stale remote branches.
+
 ## How a deploy works
 
 Backend, worker, and CRM all deploy together as one commit — there's no "deploy just the
