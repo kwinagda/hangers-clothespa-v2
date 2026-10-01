@@ -100,6 +100,32 @@ test('customer outstanding summary offers one total Pay action at phone, tablet,
   expect(stats.createOrderRequests).toBe(before.createOrderRequests)
 })
 
+test('outstanding summary with one remaining invoice pays only its remaining balance', async ({ page, request }) => {
+  await request.post('http://127.0.0.1:55102/__test__/reset-summary-payment')
+  await page.route('**/api/v1/public/invoices/customer-summary', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    const summary = body.data.paymentSummary
+    summary.receivables = summary.receivables.filter((item: { invoiceId: string }) => item.invoiceId === 'summary-invoice-42')
+    summary.invoiceCount = 1
+    summary.totals = { totalAmount: 42, paidAmount: 0, balanceDue: 42 }
+    await route.fulfill({ response, json: body })
+  })
+  const before = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
+  for (const width of [320, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/invoice/customer-summary')
+    await expect(page.locator('article')).toHaveCount(1)
+    await expect(page.getByText('INV-SUMMARY-55')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Pay total outstanding · ₹42', exact: true }).click()
+    await expect(page).toHaveURL(/\/invoice\/customer-summary\/checkout\?/)
+    await expect(page.getByRole('button', { name: 'Continue · ₹42', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Continue · ₹97', exact: true })).toHaveCount(0)
+  }
+  const after = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
+  expect(after.createOrderRequests).toBe(before.createOrderRequests)
+})
+
 test('captured combined summary payment clears both receivables after refresh and reload', async ({ page, request }) => {
   await page.addInitScript(() => {
     const checkoutWindow = window as Window & { Razorpay?: new (options: Record<string, any>) => { open: () => void; on: () => void } }
