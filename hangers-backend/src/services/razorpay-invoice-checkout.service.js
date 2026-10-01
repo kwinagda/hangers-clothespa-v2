@@ -4,7 +4,7 @@ const prisma = require('../config/database');
 const { PaymentRuleError, getLedgerState, recordInvoiceAllocationsSettlement, recordInvoiceSettlement } = require('./payment.service');
 const { enqueueOutboxEvent, OUTBOX_EVENT } = require('./outbox.service');
 const { writeAuditEvent } = require('./activity.service');
-const { razorpayErrorSummary } = require('../utils/redact');
+const { razorpayErrorSummary, safeText } = require('../utils/redact');
 const { getSafeRazorpayPaymentMethod, getSafeRazorpayPaymentDiagnostics } = require('../utils/razorpay-payment-method');
 
 class RazorpayCheckoutError extends Error {
@@ -50,10 +50,8 @@ const getProviderError = (value) => {
   if (!root || typeof root !== 'object') return null;
   const fields = {};
   for (const field of ['code', 'description', 'source', 'step', 'reason', 'field']) {
-    if (typeof root[field] === 'string') fields[field] = root[field]
-      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
-      .replace(/\b(?:token|card)_[A-Za-z0-9]+\b/g, '[redacted-instrument]')
-      .replace(/(?:\+?\d[\d ()-]{7,}\d)|\b\d{4,16}\b/g, '[redacted-number]');
+    const text = safeText(root[field], field === 'description' ? 240 : 120);
+    if (text) fields[field] = text;
   }
   const metadata = {};
   for (const [field, prefix] of [['order_id', 'order'], ['payment_id', 'pay']]) {

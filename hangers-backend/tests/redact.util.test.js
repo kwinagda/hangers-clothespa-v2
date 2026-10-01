@@ -44,7 +44,7 @@ test('razorpayErrorSummary preserves documented nested fields and safe reference
   assert.deepEqual(summary, {
     httpStatus: 400,
     code: 'BAD_REQUEST_ERROR',
-    description: 'Invalid OTP [redacted-number] for [redacted-number] [redacted-email]',
+    description: 'Invalid [redacted-credential] for [redacted-number] [redacted-email]',
     field: 'amount',
     source: 'business',
     step: 'payment_initiation',
@@ -54,6 +54,20 @@ test('razorpayErrorSummary preserves documented nested fields and safe reference
   });
   assert.equal(JSON.stringify(summary).includes('654321'), false);
   assert.equal(JSON.stringify(summary).includes('never-log'), false);
+});
+
+test('payment diagnostics exclude credentials and digit-only webhook fields', () => {
+  const { safeText } = require('../src/utils/redact');
+  const { getSafeRazorpayPaymentDiagnostics } = require('../src/utils/razorpay-payment-method');
+  for (const value of ['123', 'CVV=123', 'OTP 123456', 'key_secret=AbcSecretValue', 'signature=' + 'a'.repeat(64), 'token_ABcd1234', 'card_ABcd1234', 'cust_ABcd1234', 'rzp_live_SecretValue']) {
+    const result = safeText(value, 1000);
+    assert.notEqual(result, value);
+    assert.ok(result.includes('[redacted-'));
+  }
+  const diagnostics = getSafeRazorpayPaymentDiagnostics({ method: 'card', error_code: '4100280000001007', error_source: '123', error_step: '654321', error_reason: 'token_ABcd1234' });
+  for (const field of ['providerErrorCode', 'providerErrorSource', 'providerErrorStep', 'providerErrorReason']) assert.equal(diagnostics[field], null);
+  assert.equal(safeText('BAD_REQUEST_ERROR payment_authorization insufficient_fund', 1000), 'BAD_REQUEST_ERROR payment_authorization insufficient_fund');
+  assert.doesNotMatch(safeText('{"key_secret":"AbcSecretValue"}', 1000), /AbcSecretValue/);
 });
 
 test('razorpayErrorSummary rejects malformed metadata and bounds provider text', () => {

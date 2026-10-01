@@ -25,9 +25,13 @@ const safeText = (value, limit) => {
   if (typeof value !== 'string') return undefined;
   const text = value
     .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\b(?:cvv|cvc|otp|pin|password|key[_ -]?secret|api[_ -]?key|signature|authorization|access[_ -]?token|refresh[_ -]?token)\b["']?\s*[:=]?\s*["']?([A-Za-z0-9+/=_-]+)/gi, '[redacted-credential]')
+    .replace(/\b(?:token|card|cust)_[A-Za-z0-9]+\b/gi, '[redacted-instrument]')
+    .replace(/\brzp_(?:test|live)_[A-Za-z0-9]+\b/gi, '[redacted-credential]')
+    .replace(/\b[a-f0-9]{64}\b/gi, '[redacted-credential]')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
     .replace(/(?:\+?\d[\d ()-]{7,}\d)/g, '[redacted-number]')
-    .replace(/\b\d{4,16}\b/g, '[redacted-number]')
+    .replace(/\b\d{3,}\b/g, '[redacted-number]')
     .trim();
   return text ? text.slice(0, limit) : undefined;
 };

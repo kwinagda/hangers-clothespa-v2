@@ -101,12 +101,23 @@ export function issuerPlans(methods: Methods | null, eligibility: CardEligibilit
   })
 }
 
+export function safePaymentDiagnostic(value: string) {
+  return value.replace(/[\r\n\t]+/g, ' ')
+    .replace(/\b(?:cvv|cvc|otp|pin|password|key[_ -]?secret|api[_ -]?key|signature|authorization|access[_ -]?token|refresh[_ -]?token)\b["']?\s*[:=]?\s*["']?([A-Za-z0-9+/=_-]+)/gi, '[redacted-credential]')
+    .replace(/\b(?:token|card|cust)_[A-Za-z0-9]+\b/gi, '[redacted-instrument]')
+    .replace(/\brzp_(?:test|live)_[A-Za-z0-9]+\b/gi, '[redacted-credential]')
+    .replace(/\b[a-f0-9]{64}\b/gi, '[redacted-credential]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
+    .replace(/(?:\+?\d[\d ()-]{7,}\d)/g, '[redacted-number]')
+    .replace(/\b\d{3,}\b/g, '[redacted-number]').trim().slice(0, 1000)
+}
+
 export function providerError(value: any): ProviderError | null {
   const input = value?.error || value?.details?.provider
   if (!input || typeof input !== 'object') return null
   const result: ProviderError = {}
   for (const key of ['code', 'description', 'source', 'step', 'reason', 'field'] as const) {
-    if (typeof input[key] === 'string') result[key] = input[key].slice(0, 1000)
+    if (typeof input[key] === 'string') result[key] = safePaymentDiagnostic(input[key])
   }
   const ids = input.metadata || input
   result.metadata = {
@@ -138,7 +149,7 @@ export async function checkoutRequest<T>(url: string, init: RequestInit = {}): P
     if (response.ok) throw error
     return null
   })
-  if (!response.ok) throw Object.assign(new Error(body?.message || 'This request could not be completed.'), {
+  if (!response.ok) throw Object.assign(new Error(typeof body?.message === 'string' ? safePaymentDiagnostic(body.message) : 'This request could not be completed.'), {
     code: body?.code, details: body?.details, error: body?.error, status: response.status,
     retryAfter, retryAt: nextRetryAt,
   })

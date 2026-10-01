@@ -80,6 +80,9 @@ jobs:
       - name: Verify bounded Custom Checkout acceptance regressions
         run: node --test tests/checkout-callback-recovery-acceptance.unit.test.js tests/checkout-concurrency-acceptance.unit.test.js tests/checkout-downtime-acceptance.unit.test.js tests/checkout-refund-acceptance.unit.test.js
 
+      - name: Verify payment diagnostic privacy
+        run: node --test tests/redact.util.test.js
+
       - name: Verify combined invoice checkout against disposable database
         run: RUN_COMBINED_CHECKOUT_INTEGRATION=1 node --test tests/combined-checkout.integration.test.js
 
@@ -112,6 +115,9 @@ jobs:
 
       - name: Type check
         run: npx tsc --noEmit
+
+      - name: Verify SDK diagnostic privacy
+        run: node --experimental-strip-types --test tests/invoice-checkout/payment-diagnostic-privacy.unit.mjs
 
       - name: Build
         run: npm run build
