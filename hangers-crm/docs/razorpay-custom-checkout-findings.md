@@ -1,4 +1,9 @@
 # Custom Checkout Build Findings
+
+## Acceptance Findings - 1 October 2026
+
+- F46 (new, report-only): real Test-key IIN lookups for `41002800` and `410028` both returned provider description `The requested URL was not found on the server.` through the documented installed SDK `/iins/:iin` request. Methods discovery succeeded separately. This does not prove activation is absent or that every IIN fails; do not infer either. Normal 6-8 digit validation remains as documented, with no automatic alternate-length fallback. Account/provider lookup acceptance remains unverified. Official reference: https://razorpay.com/docs/api/payments/cards/iin-api/.
+- Bounded CI assertion repair: combined summary tests still assumed an invoice-inline Pay action and the old checkout label. Updated assertions to follow the dedicated checkout route and its `Continue` action, then validate captured confirmation, cleared summary and reload. No production behavior changed to satisfy the test.
 Opened 30 September 2026. This is a findings register, not another implementation plan. The authoritative build scope remains `razorpay-custom-checkout.md`. Per user instruction, record new discoveries here without starting unrelated repair work. Tests, builds, browser checks, provider transactions, migrations and deployment are deferred.
 
 ## Current Repair Instruction
