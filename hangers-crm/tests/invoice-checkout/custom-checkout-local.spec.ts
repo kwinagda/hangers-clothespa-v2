@@ -171,14 +171,16 @@ const openLocalTestCheckout = async (page: import('@playwright/test').Page) => {
   await expect(page.locator('body')).toContainText('+91 9930367267')
 }
 
-const beginLocalCustomCheckout = async (page: import('@playwright/test').Page) => {
+const beginLocalCustomCheckout = async (page: import('@playwright/test').Page, collectEmail = true) => {
   await page.getByRole('button', { name: /^Pay/ }).click()
   await expect(page).toHaveURL(/\/checkout(?:\?|$)/)
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Invoice payment' })).toBeVisible()
-  const email = page.getByRole('textbox', { name: 'Email address', exact: true })
-  await expect(email).toBeVisible()
-  await email.fill('kevinnagda@gmail.com')
+  if (collectEmail) {
+    const email = page.getByRole('textbox', { name: 'Email address', exact: true })
+    await expect(email).toBeVisible()
+    await email.fill('kevinnagda@gmail.com')
+  }
 }
 
 test('local Test Mode UPI selection submits the selected Razorpay intent app and verifies server-side', async ({ page }) => {
@@ -259,7 +261,11 @@ test('missing payer email blocks SDK submission without inventing an address', a
   await page.getByRole('textbox', { name: 'Email address', exact: true }).fill('')
   await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
   expect(await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)).toBeUndefined()
-  await expect(page.getByRole('textbox', { name: 'Email address', exact: true })).toHaveValue('')
+  const email = page.getByRole('textbox', { name: 'Email address', exact: true })
+  await expect(email).toHaveValue('')
+  await expect(email).toHaveAttribute('aria-invalid', 'true')
+  await expect(email).toHaveAccessibleDescription(/.+/)
+  await expect(email).toBeFocused()
 })
 
 test('redirect recovery passes the server callback URL to Custom Checkout without changing the order reference', async ({ page }) => {
@@ -429,6 +435,13 @@ test('local desktop Test Mode UPI uses Razorpay QR fallback when no mobile inten
 })
 
 test('local Test Mode card details go to Razorpay SDK only, not CRM payment requests', async ({ page }) => {
+  const crmBodies: string[] = []
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (url.hostname === 'localhost' && url.pathname.startsWith('/api/v1/')) {
+      crmBodies.push(request.postData() || '')
+    }
+  })
   await installCustomCheckoutMock(page)
   const verifiedPayloads: any[] = []
   await mockInvoicePaymentApi(page, verifiedPayloads)
@@ -449,6 +462,13 @@ test('local Test Mode card details go to Razorpay SDK only, not CRM payment requ
   expect(payment.data).toMatchObject({ method: 'card', 'card[number]': '4100280000001007', 'card[cvv]': '123', 'card[expiry_year]': '30' })
   expect(JSON.stringify(verifiedPayloads)).not.toContain('4100280000001007')
   expect(JSON.stringify(verifiedPayloads)).not.toContain('123')
+  expect(crmBodies.join('\n')).not.toMatch(/4100\s*2800\s*0000\s*1007/)
+  expect(crmBodies.join('\n')).not.toMatch(/card\[cvv\]|card-cvv|"cvv"/i)
+  const persisted = await page.evaluate(() => JSON.stringify({
+    local: Object.entries(localStorage), session: Object.entries(sessionStorage),
+  }))
+  expect(persisted).not.toMatch(/4100\s*2800\s*0000\s*1007/)
+  expect(persisted).not.toMatch(/card\[cvv\]|card-cvv|"cvv"/i)
 })
 
 test('SDK card validation blocks an invalid number before payment submission', async ({ page }) => {
@@ -505,7 +525,7 @@ test('custom checkout shows no guessed methods when Razorpay does not return its
   await installCustomCheckoutMock(page, true, false)
   await mockInvoicePaymentApi(page, [])
   await openLocalTestCheckout(page)
-  await beginLocalCustomCheckout(page)
+  await beginLocalCustomCheckout(page, false)
 
   await expect(page.locator('[class*="notice"]')).toContainText('Payment choices are hidden until Razorpay confirms availability.', { timeout: 7000 })
   await expect(page.getByRole('radio')).toHaveCount(0)
