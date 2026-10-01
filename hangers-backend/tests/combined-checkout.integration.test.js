@@ -22,8 +22,20 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
   const suffix = crypto.randomUUID();
   const customer = await prisma.customer.create({ data: { name: `Source CI ${suffix}`, phone: '9930367267', notifWhatsApp: false } });
   for (const sourceType of ['ORDER', 'DAILY_IRON', 'FIELD_SERVICE']) {
+    let source;
+    if (sourceType === 'ORDER') {
+      const order = await prisma.order.create({ data: { orderNumber: `SOURCE-${suffix}`, customerId: customer.id, source: 'COUNTER', status: 'PICKED_UP', subtotal: 10, totalAmount: 10 } });
+      source = { orderId: order.id };
+    } else if (sourceType === 'DAILY_IRON') {
+      const subscription = await prisma.ironSubscription.create({ data: { customerId: customer.id } });
+      const bill = await prisma.ironBill.create({ data: { billNumber: `SOURCE-${suffix}`, customerId: customer.id, subscriptionId: subscription.id, billingPeriodStart: new Date('2023-01-01'), billingPeriodEnd: new Date('2023-01-31'), totalPieces: 1, totalAmount: 10 } });
+      source = { ironBillId: bill.id };
+    } else {
+      const appointment = await prisma.serviceAppointment.create({ data: { appointmentNumber: `SOURCE-${suffix}`, customerId: customer.id, serviceName: 'Curtain cleaning CI', scheduledAt: new Date('2023-01-01'), totalAmount: 10 } });
+      source = { serviceAppointmentId: appointment.id };
+    }
     const invoice = await prisma.invoice.create({ data: {
-      invoiceNumber: `SOURCE-${sourceType}-${suffix}`, customerId: customer.id, sourceType,
+      invoiceNumber: `SOURCE-${sourceType}-${suffix}`, customerId: customer.id, sourceType, ...source,
       status: 'OPEN', currency: 'INR', subtotal: 10, totalAmount: 10, balanceDue: 10,
       issueDate: new Date('2023-01-01T00:00:00Z'), dueDate: new Date('2023-01-02T00:00:00Z'),
     } });
@@ -50,6 +62,8 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
     const unchanged = await prisma.invoice.findUnique({ where: { id: invoice.id } });
     assert.equal(Number(unchanged.paidAmount), 0);
     assert.equal(Number(unchanged.balanceDue), 10);
+    // Keep these disposable fixtures out of the following outstanding-total case.
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'VOID', voidedAt: new Date() } });
   }
 });
 
@@ -62,7 +76,7 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   assert.equal((await prisma.$queryRaw`SELECT current_database() AS name`)[0].name, 'hangers_test');
   process.env.RAZORPAY_KEY_ID = 'rzp_test_combined_ci';
   const suffix = crypto.randomUUID();
-  const customer = await prisma.customer.create({ data: { name: `Combined CI ${suffix}`, phone: '9930367267', notifWhatsApp: false } });
+  const customer = await prisma.customer.upsert({ where: { phone: '9930367267' }, update: {}, create: { name: `Combined CI ${suffix}`, phone: '9930367267', notifWhatsApp: false } });
   const invoices = [];
   for (const [index, amount] of [2680, 3200].entries()) {
     const order = await prisma.order.create({ data: { orderNumber: `COMBINED-${suffix}-${index}`, customerId: customer.id, source: 'COUNTER', status: 'PICKED_UP', subtotal: amount, totalAmount: amount } });
