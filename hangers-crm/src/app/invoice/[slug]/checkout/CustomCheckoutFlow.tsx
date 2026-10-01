@@ -264,8 +264,12 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
   const provisional: CheckoutOrder | null = capabilities ? { key: capabilities.key, amount: amountPaise, currency: 'INR', razorpayOrderId: '' } : null
   return <section aria-label="Invoice payment" aria-busy={loading}>
     {loading && <p role="status">Loading secure payment details...</p>}
-    {methodsError && methodsError !== loadError && <div className={styles.notice} role="alert"><p>{methodsError}</p><button type="button" className={styles.retry} disabled={offline || retryAt > 0} onClick={reloadMethods}>Reload payment methods</button></div>}
-    {loadError && <div className={styles.notice} role="alert"><p>{loadError}</p><button type="button" className={styles.retry} disabled={busy || offline || retryAt > 0} onClick={() => { reloadMethods(); void recover() }}>Retry loading payment details</button></div>}
+    {(loadError || methodsError) && <div className={styles.notice} role="alert">
+      <p>{loadError || methodsError}</p>
+      {loadError
+        ? <button type="button" className={styles.retry} disabled={busy || offline || retryAt > 0} onClick={() => { reloadMethods(); void recover() }}>Retry loading payment details</button>
+        : <button type="button" className={styles.retry} disabled={offline || retryAt > 0} onClick={reloadMethods}>Reload payment methods</button>}
+    </div>}
     {status?.status === 'FAILED' && status.canResumeCheckout && !status.providerLookupUnavailable && <p role="status">
       Razorpay reports the previous attempt failed. You can retry using the same checkout order.
     </p>}

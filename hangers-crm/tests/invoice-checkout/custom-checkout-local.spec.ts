@@ -187,7 +187,9 @@ test('invoice lookup failure is shown once and is not mislabeled as a pending pa
   await openLocalTestCheckout(page)
   await page.route('**/api/v1/public/invoices/**/payment/**', async (route) => {
     if (route.request().method() === 'GET') {
-      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'Invoice not found' }) })
+      const endpoint = new URL(route.request().url()).pathname.split('/').pop()
+      const message = endpoint === 'capabilities' ? 'Invoice not found' : 'Payment status unavailable'
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message }) })
       return
     }
     await route.continue()
@@ -195,7 +197,9 @@ test('invoice lookup failure is shown once and is not mislabeled as a pending pa
 
   await page.getByRole('button', { name: /^Pay/ }).click()
   await expect(page).toHaveURL(/\/checkout(?:\?|$)/)
-  await expect(page.getByText('Invoice not found', { exact: true })).toHaveCount(1)
+  await expect(page.getByRole('region', { name: 'Invoice payment' }).getByRole('alert')).toHaveCount(1)
+  await expect(page.getByText('Payment status unavailable', { exact: true })).toBeVisible()
+  await expect(page.getByText('Invoice not found', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)
 })
 
