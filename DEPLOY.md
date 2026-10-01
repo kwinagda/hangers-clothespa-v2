@@ -104,11 +104,12 @@ link this to your actual EAS project (that step needs your EAS login, not someth
 do), which will add a `projectId` to `app.json`.
 
 **`hangers-staff-app`: bigger gap, left alone on purpose.** Its `app.json` is essentially
-empty — no `expo.name`, `slug`, Android `package`, or iOS `bundleIdentifier` at all. That
-means this app doesn't have a real buildable identity yet, and writing an `eas.json` on top
-of it would be pointless (nothing to build against). This needs a decision from you — what
-bundle ID / package name this should actually ship under (ideally matching whatever you've
-already registered in Play Console / App Store Connect, if anything) — not a guess, since
-getting it wrong after a real release would be hard to undo. Once that's decided, the fix is
-two steps: fill in `app.json`'s `expo` block, then add `eas.json` following the same pattern
-as `hangers-app`.
+empty — no `expo.name`, `slug`, Android `package`, or iOS `bundleIdentifier` at all (and no
+`src/assets/icon.png` etc. either — verified via `git log --follow`, it's been this way
+since the repo's very first commit, so this app has never actually shipped). That means
+this app doesn't have a real buildable identity yet, and writing an `eas.json` on top of it
+would be pointless. I drafted a candidate fix (name "Hangers Staff", `com.hangers.staff`,
+following `hangers-app`'s exact naming convention) but did not commit it — deciding a real
+product identifier is your call, not mine to make unasked, even when it looks low-risk.
+Once you decide, the fix is two steps: fill in `app.json`'s `expo` block, then add
+`eas.json` following the same pattern as `hangers-app`.
