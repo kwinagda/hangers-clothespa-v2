@@ -404,8 +404,8 @@ test('local desktop Test Mode UPI uses Razorpay QR fallback when no mobile inten
   await openLocalTestCheckout(page)
 
   await beginLocalCustomCheckout(page)
-  await page.getByRole('radio', { name: 'UPI app or QR' }).check()
-  await expect(page.getByText('Razorpay will open its supported UPI QR flow for this device.')).toBeVisible()
+  await page.getByRole('radio', { name: 'UPI', exact: true }).check()
+  await expect(page.getByRole('button', { name: /^Show QR for / })).toBeVisible()
   await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
 
   const payment = await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)
@@ -422,7 +422,7 @@ test('local Test Mode card details go to Razorpay SDK only, not CRM payment requ
   await beginLocalCustomCheckout(page)
   await page.getByRole('radio', { name: 'Credit or debit card' }).check()
   await page.getByLabel('Card number').fill('4100 2800 0000 1007')
-  await expect(page.getByText('VISA', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Card networks enabled for this account')).toBeVisible()
   await expect(page.getByText('visa', { exact: true })).toBeVisible()
   await page.getByLabel('Expiry', { exact: true }).fill('12 / 30')
   await page.getByLabel('CVV').fill('123')

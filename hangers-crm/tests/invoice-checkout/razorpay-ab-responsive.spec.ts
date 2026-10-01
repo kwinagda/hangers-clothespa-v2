@@ -125,6 +125,13 @@ test('captured combined summary payment clears both receivables after refresh an
     await expect(page.getByRole('button', { name: 'Pay total outstanding · ₹97', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Pay total outstanding · ₹97', exact: true }).click()
 
+    await expect(page).toHaveURL(/\/invoice\/customer-summary\/checkout\?/)
+    await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
+    await page.getByRole('button', { name: /^Pay/ }).click()
+    await expect(page.getByRole('heading', { name: /^(Payment received|No balance due)$/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
+    await page.goto('/invoice/customer-summary')
+
     await expect(page.locator('article')).toHaveCount(0)
     await expect(page.getByText('0 open bills/orders')).toBeVisible()
     await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
