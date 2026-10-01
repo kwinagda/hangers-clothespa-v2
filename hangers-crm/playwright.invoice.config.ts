@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests/invoice-checkout',
-  testMatch: ['invoice-local-safety.spec.ts', 'custom-checkout-local.spec.ts', 'paid-checkout-accessibility.spec.ts'],
+  testMatch: ['invoice-local-safety.spec.ts', 'custom-checkout-local.spec.ts', 'paid-checkout-accessibility.spec.ts', 'pending-checkout-recovery.spec.ts'],
   fullyParallel: false,
   workers: 1,
   reporter: 'list',

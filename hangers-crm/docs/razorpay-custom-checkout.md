@@ -644,7 +644,7 @@ This register records evidence and gaps, not blanket acceptance. Historical buil
 | A11 | 12 saved-card ownership/lifecycle unit tests, including token races. | Real authenticated customer consent/token creation/reuse/delete depends on verified activation; currently disabled. |
 | A12 | 11 bank-transfer boundary tests; additive local association schema. | Conditional feature disabled; no real instructions, credit, fee or closure acceptance claimed. |
 | A13 | Guarded combined CI covers overlapping bindings and duplicate settlement; UI mocks enforce one order during recovery. | True concurrent two-tab/device execution remains unverified. |
-| A14 | Closed-flow mocks; actual Chrome crash/reopen retains pending payment and same order. | Offline/back/sleep and lost-create-response subcases need distinct evidence. |
+| A14 | Closed-flow mocks; actual Chrome crash/reopen retains pending payment and same order; real local offline/reconnect/refresh check passes. | Back/sleep and lost-create-response subcases need distinct evidence. |
 | A15 | Actual Test capture and created/attempted recovery; worker/reconciliation contracts. | Lost callback/verification response, late authorization and outage matrix not fully established. |
 | A16 | Callback signature/scope/fixed-return negatives; combined stale/foreign/allocation rejection. | Verify every listed tamper subcase has an explicit assertion before claiming full pass. |
 | A17 | Existing-local HTTP exact raw-body/altered/duplicate checks and durable inbox retry/crash-lease regression. | Public HTTPS provider delivery unverified; local signed-event subset passes. |
@@ -804,6 +804,8 @@ Historical implementation checks on 30 September 2026, before the final document
 These mocked browser tests prove the local UI-to-SDK contract and server verification request shape. They do not establish which methods are enabled for the merchant account or substitute for Razorpay Test Mode end-to-end payment acceptance.
 
 ### Confirmation Accessibility Acceptance - 1 October 2026
+
+Pending recovery continuation: `pending-checkout-recovery.spec.ts` passed on the existing unresolved Home Test invoice and `order_TiaTeUmJH7cAXm`, without mocked payment/status responses. At 320px, offline disables Check payment status, reconnect restores it, refresh preserves the same order/reference and under-review state, no Pay/resume action is shown, no create-order/verify POST occurs and there is no horizontal overflow. No new fixture/order/payment was created and the unresolved attempt was not reset or expired. This closes the tested offline/reconnect/refresh subset of A14/C19; it does not establish capture, late authorization, sleep recovery or all network-failure cases.
 
 Home-only worker revision `21706e3542c17d125a6caf9d2ea5122d4c5f449c` passed both CI jobs in run `36842768131`, including the new scoped notification checks.
 
