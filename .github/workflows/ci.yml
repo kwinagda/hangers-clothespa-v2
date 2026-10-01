@@ -77,6 +77,9 @@ jobs:
       - name: Verify Home-only Test notification dispatch
         run: node --test tests/local-outbox-scope.test.js tests/dev-outbox.test.js tests/outbox-retry.test.js tests/whatomate-dev-gate.test.js
 
+      - name: Verify bounded Custom Checkout acceptance regressions
+        run: node --test tests/checkout-callback-recovery-acceptance.unit.test.js tests/checkout-concurrency-acceptance.unit.test.js tests/checkout-downtime-acceptance.unit.test.js tests/checkout-refund-acceptance.unit.test.js
+
       - name: Verify combined invoice checkout against disposable database
         run: RUN_COMBINED_CHECKOUT_INTEGRATION=1 node --test tests/combined-checkout.integration.test.js
 
