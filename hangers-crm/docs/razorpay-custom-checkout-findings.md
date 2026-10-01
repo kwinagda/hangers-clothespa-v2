@@ -2,6 +2,8 @@
 
 ## Acceptance Findings - 1 October 2026
 
+- F53 (new, report-only denial-header gap): invalid-share HTTP responses through localhost:5002 lacked Cache-Control on invoice, status, create-order and callback routes. Custom method/IIN/downtime/bank-transfer denials have private/no-store. All checked operations denied access; malformed verify/reconcile bodies return 400 before share lookup. This does not prove private data disclosure, but legacy denial responses do not meet the same cache-policy assertion. No response-header change was made; acceptance test preserves the distinction rather than claiming universal no-store.
+
 - F52 (new, report-only audit distinction): imported `main` commit `3256c7f` intentionally pauses five order-status templates. `sendOrderStatusMessage` returns true without a Whatomate request when `template.paused` is set. A success-shaped worker/audit result for those templates is not evidence of provider acceptance or handset delivery. Preserve this existing configuration; later audit work should distinguish intentionally skipped delivery from sent delivery. No automatic repair or unpause was performed.
 
 - F51 (new, report-only response-header discrepancy): all saved-card routes declare `Referrer-Policy: no-referrer`, but the existing localhost:5002 proxy response exposes `strict-origin-when-cross-origin` from the frontend. The real local missing/invalid-auth matrix still denies every operation with HTTP 401 and private/no-store responses. This observation does not establish a token leak (selectors remain JSON-only), but the externally observed policy differs from the route's declared privacy boundary. Inspect frontend header precedence in the later findings phase; no header or security setting was weakened during acceptance.
