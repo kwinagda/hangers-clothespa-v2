@@ -101,16 +101,7 @@ test('customer outstanding summary offers one total Pay action at phone, tablet,
 })
 
 test('outstanding summary with one remaining invoice pays only its remaining balance', async ({ page, request }) => {
-  await request.post('http://127.0.0.1:55102/__test__/reset-summary-payment')
-  await page.route('**/api/v1/public/invoices/customer-summary', async (route) => {
-    const response = await route.fetch()
-    const body = await response.json()
-    const summary = body.data.paymentSummary
-    summary.receivables = summary.receivables.filter((item: { invoiceId: string }) => item.invoiceId === 'summary-invoice-42')
-    summary.invoiceCount = 1
-    summary.totals = { totalAmount: 42, paidAmount: 0, balanceDue: 42 }
-    await route.fulfill({ response, json: body })
-  })
+  await request.post('http://127.0.0.1:55102/__test__/reset-summary-payment?paidInvoice=summary-invoice-55')
   const before = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   for (const width of [320, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 })

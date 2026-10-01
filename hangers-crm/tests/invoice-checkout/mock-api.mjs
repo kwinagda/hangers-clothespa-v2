@@ -50,7 +50,7 @@ const server = http.createServer((req, res) => {
     return
   }
   if (req.method === 'POST' && path === '/__test__/reset-summary-payment') {
-    summaryCapturedInvoiceId = ''
+    summaryCapturedInvoiceId = new URL(req.url, 'http://127.0.0.1').searchParams.get('paidInvoice') === 'summary-invoice-55' ? 'summary-invoice-55' : ''
     summaryCreatedInvoiceIds.length = 0
     summaryVerifiedInvoiceIds.length = 0
     res.writeHead(200).end(JSON.stringify({ success: true }))
