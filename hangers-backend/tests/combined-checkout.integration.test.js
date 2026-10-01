@@ -63,6 +63,7 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
     assert.equal(Number(unchanged.paidAmount), 0);
     assert.equal(Number(unchanged.balanceDue), 10);
     // Keep these disposable fixtures out of the following outstanding-total case.
+    await prisma.razorpayCheckoutAttempt.deleteMany({ where: { invoiceId: invoice.id } });
     await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'VOID', voidedAt: new Date() } });
   }
 });
