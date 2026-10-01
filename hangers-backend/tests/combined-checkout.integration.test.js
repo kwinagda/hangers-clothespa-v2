@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const prisma = require('../src/config/database');
 const { createInvoiceCheckout, reconcileAmbiguousOrderCreation, settleCapturedPayment } = require('../src/services/razorpay-invoice-checkout.service');
 const { getOrderPayments } = require('../src/controllers/payments.controller');
-const { getPublicRazorpayCheckoutStatus } = require('../src/controllers/public.controller');
+const { getPublicInvoice, getPublicRazorpayCheckoutStatus } = require('../src/controllers/public.controller');
 const { createPublicShareToken } = require('../src/services/publicShare.service');
 const { createRazorpayRefund, reconcileRazorpayRefundWebhook } = require('../src/services/razorpay-refund.service');
 
@@ -81,6 +81,76 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
     await prisma.razorpayCheckoutAttempt.deleteMany({ where: { invoiceId: invoice.id } });
     await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'VOID', voidedAt: new Date() } });
   }
+});
+
+test('public invoice lookup resolves invoice, order, iron-bill and customer shares across billable services', { skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' }, async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  assert.equal(process.env.GITHUB_ACTIONS, 'true');
+  assert.equal(process.env.CI, 'true');
+  assert.equal(url.hostname, 'localhost');
+  assert.equal(url.pathname, '/hangers_test');
+  assert.equal((await prisma.$queryRaw`SELECT current_database() AS name`)[0].name, 'hangers_test');
+
+  const suffix = crypto.randomUUID();
+  const customer = await prisma.customer.upsert({
+    where: { phone: '9930367267' },
+    update: {},
+    create: { name: 'Home', phone: '9930367267', notifWhatsApp: false },
+  });
+  const order = await prisma.order.create({ data: {
+    orderNumber: `PUBLIC-ORDER-${suffix}`, customerId: customer.id, source: 'COUNTER', status: 'PICKED_UP',
+    subtotal: 10, totalAmount: 10,
+  } });
+  const subscription = await prisma.ironSubscription.upsert({
+    where: { customerId: customer.id }, update: {}, create: { customerId: customer.id },
+  });
+  const bill = await prisma.ironBill.create({ data: {
+    billNumber: `PUBLIC-IRON-${suffix}`, customerId: customer.id, subscriptionId: subscription.id,
+    billingPeriodStart: new Date('2023-01-01'), billingPeriodEnd: new Date('2023-01-31'),
+    totalPieces: 1, totalAmount: 20,
+  } });
+  const appointment = await prisma.serviceAppointment.create({ data: {
+    appointmentNumber: `PUBLIC-FIELD-${suffix}`, customerId: customer.id,
+    serviceName: 'Curtain cleaning CI', scheduledAt: new Date('2023-01-01'), totalAmount: 30,
+  } });
+  const dueDate = new Date('2023-01-02');
+  const invoices = await Promise.all([
+    prisma.invoice.create({ data: {
+      invoiceNumber: `PUBLIC-ORDER-INV-${suffix}`, customerId: customer.id, orderId: order.id,
+      sourceType: 'ORDER', status: 'OPEN', currency: 'INR', subtotal: 10, totalAmount: 10, balanceDue: 10, dueDate,
+    } }),
+    prisma.invoice.create({ data: {
+      invoiceNumber: `PUBLIC-IRON-INV-${suffix}`, customerId: customer.id, ironBillId: bill.id,
+      sourceType: 'DAILY_IRON', status: 'OPEN', currency: 'INR', subtotal: 20, totalAmount: 20, balanceDue: 20, dueDate,
+    } }),
+    prisma.invoice.create({ data: {
+      invoiceNumber: `PUBLIC-FIELD-INV-${suffix}`, customerId: customer.id, serviceAppointmentId: appointment.id,
+      sourceType: 'FIELD_SERVICE', status: 'OPEN', currency: 'INR', subtotal: 30, totalAmount: 30, balanceDue: 30, dueDate,
+    } }),
+  ]);
+  const shares = [
+    ['INVOICE', invoices[0].id, invoices[0].invoiceNumber],
+    ['ORDER', order.id, invoices[0].invoiceNumber],
+    ['IRON_BILL', bill.id, invoices[1].invoiceNumber],
+    ['INVOICE', invoices[2].id, invoices[2].invoiceNumber],
+  ];
+  for (const [resourceType, resourceId, expectedInvoiceNumber] of shares) {
+    const token = await createPublicShareToken({ resourceType, resourceId, purpose: 'INVOICE_VIEW' });
+    const res = response();
+    await getPublicInvoice({ params: { slug: token } }, res);
+    assert.equal(res.statusCode, 200, `${resourceType} share must resolve`);
+    assert.equal(res.body.data.invoice.invoiceNumber, expectedInvoiceNumber);
+  }
+
+  const customerToken = await createPublicShareToken({ resourceType: 'CUSTOMER', resourceId: customer.id, purpose: 'INVOICE_VIEW' });
+  const customerRes = response();
+  await getPublicInvoice({ params: { slug: customerToken } }, customerRes);
+  assert.equal(customerRes.statusCode, 200);
+  assert.equal(customerRes.body.data.paymentSummary.totals.balanceDue, 60);
+  assert.deepEqual(
+    customerRes.body.data.paymentSummary.receivables.map((invoice) => invoice.sourceType).sort(),
+    ['DAILY_IRON', 'FIELD_SERVICE', 'ORDER'],
+  );
 });
 
 test('combined checkout atomically settles two invoices and refuses overlap, stale balances and foreign links', { skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' }, async () => {

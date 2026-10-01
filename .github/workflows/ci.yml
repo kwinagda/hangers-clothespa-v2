@@ -71,8 +71,8 @@ jobs:
       - name: Run scoped Razorpay Payment Gateway and deployment contracts
         run: npm run test:razorpay-release
 
-      - name: Verify Custom Checkout method and IIN contracts
-        run: node --test tests/razorpay-custom-capabilities.unit.test.js tests/razorpay-saved-cards.unit.test.js tests/razorpay-downtime.unit.test.js tests/razorpay-refund-binding.unit.test.js tests/razorpay-dispute.unit.test.js tests/razorpay-webhook-dispatch.unit.test.js tests/razorpay-bank-transfer.unit.test.js
+      - name: Verify Custom Checkout and payment-state contracts
+        run: node --test tests/razorpay-custom-capabilities.unit.test.js tests/razorpay-saved-cards.unit.test.js tests/razorpay-downtime.unit.test.js tests/razorpay-refund-binding.unit.test.js tests/razorpay-dispute.unit.test.js tests/razorpay-webhook-dispatch.unit.test.js tests/razorpay-bank-transfer.unit.test.js tests/razorpay-webhook-state-concurrency.unit.test.js
 
       - name: Verify Home-only Test notification dispatch
         run: node --test tests/local-outbox-scope.test.js tests/dev-outbox.test.js tests/outbox-retry.test.js tests/whatomate-dev-gate.test.js

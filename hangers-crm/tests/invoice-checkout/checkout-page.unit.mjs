@@ -56,6 +56,30 @@ test('zero-balance invoice advances to complete without claiming a Razorpay capt
   assert.doesNotMatch(html, /aria-current="step">2|Payment received|Invoice paid|<button/)
 })
 
+test('all supported invoice source types expose checkout for a positive unpaid balance', async (t) => {
+  for (const [invoiceType, orderNumber] of [
+    ['ORDER', 'HCS-ORDER-1'],
+    ['DAILY_IRON', 'DIB-IRON-1'],
+    ['FIELD_SERVICE', 'FS-APPT-1'],
+  ]) {
+    await t.test(invoiceType, async () => {
+      const html = await render({ data: { invoice: {
+        id: `invoice-${invoiceType.toLowerCase()}`,
+        invoiceNumber: `INV-${invoiceType}`,
+        invoiceType,
+        orderNumber,
+        balanceDue: 125,
+        paidAmount: 0,
+        status: 'OPEN',
+      } } })
+      assert.match(html, /Complete your payment/)
+      assert.match(html, /Pay outstanding/)
+      assert.ok(html.includes(`INV-${invoiceType}`))
+      assert.ok(html.includes(orderNumber))
+    })
+  }
+})
+
 test('combined checkout uses full server total and first anchor regardless of supplied selection', async () => {
   const html = await render({ data: { paymentSummary: {
     totals: { balanceDue: 5880 }, customer: { name: 'Home' },

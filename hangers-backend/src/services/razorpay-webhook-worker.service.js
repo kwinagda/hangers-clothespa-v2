@@ -343,4 +343,4 @@ const processRazorpayWebhookBatch = async ({
   return events.length;
 };
 
-module.exports = { processWebhook, processRazorpayWebhookBatch };
+module.exports = { processWebhook, processRazorpayWebhookBatch, setAttemptState };
