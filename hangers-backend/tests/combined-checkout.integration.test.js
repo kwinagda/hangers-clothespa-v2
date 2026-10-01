@@ -6,6 +6,7 @@ const { createInvoiceCheckout, reconcileAmbiguousOrderCreation, settleCapturedPa
 const { getOrderPayments } = require('../src/controllers/payments.controller');
 const { getPublicRazorpayCheckoutStatus } = require('../src/controllers/public.controller');
 const { createPublicShareToken } = require('../src/services/publicShare.service');
+const { createRazorpayRefund, reconcileRazorpayRefundWebhook } = require('../src/services/razorpay-refund.service');
 
 after(() => prisma.$disconnect());
 const response = () => ({ statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
@@ -87,4 +88,35 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: providerPayment.id } }), 1);
   assert.equal(await prisma.receipt.count({ where: { paymentId: settled.payment.id } }), 1);
   assert.equal(await prisma.outboxEvent.count({ where: { dedupeKey: `payment-received:${settled.payment.id}` } }), 1);
+
+  const staff = await prisma.staff.create({ data: {
+    name: `Refund CI ${suffix}`, phone: `ci-refund-${suffix}`, passwordHash: 'integration-test-only', role: 'ACCOUNTS',
+  } });
+  let refundCalls = 0;
+  let providerRefund;
+  const refundArgs = {
+    orderId: invoices[0].orderId, sourcePaymentId: settled.payment.id, amount: 100,
+    reasonCode: 'CUSTOMER_REFUND', reason: 'Combined allocation CI refund',
+    staff: { id: staff.id, effectivePermissions: ['finance.refund'] }, idempotencyKey: `refund-${suffix}`,
+    provider: async ({ paymentId, amountPaise, attempt }) => {
+      refundCalls += 1;
+      assert.equal(paymentId, providerPayment.id);
+      assert.equal(amountPaise, 10000n);
+      return (providerRefund = { id: `rfnd_${suffix}`, payment_id: paymentId, amount: Number(amountPaise),
+        currency: 'INR', status: 'processed', notes: { crm_refund_attempt_id: attempt.id } });
+    },
+  };
+  await assert.rejects(createRazorpayRefund({ ...refundArgs, amount: 2681, idempotencyKey: `excess-${suffix}` }), { code: 'REFUND_EXCEEDS_AVAILABLE' });
+  assert.equal(refundCalls, 0, 'refund cannot consume another invoice allocation');
+  const refunded = await createRazorpayRefund(refundArgs);
+  assert.equal(refunded.attempt.status, 'PROCESSED');
+  assert.equal(Number(refunded.refundPayment.amount), 100);
+  assert.equal(refunded.creditNote.orderId, invoices[0].orderId);
+  assert.equal((await createRazorpayRefund(refundArgs)).alreadyRecorded, true);
+  assert.equal(refundCalls, 1, 'idempotent replay must not call provider again');
+  await reconcileRazorpayRefundWebhook({ refundId: providerRefund.id }, async () => providerRefund);
+  assert.equal(await prisma.payment.count({ where: { id: refunded.refundPayment.id, kind: 'REFUND' } }), 1);
+  assert.equal(await prisma.creditNote.count({ where: { id: refunded.creditNote.id } }), 1);
+  assert.equal(Number((await prisma.invoice.findUnique({ where: { id: invoices[1].id } })).balanceDue), 0);
+  assert.equal(await prisma.paymentAllocation.count({ where: { paymentId: settled.payment.id } }), 2);
 });
