@@ -475,6 +475,70 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   expect(await page.evaluate(() => (window as Window & { __readyRetryPayments?: number }).__readyRetryPayments)).toBe(0)
 })
 
+test('rapid duplicate custom-checkout submits invoke the SDK payment method once', async ({ page }) => {
+  const origin = 'http://localhost:55104'
+  const corsHeaders = {
+    'access-control-allow-origin': origin,
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type,idempotency-key',
+  }
+  let orderRequests = 0
+  let verifyRequests = 0
+  await page.route('**/payment/**', async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+    if (request.method() === 'GET' && path.endsWith('/custom/capabilities')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
+        key: 'rzp_test_duplicate_submit', mode: 'TEST', methods: { netbanking: { HDFC: 'HDFC Bank' } },
+        configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: [] },
+      } } })
+    }
+    if (request.method() === 'GET' && path.endsWith('/payment/status')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'NONE' } } })
+    }
+    if (request.method() === 'GET' && path.endsWith('/custom/downtime')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'unknown', incidents: [] } } })
+    }
+    if (request.method() === 'POST' && path.endsWith('/payment/create-order')) {
+      orderRequests += 1
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
+        key: 'rzp_test_duplicate_submit', amount: 100, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
+        checkoutAttemptId: 'duplicate-submit-attempt', razorpayOrderId: 'order_duplicate_submit', invoiceNumber: 'AB-DUPLICATE-FIXTURE',
+      } } })
+    }
+    if (path.endsWith('/payment/verify')) verifyRequests += 1
+    return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+  })
+  await page.route('https://checkout.razorpay.com/v1/razorpay.js', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/javascript', body: `
+      window.__duplicateSubmitCalls = 0
+      window.Razorpay = class {
+        constructor() { this.methods = { netbanking: { HDFC: 'HDFC Bank' } } }
+        once(event, callback) { if (event === 'ready') callback({ methods: this.methods }) }
+        on() {}
+        createPayment() { window.__duplicateSubmitCalls += 1 }
+      }
+    ` })
+  })
+
+  await page.goto(`${origin}/invoice/variant-a/checkout`)
+  await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
+  await page.getByRole('radio', { name: 'Netbanking' }).check()
+  await page.getByLabel('Select bank').selectOption('HDFC')
+  await expect(page.getByRole('button', { name: 'Pay ₹1' })).toBeEnabled()
+  await page.locator('form').evaluate((form) => {
+    const event = new Event('submit', { bubbles: true, cancelable: true })
+    form.dispatchEvent(event)
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  })
+
+  await expect.poll(() => page.evaluate(() => (window as Window & { __duplicateSubmitCalls?: number }).__duplicateSubmitCalls || 0)).toBe(1)
+  expect(orderRequests).toBe(1)
+  expect(verifyRequests).toBe(0)
+})
+
 test('closing Checkout immediately checks the attempt and keeps a nonterminal payment locked', async ({ page }) => {
   await page.addInitScript(() => {
     (window as Window & { Razorpay?: unknown }).Razorpay = class {
