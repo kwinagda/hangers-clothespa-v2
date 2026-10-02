@@ -271,8 +271,8 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
       {status.allocations.map((item) => <li key={item.invoiceId}>{item.invoiceNumber}: {money(Number(item.amountPaise), status.currency || 'INR')}</li>)}
     </ul></details>}
     {(status.razorpayOrderId || status.razorpayPaymentId) && <details className={styles.details}><summary>Payment references</summary>
-      {status.razorpayOrderId && <p>Razorpay order: {status.razorpayOrderId}</p>}
-      {status.razorpayPaymentId && <p>Razorpay payment: {status.razorpayPaymentId}</p>}
+      {status.razorpayOrderId && <p>Razorpay order: <b>{status.razorpayOrderId}</b></p>}
+      {status.razorpayPaymentId && <p>Razorpay payment: <b>{status.razorpayPaymentId}</b></p>}
     </details>}
     <Link href={`/invoice/${encodeURIComponent(slug)}`}>View invoice and receipt details</Link>
   </section>
