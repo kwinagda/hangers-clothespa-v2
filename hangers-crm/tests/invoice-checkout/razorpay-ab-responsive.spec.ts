@@ -480,8 +480,7 @@ test('CRED eligibility retry clears the previous ineligible result without submi
     `,
   }))
 
-  await page.goto(`${origin}/invoice/variant-a`)
-  await continueFromInvoiceToPayment(page)
+  await page.goto(`${origin}/invoice/variant-a/checkout`)
   await expect(page.getByRole('radio', { name: 'CRED Pay', exact: true })).toBeVisible()
   await page.getByRole('radio', { name: 'CRED Pay', exact: true }).check()
   await page.getByRole('button', { name: 'Check CRED eligibility' }).click()
