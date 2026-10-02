@@ -323,3 +323,50 @@ test('a fresh invoice link sees another link’s unresolved attempt but cannot r
   assert.equal(res.body.data.razorpayPaymentId, 'pay_existing');
   assert.equal(providerCalls, 0);
 });
+
+test('provider status outage preserves the unresolved attempt and never enables another payment', async () => {
+  const invoice = { id: 'invoice_outage', customerId: 'customer_outage', invoiceNumber: 'INV-OUTAGE', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
+  const attempt = boundAttempt(invoice, 'share_outage', {
+    id: 'attempt_outage', status: 'PENDING', razorpayOrderId: 'order_outage', razorpayPaymentId: 'pay_outage',
+  });
+  let settlementCalls = 0;
+  let failureCalls = 0;
+  const res = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'share_outage' },
+    query: { invoiceId: invoice.id, checkoutIntegration: 'CUSTOM' },
+    headers: {}, id: 'request_outage',
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'share_outage'),
+    getRazorpay: () => ({ orders: {
+      fetchPayments: async () => { throw Object.assign(new Error('provider timeout'), { code: 'ETIMEDOUT' }); },
+      fetch: async () => { throw new Error('must not continue provider lookup'); },
+    } }),
+    prisma: {
+      razorpayCheckoutAttempt: {
+        findFirst: async () => attempt,
+        findUnique: async () => attempt,
+      },
+      invoice: { findUnique: async () => invoice },
+    },
+    settleCapturedPayment: async () => { settlementCalls += 1; },
+    markAttemptFailed: async () => { failureCalls += 1; },
+    logRazorpayAction: async () => {},
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.status, 'PENDING');
+  assert.equal(res.body.data.canResumeCheckout, false);
+  assert.equal(res.body.data.providerLookupUnavailable, true);
+  assert.equal(res.body.data.razorpayOrderId, 'order_outage');
+  assert.equal(res.body.data.razorpayPaymentId, 'pay_outage');
+  assert.equal(res.body.data.invoice.status, 'OPEN');
+  assert.equal(res.body.data.invoice.balanceDue, 100);
+  assert.equal(settlementCalls, 0);
+  assert.equal(failureCalls, 0);
+});
