@@ -241,7 +241,14 @@ test('a revoked share can be reissued, but a cancelled source order still cannot
   let order;
   let invoice;
   const shareHashes = [];
+  const legalTermsKey = 'master.legalTerms';
+  const hadLegalTerms = await prisma.setting.findUnique({ where: { key: legalTermsKey } });
+  let createdLegalTerms = false;
   try {
+    if (!hadLegalTerms) {
+      await prisma.setting.create({ data: { key: legalTermsKey, value: JSON.stringify(LEGAL_TERMS) } });
+      createdLegalTerms = true;
+    }
     order = await prisma.order.create({ data: {
       orderNumber: `CANCELLED-SOURCE-${suffix}`,
       customerId: customer.id,
@@ -303,6 +310,7 @@ test('a revoked share can be reissued, but a cancelled source order still cannot
     if (shareHashes.length) await prisma.publicShareToken.deleteMany({ where: { tokenHash: { in: shareHashes } } });
     if (invoice) await prisma.invoice.delete({ where: { id: invoice.id } });
     if (order) await prisma.order.delete({ where: { id: order.id } });
+    if (createdLegalTerms) await prisma.setting.delete({ where: { key: legalTermsKey } });
     if (previousEnv.keyId === undefined) delete process.env.RAZORPAY_KEY_ID;
     else process.env.RAZORPAY_KEY_ID = previousEnv.keyId;
     if (previousEnv.keySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET;
