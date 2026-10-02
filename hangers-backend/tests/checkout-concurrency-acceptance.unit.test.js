@@ -24,6 +24,7 @@ const loadReservationHarness = (error) => {
     './payment.service': {},
     './outbox.service': {},
     './activity.service': {},
+    './razorpay-payment-journey-logger': { recordPaymentJourneyEvent: async () => {} },
     '../utils/redact': {},
     '../utils/razorpay-payment-method': {},
   };
