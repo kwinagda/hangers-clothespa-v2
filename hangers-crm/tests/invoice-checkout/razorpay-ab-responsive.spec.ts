@@ -597,6 +597,7 @@ test('card validation focuses the invalid control and links its error for assist
   await page.goto(`${origin}/invoice/variant-a/checkout`)
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   await page.getByRole('radio', { name: 'Credit or debit card' }).check()
+  await expect(page.getByLabel('Card number')).toBeEnabled()
   await page.getByLabel('Card number').fill('123')
   await page.getByLabel('Name on card').fill('Test Customer')
   await page.getByLabel('Expiry', { exact: true }).fill('12 / 30')
