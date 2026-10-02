@@ -122,6 +122,9 @@ jobs:
       - name: Verify invoice checkout state rendering
         run: node --experimental-strip-types --test tests/invoice-checkout/checkout-page.unit.mjs
 
+      - name: Verify Custom Checkout mode and origin gates
+        run: node --experimental-strip-types --test tests/invoice-checkout/checkout-mode.unit.mjs
+
       - name: Verify documented EMI response handling
         run: node --experimental-strip-types --test tests/invoice-checkout/checkout-emi-plans.unit.mjs
 

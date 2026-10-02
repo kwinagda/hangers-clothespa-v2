@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import RazorpayCustomCheckout from '../RazorpayCustomCheckout'
+import { customCheckoutModeAllowed } from './checkout-mode'
 import { CheckoutOrder, Configuration, Methods, ProviderError, checkoutRequest, money, providerError } from './razorpay-sdk'
+import { SITE_URL } from '@/lib/seo'
 import styles from '../RazorpayCustomCheckout.module.css'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
@@ -128,7 +130,14 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
       try {
         if (!navigator.onLine) throw new Error('You are offline. Reconnect before refreshing payment methods.')
         const result = await checkoutRequest<Capabilities>(`${base}/custom/capabilities${query}`)
-        if (result.mode !== 'TEST' || window.location.hostname !== 'localhost') throw new Error('This Custom Checkout build is available only on localhost in Test Mode.')
+        if (!customCheckoutModeAllowed({
+          mode: result.mode,
+          key: result.key,
+          hostname: window.location.hostname,
+          protocol: window.location.protocol,
+          liveEnabled: process.env.NEXT_PUBLIC_RAZORPAY_CUSTOM_CHECKOUT_LIVE_ENABLED === 'true',
+          siteUrl: SITE_URL,
+        })) throw new Error('Custom Checkout is not enabled for this site and payment mode.')
         if (alive.current) { setCapabilities(result); setMethodsError('') }
         return result.methods
       } catch (error: any) {
@@ -196,7 +205,15 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey.current },
         body: JSON.stringify({ invoiceId, checkoutIntegration: 'CUSTOM', ...(outstanding ? { paymentScope: 'CUSTOMER_OUTSTANDING' } : {}) }),
       })
-      if (result.mode !== 'TEST' || !result.key?.startsWith('rzp_test_') || !result.testContact
+      const modeAllowed = customCheckoutModeAllowed({
+        mode: result.mode,
+        key: result.key,
+        hostname: window.location.hostname,
+        protocol: window.location.protocol,
+        liveEnabled: process.env.NEXT_PUBLIC_RAZORPAY_CUSTOM_CHECKOUT_LIVE_ENABLED === 'true',
+        siteUrl: SITE_URL,
+      })
+      if (!modeAllowed || (result.mode === 'TEST' && !result.testContact) || (result.mode === 'LIVE' && result.testContact)
         || !result.razorpayOrderId || !Number.isSafeInteger(result.amount) || result.amount !== amountPaise || result.currency !== 'INR') {
         throw new Error('The payment details changed or could not be verified. Check the invoice before paying.')
       }
