@@ -77,9 +77,22 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
 - **Acceptance subtasks:**
   - [x] Reproduce the exact failure from the run log.
   - [x] Add the required isolated dependency stub without enabling database/provider access.
-  - [ ] Run the focused concurrency unit test locally and rerun exact-SHA disposable-DB CI.
+  - [x] Run focused concurrency unit test locally: 5/5 passed without DB/provider access.
+  - [ ] Rerun exact-SHA disposable-DB CI and record that the A01 integration step executed.
   - [ ] Record the CI result and confirm the A01 integration step executed.
 - **Disposition:** In scope because this failure prevents completion of A01; do not advance to A02 until it and A01-a/A01-b are verified.
+
+#### A01-d - Source eligibility integration fixture omitted public legal-terms setting
+
+- **Status:** Fixture correction authored; exact-SHA rerun pending.
+- **Evidence:** Exact-SHA run [37052805385](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37052805385) passed the concurrency retry harness and the active public route test for all three billing sources, then failed `returned orders and cancelled field-service appointments are not payable or included in customer totals`. The public invoice lookup returned HTTP 500 because the isolated disposable database did not contain required `master.legalTerms`. The CRM job passed.
+- **Impact:** A01-b's customer receivables exclusion assertion cannot run until the test fixture supplies the required public-site setting; source eligibility assertions before that point pass.
+- **Bounded remedy:** Seed the legal-terms setting only when absent in `hangers_test`, then remove it only if the fixture created it, matching the established neighboring fixture pattern.
+- **Acceptance subtasks:**
+  - [x] Identify the required setting from the CI stack trace and compare with the passing neighboring fixture.
+  - [x] Add isolated setup/cleanup preserving any pre-existing CI setting.
+  - [ ] Rerun focused disposable-DB integration and record exact-SHA results.
+- **Disposition:** In scope for A01-b; do not advance to A02 until the full eligible/ineligible source matrix passes in CI.
 
 **A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. A01-a/A01-b remain open pending execution against the previously approved disposable `hangers_test` CI database. No local or production database was changed.
 

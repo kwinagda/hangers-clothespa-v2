@@ -365,11 +365,18 @@ test('returned orders and cancelled field-service appointments are not payable o
   const sourceRecords = [];
   let customerCreated = false;
   let subscriptionCreated = false;
+  const legalTermsKey = 'master.legalTerms';
+  const hadLegalTerms = await prisma.setting.findUnique({ where: { key: legalTermsKey } });
+  let createdLegalTerms = false;
   try {
     customer = await prisma.customer.findUnique({ where: { phone: '9930367267' } })
     if (!customer) {
       customer = await prisma.customer.create({ data: { name: 'Home', phone: '9930367267', notifWhatsApp: false } });
       customerCreated = true;
+    }
+    if (!hadLegalTerms) {
+      await prisma.setting.create({ data: { key: legalTermsKey, value: JSON.stringify(LEGAL_TERMS) } });
+      createdLegalTerms = true;
     }
     const sources = [
       {
@@ -464,6 +471,7 @@ test('returned orders and cancelled field-service appointments are not payable o
     if (invoiceIds.length) await prisma.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
     for (const [model, id] of sourceRecords.reverse()) await prisma[model].delete({ where: { id } });
     if (subscriptionCreated && subscription) await prisma.ironSubscription.delete({ where: { id: subscription.id } });
+    if (createdLegalTerms) await prisma.setting.delete({ where: { key: legalTermsKey } });
     if (customerCreated && customer) await prisma.customer.delete({ where: { id: customer.id } });
     if (previousEnv.keyId === undefined) delete process.env.RAZORPAY_KEY_ID;
     else process.env.RAZORPAY_KEY_ID = previousEnv.keyId;
