@@ -461,13 +461,14 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   await page.goto(`${origin}/invoice/variant-a/checkout`)
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   const readinessError = 'Razorpay did not return the payment methods enabled for this account.'
-  await expect(page.getByRole('alert')).toContainText(readinessError, { timeout: 8000 })
+  const checkout = page.getByRole('region', { name: 'Invoice payment' })
+  await expect(checkout.getByRole('alert')).toContainText(readinessError, { timeout: 8000 })
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Pay ₹1' })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Retry loading methods' }).click()
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible()
-  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(checkout.getByRole('alert')).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances)).toBe(2)
   expect(orderRequests).toBe(0)
   expect(verifyRequests).toBe(0)
