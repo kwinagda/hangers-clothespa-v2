@@ -94,6 +94,18 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [ ] Rerun focused disposable-DB integration and record exact-SHA results.
 - **Disposition:** In scope for A01-b; do not advance to A02 until the full eligible/ineligible source matrix passes in CI.
 
+#### A01-e - Historical-unpaid integration fixture leaked CI rows and Test-mode environment
+
+- **Status:** Cleanup correction authored; exact-SHA rerun pending.
+- **Evidence:** Source review of the CI-passing historical-unpaid test found it created a Home test customer, three source rows/invoices, checkout attempts and payment-journey events; it only changed invoices to VOID and retained the fixtures. It also set `RAZORPAY_KEY_ID` without restoring the previous process value. Those leftovers could affect later tests in the same CI process even though the disposable database is discarded after the workflow.
+- **Impact:** Later A01 receivables checks can depend on implicit prior fixture state; a failed assertion can leave additional rows that obscure subsequent failures. The Test-mode environment could leak across tests.
+- **Bounded remedy:** Track created source/invoice rows, delete linked journey events and attempts before invoices, remove only fixture-created subscription/customer rows, and restore `RAZORPAY_KEY_ID` in `finally`.
+- **Acceptance subtasks:**
+  - [x] Confirm the missing cleanup and environment restoration by reviewing the passing test source.
+  - [x] Add unconditional, dependency-ordered fixture cleanup and restore the prior environment.
+  - [ ] Rerun the complete disposable-DB suite and verify A01 tests pass with cleanup.
+- **Disposition:** In scope for A01 because deterministic, isolated CI is part of its acceptance evidence; do not advance to A02 until verified.
+
 **A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. A01-a/A01-b remain open pending execution against the previously approved disposable `hangers_test` CI database. No local or production database was changed.
 
 **Current exact-SHA reconciliation:** HEAD `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` ran as Actions run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219); Backend and CRM both succeeded. The CRM responsive UI job passed all 25 browser cases, including SDK readiness timeout/retry after the test SDK mock supplied its formatter dependency. F66 is resolved for this regression. Earlier red run [37004349213](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37004349213) is retained as historical evidence. F65's former “outbox CI pending” statement is superseded: the disposable-DB journey/webhook/outbox integration passed in Backend CI. Read-only local `pg_isready` and `prisma migrate status` show `localhost:5432` accepting connections and the journey-event migration still pending on `hangers_db`; no migration was applied. These observations supersede earlier “PostgreSQL stopped/unavailable” statements as of this audit only.

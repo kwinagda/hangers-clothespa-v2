@@ -22,83 +22,104 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
   assert.equal(url.hostname, 'localhost');
   assert.equal(url.pathname, '/hangers_test');
   assert.equal((await prisma.$queryRaw`SELECT current_database() AS name`)[0].name, 'hangers_test');
+  const previousKeyId = process.env.RAZORPAY_KEY_ID;
   process.env.RAZORPAY_KEY_ID = 'rzp_test_combined_ci';
   const suffix = crypto.randomUUID();
-  const customer = await prisma.customer.create({ data: { name: `Source CI ${suffix}`, phone: '9930367267', notifWhatsApp: false } });
-  for (const sourceType of ['ORDER', 'DAILY_IRON', 'FIELD_SERVICE']) {
-    let source;
-    if (sourceType === 'ORDER') {
-      const order = await prisma.order.create({ data: { orderNumber: `SOURCE-${suffix}`, customerId: customer.id, source: 'COUNTER', status: 'PICKED_UP', subtotal: 10, totalAmount: 10 } });
-      source = { orderId: order.id };
-    } else if (sourceType === 'DAILY_IRON') {
-      const subscription = await prisma.ironSubscription.create({ data: { customerId: customer.id } });
-      const bill = await prisma.ironBill.create({ data: { billNumber: `SOURCE-${suffix}`, customerId: customer.id, subscriptionId: subscription.id, billingPeriodStart: new Date('2023-01-01'), billingPeriodEnd: new Date('2023-01-31'), totalPieces: 1, totalAmount: 10 } });
-      source = { ironBillId: bill.id };
-    } else {
-      const appointment = await prisma.serviceAppointment.create({ data: { appointmentNumber: `SOURCE-${suffix}`, customerId: customer.id, serviceName: 'Curtain cleaning CI', scheduledAt: new Date('2023-01-01'), totalAmount: 10 } });
-      source = { serviceAppointmentId: appointment.id };
-    }
-    const invoice = await prisma.invoice.create({ data: {
-      invoiceNumber: `SOURCE-${sourceType}-${suffix}`, customerId: customer.id, sourceType, ...source,
-      status: 'OPEN', currency: 'INR', subtotal: 10, totalAmount: 10, balanceDue: 10,
-      issueDate: new Date('2023-01-01T00:00:00Z'), dueDate: new Date('2023-01-02T00:00:00Z'),
-    } });
-    let calls = 0;
-    let providerOrder;
-    const provider = { orders: {
-      create: async (payload) => {
-        calls += 1;
-        providerOrder = { ...payload, id: `order_${suffix.replaceAll('-', '')}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
-        return providerOrder;
-      },
-      fetch: async () => providerOrder,
-      fetchPayments: async () => ({ items: [] }),
-    } };
-    const args = { invoice, shareId: `share_${sourceType}_${suffix}`, idempotencyKey: `${sourceType}_${suffix}`, customCheckout: true, provider };
-    const simultaneous = await Promise.allSettled([
-      createInvoiceCheckout(args),
-      createInvoiceCheckout({ ...args, idempotencyKey: `parallel_${sourceType}_${suffix}` }),
-    ]);
-    const accepted = simultaneous.filter((result) => result.status === 'fulfilled');
-    assert.ok(accepted.length >= 1, 'one simultaneous checkout must prepare');
-    const prepared = accepted[0].value;
-    for (const result of simultaneous) {
-      if (result.status === 'fulfilled') {
-        assert.equal(result.value.attempt.id, prepared.attempt.id);
-        assert.equal(result.value.order.id, providerOrder.id);
+  let customer;
+  let subscription;
+  let subscriptionCreated = false;
+  const sourceRecords = [];
+  const invoiceIds = [];
+  try {
+    customer = await prisma.customer.create({ data: { name: `Source CI ${suffix}`, phone: '9930367267', notifWhatsApp: false } });
+    for (const sourceType of ['ORDER', 'DAILY_IRON', 'FIELD_SERVICE']) {
+      let source;
+      if (sourceType === 'ORDER') {
+        const order = await prisma.order.create({ data: { orderNumber: `SOURCE-${suffix}`, customerId: customer.id, source: 'COUNTER', status: 'PICKED_UP', subtotal: 10, totalAmount: 10 } });
+        sourceRecords.push(['order', order.id]);
+        source = { orderId: order.id };
+      } else if (sourceType === 'DAILY_IRON') {
+        subscription = await prisma.ironSubscription.create({ data: { customerId: customer.id } });
+        subscriptionCreated = true;
+        const bill = await prisma.ironBill.create({ data: { billNumber: `SOURCE-${suffix}`, customerId: customer.id, subscriptionId: subscription.id, billingPeriodStart: new Date('2023-01-01'), billingPeriodEnd: new Date('2023-01-31'), totalPieces: 1, totalAmount: 10 } });
+        sourceRecords.push(['ironBill', bill.id]);
+        source = { ironBillId: bill.id };
       } else {
-        assert.ok(['CHECKOUT_ALREADY_IN_PROGRESS', 'CHECKOUT_ATTEMPT_UNRESOLVED'].includes(result.reason.code), `unexpected concurrency error: ${result.reason.code}`);
+        const appointment = await prisma.serviceAppointment.create({ data: { appointmentNumber: `SOURCE-${suffix}`, customerId: customer.id, serviceName: 'Curtain cleaning CI', scheduledAt: new Date('2023-01-01'), totalAmount: 10 } });
+        sourceRecords.push(['serviceAppointment', appointment.id]);
+        source = { serviceAppointmentId: appointment.id };
       }
+      const invoice = await prisma.invoice.create({ data: {
+        invoiceNumber: `SOURCE-${sourceType}-${suffix}`, customerId: customer.id, sourceType, ...source,
+        status: 'OPEN', currency: 'INR', subtotal: 10, totalAmount: 10, balanceDue: 10,
+        issueDate: new Date('2023-01-01T00:00:00Z'), dueDate: new Date('2023-01-02T00:00:00Z'),
+      } });
+      invoiceIds.push(invoice.id);
+      let calls = 0;
+      let providerOrder;
+      const provider = { orders: {
+        create: async (payload) => {
+          calls += 1;
+          providerOrder = { ...payload, id: `order_${suffix.replaceAll('-', '')}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
+          return providerOrder;
+        },
+        fetch: async () => providerOrder,
+        fetchPayments: async () => ({ items: [] }),
+      } };
+      const args = { invoice, shareId: `share_${sourceType}_${suffix}`, idempotencyKey: `${sourceType}_${suffix}`, customCheckout: true, provider };
+      const simultaneous = await Promise.allSettled([
+        createInvoiceCheckout(args),
+        createInvoiceCheckout({ ...args, idempotencyKey: `parallel_${sourceType}_${suffix}` }),
+      ]);
+      const accepted = simultaneous.filter((result) => result.status === 'fulfilled');
+      assert.ok(accepted.length >= 1, 'one simultaneous checkout must prepare');
+      const prepared = accepted[0].value;
+      for (const result of simultaneous) {
+        if (result.status === 'fulfilled') {
+          assert.equal(result.value.attempt.id, prepared.attempt.id);
+          assert.equal(result.value.order.id, providerOrder.id);
+        } else {
+          assert.ok(['CHECKOUT_ALREADY_IN_PROGRESS', 'CHECKOUT_ATTEMPT_UNRESOLVED'].includes(result.reason.code), `unexpected concurrency error: ${result.reason.code}`);
+        }
+      }
+      assert.equal(await prisma.razorpayCheckoutAttempt.count({ where: { invoiceId: invoice.id } }), 1);
+      assert.equal(prepared.order.amount, 1000);
+      assert.equal(prepared.attempt.invoiceId, invoice.id);
+      assert.equal(prepared.attempt.razorpayOrderId, providerOrder.id);
+      assert.match(prepared.attempt.paymentJourneyId, /^pj_[0-9a-f-]{36}$/i);
+      const journeyEvents = await prisma.razorpayPaymentJourneyEvent.findMany({
+        where: { checkoutAttemptId: prepared.attempt.id },
+        orderBy: { occurredAt: 'asc' },
+      });
+      assert.deepEqual(journeyEvents.map((event) => event.eventName).sort(), [
+        'RAZORPAY_CHECKOUT_ATTEMPT_RESERVED', 'RAZORPAY_PROVIDER_ORDER_CREATED',
+      ].sort());
+      assert.ok(journeyEvents.every((event) => event.paymentJourneyId === prepared.attempt.paymentJourneyId));
+      assert.equal(journeyEvents.find((event) => event.eventName === 'RAZORPAY_CHECKOUT_ATTEMPT_RESERVED').razorpayOrderId, null);
+      assert.equal(journeyEvents.find((event) => event.eventName === 'RAZORPAY_PROVIDER_ORDER_CREATED').razorpayOrderId, providerOrder.id);
+      assert.ok(journeyEvents.every((event) => event.requestId === null));
+      assert.ok(journeyEvents.every((event) => /^[0-9a-f]{32}$/.test(event.traceId)));
+      assert.ok(journeyEvents.every((event) => /^[0-9a-f]{16}$/.test(event.spanId)));
+      const replay = await createInvoiceCheckout(args);
+      assert.equal(replay.attempt.id, prepared.attempt.id);
+      assert.equal(replay.order.id, providerOrder.id);
+      assert.equal(calls, 1);
+      const unchanged = await prisma.invoice.findUnique({ where: { id: invoice.id } });
+      assert.equal(Number(unchanged.paidAmount), 0);
+      assert.equal(Number(unchanged.balanceDue), 10);
     }
-    assert.equal(await prisma.razorpayCheckoutAttempt.count({ where: { invoiceId: invoice.id } }), 1);
-    assert.equal(prepared.order.amount, 1000);
-    assert.equal(prepared.attempt.invoiceId, invoice.id);
-    assert.equal(prepared.attempt.razorpayOrderId, providerOrder.id);
-    assert.match(prepared.attempt.paymentJourneyId, /^pj_[0-9a-f-]{36}$/i);
-    const journeyEvents = await prisma.razorpayPaymentJourneyEvent.findMany({
-      where: { checkoutAttemptId: prepared.attempt.id },
-      orderBy: { occurredAt: 'asc' },
-    });
-    assert.deepEqual(journeyEvents.map((event) => event.eventName).sort(), [
-      'RAZORPAY_CHECKOUT_ATTEMPT_RESERVED', 'RAZORPAY_PROVIDER_ORDER_CREATED',
-    ].sort());
-    assert.ok(journeyEvents.every((event) => event.paymentJourneyId === prepared.attempt.paymentJourneyId));
-    assert.equal(journeyEvents.find((event) => event.eventName === 'RAZORPAY_CHECKOUT_ATTEMPT_RESERVED').razorpayOrderId, null);
-    assert.equal(journeyEvents.find((event) => event.eventName === 'RAZORPAY_PROVIDER_ORDER_CREATED').razorpayOrderId, providerOrder.id);
-    assert.ok(journeyEvents.every((event) => event.requestId === null));
-    assert.ok(journeyEvents.every((event) => /^[0-9a-f]{32}$/.test(event.traceId)));
-    assert.ok(journeyEvents.every((event) => /^[0-9a-f]{16}$/.test(event.spanId)));
-    const replay = await createInvoiceCheckout(args);
-    assert.equal(replay.attempt.id, prepared.attempt.id);
-    assert.equal(replay.order.id, providerOrder.id);
-    assert.equal(calls, 1);
-    const unchanged = await prisma.invoice.findUnique({ where: { id: invoice.id } });
-    assert.equal(Number(unchanged.paidAmount), 0);
-    assert.equal(Number(unchanged.balanceDue), 10);
-    // Keep these disposable fixtures out of the following outstanding-total case.
-    await prisma.razorpayPaymentJourneyEvent.deleteMany({ where: { checkoutAttemptId: prepared.attempt.id } });
-    await prisma.razorpayCheckoutAttempt.deleteMany({ where: { invoiceId: invoice.id } });
-    await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'VOID', voidedAt: new Date() } });
+  } finally {
+    if (invoiceIds.length) {
+      const attempts = await prisma.razorpayCheckoutAttempt.findMany({ where: { invoiceId: { in: invoiceIds } }, select: { id: true } });
+      if (attempts.length) await prisma.razorpayPaymentJourneyEvent.deleteMany({ where: { checkoutAttemptId: { in: attempts.map((attempt) => attempt.id) } } });
+      await prisma.razorpayCheckoutAttempt.deleteMany({ where: { invoiceId: { in: invoiceIds } } });
+      await prisma.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
+    }
+    for (const [model, id] of sourceRecords.reverse()) await prisma[model].delete({ where: { id } });
+    if (subscriptionCreated && subscription) await prisma.ironSubscription.delete({ where: { id: subscription.id } });
+    if (customer) await prisma.customer.delete({ where: { id: customer.id } });
+    if (previousKeyId === undefined) delete process.env.RAZORPAY_KEY_ID;
+    else process.env.RAZORPAY_KEY_ID = previousKeyId;
   }
 });
 
