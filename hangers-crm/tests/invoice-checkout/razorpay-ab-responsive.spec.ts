@@ -305,6 +305,8 @@ test('active custom checkout renders only returned methods and remains usable at
   }
   const apiRequests: string[] = []
   const providerRequests: string[] = []
+  let capabilitiesLookups = 0
+  let statusLookups = 0
   page.on('request', (request) => {
     if (request.url().includes('/payment/')) apiRequests.push(`observed ${request.method()} ${request.url()}`)
   })
@@ -328,6 +330,7 @@ test('active custom checkout renders only returned methods and remains usable at
       return
     }
     if (request.method() === 'GET' && path.endsWith('/custom/capabilities')) {
+      capabilitiesLookups += 1
       await route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
         key: 'rzp_test_ui_fixture', mode: 'TEST', methods: paymentMethods,
         configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: [] },
@@ -336,6 +339,7 @@ test('active custom checkout renders only returned methods and remains usable at
       return
     }
     if (request.method() === 'GET' && path.endsWith('/payment/status')) {
+      statusLookups += 1
       await route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'NONE' } } })
       apiRequests.push('status fulfilled')
       return
@@ -375,6 +379,9 @@ test('active custom checkout renders only returned methods and remains usable at
     await page.goto('http://localhost:55104/invoice/variant-a/checkout')
     expect(await page.evaluate(() => window.location.hostname)).toBe('localhost')
     await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
+    await expect.poll(() => capabilitiesLookups).toBeGreaterThan(0)
+    await expect.poll(() => statusLookups).toBeGreaterThan(0)
+    await expect(page.getByText('Loading secure payment details...')).toBeHidden()
     await expect(page.getByRole('heading', { name: 'Pay Hangers Clothes Spa' }),
       `Checkout form did not render. API requests: ${apiRequests.join('; ')}; body: ${await page.locator('body').innerText()}`,
     ).toBeVisible()
