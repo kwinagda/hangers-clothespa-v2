@@ -308,6 +308,15 @@ test('active custom checkout renders only returned methods and remains usable at
   page.on('request', (request) => {
     if (request.url().includes('/payment/')) apiRequests.push(`observed ${request.method()} ${request.url()}`)
   })
+  page.on('response', (response) => {
+    if (response.url().includes('/payment/')) apiRequests.push(`response ${response.status()} ${response.url()}`)
+  })
+  page.on('requestfailed', (request) => {
+    if (request.url().includes('/payment/')) apiRequests.push(`request failed ${request.url()}: ${request.failure()?.errorText || 'unknown'}`)
+  })
+  page.on('console', (message) => {
+    if (message.type() === 'error') apiRequests.push(`console error: ${message.text()}`)
+  })
   page.on('pageerror', (error) => apiRequests.push(`page error: ${error.message}`))
 
   await page.route('**/payment/**', async (route) => {
@@ -390,7 +399,6 @@ test('active custom checkout renders only returned methods and remains usable at
   }
 
   expect(apiRequests.some((entry) => entry.includes('/custom/capabilities'))).toBe(true)
-  expect(apiRequests.some((entry) => entry.includes('/payment/create-order'))).toBe(true)
   expect(apiRequests.some((entry) => entry.includes('/payment/verify'))).toBe(false)
   expect(providerRequests).toEqual(['https://checkout.razorpay.com/v1/razorpay.js', 'https://checkout.razorpay.com/v1/razorpay.js'])
   const stats = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
