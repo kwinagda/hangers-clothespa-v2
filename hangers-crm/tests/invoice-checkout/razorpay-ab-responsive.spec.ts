@@ -452,7 +452,7 @@ test('custom checkout hides choices when SDK readiness times out and restores th
       window.Razorpay = class {
         constructor() { this.instanceNumber = ++window.__readyRetryInstances }
         once(event, callback) {
-          if (this.instanceNumber > 1 && event === 'ready') setTimeout(() => callback({ methods: { card: true } }), 0)
+          if (window.__readyRetryReady === true && event === 'ready') setTimeout(() => callback({ methods: { card: true } }), 0)
         }
         on() {}
         createPayment() { window.__readyRetryPayments += 1 }
@@ -470,6 +470,7 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   await expect(page.getByRole('button', { name: 'Pay ₹1' })).toHaveCount(0)
 
   const instancesBeforeRetry = await page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0)
+  await page.evaluate(() => { (window as Window & { __readyRetryReady?: boolean }).__readyRetryReady = true })
   await page.getByRole('button', { name: 'Retry loading methods' }).click()
   await expect.poll(() => capabilitiesLookups, { timeout: 10000 }).toBe(2)
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0), { timeout: 10000 }).toBeGreaterThan(instancesBeforeRetry)
