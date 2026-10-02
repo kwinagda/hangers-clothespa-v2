@@ -1,8 +1,8 @@
 # Razorpay Payment Gateway Implementation Plan
 
-**Status as of 2026-09-29: COMPLETE for the agreed Live release scope.**
+**Status as of 2026-10-02: the Standard Checkout release described below is historical; the combined-payment follow-up and Custom Checkout are not released.**
 
-This is the current plan and closeout record. It replaces older running notes and conflicting checklist counts. Further Live webhook observation is routine operations, not a release gate. No additional payment should be initiated solely to complete this plan.
+This document records the earlier Standard Checkout Live release and its operational decisions. It is not the overall Razorpay implementation completion record. The active Custom Checkout plan and acceptance register are maintained in [`razorpay-custom-checkout.md`](../../hangers-crm/docs/razorpay-custom-checkout.md); its partial acceptance rows and release gates remain active. The combined-payment follow-up below is also pending release. Do not infer overall completion from the historical Standard Checkout closeout. No additional Live payment should be initiated solely to complete either plan.
 
 ## Goal and scope
 
@@ -91,6 +91,6 @@ Historical notes disagree on the number of remaining card-matrix items, so this 
 3. For a definitive captured state, confirm exactly one CRM ledger settlement and receipt. For definitive failure, retain the provider reason and permit a safe retry only after confirming no successful/capturable attempt remains.
 4. Keep Live credentials in their approved secret store; never put them in source, logs, screenshots, or this plan. Rotate any credential if it is exposed.
 
-## Completion decision
+## Historical closeout boundary
 
-**Implementation and agreed Live release: complete.** The remaining card-matrix cases are a documented, accepted coverage limitation. Live webhook delivery is monitored as real events occur. Neither item is an open deployment blocker or a request for more test payments.
+The Standard Checkout implementation and the agreed initial Live release described in this document were completed. That historical decision does not close the later combined-payment follow-up, the Custom Checkout work, or its A01-A24 acceptance matrix. Those remain governed by the active plan linked above. The deferred Standard Checkout card-matrix limitation remains specific to its original scope; it must not be used to waive Custom Checkout Test acceptance requirements.
