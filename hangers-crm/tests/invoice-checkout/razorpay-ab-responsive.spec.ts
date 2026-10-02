@@ -424,11 +424,13 @@ test('custom checkout hides choices when SDK readiness times out and restores th
     'access-control-allow-headers': 'content-type,idempotency-key',
   }
   let verifyRequests = 0
+  let capabilitiesLookups = 0
   await page.route('**/payment/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
     if (request.method() === 'GET' && path.endsWith('/custom/capabilities')) {
+      capabilitiesLookups += 1
       return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
         key: 'rzp_test_ready_retry', mode: 'TEST', methods: { card: true },
         configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: [] },
@@ -450,7 +452,7 @@ test('custom checkout hides choices when SDK readiness times out and restores th
       window.Razorpay = class {
         constructor() { this.instanceNumber = ++window.__readyRetryInstances }
         once(event, callback) {
-          if (this.instanceNumber > 1 && event === 'ready') callback({ methods: { card: true } })
+          if (this.instanceNumber > 1 && event === 'ready') setTimeout(() => callback({ methods: { card: true } }), 0)
         }
         on() {}
         createPayment() { window.__readyRetryPayments += 1 }
@@ -463,14 +465,16 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   const readinessError = 'Razorpay did not return the payment methods enabled for this account.'
   const checkout = page.getByRole('region', { name: 'Invoice payment' })
   await expect(checkout.getByRole('alert')).toContainText(readinessError, { timeout: 8000 })
+  await expect.poll(() => capabilitiesLookups).toBe(1)
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Pay ₹1' })).toHaveCount(0)
 
   const instancesBeforeRetry = await page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0)
   await page.getByRole('button', { name: 'Retry loading methods' }).click()
-  await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible()
-  await expect(checkout.getByRole('alert')).toHaveCount(0)
-  await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0)).toBeGreaterThan(instancesBeforeRetry)
+  await expect.poll(() => capabilitiesLookups, { timeout: 10000 }).toBe(2)
+  await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0), { timeout: 10000 }).toBeGreaterThan(instancesBeforeRetry)
+  await expect(checkout.getByRole('alert')).toHaveCount(0, { timeout: 10000 })
+  await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible({ timeout: 10000 })
   expect(verifyRequests).toBe(0)
   expect(await page.evaluate(() => (window as Window & { __readyRetryPayments?: number }).__readyRetryPayments)).toBe(0)
 })
