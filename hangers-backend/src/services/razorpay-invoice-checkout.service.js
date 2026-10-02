@@ -299,9 +299,25 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
       return reuseProviderOrder(priorFailed);
     }
 
+    const continuesPaymentJourney = Boolean(priorFailed
+      && priorFailed.amountPaise === amountPaise
+      && priorFailed.mode === getMode()
+      && priorFailed.currency === (current.currency || 'INR')
+      && JSON.stringify(priorFailed.allocationPlan?.map(({ invoiceId, amount }) => ({ invoiceId, amount })) || null)
+        === JSON.stringify(currentPlan?.map(({ invoiceId, amount }) => ({ invoiceId, amount })) || null));
+    const paymentJourneyId = continuesPaymentJourney && priorFailed.paymentJourneyId
+      ? priorFailed.paymentJourneyId
+      : `pj_${crypto.randomUUID()}`;
+    if (continuesPaymentJourney && !priorFailed.paymentJourneyId) {
+      await tx.razorpayCheckoutAttempt.updateMany({
+        where: { id: priorFailed.id, paymentJourneyId: null },
+        data: { paymentJourneyId },
+      });
+    }
+
     const attempt = await tx.razorpayCheckoutAttempt.create({
       data: {
-        paymentJourneyId: `pj_${crypto.randomUUID()}`,
+        paymentJourneyId,
         idempotencyKey: localKey,
         invoiceId: current.id,
         invoiceNumber: current.invoiceNumber,
@@ -322,7 +338,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
     await auditAttemptTransition(tx, attempt, 'RAZORPAY_CHECKOUT_ATTEMPT_RESERVED', 'A Razorpay checkout attempt was reserved for the current invoice balance', {
       requestId: requestId || null,
       publicShareId: shareId || null,
-      ...(priorFailed ? { supersedesAttemptId: priorFailed.id, retryReason: 'PROVIDER_CONFIRMED_FAILURE' } : {}),
+      ...(continuesPaymentJourney ? { supersedesAttemptId: priorFailed.id, retryReason: 'PROVIDER_CONFIRMED_FAILURE' } : {}),
       nextState: 'CREATING',
     });
     return { attempt, current, reused: false };

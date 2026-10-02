@@ -63,6 +63,29 @@ test('journey event rejects malformed correlation identifiers and marks review o
   assert.equal(row.razorpayOrderId, null);
 });
 
+test('journey event records webhook linkage and keeps retry distinct from payment failure', () => {
+  const event = buildJourneyEvent({
+    attempt,
+    action: 'RAZORPAY_WEBHOOK_RETRY_SCHEDULED',
+    status: 'FAILURE',
+    metadata: {
+      journeyOutcome: 'RETRY',
+      sourceWebhookRecordId: 'cm123456789012345678901234',
+      sourceWebhookEventType: 'payment.authorized',
+      sourceWebhookAttempt: 2,
+      webhookErrorCode: 'GATEWAY_ERROR',
+      description: 'must not be retained',
+    },
+  });
+  assert.equal(event.outcome, 'RETRY');
+  assert.deepEqual(event.diagnostics, {
+    sourceWebhookRecordId: 'cm123456789012345678901234',
+    sourceWebhookEventType: 'payment.authorized',
+    sourceWebhookAttempt: 2,
+    webhookErrorCode: 'GATEWAY_ERROR',
+  });
+});
+
 test('legacy attempt gets a persisted journey ID before its event is appended', async () => {
   let persistedAttempt;
   let persistedEvent;

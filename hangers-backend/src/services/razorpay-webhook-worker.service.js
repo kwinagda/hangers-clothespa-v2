@@ -6,6 +6,7 @@ const { reconcileRazorpayDispute } = require('./razorpay-dispute.service');
 const { DOWNTIME_EVENTS, reconcileRazorpayDowntimeWebhook } = require('./razorpay-downtime.service');
 const { reconcileRazorpayVirtualAccountCredit, validateRazorpayBankTransferPayment } = require('./razorpay-bank-transfer.service');
 const { persistWebhookEvidence } = require('./razorpay-checkout-account.service');
+const { recordPaymentJourneyEvent } = require('./razorpay-payment-journey-logger');
 const { razorpayErrorSummary } = require('../utils/redact');
 const { getSafeRazorpayPaymentDiagnostics } = require('../utils/razorpay-payment-method');
 
@@ -39,9 +40,44 @@ const claimWebhookBatch = async (limit, onlyEventId = null, leaseMs = DEFAULT_LE
     RETURNING events."id", events."eventId", events."event", events."mode", events."paymentId", events."orderId", events."refundId", events."refundAttemptId", events."settlementId", events."disputeId", events."payload", events."attempts"
 `);
 
-const markWebhook = (event, data) => prisma.razorpayWebhookEvent.updateMany({
-  where: { id: event.id, status: 'PROCESSING', attempts: event.attempts },
-  data: { lockedAt: null, ...data },
+const markWebhook = (event, data) => prisma.$transaction(async (tx) => {
+  const updated = await tx.razorpayWebhookEvent.updateMany({
+    where: { id: event.id, status: 'PROCESSING', attempts: event.attempts },
+    data: { lockedAt: null, ...data },
+  });
+  if (updated.count !== 1) return updated;
+
+  const attempt = event.orderId
+    ? await tx.razorpayCheckoutAttempt.findUnique({ where: { razorpayOrderId: event.orderId } })
+    : event.paymentId
+      ? await tx.razorpayCheckoutAttempt.findUnique({ where: { razorpayPaymentId: event.paymentId } })
+      : null;
+  if (!attempt) return updated;
+
+  const status = data.status;
+  const journeyOutcome = status === 'PROCESSED' ? 'SUCCESS'
+    : status === 'REVIEW' ? 'REVIEW'
+      : status === 'RETRY' || status === 'RETRYABLE' ? 'RETRY'
+        : status === 'IGNORED' ? 'IGNORED' : 'FAILURE';
+  const eventName = status === 'PROCESSED' ? 'RAZORPAY_WEBHOOK_PROCESSED'
+    : status === 'REVIEW' ? 'RAZORPAY_WEBHOOK_REVIEW_REQUIRED'
+      : status === 'RETRY' || status === 'RETRYABLE' ? 'RAZORPAY_WEBHOOK_RETRY_SCHEDULED'
+        : status === 'IGNORED' ? 'RAZORPAY_WEBHOOK_IGNORED' : 'RAZORPAY_WEBHOOK_FAILED';
+  await recordPaymentJourneyEvent(tx, {
+    attempt,
+    action: eventName,
+    status: journeyOutcome === 'SUCCESS' || journeyOutcome === 'IGNORED' ? 'SUCCESS' : 'FAILURE',
+    metadata: {
+      priorState: attempt.status,
+      nextState: attempt.status,
+      journeyOutcome,
+      sourceWebhookRecordId: event.id,
+      sourceWebhookEventType: event.event,
+      sourceWebhookAttempt: event.attempts,
+      webhookErrorCode: data.error,
+    },
+  });
+  return updated;
 });
 
 const setAttemptState = async (orderId, state, paymentId, reasonCode = null, diagnostics = {}, providerPayment = null) => {

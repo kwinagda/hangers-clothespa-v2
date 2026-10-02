@@ -1065,6 +1065,15 @@ after(async () => {
     await prisma.invoiceRevision.deleteMany({ where: { invoiceId: { in: testInvoiceIds } } });
     await prisma.invoiceLine.deleteMany({ where: { invoiceId: { in: testInvoiceIds } } });
   }
+  const testAttempts = await prisma.razorpayCheckoutAttempt.findMany({
+    where: { invoiceNumber: { startsWith: `IT-${runId}` } },
+    select: { id: true },
+  });
+  if (testAttempts.length) {
+    await prisma.razorpayPaymentJourneyEvent.deleteMany({
+      where: { checkoutAttemptId: { in: testAttempts.map(({ id }) => id) } },
+    });
+  }
   await prisma.razorpayCheckoutAttempt.deleteMany({ where: { invoiceNumber: { startsWith: `IT-${runId}` } } });
   if (state.experimentVisitorHashes?.length) {
     await prisma.razorpayCheckoutExperimentEvent.deleteMany({ where: { visitorHash: { in: state.experimentVisitorHashes } } });
@@ -1778,6 +1787,8 @@ integrationTest('a confirmed failed payment retry reserves a new attempt and Raz
     const next = await createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `retry-second-${runId}`, provider });
     assert.notEqual(next.attempt.id, first.attempt.id);
     assert.notEqual(next.order.id, first.order.id);
+    assert.equal(next.attempt.paymentJourneyId, first.attempt.paymentJourneyId,
+      'a provider-confirmed retry of the unchanged invoice continues the same payment journey');
     assert.equal(next.attempt.status, 'CREATED');
     assert.equal(providerOrders.length, 2);
     const reservationAudit = await prisma.auditLog.findFirst({
@@ -1785,6 +1796,18 @@ integrationTest('a confirmed failed payment retry reserves a new attempt and Raz
     });
     assert.equal(reservationAudit.metadata.supersedesAttemptId, first.attempt.id);
     assert.equal(reservationAudit.metadata.retryReason, 'PROVIDER_CONFIRMED_FAILURE');
+    await markAttemptFailed({ attemptId: next.attempt.id, paymentId: `pay_failed_second_${runId}`, source: 'INTEGRATION_TEST' });
+    await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: { subtotal: 12, totalAmount: 12, balanceDue: 12 },
+    });
+    const changedBalance = await createInvoiceCheckout({
+      invoice, shareId: `share-${runId}`, idempotencyKey: `retry-changed-balance-${runId}`, provider,
+    });
+    assert.equal(changedBalance.attempt.amountPaise, 1200n);
+    assert.notEqual(changedBalance.attempt.paymentJourneyId, first.attempt.paymentJourneyId,
+      'a changed payable snapshot starts a new payment journey');
+    assert.equal(providerOrders.length, 3);
     await assert.rejects(
       createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `retry-first-${runId}`, provider }),
       (error) => error.code === 'CHECKOUT_ATTEMPT_TERMINAL'
@@ -2946,12 +2969,32 @@ integrationTest('Razorpay durable worker dispatches all refund webhook reference
 
 integrationTest('Razorpay durable webhook inbox retries a transient worker failure and then completes the event', async () => {
   const eventId = `IT-${runId}-WORKER-RETRY`;
+  const providerRef = runId.replace(/[^A-Za-z0-9]/g, '');
+  const invoice = await createInvoice(`WEBHOOK-JOURNEY-${runId}`, 73);
+  const providerOrderId = `order_worker_retry_${providerRef}`;
+  const providerPaymentId = `pay_worker_retry_${providerRef}`;
+  const checkoutAttempt = await prisma.razorpayCheckoutAttempt.create({
+    data: {
+      idempotencyKey: `webhook-journey-${runId}`,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      orderId: invoice.orderId,
+      customerId: invoice.customerId,
+      amountPaise: 7300n,
+      currency: 'INR',
+      mode: 'TEST',
+      status: 'PENDING',
+      razorpayOrderId: providerOrderId,
+      razorpayPaymentId: providerPaymentId,
+      paymentJourneyId: `pj_${crypto.randomUUID()}`,
+    },
+  });
   const event = await prisma.razorpayWebhookEvent.create({
     data: {
       eventId,
       event: 'payment.authorized',
-      paymentId: `pay_worker_retry_${runId}`,
-      orderId: `order_worker_retry_${runId}`,
+      paymentId: providerPaymentId,
+      orderId: providerOrderId,
       payload: {},
       payloadHash: crypto.createHash('sha256').update(eventId).digest('hex'),
       status: 'RECEIVED',
@@ -2959,7 +3002,6 @@ integrationTest('Razorpay durable webhook inbox retries a transient worker failu
     },
   });
   let deliveries = 0;
-  const providerRef = runId.replace(/[^A-Za-z0-9]/g, '');
   const transientProcessor = async () => {
     deliveries += 1;
     throw {
@@ -2994,6 +3036,18 @@ integrationTest('Razorpay durable webhook inbox retries a transient worker failu
   assert.equal(retryAudit.metadata.providerError.description.includes('9930367267'), false);
   assert.equal(JSON.stringify(retryAudit.metadata.providerError).includes('654321'), false);
   assert.equal(JSON.stringify(retryAudit.metadata.providerError).includes('4100280000001007'), false);
+  let journeyEvents = await prisma.razorpayPaymentJourneyEvent.findMany({
+    where: { checkoutAttemptId: checkoutAttempt.id }, orderBy: { occurredAt: 'asc' },
+  });
+  assert.equal(journeyEvents.length, 1);
+  assert.equal(journeyEvents[0].eventName, 'RAZORPAY_WEBHOOK_RETRY_SCHEDULED');
+  assert.equal(journeyEvents[0].outcome, 'RETRY');
+  assert.equal(journeyEvents[0].diagnostics.sourceWebhookRecordId, event.id);
+  assert.equal(journeyEvents[0].diagnostics.sourceWebhookAttempt, 1);
+  assert.equal(journeyEvents[0].diagnostics.webhookErrorCode, 'GATEWAY_ERROR');
+  assert.equal(JSON.stringify(journeyEvents[0].diagnostics).includes('9930367267'), false);
+  assert.equal(JSON.stringify(journeyEvents[0].diagnostics).includes('654321'), false);
+  assert.equal(JSON.stringify(journeyEvents[0].diagnostics).includes('4100280000001007'), false);
 
   await prisma.razorpayWebhookEvent.update({ where: { id: event.id }, data: { nextAttemptAt: new Date(Date.now() - 1000) } });
   assert.equal(await processRazorpayWebhookBatch({ processor: async () => {
@@ -3005,6 +3059,14 @@ integrationTest('Razorpay durable webhook inbox retries a transient worker failu
   assert.equal(persisted.attempts, 2);
   assert.equal(persisted.error, null);
   assert.equal(deliveries, 2);
+  journeyEvents = await prisma.razorpayPaymentJourneyEvent.findMany({
+    where: { checkoutAttemptId: checkoutAttempt.id }, orderBy: { occurredAt: 'asc' },
+  });
+  assert.equal(journeyEvents.length, 2);
+  assert.equal(journeyEvents[1].eventName, 'RAZORPAY_WEBHOOK_PROCESSED');
+  assert.equal(journeyEvents[1].outcome, 'SUCCESS');
+  assert.equal(journeyEvents[1].diagnostics.sourceWebhookRecordId, event.id);
+  assert.equal(journeyEvents[1].diagnostics.sourceWebhookAttempt, 2);
 });
 
 integrationTest('Razorpay webhook worker respects a bounded parallelism limit and completes every claimed event once', async () => {

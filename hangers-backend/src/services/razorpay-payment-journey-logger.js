@@ -7,6 +7,7 @@ const SPAN_ID = /^(?!0{16}$)[0-9a-f]{16}$/i;
 const STATE = /^[A-Z][A-Z0-9_]{0,39}$/;
 const PROVIDER_ID = /^(?:order|pay)_[A-Za-z0-9]{6,40}$/;
 const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_.-]{0,79}$/;
+const JOURNEY_OUTCOMES = new Set(['SUCCESS', 'FAILURE', 'REVIEW', 'RETRY', 'IGNORED']);
 
 const safeLabel = (value) => typeof value === 'string' && SAFE_CODE.test(value) ? value : null;
 const safeState = (value) => typeof value === 'string' && STATE.test(value) ? value : null;
@@ -30,6 +31,11 @@ const buildJourneyEvent = ({ attempt, action, status, metadata = {} }) => {
     ...(safeLabel(metadata.providerMethod) ? { providerMethod: safeLabel(metadata.providerMethod) } : {}),
     ...(safeLabel(metadata.providerMethodDetail) ? { providerMethodDetail: safeLabel(metadata.providerMethodDetail) } : {}),
     ...(safeLabel(metadata.crmPaymentId) ? { crmPaymentId: safeLabel(metadata.crmPaymentId) } : {}),
+    ...(safeLabel(metadata.sourceWebhookRecordId) ? { sourceWebhookRecordId: safeLabel(metadata.sourceWebhookRecordId) } : {}),
+    ...(safeLabel(metadata.sourceWebhookEventType) ? { sourceWebhookEventType: safeLabel(metadata.sourceWebhookEventType) } : {}),
+    ...(Number.isInteger(metadata.sourceWebhookAttempt) && metadata.sourceWebhookAttempt >= 1
+      ? { sourceWebhookAttempt: metadata.sourceWebhookAttempt } : {}),
+    ...(safeLabel(metadata.webhookErrorCode) ? { webhookErrorCode: safeLabel(metadata.webhookErrorCode) } : {}),
     ...(safeLabel(providerError.code) ? { providerErrorCode: safeLabel(providerError.code) } : {}),
     ...(safeLabel(providerError.source) ? { providerErrorSource: safeLabel(providerError.source) } : {}),
     ...(safeLabel(providerError.step) ? { providerErrorStep: safeLabel(providerError.step) } : {}),
@@ -46,7 +52,9 @@ const buildJourneyEvent = ({ attempt, action, status, metadata = {} }) => {
     traceId,
     spanId,
     eventName: action,
-    outcome: safeState(metadata.nextState || attempt.status) === 'REVIEW' ? 'REVIEW' : status === 'FAILURE' ? 'FAILURE' : 'SUCCESS',
+    outcome: JOURNEY_OUTCOMES.has(metadata.journeyOutcome)
+      ? metadata.journeyOutcome
+      : safeState(metadata.nextState || attempt.status) === 'REVIEW' ? 'REVIEW' : status === 'FAILURE' ? 'FAILURE' : 'SUCCESS',
     priorState: safeState(metadata.priorState),
     nextState: safeState(metadata.nextState || attempt.status),
     invoiceId: attempt.invoiceId,
