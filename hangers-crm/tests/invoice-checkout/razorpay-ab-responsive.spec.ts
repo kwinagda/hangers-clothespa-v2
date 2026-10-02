@@ -415,6 +415,64 @@ test('active custom checkout renders only returned methods and remains usable at
   expect(stats.createOrderRequests).toBe(before.createOrderRequests)
 })
 
+test('custom checkout hides choices when SDK readiness times out and restores them after retry', async ({ page }) => {
+  const origin = 'http://localhost:55104'
+  const corsHeaders = {
+    'access-control-allow-origin': origin,
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type,idempotency-key',
+  }
+  let sdkInstances = 0
+  let orderRequests = 0
+  let verifyRequests = 0
+  await page.route('**/payment/**', async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+    if (request.method() === 'GET' && path.endsWith('/custom/capabilities')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
+        key: 'rzp_test_ready_retry', mode: 'TEST', methods: { card: true },
+        configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: [] },
+      } } })
+    }
+    if (request.method() === 'GET' && path.endsWith('/payment/status')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'NONE' } } })
+    }
+    if (request.method() === 'GET' && path.endsWith('/custom/downtime')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'unknown', incidents: [] } } })
+    }
+    if (path.endsWith('/payment/create-order')) orderRequests += 1
+    if (path.endsWith('/payment/verify')) verifyRequests += 1
+    return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+  })
+  await page.route('https://checkout.razorpay.com/v1/razorpay.js', async (route) => {
+    sdkInstances += 1
+    await route.fulfill({ status: 200, contentType: 'application/javascript', body: `
+      window.Razorpay = class {
+        once(event, callback) {
+          if (${sdkInstances} > 1 && event === 'ready') callback({ methods: { card: true } })
+        }
+        on() {}
+      }
+    ` })
+  })
+
+  await page.goto(`${origin}/invoice/variant-a/checkout`)
+  await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
+  const readinessError = 'Razorpay did not return the payment methods enabled for this account.'
+  await expect(page.getByRole('alert')).toContainText(readinessError, { timeout: 8000 })
+  await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Pay ₹1' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Retry loading methods' }).click()
+  await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(sdkInstances).toBe(2)
+  expect(orderRequests).toBe(0)
+  expect(verifyRequests).toBe(0)
+})
+
 test('closing Checkout immediately checks the attempt and keeps a nonterminal payment locked', async ({ page }) => {
   await page.addInitScript(() => {
     (window as Window & { Razorpay?: unknown }).Razorpay = class {
