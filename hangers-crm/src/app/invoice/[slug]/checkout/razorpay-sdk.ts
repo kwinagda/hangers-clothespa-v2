@@ -78,6 +78,10 @@ export const options = (value: unknown): string[] => {
 export const supportedUpiIntentApps = (value: unknown): string[] | null =>
   Array.isArray(value) ? value.filter((app): app is string => typeof app === 'string') : null
 
+export const upiIntentUnavailable = (methods: Methods | null | undefined, authoritativeMethods: Methods | null | undefined, feeBearer: Configuration['feeBearer'] | undefined) =>
+  feeBearer === 'CUSTOMER'
+  || [methods?.upi_intent, authoritativeMethods?.upi_intent].some((value) => value === false || value === 0 || value === '0' || value === 'false')
+
 export const money = (paise: number, currency = 'INR') => new Intl.NumberFormat('en-IN', {
   style: 'currency', currency, minimumFractionDigits: paise % 100 === 0 ? 0 : 2, maximumFractionDigits: 2,
 }).format(paise / 100)

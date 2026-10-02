@@ -233,15 +233,58 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
 
 #### A05-c - Active card form network artwork lacks a CI rendering assertion
 
-- **Status:** In progress; focused browser regression added, exact-SHA CI pending.
+- **Status:** Complete.
 - **Evidence:** Backend publishes an allowlisted set of Razorpay-hosted network artwork URLs, and the active card form renders returned artwork against the enabled-network list. Existing CI browser fixtures supplied an empty artwork list, so none asserted Visa, Mastercard, RuPay, AmEx rendering or Diners exclusion in that active form.
 - **Impact:** The provider-approved artwork mapping could regress or display a disabled network without the current suite detecting it.
 - **Bounded remedy:** Extend the existing CI-only active-checkout browser case with the Razorpay-hosted Visa, Mastercard, RuPay and AmEx artwork entries and enabled-network response; assert their accessible images/source URLs appear and Diners does not. This validates UI mapping, not availability of Razorpay's external CDN or actual account activation.
 - **Acceptance subtasks:**
   - [x] Confirm production mapping uses Razorpay-hosted image URLs and filters artwork through enabled networks/exclusions.
   - [x] Add assertions for four accepted network logos and Diners exclusion to the existing CI browser case.
-  - [ ] Run exact-SHA CI once and record the result; rerun only if this assertion fails and is fixed.
+  - [x] Run exact-SHA CI once and record the result; rerun only if this assertion fails and is fixed.
 - **Dependency/disposition:** Exact-SHA CI. Actual CDN delivery/device rendering is not inferred by a mocked browser response; the accepted asset hosts are controlled by Razorpay.
+
+**Closure evidence (3 October 2026):** Exact-SHA PR #10 CI run [37062349045](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37062349045), commit `b0946ae0a975aafa33ad1178ea698879e6c03fe6`, passed Backend and CRM. CRM's combined-checkout responsive suite passed all 25 cases, including the active card form's Visa, Mastercard, RuPay and American Express artwork assertions and Diners exclusion. This proves that returned/allowlisted artwork is rendered and accessible in the tested UI; it does not claim live CDN delivery or account-level card authorization. No payment or local database write occurred.
+
+### A07 Findings
+
+#### A07-a - UPI Intent was not disabled for Customer Fee Bearer
+
+- **Status:** In progress; documented guard and focused regressions added, exact-SHA CI pending.
+- **Evidence:** The official Razorpay UPI Intent mobile-web page states UPI Intent is not available on the Customer Fee Bearer (CFB) model. The UI previously treated only explicit `upi_intent` method flags as authoritative and could expose discovered app choices when the configured fee bearer was `CUSTOMER`.
+- **Impact:** A customer on CFB could be offered an Intent flow that Razorpay documents as unavailable, despite the UI otherwise following the returned method list.
+- **Bounded remedy:** Derive one `upiIntentUnavailable` guard from the provider's explicit method flags plus the already-loaded fee-bearer configuration. When fee bearer is `CUSTOMER`, disable only the Intent-specific mobile app path; do not suppress desktop UPI QR or unrelated methods. Do not infer the fee-bearer value when it is `UNVERIFIED`.
+- **Acceptance subtasks:**
+  - [x] Confirm the provider's documented CFB restriction and trace the UI method gate.
+  - [x] Add the CFB guard without changing desktop UPI QR or other methods.
+  - [x] Add focused unit cases for CFB and either returned method snapshot disabling Intent.
+  - [ ] Run exact-SHA CI once and record the result; rerun only if a concrete failure is fixed.
+- **Dependency/disposition:** Exact-SHA CI. Official source: https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods/upi-intent-mweb/ (reviewed 3 October 2026).
+
+#### A07-b - Installed-app Intent and QR handoff/return lack supported-device acceptance
+
+- **Status:** Deferred pending a supported-device Test checkout session.
+- **Evidence:** Existing browser tests mock supported-app identifiers and `createPayment`; they prove request construction and fail-closed UI, not that Android/iOS launches an installed UPI app or returns through success, cancellation or timeout. Desktop QR is likewise mocked; no user-device handoff was run in this pass.
+- **Impact:** A browser mock cannot prove operating-system app switching, the bank/UPI app result, or return to the checkout page. No actual handoff success or failure is claimed.
+- **Bounded remedy:** On an already-existing authorized Test checkout and supported device, run one matrix for an available Android/iOS app and desktop QR: initiate only on user click; observe handoff; return/cancel once; verify the existing attempt status before any retry. Do not create a new order or submit a Live payment for this evidence.
+- **Acceptance subtasks:**
+  - [x] Review the official device-specific app list and the existing mocked coverage.
+  - [ ] Capture one supported Android/iOS Test Intent launch and return/cancel result.
+  - [ ] Capture one desktop Test QR render/scan-return result.
+  - [ ] Record device/browser, selected identifier and resulting provider references/status without exposing customer secrets.
+- **Dependency/disposition:** User-controlled supported device and existing Test checkout. No new test invoice/order/payment is created by this deferred finding.
+- **Official source:** https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods/upi-intent-mweb/.
+
+#### A07-c - UPI app-list resolved type is not guaranteed by the public contract
+
+- **Status:** Closed with a defensive runtime boundary; no stable provider type is claimed.
+- **Evidence:** The official mobile-web guide documents `getSupportedUpiIntentApps()` and recommends displaying returned options, but does not specify a stable resolved JSON type. The existing implementation accepts only an array, filters non-string members, and rejects other response shapes. Prior read-only inspection of the then-current Razorpay-hosted SDK artifact found unique string identifiers and `google_pay` normalization to `gpay` (F63); the SDK URL is unversioned.
+- **Impact:** Depending on undocumented future SDK response shapes could expose invalid app choices. The current strict boundary prevents that; mocks do not upgrade the observed artifact into a permanent provider guarantee.
+- **Bounded remedy:** None required. Preserve array/string validation and fail closed for unknown shapes; revisit only if Razorpay publishes a schema change or runtime evidence contradicts the guard.
+- **Acceptance subtasks:**
+  - [x] Review official UPI Intent docs and the prior hashed SDK artifact observation.
+  - [x] Confirm malformed/non-array responses are rejected by focused unit tests.
+  - [x] Record that the resolved type is observed, not contractually guaranteed.
+- **Dependency/disposition:** None for current source acceptance. Actual device behavior remains separate under A07-b. Official source: https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods/upi-intent-mweb/.
 
 **F65 current-status correction:** the following dated F65 paragraph's reference to SHA `8b768dd` and red CRM CI is historical. The current source/test SHA and all-green CI are `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` / run `37009102219`; the observability limitations listed there remain open.
 

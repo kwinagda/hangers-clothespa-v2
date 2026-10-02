@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { LOGO_BLUE_URL } from '@/lib/branding'
 import styles from './RazorpayCustomCheckout.module.css'
 import SavedCards, { SavedCardSelection } from './checkout/SavedCards'
-import { CardEligibility, Configuration, Methods, checkoutRequest, enabled, issuerPlans, networkCode, money, loadCustomSdk, supportedUpiIntentApps } from './checkout/razorpay-sdk'
+import { CardEligibility, Configuration, Methods, checkoutRequest, enabled, issuerPlans, networkCode, money, loadCustomSdk, supportedUpiIntentApps, upiIntentUnavailable } from './checkout/razorpay-sdk'
 
 type CheckoutOrder = {
   key: string
@@ -81,7 +81,6 @@ const enabledCardNetworks = (value: any): string[] => {
     .map(([code]) => code)
 }
 
-const explicitlyDisabled = (value: unknown) => value === false || value === 0 || value === '0' || value === 'false'
 // Exact named networks from Input Restriction and the Methods ready response.
 // Do not map `discover` to Diners; the formatter's AmEx spellings disagree.
 const FORMATTER_NETWORK_CODES: Record<string, string> = {
@@ -381,7 +380,7 @@ export default function RazorpayCustomCheckout({
   const networkUnavailable = (method === 'card' || method === 'emi') && (!detectedNetwork
     || Boolean(!savedCard?.sdk.token && formatterNetwork && iinNetwork && formatterNetwork !== iinNetwork)
     || !enabled(methods?.card_networks?.[detectedNetwork]) || Boolean(configuration?.excludedCardNetworks?.includes(detectedNetwork)))
-  const intentUnavailable = explicitlyDisabled(methods?.upi_intent) || explicitlyDisabled(authoritativeMethods?.upi_intent)
+  const intentUnavailable = upiIntentUnavailable(methods, authoritativeMethods, configuration?.feeBearer)
   const upiUnavailable = mobile === null || (mobile && (intentUnavailable || upiDiscovery !== 'ready' || !upiApps.includes(upiApp)))
   const collectContact = method === 'cred'
   const downtimeFresh = downtime?.status === 'fresh' && Number.isFinite(Date.parse(downtime.fetchedAt || ''))
