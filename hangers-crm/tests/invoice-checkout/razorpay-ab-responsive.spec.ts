@@ -423,7 +423,6 @@ test('custom checkout hides choices when SDK readiness times out and restores th
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-allow-headers': 'content-type,idempotency-key',
   }
-  let sdkInstances = 0
   let orderRequests = 0
   let verifyRequests = 0
   await page.route('**/payment/**', async (route) => {
@@ -447,11 +446,12 @@ test('custom checkout hides choices when SDK readiness times out and restores th
     return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
   })
   await page.route('https://checkout.razorpay.com/v1/razorpay.js', async (route) => {
-    sdkInstances += 1
     await route.fulfill({ status: 200, contentType: 'application/javascript', body: `
+      window.__readyRetryInstances = 0
       window.Razorpay = class {
+        constructor() { this.instanceNumber = ++window.__readyRetryInstances }
         once(event, callback) {
-          if (${sdkInstances} > 1 && event === 'ready') callback({ methods: { card: true } })
+          if (this.instanceNumber > 1 && event === 'ready') callback({ methods: { card: true } })
         }
         on() {}
       }
@@ -468,7 +468,7 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   await page.getByRole('button', { name: 'Retry loading methods' }).click()
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
-  expect(sdkInstances).toBe(2)
+  await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances)).toBe(2)
   expect(orderRequests).toBe(0)
   expect(verifyRequests).toBe(0)
 })
