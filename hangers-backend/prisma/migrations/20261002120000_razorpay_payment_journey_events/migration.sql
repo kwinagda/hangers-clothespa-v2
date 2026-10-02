@@ -28,7 +28,7 @@ CREATE TABLE "razorpay_payment_journey_events" (
 
 CREATE INDEX "razorpay_payment_journey_events_paymentJourneyId_occurredAt_idx"
   ON "razorpay_payment_journey_events"("paymentJourneyId", "occurredAt");
-CREATE INDEX "razorpay_payment_journey_events_checkoutAttemptId_occurredAt_idx"
+CREATE INDEX "razorpay_payment_journey_events_checkoutAttemptId_occurredA_idx"
   ON "razorpay_payment_journey_events"("checkoutAttemptId", "occurredAt");
 CREATE INDEX "razorpay_payment_journey_events_requestId_idx"
   ON "razorpay_payment_journey_events"("requestId");

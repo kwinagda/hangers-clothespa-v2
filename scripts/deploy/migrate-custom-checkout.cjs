@@ -10,7 +10,7 @@ const { execFileSync } = require('node:child_process');
 const reviewed = Object.freeze({
   '20260930160000_razorpay_saved_cards': '32ff94f560b1204d9bf9e886bb33257f2b07e5f003ed63adad3e2ea029a00754',
   '20260930170000_razorpay_virtual_account_bindings': 'd748327afd154fc36f5a5bdf1197cd75dd0208b2aa16eeaf43d6ff521bfa2f2f',
-  '20261002120000_razorpay_payment_journey_events': 'fbe75da6be93e1815ec1a59564d6ebea23019e11dee8fac043fd8b0bf3f8a94b',
+  '20261002120000_razorpay_payment_journey_events': '389bae9491c40f4e0fc3aa78641c86ad9049945aec4146582bec7a436d9bc22e',
 });
 
 function assertReleaseScope(revision, currentMain, databaseUrl, history, expected) {
