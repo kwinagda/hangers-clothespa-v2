@@ -215,6 +215,103 @@ test('public invoice lookup resolves invoice, order, iron-bill and customer shar
   }
 });
 
+test('a revoked share can be reissued, but a cancelled source order still cannot start checkout', { skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' }, async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  assert.equal(process.env.GITHUB_ACTIONS, 'true');
+  assert.equal(process.env.CI, 'true');
+  assert.equal(url.hostname, 'localhost');
+  assert.equal(url.pathname, '/hangers_test');
+  assert.equal((await prisma.$queryRaw`SELECT current_database() AS name`)[0].name, 'hangers_test');
+
+  const previousEnv = {
+    keyId: process.env.RAZORPAY_KEY_ID,
+    keySecret: process.env.RAZORPAY_KEY_SECRET,
+    testContact: process.env.RAZORPAY_TEST_CONTACT_NUMBER,
+  };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_combined_ci';
+  process.env.RAZORPAY_KEY_SECRET = 'ci-only-not-a-provider-credential';
+  process.env.RAZORPAY_TEST_CONTACT_NUMBER = '9930367267';
+
+  const suffix = crypto.randomUUID();
+  const customer = await prisma.customer.upsert({
+    where: { phone: '9930367267' },
+    update: {},
+    create: { name: `Cancelled source CI ${suffix}`, phone: '9930367267', notifWhatsApp: false },
+  });
+  let order;
+  let invoice;
+  const shareHashes = [];
+  try {
+    order = await prisma.order.create({ data: {
+      orderNumber: `CANCELLED-SOURCE-${suffix}`,
+      customerId: customer.id,
+      source: 'COUNTER',
+      status: 'CANCELLED',
+      subtotal: 10,
+      totalAmount: 10,
+    } });
+    invoice = await prisma.invoice.create({ data: {
+      invoiceNumber: `CANCELLED-SOURCE-INV-${suffix}`,
+      customerId: customer.id,
+      orderId: order.id,
+      sourceType: 'ORDER',
+      status: 'OPEN',
+      currency: 'INR',
+      subtotal: 10,
+      totalAmount: 10,
+      balanceDue: 10,
+      dueDate: new Date('2023-01-02'),
+    } });
+
+    const revokedToken = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: invoice.id, purpose: 'INVOICE_VIEW' });
+    const revokedHash = crypto.createHash('sha256').update(revokedToken).digest('hex');
+    shareHashes.push(revokedHash);
+    await prisma.publicShareToken.updateMany({ where: { tokenHash: revokedHash }, data: { revokedAt: new Date() } });
+
+    const activeToken = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: invoice.id, purpose: 'INVOICE_VIEW' });
+    const activeHash = crypto.createHash('sha256').update(activeToken).digest('hex');
+    shareHashes.push(activeHash);
+    const invoiceRes = response();
+    await getPublicInvoice({ params: { slug: activeToken } }, invoiceRes);
+    assert.equal(invoiceRes.statusCode, 200, 'a replacement share may resolve the still-existing invoice');
+    assert.equal(invoiceRes.body.data.invoice.invoiceNumber, invoice.invoiceNumber);
+
+    const revokedRes = response();
+    await getPublicInvoice({ params: { slug: revokedToken } }, revokedRes);
+    assert.equal(revokedRes.statusCode, 404, 'the revoked share remains disabled');
+
+    let providerOrderCalls = 0;
+    const provider = { orders: { create: async () => { providerOrderCalls += 1; throw new Error('provider must not be called'); } } };
+    const fullInvoice = await prisma.invoice.findUnique({ where: { id: invoice.id } });
+    await assert.rejects(
+      createInvoiceCheckout({
+        invoice: fullInvoice,
+        shareId: activeHash,
+        idempotencyKey: `cancelled_${suffix}`,
+        provider,
+      }),
+      { code: 'ORDER_CANCELLED' },
+    );
+    assert.equal(providerOrderCalls, 0, 'cancelled source must be rejected before provider order creation');
+
+    const createRes = response();
+    await createPublicRazorpayOrder({ params: { slug: activeToken }, body: {}, id: suffix, get: () => `cancelled_${suffix}` }, createRes);
+    assert.equal(createRes.statusCode, 409);
+    assert.equal(createRes.body.code, 'ORDER_CANCELLED');
+    assert.equal(await prisma.razorpayCheckoutAttempt.count({ where: { invoiceId: invoice.id } }), 0);
+  } finally {
+    if (shareHashes.length) await prisma.publicShareToken.deleteMany({ where: { tokenHash: { in: shareHashes } } });
+    if (invoice) await prisma.invoice.delete({ where: { id: invoice.id } });
+    if (order) await prisma.order.delete({ where: { id: order.id } });
+    if (previousEnv.keyId === undefined) delete process.env.RAZORPAY_KEY_ID;
+    else process.env.RAZORPAY_KEY_ID = previousEnv.keyId;
+    if (previousEnv.keySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET;
+    else process.env.RAZORPAY_KEY_SECRET = previousEnv.keySecret;
+    if (previousEnv.testContact === undefined) delete process.env.RAZORPAY_TEST_CONTACT_NUMBER;
+    else process.env.RAZORPAY_TEST_CONTACT_NUMBER = previousEnv.testContact;
+  }
+});
+
 test('combined checkout atomically settles two invoices and refuses overlap, stale balances and foreign links', { skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' }, async () => {
   const url = new URL(process.env.DATABASE_URL);
   assert.equal(process.env.GITHUB_ACTIONS, 'true');
