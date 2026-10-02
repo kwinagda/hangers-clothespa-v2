@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { LOGO_BLUE_URL } from '@/lib/branding'
 import styles from './RazorpayCustomCheckout.module.css'
 import SavedCards, { SavedCardSelection } from './checkout/SavedCards'
-import { CardEligibility, Configuration, Methods, checkoutRequest, enabled, issuerPlans, networkCode, money, loadCustomSdk } from './checkout/razorpay-sdk'
+import { CardEligibility, Configuration, Methods, checkoutRequest, enabled, issuerPlans, networkCode, money, loadCustomSdk, supportedUpiIntentApps } from './checkout/razorpay-sdk'
 
 type CheckoutOrder = {
   key: string
@@ -40,7 +40,7 @@ type CustomInstance = {
   on: (event: string, callback: (payload: any) => void) => void
   createPayment: (data: Record<string, any>, options?: Record<string, any>) => void | Promise<void>
   focus?: () => void
-  getSupportedUpiIntentApps?: () => Promise<string[]>
+  getSupportedUpiIntentApps?: () => Promise<unknown>
   checkCREDEligibility?: (contact: string) => Promise<{ success: boolean; data?: { state?: string } }>
   emit?: (event: string) => void
   fetchVirtualAccount?: (options: { order_id: string }) => Promise<{ id: string }>
@@ -289,8 +289,9 @@ export default function RazorpayCustomCheckout({
 
         if (instance.getSupportedUpiIntentApps) {
           void instance.getSupportedUpiIntentApps().then((apps) => {
-            if (mounted && Array.isArray(apps)) {
-              const usableApps = isMobile ? apps.filter((app) => typeof app === 'string') : []
+            const discoveredApps = supportedUpiIntentApps(apps)
+            if (mounted && discoveredApps) {
+              const usableApps = isMobile ? discoveredApps : []
               const compatible = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
                 ? usableApps.filter((app) => app !== 'any') : usableApps
               setUpiApps(compatible)
@@ -670,8 +671,10 @@ export default function RazorpayCustomCheckout({
       {methods && !availableMethods.length && <div className={styles.notice} role="status"><p>No available payment option was returned for this checkout.</p><button type="button" onClick={() => setMethodLoadAttempt((attempt) => attempt + 1)}>Reload payment methods</button></div>}
       {configuration && configuration.feeBearer !== 'MERCHANT' && <p className={styles.notice} role="status">Online payment configuration needs review. Please contact Hangers before paying.</p>}
       {downtimeFresh && downtime?.incidents.some((incident) => incident.match.action === 'warn') && <p className={styles.notice} role="status">Razorpay reports a current disruption for this payment option. You can choose another available method.</p>}
-      {downtime && (!downtimeFresh || downtime.incidents.some((incident) => incident.match.action === 'unknown')) && <small role="status">Current availability for this payment instrument could not be confirmed.</small>}
-      {apiBase && method && <button type="button" className={styles.retry} disabled={submitting} onClick={() => setDowntimeRefresh((value) => value + 1)}>Refresh availability</button>}
+      {(downtime && (!downtimeFresh || downtime.incidents.some((incident) => incident.match.action === 'unknown')) || apiBase && method) && <div className={styles.availabilityActions}>
+        {downtime && (!downtimeFresh || downtime.incidents.some((incident) => incident.match.action === 'unknown')) && <small role="status">Current availability for this payment instrument could not be confirmed.</small>}
+        {apiBase && method && <button type="button" className={styles.retry} disabled={submitting} onClick={() => setDowntimeRefresh((value) => value + 1)}>Refresh availability</button>}
+      </div>}
       {!!availableMethods.length && <>
         <fieldset disabled={submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {!order.email && <div className={styles.row}>

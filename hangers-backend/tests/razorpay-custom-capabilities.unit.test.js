@@ -62,8 +62,13 @@ test('Custom discovery preserves provider facts and rejects unverified contracts
     assert.deepEqual(calls, ['123456', '1234567', '12345678']);
   });
 
-  await t.test('Mismatched and tokenised responses cannot become normal card eligibility', async () => {
-    for (const response of [{ entity: 'iin', iin: '999999' }, { entity: 'iin', iin: '123456', tokenised_iin: true }]) {
+  await t.test('Mismatched, tokenised, and malformed tokenisation responses cannot become normal card eligibility', async () => {
+    for (const response of [
+      { entity: 'iin', iin: '999999' },
+      { entity: 'iin', iin: '123456', tokenised_iin: true },
+      { entity: 'iin', iin: '123456', tokenised_iin: 'false' },
+      { entity: 'iin', iin: '123456', tokenised_iin: null },
+    ]) {
       provider = { iins: { fetch: async () => response } };
       await assert.rejects(capabilities.fetchCustomCardEligibility('123456'), { code: 'CUSTOM_IIN_SCHEMA_UNKNOWN' });
     }

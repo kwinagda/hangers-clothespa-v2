@@ -122,6 +122,12 @@ jobs:
       - name: Verify invoice checkout state rendering
         run: node --experimental-strip-types --test tests/invoice-checkout/checkout-page.unit.mjs
 
+      - name: Verify documented EMI response handling
+        run: node --experimental-strip-types --test tests/invoice-checkout/checkout-emi-plans.unit.mjs
+
+      - name: Verify guarded UPI app discovery
+        run: node --experimental-strip-types --test tests/invoice-checkout/checkout-upi-discovery.unit.mjs
+
       - name: Verify SDK diagnostic privacy
         run: node --experimental-strip-types --test tests/invoice-checkout/payment-diagnostic-privacy.unit.mjs
 

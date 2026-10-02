@@ -170,6 +170,16 @@ label.fields {
   font-weight: 400;
 }
 
+.availabilityActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.availabilityActions .retry { margin-top: 0; }
+
 .notice,
 .error {
   margin: 0 0 12px;

@@ -32,6 +32,8 @@ const getMode = (keyId = process.env.RAZORPAY_KEY_ID) => {
 };
 const digest = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 const isSerializationConflict = (error) => error?.code === 'P2034' || error?.meta?.code === '40001' || error?.meta?.code === '40P01';
+const serializationConflictCode = (error) => error?.meta?.code === '40001' || error?.meta?.code === '40P01'
+  ? error.meta.code : error?.code === 'P2034' ? 'P2034' : null;
 const safeProviderCode = (error) => {
   const root = error?.response?.data?.error || error?.error;
   const code = root && typeof root === 'object' ? root.code : null;
@@ -332,7 +334,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
         retry: retry + 1,
         retryLimit: 4,
         backoffMs,
-        errorCode: error?.code === 'P2034' ? 'P2034' : '40001',
+        errorCode: serializationConflictCode(error),
       }));
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }

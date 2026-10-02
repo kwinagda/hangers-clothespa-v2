@@ -75,7 +75,8 @@ const fetchCustomCardEligibility = async (iin) => {
   if (typeof iin !== 'string' || !/^\d{6,8}$/.test(iin)) throw new RazorpayCheckoutError('CUSTOM_IIN_INVALID', 'Enter a valid card number before checking eligibility.', 400);
   try {
     const result = await getRazorpay().iins.fetch(iin);
-    if (result?.entity !== 'iin' || result.iin !== iin || result.tokenised_iin === true) {
+    if (result?.entity !== 'iin' || result.iin !== iin
+      || (Object.hasOwn(result, 'tokenised_iin') && result.tokenised_iin !== false)) {
       throw new RazorpayCheckoutError('CUSTOM_IIN_SCHEMA_UNKNOWN', 'Card eligibility could not be verified.', 503);
     }
     return {

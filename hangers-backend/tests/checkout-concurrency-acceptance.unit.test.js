@@ -55,10 +55,10 @@ const loadReservationHarness = (error) => {
 };
 
 test('reservation conflicts have bounded retries and never reach the provider on exhaustion', async (t) => {
-  for (const [name, error] of [
-    ['Prisma serialization conflict', Object.assign(new Error('conflict'), { code: 'P2034' })],
-    ['raw-query serialization failure', Object.assign(new Error('conflict'), { code: 'P2010', meta: { code: '40001' } })],
-    ['raw-query deadlock', Object.assign(new Error('conflict'), { code: 'P2010', meta: { code: '40P01' } })],
+  for (const [name, error, expectedCode] of [
+    ['Prisma serialization conflict', Object.assign(new Error('conflict'), { code: 'P2034' }), 'P2034'],
+    ['raw-query serialization failure', Object.assign(new Error('conflict'), { code: 'P2010', meta: { code: '40001' } }), '40001'],
+    ['raw-query deadlock', Object.assign(new Error('conflict'), { code: 'P2010', meta: { code: '40P01' } }), '40P01'],
   ]) {
     await t.test(name, async () => {
       const { calls, run } = loadReservationHarness(error);
@@ -74,6 +74,7 @@ test('reservation conflicts have bounded retries and never reach the provider on
         assert.equal(calls.warnings[index].retry, index + 1);
         assert.equal(calls.warnings[index].retryLimit, 4);
         assert.equal(calls.warnings[index].backoffMs, calls.delays[index]);
+        assert.equal(calls.warnings[index].errorCode, expectedCode);
       }
     });
   }

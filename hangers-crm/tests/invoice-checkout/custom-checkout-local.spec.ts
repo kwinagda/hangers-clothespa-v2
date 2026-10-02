@@ -7,7 +7,7 @@ const orderNumber = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_ORDER_NUMBER || ''
 const qaAmountPaise = Number(process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_AMOUNT_PAISE || '18000')
 
 // All SDK/API responses below are contract mocks, not merchant activation or payment evidence.
-const installCustomCheckoutMock = async (page: import('@playwright/test').Page, mobile = true, ready = true, emiShape: 'options' | 'plans' = 'options') => {
+const installCustomCheckoutMock = async (page: import('@playwright/test').Page, mobile = true, ready = true) => {
   const methods = {
     card: true,
     card_networks: { VISA: 1, AMEX: 1, DICL: 0, MC: 1 },
@@ -17,20 +17,10 @@ const installCustomCheckoutMock = async (page: import('@playwright/test').Page, 
     emi_subvention: 'customer',
     netbanking: { HDFC: 'HDFC Bank', SBIN: 'State Bank of India' },
     wallet: { payzapp: true },
-    ...(emiShape === 'options' ? {
-      emi_options: {
-        HDFC: [
-          { duration: 3, interest: 12, subvention: 'customer', min_amount: 10000 },
-          { duration: 6, interest: 12, subvention: 'customer', min_amount: 10000 },
-        ],
-        AMEX: [
-          { duration: 3, interest: 15, subvention: 'customer', min_amount: 10000 },
-          { duration: 6, interest: 15, subvention: 'customer', min_amount: 10000 },
-        ],
-      },
-    } : {
-      emi_plans: { HDFC: { min_amount: 10000, plans: { 3: 12, 6: 12 } } },
-    }),
+    emi_plans: {
+      HDFC: { min_amount: 10000, plans: { 3: 12, 6: 12 } },
+      AMEX: { min_amount: 10000, plans: { 3: 15, 6: 15 } },
+    },
     cardless_emi: { hdfc: true, zestmoney: true },
     paylater: { lazypay: true },
   }
@@ -468,7 +458,7 @@ test('explicitly disabled EMI is hidden even when Razorpay returns plan data', a
 })
 
 test('local custom checkout accepts Razorpay documented emi_plans response shape', async ({ page }) => {
-  await installCustomCheckoutMock(page, true, true, 'plans')
+  await installCustomCheckoutMock(page)
   await mockInvoicePaymentApi(page, [])
   await openLocalTestCheckout(page)
   await beginLocalCustomCheckout(page)
@@ -668,6 +658,20 @@ test('payment method options stay in a single vertical list', async ({ page }) =
   }))
   expect(new Set(boxes.map((box) => box.x)).size).toBe(1)
   expect(boxes.every((box, index) => index === 0 || box.y > boxes[index - 1].y)).toBe(true)
+})
+
+test('availability warning and refresh action remain visually separated', async ({ page }) => {
+  await installCustomCheckoutMock(page)
+  await mockInvoicePaymentApi(page, [])
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page, false)
+
+  const status = page.getByText('Current availability for this payment instrument could not be confirmed.', { exact: true })
+  await expect(status).toBeVisible()
+  const actions = page.locator('[class*="availabilityActions"]')
+  await expect(actions.getByRole('button', { name: 'Refresh availability' })).toBeVisible()
+  await expect(actions).toHaveCSS('display', 'flex')
+  await expect(actions).toHaveCSS('gap', '8px')
 })
 
 test('custom checkout fits narrow mobile viewport without horizontal overflow', async ({ page }) => {

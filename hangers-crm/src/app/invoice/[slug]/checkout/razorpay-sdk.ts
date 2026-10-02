@@ -27,7 +27,7 @@ export type CustomInstance = {
   emit?: (event: string) => void
   createPayment: (data: Record<string, any>, options?: Record<string, any>) => void | Promise<void>
   focus?: () => void
-  getSupportedUpiIntentApps?: () => Promise<string[]>
+  getSupportedUpiIntentApps?: () => Promise<unknown>
   checkCREDEligibility?: (contact: string) => Promise<{ success: boolean; data?: { state?: string; offer?: { description?: string } } }>
   fetchVirtualAccount?: (options: { order_id: string }) => Promise<any>
 }
@@ -75,6 +75,9 @@ export const options = (value: unknown): string[] => {
   if (!value || typeof value !== 'object') return []
   return Object.entries(value).filter(([, item]) => enabled(item) || (typeof item === 'string' && item.trim().length > 1 && item !== 'false')) .map(([key]) => key)
 }
+export const supportedUpiIntentApps = (value: unknown): string[] | null =>
+  Array.isArray(value) ? value.filter((app): app is string => typeof app === 'string') : null
+
 export const money = (paise: number, currency = 'INR') => new Intl.NumberFormat('en-IN', {
   style: 'currency', currency, minimumFractionDigits: paise % 100 === 0 ? 0 : 2, maximumFractionDigits: 2,
 }).format(paise / 100)
@@ -89,9 +92,10 @@ export const networkCode = (name: string | null) => NETWORK_CODES[name || ''] ||
 export function issuerPlans(methods: Methods | null, eligibility: CardEligibility | null, amount: number) {
   if (!enabled(methods?.emi) || eligibility?.emiAvailable !== true || !eligibility.issuerCode) return []
   // Do not infer a debit-card issuer suffix or select another bank's tenure.
-  const raw = methods.emi_options?.[eligibility.issuerCode] ?? methods.emi_plans?.[eligibility.issuerCode]
-  const entries = Array.isArray(raw) ? raw : raw?.plans && typeof raw.plans === 'object'
-    ? Object.entries(raw.plans).map(([duration, interest]) => ({ ...raw, duration, interest })) : []
+  const raw = methods.emi_plans?.[eligibility.issuerCode]
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)
+    || !raw.plans || typeof raw.plans !== 'object' || Array.isArray(raw.plans)) return []
+  const entries = Object.entries(raw.plans).map(([duration, interest]) => ({ ...raw, duration, interest }))
   return entries.flatMap((plan: any) => {
     const duration = Number(plan.duration), rate = Number(plan.interest), minimum = Number(plan.min_amount)
     if (!Number.isInteger(duration) || duration <= 0 || !Number.isFinite(rate) || rate < 0
