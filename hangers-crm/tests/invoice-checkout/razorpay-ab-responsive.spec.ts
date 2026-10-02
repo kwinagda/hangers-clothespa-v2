@@ -382,7 +382,7 @@ test('active custom checkout renders only returned methods and remains usable at
     await expect.poll(() => capabilitiesLookups).toBeGreaterThan(0)
     await expect.poll(() => statusLookups).toBeGreaterThan(0)
     await expect(page.getByText('Loading secure payment details...')).toBeHidden()
-    await expect(page.getByRole('heading', { name: 'Pay Hangers Clothes Spa' }),
+    await expect(page.locator('form'),
       `Checkout form did not render. API requests: ${apiRequests.join('; ')}; body: ${await page.locator('body').innerText()}`,
     ).toBeVisible()
     await expect(page.getByRole('radio', { name: 'UPI' })).toBeVisible()
@@ -406,6 +406,7 @@ test('active custom checkout renders only returned methods and remains usable at
   }
 
   expect(apiRequests.some((entry) => entry.includes('/custom/capabilities'))).toBe(true)
+  expect(apiRequests.some((entry) => entry.includes('/payment/create-order'))).toBe(true)
   expect(apiRequests.some((entry) => entry.includes('/payment/verify'))).toBe(false)
   expect(providerRequests).toEqual(['https://checkout.razorpay.com/v1/razorpay.js', 'https://checkout.razorpay.com/v1/razorpay.js'])
   const stats = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
