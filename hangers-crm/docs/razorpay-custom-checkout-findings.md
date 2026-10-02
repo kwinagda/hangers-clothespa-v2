@@ -130,23 +130,77 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [x] Rerun disposable-DB integration and confirm journey event IDs remain populated (run `37055637233`; 6/6 passed).
 - **Disposition:** Closed; the fixture IDs satisfy the production logger's allowlist and journey references remain populated.
 
-**A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. Exact-SHA PR #10 run [37055637233](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37055637233), commit `9d1ce4332d8dd411cfbd9f73a611db66bbd273d5`, passed Backend and CRM. Its disposable `hangers_test` combined-checkout integration passed 6/6, and the other A01-related receivables and journey CI checks passed. A01 and findings A01-a through A01-g are closed. No local or production database was changed. A02 is now the active plan item; its separately scoped status is recorded below.
+**A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. Exact-SHA PR #10 run [37055637233](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37055637233), commit `9d1ce4332d8dd411cfbd9f73a611db66bbd273d5`, passed Backend and CRM. Its disposable `hangers_test` combined-checkout integration passed 6/6, and the other A01-related receivables and journey CI checks passed. A01 and findings A01-a through A01-g are closed. No local or production database was changed. A02 is closed. A03's two manual findings are deferred pending an existing Test checkout; A04 is active under the finite A-item rule.
 
 ## A02 Findings
 
-#### A02-a - Combined collection lacks one real Razorpay Test capture and reconciliation
+#### A02-a - Combined Test capture was duplicated across A02 and A18
 
-- **Status:** Deferred at the final payment action; all non-provider A02 checks pass.
-- **Evidence:** Exact-SHA PR #10 run [37055637233](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37055637233) passed Backend and CRM. The combined `hangers_test` integration covers a ₹5,880 two-invoice allocation split into ₹2,680 and ₹3,200, capture-state verification, atomic settlement, zero balances, paid status, invoice history, refreshed public status, and idempotent replay. The responsive browser test covers combined total, one remaining invoice, simulated success, refresh and reload. These tests use injected provider data and do not prove a transaction through Razorpay's Test Checkout. The local configuration is Test-keyed, and the existing `http://localhost:5002` app is running; no provider order or payment was created for this A02 pass.
-- **Impact:** The remaining acceptance claim is provider-to-CRM end-to-end reconciliation for one combined Test payment. Mocks cannot establish that external boundary.
-- **Bounded acceptance:** Use only a newly created local Test invoice set for the approved Home profile and `rzp_test` configuration; verify the resulting Razorpay order/payment and the two exact CRM allocations read-only. Never use Live credentials or an existing non-test balance. The final mock-bank Success action in Chrome is a handoff-required financial action, so the assistant must stop before selecting it. Do not create a second order or repeat the payment if the result is ambiguous.
+- **Status:** Resolved by making the A-item boundary explicit.
+- **Evidence:** The current register assigned a real combined provider capture to A02, while A18 already explicitly required a combined provider Test capture and provider/fee reconciliation. A dated A02 matrix also repeated a single Netbanking capture already covered by A06. Exact-SHA run [37055637233](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37055637233) passed the bounded A02 total/allocation/refresh evidence: the combined `hangers_test` integration covers a ₹5,880 allocation split into ₹2,680 and ₹3,200, atomic settlement, zero balances, paid status, invoice history, refreshed public status and idempotent replay; the browser case covers the combined total, one remaining invoice, simulated success, refresh and reload.
+- **Impact:** Without an explicit boundary, A02 and A18 could prompt duplicate payment attempts for the same behavior and make progress counts misleading.
+- **Bounded remedy:** A02 owns customer totals, one-remaining-invoice and zero-balance presentation, mock/integration allocation, and refresh behavior. A06 owns provider-backed single-payment acceptance. A18 owns the one actual combined provider capture plus its combined provider/CRM reconciliation and fee contract. No duplicate Test payment is needed to close A02.
 - **Acceptance subtasks:**
-  - [x] Verify one-remaining-invoice amount, full combined total and invoice anchor in the UI tests.
-  - [x] Verify mocked capture refresh/reload, idempotency, exact allocation amounts, paid/zero-balance ledger state and public status in CI.
-  - [ ] Complete one Razorpay Test capture and read-only provider/CRM reconciliation after the user performs the final mock-bank success action.
-- **Disposition:** Keep A02 Partial and do not repeat completed mock/DB suites without a code change or new evidence. Under the finite A-item rule, defer this one handoff-dependent item and continue with A03; revisit A02-a only when the final Test Checkout action can be completed.
+  - [x] Compare A02 and A18 acceptance criteria and identify the duplicate combined-provider gate.
+  - [x] Assign provider-backed single-payment success/refresh to A06 and the single combined-provider capture to A18.
+  - [x] Confirm A02's remaining total/allocation/refresh cases pass on exact-SHA CI run `37055637233`.
+  - [x] Update both current and detailed A02 plan rows to remove the duplicate provider-payment gate.
+- **Disposition:** A02 is complete. A18 retains its separate combined provider acceptance; do not repeat that transaction under A02.
 
-**Current exact-SHA reconciliation:** HEAD `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` ran as Actions run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219); Backend and CRM both succeeded. The CRM responsive UI job passed all 25 browser cases, including SDK readiness timeout/retry after the test SDK mock supplied its formatter dependency. F66 is resolved for this regression. Earlier red run [37004349213](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37004349213) is retained as historical evidence. F65's former “outbox CI pending” statement is superseded: the disposable-DB journey/webhook/outbox integration passed in Backend CI. Read-only local `pg_isready` and `prisma migrate status` show `localhost:5432` accepting connections and the journey-event migration still pending on `hangers_db`; no migration was applied. These observations supersede earlier “PostgreSQL stopped/unavailable” statements as of this audit only.
+## A03 Findings
+
+#### A03-a - VoiceOver announcements and focus continuity lack manual acceptance
+
+- **Status:** Deferred; waiting for a valid existing Test checkout to be opened in Kevin Chrome.
+- **Evidence:** Source inspection confirms labelled form controls, a `fieldset`/`legend` payment-method group, `aria-invalid`/`aria-describedby` field errors, visible focus styling, and status/alert roles. Existing automated browser tests verify keyboard radio selection and invalid-card focus/error association. Existing Kevin Chrome evidence is an accessibility-tree inspection, not a VoiceOver session; it does not prove what a screen-reader user hears when methods load, an error/retry appears, the checkout changes to pending, or capture confirmation replaces the form. F59 independently notes focus continuity is unverified. Current Kevin Chrome inventory has no checkout tab open, so no read-only manual session was available in this pass.
+- **Impact:** A screen-reader user may miss a dynamic payment-state change or lose their place when the form is replaced, despite correct static labels and automated DOM assertions.
+- **Bounded acceptance:** On an already-open valid Test checkout in Kevin's Chrome profile, use macOS VoiceOver to traverse the heading/progress, invoice and amount summary, payment-method group, required fields, primary action, error/retry state, pending/status action, and captured confirmation if an existing captured fixture is available. Record the exact observed announcements and focus destination for each available state. Do not create a new invoice/share/order, submit payment, or treat DOM accessibility-tree output as VoiceOver evidence. If a required state is unavailable, record that exact state as deferred; do not synthesize payment state in local data.
+- **Acceptance subtasks:**
+  - [ ] Obtain read-only access to a currently valid Test checkout without creating or changing a fixture.
+  - [ ] Record VoiceOver announcements and focus continuity for the available required states.
+  - [ ] Fix only a reproduced A03 accessibility defect and run its focused regression once; otherwise record the observed pass and close this finding.
+- **Dependency/disposition:** User-controlled fixture/session availability. No payment submission is required. Do not create a replacement fixture; A04 proceeds while this evidence is deferred.
+
+#### A03-b - Active-form zoom, reflow and contrast are not verified at the written level
+
+- **Status:** Deferred; waiting for a valid existing Test checkout to be opened in Kevin Chrome.
+- **Evidence:** CI checks no horizontal overflow at 320/720/1440 CSS-pixel viewports, active payment-method visibility and keyboard selection. A 720px viewport is not a browser-zoom test. The 200% Chrome observation covered a paid confirmation, not the active payment form. Existing contrast measurements cover pending/paid screens and selected controls, not all normal text and interactive states in the active form. CSS/source inspection is not rendered-page acceptance. Current Kevin Chrome inventory has no checkout tab open, so no read-only active-form inspection was available in this pass.
+- **Impact:** A customer using magnification or needing higher contrast could encounter clipped fields/actions or unreadable active-form content even though the paid/pending and narrow-viewport cases pass.
+- **Bounded acceptance:** On the same already-open valid Test checkout, inspect the active form at 200% browser zoom and 320 CSS-pixel reflow; verify no horizontal scrolling, clipped/covered fields, hidden required actions, or obscured keyboard focus. Measure normal-text contrast in the active form and its error/disabled/selected states against rendered backgrounds against the plan's 4.5:1 target. Record one set of screenshots/measurements and exact browser zoom/viewport. Merchant header branding is already in the A03 scope; payment-network artwork belongs to A05/C10 and performance belongs to A23, so neither reopens this finding.
+- **Acceptance subtasks:**
+  - [ ] Obtain read-only access to a currently valid Test checkout without creating or changing a fixture.
+  - [ ] Record active-form reflow, visible controls/focus and rendered contrast at the specified zoom/width.
+  - [ ] Fix only a reproduced A03 layout/contrast defect and run its focused regression once; otherwise record the observed pass and close this finding.
+- **Dependency/disposition:** User-controlled fixture/session availability. Do not create an invoice/share/order or submit payment for this check. A04 proceeds while this evidence is deferred.
+
+## A04 Findings
+
+#### A04-a - SDK listener detachment cannot be implemented without a documented provider contract
+
+- **Status:** Deferred pending Razorpay support response F35.
+- **Evidence:** `RazorpayCustomCheckout.tsx` registers `payment.success`, `payment.error`, and one-time `ready` listeners. Cleanup clears the mounted callbacks and ready timer, making late callbacks inert, but does not detach provider listeners. The reviewed Custom Checkout documentation establishes `on`/`once` registration but does not establish an `off`, `removeListener`, or `destroy` API. F35 records the existing support clarification request; no supported detach method is evidenced.
+- **Impact:** Full listener teardown across retry/reinitialization cannot be claimed. Inventing an unverified teardown call could break payment callbacks or SDK compatibility.
+- **Bounded remedy:** Wait for the existing F35 support answer. If Razorpay identifies a supported detach contract, implement only that contract and add one focused unmount/reinitialization regression. If no detach API exists, document the provider limit and close only after the existing mounted-guard behavior is verified as the supported lifecycle; do not keep re-querying the same docs or repeating passing mocks.
+- **Acceptance subtasks:**
+  - [x] Review current SDK source and official docs; confirm no detach API is documented in the reviewed contract.
+  - [ ] Record Razorpay's answer to F35 or an official documentation change.
+  - [ ] Apply the documented lifecycle remedy, or record the supported limitation and its bounded acceptance evidence.
+  - [ ] Run one focused listener-lifecycle regression after any source change and update the A04 register.
+- **Dependency/disposition:** Razorpay support response F35. The read-only Test Methods API account check succeeded on 3 Oct 2026; availability discovery is not blocked. Do not implement guessed `off`/`destroy` methods.
+
+#### A04-b - SDK script-load failure recovery has no dedicated browser regression
+
+- **Status:** In progress; source recovery exists, regression is being added.
+- **Evidence:** `loadCustomSdk()` removes a failed script, clears the cached rejected promise and rejects with retry guidance. The existing browser regression covers a loaded SDK that times out before returning `ready`, then recovers on retry; no test explicitly aborts the SDK script request and proves that a later retry succeeds. Source behavior therefore lacks the written failure/retry acceptance proof.
+- **Impact:** A regression in script error handling or cached-promise reset could leave checkout permanently unavailable after a transient network failure, even when the separate readiness-timeout test passes.
+- **Bounded remedy:** Extend the existing mocked A04 readiness/retry browser case: abort the first intercepted SDK script load, assert payment choices and Pay remain absent with the load error, retry into a mocked SDK readiness timeout, then retry after a ready event is enabled. Assert the SDK script is requested only as needed, methods return, and no verification or payment call occurs. Use only mocked API/SDK responses; do not create another test server, invoice, order or payment.
+- **Acceptance subtasks:**
+  - [x] Confirm current SDK source resets its failed script promise and supports retry.
+  - [x] Add assertions for script-load failure, fail-closed methods, retry and eventual ready methods; Playwright discovery lists the full 25-case CI file.
+  - [ ] Run exact-SHA CI once and record the result; do not rerun passing suites absent a change/new failure.
+- **Dependency/disposition:** None for the mocked regression. Razorpay listener-detachment question F35 remains separately deferred under A04-a.
+
+**Last exact-SHA source reconciliation before the current A04 test edit:** HEAD `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` ran as Actions run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219); Backend and CRM both succeeded. The CRM responsive UI job passed all 25 browser cases, including SDK readiness timeout/retry after the test SDK mock supplied its formatter dependency. The new A04-b script-load failure regression has not yet run in CI. F66 is resolved for that prior regression. Earlier red run [37004349213](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37004349213) is retained as historical evidence. F65's former “outbox CI pending” statement is superseded: the disposable-DB journey/webhook/outbox integration passed in Backend CI. Read-only local `pg_isready` and `prisma migrate status` previously showed `localhost:5432` accepting connections and the journey-event migration still pending on `hangers_db`; no migration was applied during this pass. Those database observations are historical snapshots, not claims about current local service state.
 
 **F65 current-status correction:** the following dated F65 paragraph's reference to SHA `8b768dd` and red CRM CI is historical. The current source/test SHA and all-green CI are `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` / run `37009102219`; the observability limitations listed there remain open.
 

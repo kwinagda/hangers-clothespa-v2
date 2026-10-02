@@ -426,6 +426,7 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   let verifyRequests = 0
   let capabilitiesLookups = 0
   let createOrderRequests = 0
+  let sdkScriptRequests = 0
   await page.route('**/payment/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -454,6 +455,8 @@ test('custom checkout hides choices when SDK readiness times out and restores th
     return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
   })
   await page.route('https://checkout.razorpay.com/v1/razorpay.js', async (route) => {
+    sdkScriptRequests += 1
+    if (sdkScriptRequests === 1) return route.abort()
     await route.fulfill({ status: 200, contentType: 'application/javascript', body: `
       window.__readyRetryInstances = window.__readyRetryInstances || 0
       window.__readyRetryPayments = window.__readyRetryPayments || 0
@@ -477,22 +480,30 @@ test('custom checkout hides choices when SDK readiness times out and restores th
 
   await page.goto(`${origin}/invoice/variant-a/checkout`)
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
-  const readinessError = 'Razorpay did not return the payment methods enabled for this account.'
   const checkout = page.getByRole('region', { name: 'Invoice payment' })
-  await expect(checkout.getByRole('alert')).toContainText(readinessError, { timeout: 8000 })
+  const loadError = 'Payment tools could not load. Check your connection and retry.'
+  await expect(checkout.getByRole('alert')).toContainText(loadError, { timeout: 8000 })
+  await expect(checkout.getByRole('radio')).toHaveCount(0)
+  await expect(checkout.getByRole('button', { name: 'Pay ₹1' })).toHaveCount(0)
   await expect.poll(() => capabilitiesLookups).toBe(1)
+
+  await page.getByRole('button', { name: 'Retry loading methods' }).click()
+  await expect.poll(() => capabilitiesLookups, { timeout: 10000 }).toBe(2)
+  const readinessError = 'Razorpay did not return the payment methods enabled for this account.'
+  await expect(checkout.getByRole('alert')).toContainText(readinessError, { timeout: 8000 })
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Pay ₹1' })).toHaveCount(0)
 
   const instancesBeforeRetry = await page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0)
   await page.evaluate(() => { (window as Window & { __readyRetryReady?: boolean }).__readyRetryReady = true })
   await page.getByRole('button', { name: 'Retry loading methods' }).click()
-  await expect.poll(() => capabilitiesLookups, { timeout: 10000 }).toBe(2)
+  await expect.poll(() => capabilitiesLookups, { timeout: 10000 }).toBe(3)
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0), { timeout: 10000 }).toBeGreaterThan(instancesBeforeRetry)
   const retryAlertText = await checkout.getByRole('alert').allTextContents()
   expect(retryAlertText, 'SDK retry should clear the readiness error').toEqual([])
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryReadyEvents?: number }).__readyRetryReadyEvents || 0), { timeout: 10000 }).toBeGreaterThan(0)
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible({ timeout: 10000 })
+  expect(sdkScriptRequests).toBe(2)
   expect(verifyRequests).toBe(0)
   expect(createOrderRequests).toBe(1)
   expect(await page.evaluate(() => (window as Window & { __readyRetryPayments?: number }).__readyRetryPayments)).toBe(0)
