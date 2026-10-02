@@ -60,7 +60,7 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
       const provider = { orders: {
         create: async (payload) => {
           calls += 1;
-          providerOrder = { ...payload, id: `order_${suffix.replaceAll('-', '')}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
+          providerOrder = { ...payload, id: `order_${sourceType}_${suffix.replaceAll('-', '')}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
           return providerOrder;
         },
         fetch: async () => providerOrder,

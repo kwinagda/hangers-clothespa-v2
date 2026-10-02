@@ -106,6 +106,18 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [ ] Rerun the complete disposable-DB suite and verify A01 tests pass with cleanup.
 - **Disposition:** In scope for A01 because deterministic, isolated CI is part of its acceptance evidence; do not advance to A02 until verified.
 
+#### A01-f - Historical checkout mock reused one provider Order ID across source types
+
+- **Status:** Mock correction authored; exact-SHA rerun pending.
+- **Evidence:** Exact-SHA run [37053960211](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37053960211) passed the new public-source, cancelled-source, route replay and preceding CI gates, but the historical-unpaid concurrency case failed on a unique `razorpayOrderId` constraint. The mock generated `order_<same-run-suffix>` for each of three source types. Earlier per-loop deletion had hidden this duplicate; A01-e's correct final cleanup made it visible.
+- **Impact:** The historical-unpaid all-source regression cannot complete with provider responses that violate Razorpay Order ID uniqueness; this is test fixture behavior, not a production checkout defect.
+- **Bounded remedy:** Include the invoice source type in each deterministic mock Order ID while retaining end-of-test cleanup.
+- **Acceptance subtasks:**
+  - [x] Confirm unique-constraint failure and trace it to the repeated mock ID.
+  - [x] Generate distinct mock Order IDs per source type.
+  - [ ] Rerun the complete disposable-DB suite and confirm the historical concurrency/replay case passes.
+- **Disposition:** In scope for A01's all-source replay proof; do not advance to A02 until verified.
+
 **A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. A01-a/A01-b remain open pending execution against the previously approved disposable `hangers_test` CI database. No local or production database was changed.
 
 **Current exact-SHA reconciliation:** HEAD `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` ran as Actions run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219); Backend and CRM both succeeded. The CRM responsive UI job passed all 25 browser cases, including SDK readiness timeout/retry after the test SDK mock supplied its formatter dependency. F66 is resolved for this regression. Earlier red run [37004349213](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37004349213) is retained as historical evidence. F65's former “outbox CI pending” statement is superseded: the disposable-DB journey/webhook/outbox integration passed in Backend CI. Read-only local `pg_isready` and `prisma migrate status` show `localhost:5432` accepting connections and the journey-event migration still pending on `hangers_db`; no migration was applied. These observations supersede earlier “PostgreSQL stopped/unavailable” statements as of this audit only.
