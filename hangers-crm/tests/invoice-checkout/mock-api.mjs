@@ -231,7 +231,11 @@ const server = http.createServer((req, res) => {
     if (!hasAttemptId) serverSideStatusLookups += 1
     if (slug === 'variant-recover-captured' && !hasAttemptId) {
       recoverCaptured = true
-      res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', attemptId: 'server-resolved-attempt', invoice: { status: 'PAID', balanceDue: 0 }, paymentId: 'pay_test_captured' } }))
+      res.writeHead(200).end(JSON.stringify({ success: true, data: {
+        status: 'CAPTURED', attemptId: null, invoice: { status: 'PAID', balanceDue: 0 },
+        paymentId: 'pay_test_captured', razorpayOrderId: 'order_test_captured', razorpayPaymentId: 'pay_test_captured',
+        capturedAmountPaise: '100', currency: 'INR', capturedAt: '2026-10-02T00:00:00.000Z',
+      } }))
       return
     }
     if (slug === 'variant-standard-success' && standardCheckoutCaptured && !hasAttemptId) {

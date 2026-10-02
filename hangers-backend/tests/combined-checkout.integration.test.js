@@ -471,6 +471,27 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
     assert.equal(history.body.data.payments.length, 1);
     assert.equal(Number(history.body.data.payments[0].amount), Number(invoice.totalAmount));
   }
+  for (const invoice of invoices) {
+    const freshToken = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: invoice.id, purpose: 'INVOICE_VIEW' });
+    const freshHash = crypto.createHash('sha256').update(freshToken).digest('hex');
+    try {
+      const freshStatus = response();
+      await getPublicRazorpayCheckoutStatus({
+        params: { slug: freshToken }, query: { invoiceId: invoice.id, checkoutIntegration: 'CUSTOM' }, id: `${suffix}_${invoice.id}`,
+      }, freshStatus);
+      assert.equal(freshStatus.statusCode, 200);
+      assert.equal(freshStatus.body.data.status, 'CAPTURED', 'a new share should resolve its invoice-scoped ledger capture');
+      assert.equal(freshStatus.body.data.paymentId, providerPayment.id);
+      assert.equal(freshStatus.body.data.razorpayOrderId, providerOrder.id);
+      assert.deepEqual(freshStatus.body.data.allocations, [{
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        amountPaise: String(Math.round(Number(invoice.totalAmount) * 100)),
+      }], 'a single-invoice share must not expose another invoice allocation');
+    } finally {
+      await prisma.publicShareToken.deleteMany({ where: { tokenHash: freshHash } });
+    }
+  }
   const replay = await settleCapturedPayment({ paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider });
   assert.equal(replay.alreadyRecorded, true);
   assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: providerPayment.id } }), 1);

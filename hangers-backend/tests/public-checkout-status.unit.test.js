@@ -275,6 +275,79 @@ test('status recovery returns NONE for an invoice without any checkout attempt',
   assert.equal(res.body.data.attemptId, null);
 });
 
+test('a new valid invoice share shows only its own posted Razorpay capture when the invoice is paid', async () => {
+  const invoice = { id: 'invoice_paid_share', customerId: 'customer_paid_share', invoiceNumber: 'INV-PAID-SHARE', status: 'PAID', balanceDue: 0, paidAmount: 100 };
+  let paymentLookup = 0;
+  const res = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'fresh_paid_share' }, query: { invoiceId: invoice.id, checkoutIntegration: 'CUSTOM' }, headers: {}, id: 'request_paid_share',
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'fresh_paid_share'),
+    prisma: {
+      razorpayCheckoutAttempt: { findFirst: async () => null },
+      invoice: { findUnique: async () => invoice },
+      paymentAllocation: {
+        findFirst: async (query) => {
+          paymentLookup += 1;
+          assert.deepEqual(query, {
+            where: {
+              invoiceId: invoice.id, status: 'POSTED', reversedAt: null,
+              payment: { is: {
+                method: 'RAZORPAY', status: 'CAPTURED', mode: 'TEST', reversedAt: null,
+                OR: [{ razorpayPaymentId: { not: null } }, { razorpayOrderId: { not: null } }],
+              } },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: {
+              amount: true,
+              invoice: { select: { invoiceNumber: true } },
+              payment: { select: { razorpayOrderId: true, razorpayPaymentId: true, createdAt: true } },
+            },
+          });
+          return {
+            amount: 100,
+            invoice: { invoiceNumber: invoice.invoiceNumber },
+            payment: { razorpayOrderId: 'order_paid_invoice', razorpayPaymentId: 'pay_paid_invoice', createdAt: new Date('2026-10-02T00:00:00.000Z') },
+          };
+        },
+      },
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.status, 'CAPTURED');
+  assert.equal(res.body.data.canResumeCheckout, false);
+  assert.equal(res.body.data.paymentId, 'pay_paid_invoice');
+  assert.equal(res.body.data.razorpayOrderId, 'order_paid_invoice');
+  assert.equal(res.body.data.capturedAmountPaise, '10000');
+  assert.deepEqual(res.body.data.allocations, [{ invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, amountPaise: '10000' }]);
+  assert.equal(paymentLookup, 1);
+});
+
+test('an explicit missing attempt ID does not fall back to invoice payment history', async () => {
+  const invoice = { id: 'invoice_missing_attempt', customerId: 'customer_missing_attempt', invoiceNumber: 'INV-MISSING-ATTEMPT', status: 'PAID', balanceDue: 0, paidAmount: 100 };
+  const res = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'valid_paid_share' }, query: { invoiceId: invoice.id, attemptId: 'missing_attempt' }, headers: {}, id: 'request_missing_attempt',
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'valid_paid_share'),
+    prisma: {
+      razorpayCheckoutAttempt: { findFirst: async () => null },
+      invoice: { findUnique: async () => invoice },
+      paymentAllocation: { findFirst: async () => assert.fail('must not expose a historical capture for an explicit attempt lookup') },
+    },
+  });
+  assert.equal(res.statusCode, 404);
+  assert.equal(res.body.code, 'CHECKOUT_ATTEMPT_NOT_FOUND');
+});
+
 test('a fresh invoice link sees another link’s unresolved attempt but cannot resume it', async () => {
   const invoice = { id: 'invoice_790', customerId: 'customer_790', invoiceNumber: 'INV-790', status: 'OPEN', balanceDue: 73, paidAmount: 0 };
   const activeAttempt = boundAttempt(invoice, 'original_share', {

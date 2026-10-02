@@ -717,6 +717,12 @@ test('a reopened invoice discovers and records a captured payment without browse
   const after = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   expect(after.serverSideStatusLookups).toBeGreaterThan(before.serverSideStatusLookups)
   await expect(page.getByRole('button', { name: /Pay/ })).toHaveCount(0)
+
+  await page.goto('/invoice/variant-recover-captured/checkout')
+  await expect(page.getByRole('heading', { name: 'Payment received' })).toBeVisible()
+  await expect(page.getByText('order_test_captured')).toBeVisible()
+  await expect(page.getByText('pay_test_captured')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Pay/ })).toHaveCount(0)
 })
 
 test('Standard Checkout capture refreshes the invoice and never reopens Pay after reload', async ({ page, request }) => {

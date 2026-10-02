@@ -1159,6 +1159,7 @@ const getPublicRazorpayCheckoutStatus = async (req, res, _next, testHooks = {}) 
         ...(attemptId ? { id: attemptId } : {}) },
       orderBy: { createdAt: 'desc' },
     });
+    let invoice = null;
     // Checkout creation guards active attempts invoice-wide. A newly issued
     // invoice link must see that same guard in status polling, without gaining
     // permission to resume or reconcile an order bound to a different link.
@@ -1193,6 +1194,55 @@ const getPublicRazorpayCheckoutStatus = async (req, res, _next, testHooks = {}) 
           capturedAt: null,
           allocations: [],
         });
+      }
+    }
+    if (!attempt && !attemptId) {
+      invoice = await db.invoice.findUnique({
+        where: { id: target.invoice.id },
+        select: { invoiceNumber: true, status: true, balanceDue: true, paidAmount: true },
+      });
+      if (invoice?.status === 'PAID' && Number(invoice.balanceDue || 0) <= 0 && Number(invoice.paidAmount || 0) > 0) {
+        const allocation = await db.paymentAllocation.findFirst({
+          where: {
+            invoiceId: target.invoice.id,
+            status: 'POSTED',
+            reversedAt: null,
+            payment: { is: {
+              method: 'RAZORPAY', status: 'CAPTURED', mode: getMode(), reversedAt: null,
+              OR: [{ razorpayPaymentId: { not: null } }, { razorpayOrderId: { not: null } }],
+            } },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            amount: true,
+            invoice: { select: { invoiceNumber: true } },
+            payment: { select: { razorpayOrderId: true, razorpayPaymentId: true, createdAt: true } },
+          },
+        });
+        if (allocation?.payment) {
+          const allocatedAmountPaise = String(Math.round(Number(allocation.amount) * 100));
+          return success(res, {
+            attemptId: null,
+            status: 'CAPTURED',
+            canResumeCheckout: false,
+            providerLookupUnavailable: false,
+            observedAt: new Date().toISOString(),
+            ...(customCheckout ? { providerError: null, retryPolicyGate: null } : {}),
+            ...publicCheckoutRedirectOptions(req.params.slug, target.invoice.id),
+            razorpayOrderId: allocation.payment.razorpayOrderId || null,
+            razorpayPaymentId: allocation.payment.razorpayPaymentId || null,
+            invoice,
+            paymentId: allocation.payment.razorpayPaymentId || null,
+            capturedAmountPaise: allocatedAmountPaise,
+            currency: target.invoice.currency || 'INR',
+            capturedAt: allocation.payment.createdAt || null,
+            allocations: [{
+              invoiceId: target.invoice.id,
+              invoiceNumber: allocation.invoice?.invoiceNumber || invoice.invoiceNumber,
+              amountPaise: allocatedAmountPaise,
+            }],
+          });
+        }
       }
     }
     if (attempt && Boolean(attempt.allocationPlan) !== (target.share.resourceType === 'CUSTOMER')) {
@@ -1298,7 +1348,7 @@ const getPublicRazorpayCheckoutStatus = async (req, res, _next, testHooks = {}) 
       }
     }
 
-    const invoice = await db.invoice.findUnique({
+    invoice ||= await db.invoice.findUnique({
       where: { id: target.invoice.id },
       select: { invoiceNumber: true, status: true, balanceDue: true, paidAmount: true },
     });
