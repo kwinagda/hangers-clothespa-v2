@@ -68,6 +68,19 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [ ] Run focused regressions against the approved disposable CI database and record exact-SHA results; do not write to local `hangers_db`.
 - **A01 disposition:** Keep A01 open until A01-a's successful public-path coverage and A01-b's source-status protections pass. Do not move to A02 before both are closed.
 
+#### A01-c - New checkout dependency breaks the reservation retry harness before A01 CI runs
+
+- **Status:** Test-harness correction authored; exact-SHA CI rerun pending.
+- **Evidence:** Exact-SHA run [37052327041](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37052327041) passed setup, schema/migration checks, and earlier Razorpay suites, then failed the `Verify bounded Custom Checkout acceptance regressions` step. Four failures in `checkout-concurrency-acceptance.unit.test.js` reported `Unexpected import: ./receivables.service`; the new source dependency was absent from that test's isolated VM dependency map. Workflow sequencing therefore skipped the subsequent database-backed A01 integration step. CRM CI passed.
+- **Impact:** A01-a/A01-b cannot be considered verified until the unrelated isolated retry harness loads the service successfully and CI reaches the disposable-DB integration step.
+- **Bounded remedy:** Add only the missing `openInvoiceWhere` stub to the VM harness; do not broaden or weaken the retry assertions.
+- **Acceptance subtasks:**
+  - [x] Reproduce the exact failure from the run log.
+  - [x] Add the required isolated dependency stub without enabling database/provider access.
+  - [ ] Run the focused concurrency unit test locally and rerun exact-SHA disposable-DB CI.
+  - [ ] Record the CI result and confirm the A01 integration step executed.
+- **Disposition:** In scope because this failure prevents completion of A01; do not advance to A02 until it and A01-a/A01-b are verified.
+
 **A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. A01-a/A01-b remain open pending execution against the previously approved disposable `hangers_test` CI database. No local or production database was changed.
 
 **Current exact-SHA reconciliation:** HEAD `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` ran as Actions run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219); Backend and CRM both succeeded. The CRM responsive UI job passed all 25 browser cases, including SDK readiness timeout/retry after the test SDK mock supplied its formatter dependency. F66 is resolved for this regression. Earlier red run [37004349213](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37004349213) is retained as historical evidence. F65's former “outbox CI pending” statement is superseded: the disposable-DB journey/webhook/outbox integration passed in Backend CI. Read-only local `pg_isready` and `prisma migrate status` show `localhost:5432` accepting connections and the journey-event migration still pending on `hangers_db`; no migration was applied. These observations supersede earlier “PostgreSQL stopped/unavailable” statements as of this audit only.
