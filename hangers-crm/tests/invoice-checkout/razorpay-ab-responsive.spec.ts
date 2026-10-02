@@ -288,6 +288,104 @@ test('custom checkout shows one invoice lookup error and never labels it a pendi
   expect(after.createOrderRequests).toBe(before.createOrderRequests)
 })
 
+test('active custom checkout renders only returned methods and remains usable at narrow and desktop widths', async ({ page, request }) => {
+  const origin = 'http://localhost:55104'
+  const paymentMethods = {
+    upi: true,
+    card: true,
+    netbanking: { HDFC: 'HDFC Bank' },
+    wallet: { payzapp: true },
+    emi: false,
+  }
+  const corsHeaders = {
+    'access-control-allow-origin': origin,
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type,idempotency-key',
+  }
+  const apiRequests: string[] = []
+  const providerRequests: string[] = []
+
+  await page.route('**/api/v1/public/invoices/**/payment/**', async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    apiRequests.push(`${request.method()} ${path}`)
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/custom/capabilities')) {
+      await route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
+        key: 'rzp_test_ui_fixture', mode: 'TEST', methods: paymentMethods,
+        configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: [] },
+      } } })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/payment/status')) {
+      await route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'NONE' } } })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/custom/downtime')) {
+      await route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'unknown', incidents: [] } } })
+      return
+    }
+    if (request.method() === 'POST' && path.endsWith('/payment/create-order')) {
+      const body = request.postDataJSON()
+      expect(body.checkoutIntegration).toBe('CUSTOM')
+      await route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
+        key: 'rzp_test_ui_fixture', amount: 100, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
+        checkoutAttemptId: 'ui-custom-attempt', razorpayOrderId: 'order_ui_custom_test', invoiceNumber: 'AB-VISUAL-FIXTURE',
+      } } })
+      return
+    }
+    await route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+  })
+  await page.route('https://checkout.razorpay.com/v1/razorpay.js', async (route) => {
+    providerRequests.push(route.request().url())
+    await route.fulfill({ status: 200, contentType: 'application/javascript', body: `
+      window.Razorpay = class {
+        constructor() { this.methods = ${JSON.stringify(paymentMethods)} }
+        on() {}
+        once(event, callback) { if (event === 'ready') callback({ methods: this.methods }) }
+        getSupportedUpiIntentApps() { return Promise.resolve([]) }
+        createPayment() { throw new Error('Payment submission is not part of this UI test') }
+      }
+    ` })
+  })
+
+  for (const width of [320, 1440]) {
+    await page.setViewportSize({ width, height: width === 320 ? 700 : 900 })
+    await page.goto('http://localhost:55104/invoice/variant-a/checkout')
+    await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Pay Hangers Clothes Spa' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'UPI' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'Netbanking' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'Wallet' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'Card EMI' })).toHaveCount(0)
+    await page.getByRole('radio', { name: 'Netbanking' }).check()
+    await expect(page.getByLabel('Select bank')).toHaveValue('HDFC')
+    await expect(page.getByRole('button', { name: 'Pay ₹1' })).toBeVisible()
+
+    const layout = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }))
+    expect(layout.content, `custom checkout at ${width}px must not overflow`).toBeLessThanOrEqual(layout.viewport + 2)
+    await page.getByRole('radio', { name: 'UPI' }).focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeFocused()
+    await page.goto('about:blank')
+  }
+
+  expect(apiRequests.some((entry) => entry.includes('/custom/capabilities'))).toBe(true)
+  expect(apiRequests.some((entry) => entry.includes('/payment/create-order'))).toBe(true)
+  expect(apiRequests.some((entry) => entry.includes('/payment/verify'))).toBe(false)
+  expect(providerRequests).toEqual(['https://checkout.razorpay.com/v1/razorpay.js', 'https://checkout.razorpay.com/v1/razorpay.js'])
+  const stats = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
+  expect(stats.createOrderRequests).toBe(0)
+})
+
 test('closing Checkout immediately checks the attempt and keeps a nonterminal payment locked', async ({ page }) => {
   await page.addInitScript(() => {
     (window as Window & { Razorpay?: unknown }).Razorpay = class {
