@@ -294,6 +294,7 @@ test('active custom checkout renders only returned methods and remains usable at
   const paymentMethods = {
     upi: true,
     card: true,
+    card_networks: { VISA: 1, MC: 1, RUPAY: 1, AMEX: 1, DICL: 0 },
     netbanking: { HDFC: 'HDFC Bank' },
     wallet: { payzapp: true },
     emi: false,
@@ -334,7 +335,12 @@ test('active custom checkout renders only returned methods and remains usable at
       capabilitiesLookups += 1
       await route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
         key: 'rzp_test_ui_fixture', mode: 'TEST', methods: paymentMethods,
-        configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: [] },
+        configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [
+          { kind: 'network', code: 'VISA', label: 'Visa', url: 'https://cdn.razorpay.com/card-networks/visa.svg' },
+          { kind: 'network', code: 'MC', label: 'Mastercard', url: 'https://cdn.razorpay.com/card-networks/mastercard.svg' },
+          { kind: 'network', code: 'RUPAY', label: 'RuPay', url: 'https://cdn.razorpay.com/card-networks/rupay.svg' },
+          { kind: 'network', code: 'AMEX', label: 'American Express', url: 'https://cdn.razorpay.com/card-networks/amex.svg' },
+        ], excludedCardNetworks: ['DICL'] },
       } } })
       apiRequests.push('capabilities fulfilled')
       return
@@ -369,6 +375,7 @@ test('active custom checkout renders only returned methods and remains usable at
         constructor() { this.methods = ${JSON.stringify(paymentMethods)} }
         on() {}
         once(event, callback) { if (event === 'ready') callback({ methods: this.methods }) }
+        static setFormatter() { return { add(type) { return { type: type === 'card' ? 'Visa' : '', isValid: () => true, on() { return this } } }, off() {} } }
         getSupportedUpiIntentApps() { return Promise.resolve([]) }
         createPayment() { throw new Error('Payment submission is not part of this UI test') }
       }
@@ -404,6 +411,12 @@ test('active custom checkout renders only returned methods and remains usable at
     await page.keyboard.press('ArrowDown')
     await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeFocused()
     await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeChecked()
+    await expect(page.getByRole('img', { name: 'Visa', exact: true })).toBeVisible()
+    await expect(page.getByRole('img', { name: 'Mastercard', exact: true })).toBeVisible()
+    await expect(page.getByRole('img', { name: 'RuPay', exact: true })).toBeVisible()
+    await expect(page.getByRole('img', { name: 'American Express', exact: true })).toBeVisible()
+    await expect(page.getByRole('img', { name: 'Diners Club', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('img', { name: 'Visa', exact: true })).toHaveAttribute('src', 'https://cdn.razorpay.com/card-networks/visa.svg')
     await page.goto('about:blank')
   }
 

@@ -190,17 +190,58 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
 
 #### A04-b - SDK script-load failure recovery has no dedicated browser regression
 
-- **Status:** In progress; source recovery exists, regression is being added.
+- **Status:** Complete.
 - **Evidence:** `loadCustomSdk()` removes a failed script, clears the cached rejected promise and rejects with retry guidance. The existing browser regression covers a loaded SDK that times out before returning `ready`, then recovers on retry; no test explicitly aborts the SDK script request and proves that a later retry succeeds. Source behavior therefore lacks the written failure/retry acceptance proof.
 - **Impact:** A regression in script error handling or cached-promise reset could leave checkout permanently unavailable after a transient network failure, even when the separate readiness-timeout test passes.
 - **Bounded remedy:** Extend the existing mocked A04 readiness/retry browser case: abort the first intercepted SDK script load, assert payment choices and Pay remain absent with the load error, retry into a mocked SDK readiness timeout, then retry after a ready event is enabled. Assert the SDK script is requested only as needed, methods return, and no verification or payment call occurs. Use only mocked API/SDK responses; do not create another test server, invoice, order or payment.
 - **Acceptance subtasks:**
   - [x] Confirm current SDK source resets its failed script promise and supports retry.
   - [x] Add assertions for script-load failure, fail-closed methods, retry and eventual ready methods; Playwright discovery lists the full 25-case CI file.
-  - [ ] Run exact-SHA CI once and record the result; do not rerun passing suites absent a change/new failure.
+  - [x] Run exact-SHA CI once and record the result; do not rerun passing suites absent a change/new failure.
 - **Dependency/disposition:** None for the mocked regression. Razorpay listener-detachment question F35 remains separately deferred under A04-a.
 
-**Last exact-SHA source reconciliation before the current A04 test edit:** HEAD `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` ran as Actions run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219); Backend and CRM both succeeded. The CRM responsive UI job passed all 25 browser cases, including SDK readiness timeout/retry after the test SDK mock supplied its formatter dependency. The new A04-b script-load failure regression has not yet run in CI. F66 is resolved for that prior regression. Earlier red run [37004349213](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37004349213) is retained as historical evidence. F65's former “outbox CI pending” statement is superseded: the disposable-DB journey/webhook/outbox integration passed in Backend CI. Read-only local `pg_isready` and `prisma migrate status` previously showed `localhost:5432` accepting connections and the journey-event migration still pending on `hangers_db`; no migration was applied during this pass. Those database observations are historical snapshots, not claims about current local service state.
+**Closure evidence (3 October 2026):** Exact-SHA PR #10 CI run [37061229353](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37061229353), commit `b3807d39f0bb284a99d09534f95d260ac422878a`, passed Backend and CRM. The CRM responsive UI job passed the full 25-case browser file, including the new aborted-SDK-script, fail-closed, retry-through-readiness-timeout, and eventual-ready recovery assertions. No live/test payment or local database mutation occurred. This closes A04-b; it does not close A04-a/F35.
+
+**Prior exact-SHA source reconciliation:** HEAD `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` ran as Actions run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219); Backend and CRM both succeeded. Its 25 browser cases covered readiness timeout/retry but not script-load failure; that gap is now closed by A04-b above. F66 is resolved for that prior regression. Earlier red run [37004349213](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37004349213) is retained as historical evidence. F65's former “outbox CI pending” statement is superseded: the disposable-DB journey/webhook/outbox integration passed in Backend CI. Read-only local `pg_isready` and `prisma migrate status` observations are historical snapshots, not claims about current local service state.
+
+### A05 Findings
+
+#### A05-a - Test IIN lookup fails and Razorpay's length instructions conflict
+
+- **Status:** Deferred pending provider clarification; no unsupported fallback.
+- **Evidence:** Prior read-only Test-key lookup for `41002800` and `410028` returned Razorpay's `The requested URL was not found on the server.` response through the documented SDK endpoint; see F46. The current official IIN page's supported-length table says non-tokenized IINs are 6–8 digits, but its path-parameter explanation says non-tokenized IINs are 6 digits and tokenized IINs are 9 digits. Current frontend sends up to the first 8 PAN digits and accepts 6–8 for non-tokenized lookup; it does not send a full PAN. Official reference: https://razorpay.com/docs/api/payments/cards/iin-api/ (reviewed 3 October 2026).
+- **Impact:** Custom card eligibility/network and issuer identification cannot be represented as provider-verified when the Test endpoint errors; choosing one conflicting documented length or adding an alternate route would be a guess.
+- **Bounded remedy:** Keep the documented existing 6–8 input boundary and fail closed when the lookup is unavailable. Resume only when Razorpay clarifies the accepted length and the 404 cause or a successful read-only provider response establishes the contract; then run one focused lookup-contract regression. No payment, local data write or alternate IIN endpoint.
+- **Acceptance subtasks:**
+  - [x] Confirm the current implementation sends only a 6–8 digit prefix and rejects unknown/error responses without guessing a network.
+  - [x] Recheck the current official IIN page and record the conflicting length statements.
+  - [ ] Record provider clarification or successful Test lookup for the supported input.
+  - [ ] Add/update the focused contract regression only after that authoritative answer; run it once.
+- **Dependency/disposition:** Razorpay clarification for F46 and the official page's conflicting length language. No code change is justified until resolved.
+
+#### A05-b - Card validation boundary must not claim undocumented field rules
+
+- **Status:** Closed as an implementation review; no guessed network-specific validation found.
+- **Evidence:** Card number and expiry use Razorpay's loaded Custom Checkout formatter `isValid()` result. The app checks only required cardholder name, documented MM/YY shape/future expiry and non-empty CVV; it imposes no card-brand CVV length, local BIN prefix table or unsupported card-number length rule, and passes CVV to Razorpay unchanged. The reviewed official Custom Checkout, payment-method and Test pages do not specify a public formatter API contract or brand-specific CVV validation rules. References: https://razorpay.com/docs/developer-tools/integrations/custom-checkout/ ; https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods/ ; https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/test-integration.
+- **Impact:** Treating locally invented rules as Razorpay validation could reject valid cards or falsely advertise acceptance. Current source avoids that behavior and leaves authorization to Razorpay.
+- **Bounded remedy:** None required. Preserve provider formatter validation and provider authorization; do not add CVV-length or BIN-prefix validation absent an official contract.
+- **Acceptance subtasks:**
+  - [x] Inspect card submission and formatter usage.
+  - [x] Compare local validation to the reviewed official documentation.
+  - [x] Confirm no guessed network-specific length/prefix rules are present.
+- **Dependency/disposition:** None for the stated A05 acceptance. This finding is closed as an evidence-based no-change result; it does not claim that Razorpay documents a detailed per-field formatter contract.
+
+#### A05-c - Active card form network artwork lacks a CI rendering assertion
+
+- **Status:** In progress; focused browser regression added, exact-SHA CI pending.
+- **Evidence:** Backend publishes an allowlisted set of Razorpay-hosted network artwork URLs, and the active card form renders returned artwork against the enabled-network list. Existing CI browser fixtures supplied an empty artwork list, so none asserted Visa, Mastercard, RuPay, AmEx rendering or Diners exclusion in that active form.
+- **Impact:** The provider-approved artwork mapping could regress or display a disabled network without the current suite detecting it.
+- **Bounded remedy:** Extend the existing CI-only active-checkout browser case with the Razorpay-hosted Visa, Mastercard, RuPay and AmEx artwork entries and enabled-network response; assert their accessible images/source URLs appear and Diners does not. This validates UI mapping, not availability of Razorpay's external CDN or actual account activation.
+- **Acceptance subtasks:**
+  - [x] Confirm production mapping uses Razorpay-hosted image URLs and filters artwork through enabled networks/exclusions.
+  - [x] Add assertions for four accepted network logos and Diners exclusion to the existing CI browser case.
+  - [ ] Run exact-SHA CI once and record the result; rerun only if this assertion fails and is fixed.
+- **Dependency/disposition:** Exact-SHA CI. Actual CDN delivery/device rendering is not inferred by a mocked browser response; the accepted asset hosts are controlled by Razorpay.
 
 **F65 current-status correction:** the following dated F65 paragraph's reference to SHA `8b768dd` and red CRM CI is historical. The current source/test SHA and all-green CI are `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` / run `37009102219`; the observability limitations listed there remain open.
 
