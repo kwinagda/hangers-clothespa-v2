@@ -490,7 +490,7 @@ test('CRED eligibility retry clears the previous ineligible result without submi
     ;(window as Window & { __credEligibility?: unknown }).__credEligibility = { success: true, data: { state: 'ELIGIBLE' } }
   })
   await page.getByRole('button', { name: 'Check CRED eligibility' }).click()
-  await expect(page.getByRole('status')).toContainText('CRED eligibility confirmed')
+  await expect(page.locator('small[role="status"]').filter({ hasText: 'CRED eligibility confirmed' })).toBeVisible()
   await expect(page.locator('p[role="alert"]')).toHaveCount(0)
   expect(paymentSubmissions).toBe(0)
   expect(await page.evaluate(() => (window as Window & { __credPaymentSubmitted?: boolean }).__credPaymentSubmitted)).not.toBe(true)
