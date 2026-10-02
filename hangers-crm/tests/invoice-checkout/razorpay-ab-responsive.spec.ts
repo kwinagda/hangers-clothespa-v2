@@ -267,7 +267,7 @@ test('custom checkout shows one invoice lookup error and never labels it a pendi
   const before = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   let capabilitiesLookups = 0
   let statusLookups = 0
-  const corsHeaders = { 'access-control-allow-origin': 'http://127.0.0.1:55104', 'access-control-allow-credentials': 'true' }
+  const corsHeaders = { 'access-control-allow-origin': 'http://localhost:55104', 'access-control-allow-credentials': 'true' }
   await page.route('**/payment/custom/capabilities**', (route) => {
     capabilitiesLookups += 1
     return route.fulfill({ status: 404, headers: corsHeaders, contentType: 'application/json', body: JSON.stringify({ message: 'Invoice not found' }) })
@@ -276,7 +276,7 @@ test('custom checkout shows one invoice lookup error and never labels it a pendi
     statusLookups += 1
     return route.fulfill({ status: 404, headers: corsHeaders, contentType: 'application/json', body: JSON.stringify({ message: 'Invoice not found' }) })
   })
-  await page.goto('http://127.0.0.1:55104/invoice/variant-a/checkout')
+  await page.goto('http://localhost:55104/invoice/variant-a/checkout')
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   await expect.poll(() => capabilitiesLookups).toBe(1)
   await expect.poll(() => statusLookups).toBe(1)
@@ -305,6 +305,7 @@ test('active custom checkout renders only returned methods and remains usable at
   }
   const apiRequests: string[] = []
   const providerRequests: string[] = []
+  page.on('pageerror', (error) => apiRequests.push(`page error: ${error.message}`))
 
   await page.route('**/api/v1/public/invoices/**/payment/**', async (route) => {
     const request = route.request()
@@ -319,14 +320,17 @@ test('active custom checkout renders only returned methods and remains usable at
         key: 'rzp_test_ui_fixture', mode: 'TEST', methods: paymentMethods,
         configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: [] },
       } } })
+      apiRequests.push('capabilities fulfilled')
       return
     }
     if (request.method() === 'GET' && path.endsWith('/payment/status')) {
       await route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'NONE' } } })
+      apiRequests.push('status fulfilled')
       return
     }
     if (request.method() === 'GET' && path.endsWith('/custom/downtime')) {
       await route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'unknown', incidents: [] } } })
+      apiRequests.push('downtime fulfilled')
       return
     }
     if (request.method() === 'POST' && path.endsWith('/payment/create-order')) {
@@ -336,6 +340,7 @@ test('active custom checkout renders only returned methods and remains usable at
         key: 'rzp_test_ui_fixture', amount: 100, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
         checkoutAttemptId: 'ui-custom-attempt', razorpayOrderId: 'order_ui_custom_test', invoiceNumber: 'AB-VISUAL-FIXTURE',
       } } })
+      apiRequests.push('order preparation fulfilled')
       return
     }
     await route.fulfill({ status: 204, headers: corsHeaders, body: '' })
