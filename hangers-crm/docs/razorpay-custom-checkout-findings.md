@@ -341,7 +341,7 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
 
 #### A10-a - A failed CRED eligibility check left a stale error after a successful retry
 
-- **Status:** Source fix is present; one bounded closure cycle is authorized under the user's continuing end-to-end instruction to finish the active A item. No further retries are allowed if this cycle fails.
+- **Status:** Complete; the source fix and regression passed exact-SHA CI.
 - **Evidence:** `checkCred` set the ineligible/error state when the SDK returned a non-eligible result, but did not clear that error when the customer retried and received `ELIGIBLE`. The new bounded browser regression exercises ineligible then eligible responses and asserts the old alert disappears without invoking payment submission.
 - **Impact:** The customer could see a contradictory failure banner beside confirmed eligibility, even though a later valid check permits continuing. It does not change payment eligibility, amount, payload or server settlement.
 - **Bounded remedy:** Clear the prior method-level error at the start of a fresh CRED eligibility check; retain the existing country-coded eligibility call and payment gate. Do not change provider error mapping or add guessed eligibility states.
@@ -349,9 +349,9 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [x] Trace the failed-result and successful-retry state transitions.
   - [x] Clear the stale alert when a new eligibility check begins.
   - [x] Add one mocked ineligible-then-eligible regression and assert no payment/verification request.
-  - [x] Run the focused regression through exact-SHA CI once for this revision; backend passed, CRM responsive suite failed at this regression (25/26 passed).
-- **Evidence:** Commit `ea8ca1fb0a34f61830db2b251c83c19403067828`, exact-SHA CI run [37066262927](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37066262927). That run's failure was a strict-mode ambiguity: `getByRole('status')` matched both the general availability note and the CRED eligibility status. This was a test-selector failure, not evidence of a product failure. The assertion now scopes to the status element containing the documented CRED success message. Run the focused A10 browser regression and exact-SHA CI once; if either fails, keep A10 active and stop until a new bounded authorization is given.
-- **Dependency/disposition:** One final bounded verification cycle for the selector correction. Official references: https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/features/check-cred-eligibility and https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods.
+  - [x] Run the corrected focused regression within exact-SHA CI; Backend and CRM both passed.
+- **Evidence:** Commit `ea8ca1fb0a34f61830db2b251c83c19403067828`, run [37066262927](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37066262927), exposed a strict-mode ambiguity: `getByRole('status')` matched the general availability note and the CRED eligibility status. This was a test-selector failure, not a product failure. The assertion now scopes to the status element containing the CRED success message. The corrected regression passed as part of the 26-case CRM responsive suite; Backend also passed in exact-SHA run [37067571073](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37067571073) for commit `da2a919d9718c0c8668cecc0498fed615984cc50`.
+- **Dependency/disposition:** None for A10-a. Official references: https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/features/check-cred-eligibility and https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods.
 
 #### A10-b - Merchant-enabled provider inventory and provider-backed acceptance are not evidenced
 
