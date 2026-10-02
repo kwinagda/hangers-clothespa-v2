@@ -423,7 +423,6 @@ test('custom checkout hides choices when SDK readiness times out and restores th
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-allow-headers': 'content-type,idempotency-key',
   }
-  let orderRequests = 0
   let verifyRequests = 0
   await page.route('**/payment/**', async (route) => {
     const request = route.request()
@@ -441,19 +440,20 @@ test('custom checkout hides choices when SDK readiness times out and restores th
     if (request.method() === 'GET' && path.endsWith('/custom/downtime')) {
       return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'unknown', incidents: [] } } })
     }
-    if (path.endsWith('/payment/create-order')) orderRequests += 1
     if (path.endsWith('/payment/verify')) verifyRequests += 1
     return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
   })
   await page.route('https://checkout.razorpay.com/v1/razorpay.js', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/javascript', body: `
       window.__readyRetryInstances = window.__readyRetryInstances || 0
+      window.__readyRetryPayments = window.__readyRetryPayments || 0
       window.Razorpay = class {
         constructor() { this.instanceNumber = ++window.__readyRetryInstances }
         once(event, callback) {
           if (this.instanceNumber > 1 && event === 'ready') callback({ methods: { card: true } })
         }
         on() {}
+        createPayment() { window.__readyRetryPayments += 1 }
       }
     ` })
   })
@@ -471,8 +471,8 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible()
   await expect(checkout.getByRole('alert')).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0)).toBeGreaterThan(instancesBeforeRetry)
-  expect(orderRequests).toBe(0)
   expect(verifyRequests).toBe(0)
+  expect(await page.evaluate(() => (window as Window & { __readyRetryPayments?: number }).__readyRetryPayments)).toBe(0)
 })
 
 test('closing Checkout immediately checks the attempt and keeps a nonterminal payment locked', async ({ page }) => {
