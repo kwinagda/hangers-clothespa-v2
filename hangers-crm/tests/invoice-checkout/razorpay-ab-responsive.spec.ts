@@ -718,7 +718,7 @@ test('a reopened invoice discovers and records a captured payment without browse
   expect(after.serverSideStatusLookups).toBeGreaterThan(before.serverSideStatusLookups)
   await expect(page.getByRole('button', { name: /Pay/ })).toHaveCount(0)
 
-  await page.goto('/invoice/variant-recover-captured/checkout')
+  await page.goto('http://localhost:55104/invoice/variant-recover-captured/checkout')
   await expect(page.getByRole('heading', { name: 'Payment received' })).toBeVisible()
   await expect(page.getByText('order_test_captured')).toBeVisible()
   await expect(page.getByText('pay_test_captured')).toBeVisible()
