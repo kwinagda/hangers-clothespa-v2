@@ -23,6 +23,8 @@ This is a chronological evidence register; the bullets below are the current dis
 
 **New-finding workflow:** any issue discovered while completing an A01-A24 task goes here under that A-item as an unchecked, lettered subtask with symptom, reproducible evidence, impact/risk, bounded fix, and acceptance criteria. If it affects acceptance or safe completion of the active A-item, resolve and verify it before advancing. Otherwise leave it recorded for the later findings phase; do not interrupt the active task with unrelated repairs. Resolved findings remain checked here with closure evidence; dated failure notes stay historical.
 
+**Finite findings-pass rule:** when A01-A24 reaches a final disposition, freeze the findings present at that point as the complete scope of the later findings pass. Number/count that frozen list, then handle each finding once against its recorded bounded acceptance and test budget. Do not append newly discovered issues to that active pass, reopen closed A-items, or rerun passing checks without a relevant change or contradictory evidence. A new issue found after the freeze is a recommendation for a separately approved, finite follow-up plan. External dependencies receive one bounded verification when evidence arrives; if still unavailable, keep the specific deferral and finish the current finite pass rather than retrying indefinitely.
+
 | Finding(s) | Current disposition | What remains |
 | --- | --- | --- |
 | F01-F02 | Earlier claims superseded: same-order retry source path is implemented; approved Razorpay-hosted artwork mapping is integrated. | Retry lifecycle acceptance remains in A13-A15; active UI artwork review remains in A03/C10. |
@@ -249,7 +251,7 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
 
 #### A07-a - UPI Intent was not disabled for Customer Fee Bearer
 
-- **Status:** In progress; documented guard and focused regressions added, exact-SHA CI pending.
+- **Status:** Complete.
 - **Evidence:** The official Razorpay UPI Intent mobile-web page states UPI Intent is not available on the Customer Fee Bearer (CFB) model. The UI previously treated only explicit `upi_intent` method flags as authoritative and could expose discovered app choices when the configured fee bearer was `CUSTOMER`.
 - **Impact:** A customer on CFB could be offered an Intent flow that Razorpay documents as unavailable, despite the UI otherwise following the returned method list.
 - **Bounded remedy:** Derive one `upiIntentUnavailable` guard from the provider's explicit method flags plus the already-loaded fee-bearer configuration. When fee bearer is `CUSTOMER`, disable only the Intent-specific mobile app path; do not suppress desktop UPI QR or unrelated methods. Do not infer the fee-bearer value when it is `UNVERIFIED`.
@@ -257,8 +259,10 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [x] Confirm the provider's documented CFB restriction and trace the UI method gate.
   - [x] Add the CFB guard without changing desktop UPI QR or other methods.
   - [x] Add focused unit cases for CFB and either returned method snapshot disabling Intent.
-  - [ ] Run exact-SHA CI once and record the result; rerun only if a concrete failure is fixed.
+  - [x] Run exact-SHA CI once and record the result; rerun only if a concrete failure is fixed.
 - **Dependency/disposition:** Exact-SHA CI. Official source: https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods/upi-intent-mweb/ (reviewed 3 October 2026).
+
+**Closure evidence (3 October 2026):** Focused UPI unit tests passed 4/4. Exact-SHA PR #10 CI run [37063205049](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37063205049), commit `eaa0f5f17c0e1d69812a9da15ef42bc9242f563f`, passed Backend and CRM, including CRM type-check/build, the UPI discovery contract step and the complete combined-checkout responsive browser suite. The change disables only mobile UPI Intent under CFB; it leaves desktop QR and other payment methods unchanged. No payment or local database write occurred.
 
 #### A07-b - Installed-app Intent and QR handoff/return lack supported-device acceptance
 
@@ -285,6 +289,79 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [x] Confirm malformed/non-array responses are rejected by focused unit tests.
   - [x] Record that the resolved type is observed, not contractually guaranteed.
 - **Dependency/disposition:** None for current source acceptance. Actual device behavior remains separate under A07-b. Official source: https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods/upi-intent-mweb/.
+
+### A08 Findings
+
+#### A08-a - Netbanking/wallet redirect failure and customer-return paths lack provider acceptance
+
+- **Status:** Deferred pending a supported Test redirect session.
+- **Evidence:** The supported Wallet Test success is recorded in the implementation plan. The fixed callback URL/POST contract, invoice/share binding, signature verification handoff, duplicate handling and pending/failure-shaped callback responses have unit/CI coverage (A08's callback acceptance record, run `36976152811`). Those mocks do not exercise a real Razorpay/bank redirect, a provider failure at the bank, browser close/return, or final recovery for Netbanking; the previous provider Test capture covered wallet success only.
+- **Impact:** Server callback correctness is supported, but end-to-end bank/app navigation and real return behavior are not proven for failed or interrupted redirects. Do not claim mocked callback behavior as provider acceptance.
+- **Bounded remedy:** On an already-existing supported Test checkout/session, exercise one returned Netbanking option through a documented failure/return and one wallet failure/return only if a supported Test scenario is available; reconcile the same existing Razorpay order/payment reference before retry. Do not create new invoice/order data or use Live payments for coverage.
+- **Acceptance subtasks:**
+  - [x] Confirm callback URL is fixed, accepts the documented POST fields and delegates settlement to authoritative verification; unit/CI callback cases pass.
+  - [x] Confirm Test wallet success and paid refresh have provider evidence; do not repeat it.
+  - [ ] Observe a Test Netbanking redirect and returned terminal failure/pending status with provider references.
+  - [ ] Observe a Test wallet failure/return if Razorpay exposes that supported Test path; otherwise document its exact provider limitation.
+  - [ ] Verify reload/return reconciles the same attempt and does not expose a duplicate Pay while the provider state is nonterminal.
+- **Dependency/disposition:** Supported existing Test redirect and provider failure scenario. No checkout source defect was demonstrated by the current evidence, so no speculative code change is made.
+- **Official references:** https://razorpay.com/docs/developer-tools/integrations/custom-checkout/ (callback URL must accept POST and use `redirect: true`) and https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods/.
+
+### A09 Findings
+
+#### A09-a - EMI processing-fee/tax meaning is not defined by the reviewed public contract
+
+- **Status:** Deferred pending Razorpay support response F11; implementation intentionally does not estimate fees.
+- **Evidence:** Official Custom Payment Methods documents issuer-keyed `emi_plans`, `min_amount`, duration/annual interest, `emi_duration`, and `Razorpay.emi.calculator`; it says calculator output uses the same unit as principal (paise remains paise). It does not establish units, application or tax treatment for processing-fee fields. Current UI displays the documented interest and SDK calculator amount, then states bank fees/taxes are confirmed by the bank; it does not combine unverified provider fields into an all-in amount. Existing support question F11 asks for the missing fee contract.
+- **Impact:** Guessing fee units or tax applicability could misstate what an invoice customer will pay. The current wording avoids presenting an unverified fee estimate as final.
+- **Bounded remedy:** Keep the current explicit bank-confirmation caveat. Record Razorpay's response to F11 once; implement only the documented fee calculation/disclosure if the provider supplies exact fields, units, applicability and tax treatment. Run one focused regression for that contract, then close this finding. Do not repeatedly reread the same docs or invent a fee formula.
+- **Acceptance subtasks:**
+  - [x] Compare the EMI plan/calculator contract with the current amount/tenure display.
+  - [x] Confirm no local processing-fee or tax formula is applied.
+  - [ ] Record Razorpay's authoritative response to F11.
+  - [ ] If the response supplies a fee contract, implement that contract and run one focused regression; otherwise record provider limitation and close without adding a guessed estimate.
+- **Dependency/disposition:** Razorpay support response F11. Official source: https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods/.
+
+#### A09-b - Issuer-specific EMI eligibility and plan acceptance remain provider-dependent
+
+- **Status:** Deferred; shared IIN lookup failure is tracked under A05-a/F46, not duplicated here.
+- **Evidence:** Source parses only documented issuer-keyed `emi_plans`, applies the returned `min_amount` and tenure/interest, and calls Razorpay's documented `emi.calculator` with the paise principal. Focused plan parsing tests and CI cover malformed/undocumented shapes. The current Test IIN lookup evidence is the Razorpay 404 and conflicting length contract in A05-a; no live issuer eligibility/plan result or end-to-end EMI authorization is claimed from mocked issuer responses.
+- **Impact:** Account mocks establish defensive UI logic, not the actual issuer/card/amount-specific plan or lender decision. Customers must not be told that a mocked EMI offer is authorized by their bank.
+- **Bounded remedy:** Reuse A05-a's provider clarification/working read-only IIN result. If an actual returned issuer plan becomes available through the documented API, run one read-only mapping check; Test payment acceptance is not required for this source acceptance and must not be generated solely to close the finding. Keep bank approval and final fee disclosure authoritative at the payment provider/bank.
+- **Acceptance subtasks:**
+  - [x] Confirm UI emits only the returned issuer, duration, min-amount and annual-interest fields.
+  - [x] Confirm the SDK calculator is used in documented principal units and no fee amount is guessed.
+  - [ ] Record a successful documented Test IIN/issuer response or provider clarification linked to A05-a/F46.
+- **Dependency/disposition:** A05-a/F46. This is a cross-reference, not an additional IIN fix/test task.
+- **Official references:** https://razorpay.com/docs/api/payments/cards/iin-api/ and https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods/.
+
+### A10 Findings
+
+#### A10-a - A failed CRED eligibility check left a stale error after a successful retry
+
+- **Status:** Source fix and mocked regression added; exact-SHA CI is pending.
+- **Evidence:** `checkCred` set the ineligible/error state when the SDK returned a non-eligible result, but did not clear that error when the customer retried and received `ELIGIBLE`. The new bounded browser regression exercises ineligible then eligible responses and asserts the old alert disappears without invoking payment submission.
+- **Impact:** The customer could see a contradictory failure banner beside confirmed eligibility, even though a later valid check permits continuing. It does not change payment eligibility, amount, payload or server settlement.
+- **Bounded remedy:** Clear the prior method-level error at the start of a fresh CRED eligibility check; retain the existing country-coded eligibility call and payment gate. Do not change provider error mapping or add guessed eligibility states.
+- **Acceptance subtasks:**
+  - [x] Trace the failed-result and successful-retry state transitions.
+  - [x] Clear the stale alert when a new eligibility check begins.
+  - [x] Add one mocked ineligible-then-eligible regression and assert no payment/verification request.
+  - [ ] Run the focused regression and record exact-SHA CI once; rerun only if that focused check fails and a concrete correction is made.
+- **Dependency/disposition:** Exact-SHA CI for this source/test change. Official references: https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/features/check-cred-eligibility and https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods.
+
+#### A10-b - Merchant-enabled provider inventory and provider-backed acceptance are not evidenced
+
+- **Status:** Deferred pending a supported Test-mode provider inventory/session; mocks are not provider acceptance.
+- **Evidence:** Source exposes a provider only when it appears in both the Custom Checkout SDK-ready list and the account Methods API list, then passes the selected code as `provider` with the documented `cardless_emi` or `paylater` method. Existing mocked tests cover cardless EMI `hdfc` and Pay Later `lazypay` payloads; they do not establish which providers are enabled for Hangers or prove provider eligibility, redirect, error, or return behavior. Razorpay's Custom Payment Methods page lists nine cardless EMI codes and two Pay Later codes, while other documentation surfaces differ; no static alias or disputed minimum is added.
+- **Impact:** Dynamic request construction is covered, but actual enabled-provider/issuer acceptance and provider error recovery remain unproven. No unsupported provider should be displayed or inferred from documentation alone.
+- **Bounded remedy:** On one already-existing Test checkout, take one authoritative snapshot of the distinct enabled provider codes returned by both documented inventories. Exercise only that frozen set once, using the documented eligibility/error behavior for each available code; if no provider is enabled or the provider Test path is unavailable, record the exact account/environment limitation and retain this deferral. Do not create invoices/orders, use Live, add newly surfaced codes mid-pass, or repeat successful cases.
+- **Acceptance subtasks:**
+  - [x] Confirm code requires both SDK-ready and account-enabled provider entries before display/submission.
+  - [x] Confirm payload uses the selected, unmodified provider code and method-specific documented fields.
+  - [ ] Record the frozen Hangers Test provider inventory and activation evidence.
+  - [ ] Verify one provider-backed eligibility/error/return path per code in that frozen inventory, or record the exact unavailable Test capability.
+- **Dependency/disposition:** Hangers account's Test provider activation and an existing supported Test checkout. Official references: https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods and https://razorpay.com/docs/payments/payment-methods/pay-later/custom-integration.
 
 **F65 current-status correction:** the following dated F65 paragraph's reference to SHA `8b768dd` and red CRM CI is historical. The current source/test SHA and all-green CI are `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` / run `37009102219`; the observability limitations listed there remain open.
 

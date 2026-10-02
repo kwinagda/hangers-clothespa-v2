@@ -428,6 +428,75 @@ test('active custom checkout renders only returned methods and remains usable at
   expect(stats.createOrderRequests).toBe(before.createOrderRequests)
 })
 
+test('CRED eligibility retry clears the previous ineligible result without submitting a payment', async ({ page }) => {
+  const origin = 'http://localhost:55104'
+  const corsHeaders = {
+    'access-control-allow-origin': origin,
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type,idempotency-key',
+  }
+  let paymentSubmissions = 0
+  await page.route('**/payment/**', async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+    if (request.method() === 'GET' && path.endsWith('/custom/capabilities')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
+        key: 'rzp_test_cred_retry', mode: 'TEST', methods: { card: true, app: { cred: true } },
+        configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: [] },
+      } } })
+    }
+    if (request.method() === 'GET' && path.endsWith('/payment/status')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'NONE' } } })
+    }
+    if (request.method() === 'GET' && path.endsWith('/custom/downtime')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'unknown', incidents: [] } } })
+    }
+    if (request.method() === 'POST' && path.endsWith('/payment/create-order')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
+        key: 'rzp_test_cred_retry', mode: 'TEST', amount: 100, currency: 'INR',
+        testContact: '+919930367267', credCoinsDisabled: true,
+        checkoutAttemptId: 'cred-retry-attempt', razorpayOrderId: 'order_cred_retry',
+      } } })
+    }
+    if (path.endsWith('/payment/verify')) paymentSubmissions += 1
+    return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+  })
+  await page.route('https://checkout.razorpay.com/v1/razorpay.js', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/javascript',
+    body: `
+      window.__credEligibility = { success: true, data: { state: 'INELIGIBLE' } }
+      window.Razorpay = class {
+        constructor() { this.methods = { card: true, app: { cred: true } } }
+        once(event, callback) { if (event === 'ready') setTimeout(() => callback({ methods: this.methods }), 0) }
+        on() {}
+        open() {}
+        checkCREDEligibility() { return Promise.resolve(window.__credEligibility) }
+        createPayment() { window.__credPaymentSubmitted = true }
+        static setFormatter() { return { add: () => ({ on() {}, isValid: () => true }), off() {} } }
+      }
+    `,
+  }))
+
+  await page.goto(`${origin}/invoice/variant-a`)
+  await continueFromInvoiceToPayment(page)
+  await expect(page.getByRole('radio', { name: 'CRED Pay', exact: true })).toBeVisible()
+  await page.getByRole('radio', { name: 'CRED Pay', exact: true }).check()
+  await page.getByRole('button', { name: 'Check CRED eligibility' }).click()
+  await expect(page.getByRole('alert')).toContainText('CRED eligibility is not confirmed')
+
+  await page.evaluate(() => {
+    ;(window as Window & { __credEligibility?: unknown }).__credEligibility = { success: true, data: { state: 'ELIGIBLE' } }
+  })
+  await page.getByRole('button', { name: 'Check CRED eligibility' }).click()
+  await expect(page.getByRole('status')).toContainText('CRED eligibility confirmed')
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(paymentSubmissions).toBe(0)
+  expect(await page.evaluate(() => (window as Window & { __credPaymentSubmitted?: boolean }).__credPaymentSubmitted)).not.toBe(true)
+})
+
 test('custom checkout hides choices when SDK readiness times out and restores them after retry', async ({ page }) => {
   const origin = 'http://localhost:55104'
   const corsHeaders = {

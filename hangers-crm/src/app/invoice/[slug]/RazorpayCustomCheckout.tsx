@@ -448,6 +448,7 @@ export default function RazorpayCustomCheckout({
     const sequence = ++credSequence.current
     setCredEligible(false)
     setCredBusy(false)
+    setError('')
     if (!contact.trim().startsWith('+') || !instanceRef.current?.checkCREDEligibility) {
       invalidFields(['contact'], 'Enter your mobile number with its country code to check CRED eligibility.')
       return
