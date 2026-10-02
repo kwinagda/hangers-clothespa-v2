@@ -95,6 +95,8 @@ test('public invoice lookup resolves invoice, order, iron-bill and customer shar
   const suffix = crypto.randomUUID();
   const invoiceIds = [];
   const shareHashes = [];
+  const previousTestContact = process.env.RAZORPAY_TEST_CONTACT_NUMBER;
+  process.env.RAZORPAY_TEST_CONTACT_NUMBER = '9930367267';
   let order = null;
   let bill = null;
   let appointment = null;
@@ -200,6 +202,8 @@ test('public invoice lookup resolves invoice, order, iron-bill and customer shar
     }
     assert.equal(await prisma.razorpayCheckoutAttempt.count({ where: { invoiceId: invoices[0].id } }), 0, 'expired/revoked links must not create checkout attempts');
   } finally {
+    if (previousTestContact === undefined) delete process.env.RAZORPAY_TEST_CONTACT_NUMBER;
+    else process.env.RAZORPAY_TEST_CONTACT_NUMBER = previousTestContact;
     if (shareHashes.length) await prisma.publicShareToken.deleteMany({ where: { tokenHash: { in: shareHashes } } });
     if (invoiceIds.length) await prisma.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
     if (order) await prisma.order.delete({ where: { id: order.id } });
