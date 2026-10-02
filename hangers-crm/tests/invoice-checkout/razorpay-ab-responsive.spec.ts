@@ -449,10 +449,14 @@ test('custom checkout hides choices when SDK readiness times out and restores th
     await route.fulfill({ status: 200, contentType: 'application/javascript', body: `
       window.__readyRetryInstances = window.__readyRetryInstances || 0
       window.__readyRetryPayments = window.__readyRetryPayments || 0
+      window.__readyRetryReadyEvents = window.__readyRetryReadyEvents || 0
       window.Razorpay = class {
         constructor() { this.instanceNumber = ++window.__readyRetryInstances }
         once(event, callback) {
-          if (window.__readyRetryReady === true && event === 'ready') setTimeout(() => callback({ methods: { card: true } }), 0)
+          if (window.__readyRetryReady === true && event === 'ready') setTimeout(() => {
+            window.__readyRetryReadyEvents += 1
+            callback({ methods: { card: true } })
+          }, 0)
         }
         on() {}
         createPayment() { window.__readyRetryPayments += 1 }
@@ -475,6 +479,7 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   await expect.poll(() => capabilitiesLookups, { timeout: 10000 }).toBe(2)
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0), { timeout: 10000 }).toBeGreaterThan(instancesBeforeRetry)
   await expect(checkout.getByRole('alert')).toHaveCount(0, { timeout: 10000 })
+  await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryReadyEvents?: number }).__readyRetryReadyEvents || 0), { timeout: 10000 }).toBe(1)
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible({ timeout: 10000 })
   expect(verifyRequests).toBe(0)
   expect(await page.evaluate(() => (window as Window & { __readyRetryPayments?: number }).__readyRetryPayments)).toBe(0)
