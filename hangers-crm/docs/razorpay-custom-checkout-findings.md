@@ -44,33 +44,33 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
 
 #### A01-a - Successful public checkout path lacks end-to-end acceptance evidence
 
-- **Status:** Route-level regression authored; disposable-CI execution pending.
+- **Status:** Resolved; exact-SHA disposable-DB CI passed.
 - **Evidence:** `combined-checkout.integration.test.js` now mounts the registered public router, resolves active `ORDER`, `IRON_BILL`, and `INVOICE` shares for `ORDER`, `DAILY_IRON`, and `FIELD_SERVICE` invoices, and calls the create-order endpoint twice with the same idempotency key using a mock Test provider. It asserts amount/currency/order reference, one provider order and attempt per invoice, and no settlement before capture. Test execution is intentionally not run against local `hangers_db`; it must run only in disposable `hangers_test` CI.
 - **Impact:** A regression in public route wiring, share-to-invoice binding, or the handoff from the public controller to the checkout service could escape the current A01 CI coverage even though the isolated service and lookup tests pass.
 - **Bounded acceptance:** Add and run a Test-only integration case through the registered public HTTP route for active shares across the supported invoice source types. Verify the returned amount/currency and Razorpay order reference, replay the same request without creating a second provider order or checkout attempt, and confirm the invoice remains unpaid until capture. Retain existing expired/revoked/cancelled denials. Use only the disposable CI database (`hangers_test`) and an injected/mock Test provider; never point this case at local `hangers_db` or Live credentials.
 - **Acceptance subtasks:**
-  - [x] Add coverage for the registered public HTTP route and active share resolution, not only the controller or service directly; CI execution pending.
-  - [x] Add eligible unpaid `ORDER`, `DAILY_IRON`, and `FIELD_SERVICE` invoice cases with source-appropriate share types; CI execution pending.
-  - [x] Add assertions that successful preparation plus same-request replay yields one attempt/provider order and leaves invoice settlement unchanged; CI execution pending.
-  - [ ] Run the focused case in disposable CI and record the exact revision and result; preserve the existing invalid-link and cancelled-source regressions.
-- **A01 disposition:** A01 remains Partial until A01-a and A01-b regressions pass on the approved disposable CI database and their exact-SHA evidence is recorded. Do not proceed to A02 before both are closed.
+  - [x] Add coverage for the registered public HTTP route and active share resolution, not only the controller or service directly; exact-SHA CI passed.
+  - [x] Add eligible unpaid `ORDER`, `DAILY_IRON`, and `FIELD_SERVICE` invoice cases with source-appropriate share types; exact-SHA CI passed.
+  - [x] Add assertions that successful preparation plus same-request replay yields one attempt/provider order and leaves invoice settlement unchanged; exact-SHA CI passed.
+  - [x] Run in disposable CI and record exact revision/run; invalid-link and cancelled-source regressions also passed.
+- **A01 disposition:** A01-a is complete on exact-SHA CI run `37055637233` (commit `9d1ce4332d8dd411cfbd9f73a611db66bbd273d5`).
 
 #### A01-b - Checkout eligibility does not match cancelled/returned source rules
 
-- **Status:** Source correction and regression coverage authored; disposable-CI execution pending.
+- **Status:** Resolved; exact-SHA disposable-DB CI passed.
 - **Evidence:** `createInvoiceCheckout` now locks linked Order, IronBill, and ServiceAppointment source rows before invoice rows, rejects returned/cancelled/void sources using the same source-specific payment codes, and applies `openInvoiceWhere` to combined checkout revalidation. Public customer outstanding summaries now use that same eligibility predicate. A CI-gated regression in `combined-checkout.integration.test.js` covers a returned order and cancelled field-service appointment through direct service and active public-share route, asserting no provider order, checkout attempt, or inclusion in customer outstanding totals. The test was not executed locally because it writes fixture data; its run must remain confined to the disposable `hangers_test` CI database.
 - **Impact:** A customer could complete a provider payment for a returned order or cancelled field-service appointment, after which CRM settlement would reject the payment and require Finance review.
 - **Bounded remedy:** Implemented in source: public outstanding selection and checkout reservation now honor `openInvoiceWhere`; source rows are locked consistently before invoice rows; invalid sources are rejected before attempt reservation/provider calls with the existing source-specific error contract.
 - **Acceptance subtasks:**
-  - [x] Add regression assertions for rejecting a `RETURNED` order and cancelled `FIELD_SERVICE` invoice before provider call or checkout-attempt creation; CI execution remains pending.
-  - [x] Apply the shared eligibility predicate to combined checkout revalidation and public customer receivables; CI execution remains pending.
-  - [ ] Verify `DAILY_IRON` void invoices remain blocked and combined receivables do not include cancelled/returned/void sources in disposable CI.
-  - [ ] Run focused regressions against the approved disposable CI database and record exact-SHA results; do not write to local `hangers_db`.
-- **A01 disposition:** Keep A01 open until A01-a's successful public-path coverage and A01-b's source-status protections pass. Do not move to A02 before both are closed.
+  - [x] Reject a `RETURNED` order and cancelled `FIELD_SERVICE` invoice before provider call or checkout-attempt creation; exact-SHA CI passed.
+  - [x] Apply the shared eligibility predicate to combined checkout revalidation and public customer receivables; exact-SHA CI passed.
+  - [x] Verify `DAILY_IRON` void invoices remain blocked and combined receivables exclude cancelled/returned/void sources; exact-SHA CI passed.
+  - [x] Run focused regressions against the approved disposable CI database; local `hangers_db` was not written.
+- **A01 disposition:** A01-b is complete on exact-SHA CI run `37055637233` (commit `9d1ce4332d8dd411cfbd9f73a611db66bbd273d5`).
 
 #### A01-c - New checkout dependency breaks the reservation retry harness before A01 CI runs
 
-- **Status:** Test-harness correction authored; exact-SHA CI rerun pending.
+- **Status:** Resolved; exact-SHA CI passed.
 - **Evidence:** Exact-SHA run [37052327041](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37052327041) passed setup, schema/migration checks, and earlier Razorpay suites, then failed the `Verify bounded Custom Checkout acceptance regressions` step. Four failures in `checkout-concurrency-acceptance.unit.test.js` reported `Unexpected import: ./receivables.service`; the new source dependency was absent from that test's isolated VM dependency map. Workflow sequencing therefore skipped the subsequent database-backed A01 integration step. CRM CI passed.
 - **Impact:** A01-a/A01-b cannot be considered verified until the unrelated isolated retry harness loads the service successfully and CI reaches the disposable-DB integration step.
 - **Bounded remedy:** Add only the missing `openInvoiceWhere` stub to the VM harness; do not broaden or weaken the retry assertions.
@@ -78,59 +78,59 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [x] Reproduce the exact failure from the run log.
   - [x] Add the required isolated dependency stub without enabling database/provider access.
   - [x] Run focused concurrency unit test locally: 5/5 passed without DB/provider access.
-  - [ ] Rerun exact-SHA disposable-DB CI and record that the A01 integration step executed.
-  - [ ] Record the CI result and confirm the A01 integration step executed.
-- **Disposition:** In scope because this failure prevents completion of A01; do not advance to A02 until it and A01-a/A01-b are verified.
+  - [x] Rerun exact-SHA disposable-DB CI and record that the A01 integration step executed (run `37055637233`).
+  - [x] Confirm the complete A01 integration step passed 6/6 cases.
+- **Disposition:** Closed; the dependency-isolated harness and downstream A01 integration run pass.
 
 #### A01-d - Source eligibility integration fixture omitted public legal-terms setting
 
-- **Status:** Fixture correction authored; exact-SHA rerun pending.
+- **Status:** Resolved; exact-SHA CI passed.
 - **Evidence:** Exact-SHA run [37052805385](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37052805385) passed the concurrency retry harness and the active public route test for all three billing sources, then failed `returned orders and cancelled field-service appointments are not payable or included in customer totals`. The public invoice lookup returned HTTP 500 because the isolated disposable database did not contain required `master.legalTerms`. The CRM job passed.
 - **Impact:** A01-b's customer receivables exclusion assertion cannot run until the test fixture supplies the required public-site setting; source eligibility assertions before that point pass.
 - **Bounded remedy:** Seed the legal-terms setting only when absent in `hangers_test`, then remove it only if the fixture created it, matching the established neighboring fixture pattern.
 - **Acceptance subtasks:**
   - [x] Identify the required setting from the CI stack trace and compare with the passing neighboring fixture.
   - [x] Add isolated setup/cleanup preserving any pre-existing CI setting.
-  - [ ] Rerun focused disposable-DB integration and record exact-SHA results.
-- **Disposition:** In scope for A01-b; do not advance to A02 until the full eligible/ineligible source matrix passes in CI.
+  - [x] Rerun focused disposable-DB integration and record exact-SHA results (run `37055637233`; 6/6 passed).
+- **Disposition:** Closed as part of A01-b's passing eligibility matrix.
 
 #### A01-e - Historical-unpaid integration fixture leaked CI rows and Test-mode environment
 
-- **Status:** Cleanup correction authored; exact-SHA rerun pending.
+- **Status:** Resolved; cleanup path passed exact-SHA CI.
 - **Evidence:** Source review of the CI-passing historical-unpaid test found it created a Home test customer, three source rows/invoices, checkout attempts and payment-journey events; it only changed invoices to VOID and retained the fixtures. It also set `RAZORPAY_KEY_ID` without restoring the previous process value. Those leftovers could affect later tests in the same CI process even though the disposable database is discarded after the workflow.
 - **Impact:** Later A01 receivables checks can depend on implicit prior fixture state; a failed assertion can leave additional rows that obscure subsequent failures. The Test-mode environment could leak across tests.
 - **Bounded remedy:** Track created source/invoice rows, delete linked journey events and attempts before invoices, remove only fixture-created subscription/customer rows, and restore `RAZORPAY_KEY_ID` in `finally`.
 - **Acceptance subtasks:**
   - [x] Confirm the missing cleanup and environment restoration by reviewing the passing test source.
   - [x] Add unconditional, dependency-ordered fixture cleanup and restore the prior environment.
-  - [ ] Rerun the complete disposable-DB suite and verify A01 tests pass with cleanup.
-- **Disposition:** In scope for A01 because deterministic, isolated CI is part of its acceptance evidence; do not advance to A02 until verified.
+  - [x] Rerun the complete disposable-DB suite and verify A01 tests pass with cleanup (run `37055637233`; 6/6 passed).
+- **Disposition:** Closed; fixture cleanup and environment restoration are exercised by the passing CI test.
 
 #### A01-f - Historical checkout mock reused one provider Order ID across source types
 
-- **Status:** Mock correction authored; exact-SHA rerun pending.
+- **Status:** Resolved; distinct source IDs passed exact-SHA CI.
 - **Evidence:** Exact-SHA run [37053960211](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37053960211) passed the new public-source, cancelled-source, route replay and preceding CI gates, but the historical-unpaid concurrency case failed on a unique `razorpayOrderId` constraint. The mock generated `order_<same-run-suffix>` for each of three source types. Earlier per-loop deletion had hidden this duplicate; A01-e's correct final cleanup made it visible.
 - **Impact:** The historical-unpaid all-source regression cannot complete with provider responses that violate Razorpay Order ID uniqueness; this is test fixture behavior, not a production checkout defect.
 - **Bounded remedy:** Include the invoice source type in each deterministic mock Order ID while retaining end-of-test cleanup.
 - **Acceptance subtasks:**
   - [x] Confirm unique-constraint failure and trace it to the repeated mock ID.
   - [x] Generate distinct mock Order IDs per source type.
-  - [ ] Rerun the complete disposable-DB suite and confirm the historical concurrency/replay case passes.
-- **Disposition:** In scope for A01's all-source replay proof; do not advance to A02 until verified.
+  - [x] Rerun the complete disposable-DB suite and confirm the historical concurrency/replay case passes (run `37055637233`; 6/6 passed).
+- **Disposition:** Closed; distinct provider-shaped IDs preserve the all-source replay proof.
 
 #### A01-g - Mock Order IDs violated provider identifier shape and were dropped by journey logging
 
-- **Status:** Fixture correction authored; exact-SHA rerun pending.
+- **Status:** Resolved; bounded alphanumeric mock IDs passed exact-SHA CI.
 - **Evidence:** Exact-SHA run [37054429900](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37054429900) failed because A01-f's first correction used extra underscores after the `order_` prefix. Run [37054960450](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37054960450) confirmed the next fixture version still produced `razorpayOrderId: null`: although alphanumeric, `dailyiron` plus the 32-character UUID suffix exceeded the journey logger's 40-character provider-ID payload limit. The public-route fixture ID was already alphanumeric and within bounds.
 - **Impact:** A01's journey correlation assertion is not meaningful unless mock provider IDs satisfy the same safe identifier contract expected from Razorpay.
 - **Bounded remedy:** Keep distinct IDs but use a one-character source code plus the 32-character UUID suffix, and assert the historical fixture matches `^order_[A-Za-z0-9]{6,40}$`. Keep the public-route shape assertion and do not relax the production logger's allowlist.
 - **Acceptance subtasks:**
   - [x] Trace the null journey identifier to mock formatting, not application redaction behavior.
   - [x] Correct mock IDs and add shape assertions; the first correction exceeded the maximum accepted length and was not sufficient.
-  - [ ] Rerun disposable-DB integration and confirm journey event IDs remain populated.
-- **Disposition:** In scope for A01's provider-reference and retry evidence; do not advance to A02 until verified.
+  - [x] Rerun disposable-DB integration and confirm journey event IDs remain populated (run `37055637233`; 6/6 passed).
+- **Disposition:** Closed; the fixture IDs satisfy the production logger's allowlist and journey references remain populated.
 
-**A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. The A01 integration suite has run against the previously approved disposable `hangers_test` CI database; on latest run [37054960450](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37054960450), five of six cases passed and the historical all-source case failed because its mock provider ID exceeded the journey logger's accepted length. The fixture correction is now narrowed to that ID format; A01 remains open until exact-SHA CI passes. No local or production database was changed.
+**A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. Exact-SHA PR #10 run [37055637233](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37055637233), commit `9d1ce4332d8dd411cfbd9f73a611db66bbd273d5`, passed Backend and CRM. Its disposable `hangers_test` combined-checkout integration passed 6/6, and the other A01-related receivables and journey CI checks passed. A01 and findings A01-a through A01-g are closed. No local or production database was changed. A02 is the next plan item and has not been started in this completion pass.
 
 **Current exact-SHA reconciliation:** HEAD `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` ran as Actions run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219); Backend and CRM both succeeded. The CRM responsive UI job passed all 25 browser cases, including SDK readiness timeout/retry after the test SDK mock supplied its formatter dependency. F66 is resolved for this regression. Earlier red run [37004349213](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37004349213) is retained as historical evidence. F65's former “outbox CI pending” statement is superseded: the disposable-DB journey/webhook/outbox integration passed in Backend CI. Read-only local `pg_isready` and `prisma migrate status` show `localhost:5432` accepting connections and the journey-event migration still pending on `hangers_db`; no migration was applied. These observations supersede earlier “PostgreSQL stopped/unavailable” statements as of this audit only.
 
