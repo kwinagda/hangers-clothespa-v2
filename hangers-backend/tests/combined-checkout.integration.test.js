@@ -60,7 +60,7 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
       const provider = { orders: {
         create: async (payload) => {
           calls += 1;
-          providerOrder = { ...payload, id: `order_${sourceType}_${suffix.replaceAll('-', '')}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
+          providerOrder = { ...payload, id: `order_${sourceType.replaceAll('_', '').toLowerCase()}${suffix.replaceAll('-', '')}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
           return providerOrder;
         },
         fetch: async () => providerOrder,
@@ -533,7 +533,7 @@ test('registered public create-order route prepares and reuses one provider orde
     create: async (payload) => {
       providerCreateCalls += 1;
       const order = {
-        id: `order_ci_${suffix.replaceAll('-', '')}_${providerCreateCalls}`,
+        id: `order_ci${suffix.replaceAll('-', '')}${providerCreateCalls}`,
         amount: payload.amount,
         currency: payload.currency,
         status: 'created',
@@ -650,7 +650,7 @@ test('registered public create-order route prepares and reuses one provider orde
       assert.equal(first.data.amount, 1000);
       assert.equal(first.data.currency, 'INR');
       assert.equal(first.data.invoiceNumber, invoice.invoiceNumber);
-      assert.match(first.data.razorpayOrderId, /^order_ci_/);
+      assert.match(first.data.razorpayOrderId, /^order_[a-z0-9]+$/i);
       assert.equal(first.data.mode, 'TEST');
 
       const replayResponse = await requestCheckout();
