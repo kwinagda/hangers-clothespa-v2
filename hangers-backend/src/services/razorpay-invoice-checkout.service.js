@@ -4,6 +4,7 @@ const prisma = require('../config/database');
 const { PaymentRuleError, getLedgerState, recordInvoiceAllocationsSettlement, recordInvoiceSettlement } = require('./payment.service');
 const { enqueueOutboxEvent, OUTBOX_EVENT } = require('./outbox.service');
 const { writeAuditEvent } = require('./activity.service');
+const { recordPaymentJourneyEvent } = require('./razorpay-payment-journey-logger');
 const { safeText } = require('../utils/redact');
 const { getSafeRazorpayPaymentMethod, getSafeRazorpayPaymentDiagnostics } = require('../utils/razorpay-payment-method');
 
@@ -131,16 +132,10 @@ const canRetryFailedCheckout = ({ attempt, providerOrder, providerPayments }) =>
     && new Set(payments.map((payment) => payment.id)).size === payments.length
     && payments.every((payment) => String(payment.status).toLowerCase() === 'failed');
 };
-const auditAttemptTransition = (tx, attempt, action, description, metadata = {}, status = 'SUCCESS') => writeAuditEvent(tx, {
-  actorType: 'system',
-  actorName: 'Razorpay integration',
-  action,
-  status: status === 'FAILURE' ? 'FAILURE' : 'SUCCESS',
-  resource: 'razorpay_checkout_attempt',
-  resourceId: attempt.id,
-  description,
-  metadata: {
+const auditAttemptTransition = async (tx, attempt, action, description, metadata = {}, status = 'SUCCESS') => {
+  const eventMetadata = {
     provider: 'RAZORPAY',
+    paymentJourneyId: attempt.paymentJourneyId || null,
     attemptId: attempt.id,
     invoiceId: attempt.invoiceId,
     invoiceNumber: attempt.invoiceNumber,
@@ -149,8 +144,20 @@ const auditAttemptTransition = (tx, attempt, action, description, metadata = {},
     mode: attempt.mode,
     priorState: attempt.status,
     ...metadata,
-  },
-});
+  };
+  const audit = await writeAuditEvent(tx, {
+    actorType: 'system',
+    actorName: 'Razorpay integration',
+    action,
+    status: status === 'FAILURE' ? 'FAILURE' : 'SUCCESS',
+    resource: 'razorpay_checkout_attempt',
+    resourceId: attempt.id,
+    description,
+    metadata: eventMetadata,
+  });
+  await recordPaymentJourneyEvent(tx, { attempt, action, status, metadata: eventMetadata });
+  return audit;
+};
 
 const recordExperimentCapture = async (tx, attempt) => {
   if (attempt?.mode !== 'TEST' || attempt.experimentId !== 'invoice_checkout_presentation_v1'
@@ -294,6 +301,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
 
     const attempt = await tx.razorpayCheckoutAttempt.create({
       data: {
+        paymentJourneyId: `pj_${crypto.randomUUID()}`,
         idempotencyKey: localKey,
         invoiceId: current.id,
         invoiceNumber: current.invoiceNumber,

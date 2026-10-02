@@ -7,6 +7,7 @@ const path      = require('path');
 
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const { randomUUID } = require('crypto');
+const { createTraceContext, runWithTraceContext } = require('./utils/trace-context');
 const prisma = require('./config/database');
 const { closeConnection } = require('./queues/connection');
 const { getAllowedOrigins, validateEnvironment } = require('./config/env');
@@ -108,17 +109,22 @@ app.use(cors({
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
-  exposedHeaders: ['Retry-After'],
+  exposedHeaders: ['Retry-After', 'X-Request-Id', 'X-Trace-Id'],
 }));
 
 // Stamp the request before body parsers so malformed or oversized requests also
 // receive a traceable response ID.
 app.use((req, res, next) => {
   const id = req.headers['x-request-id'] || randomUUID();
+  const trace = createTraceContext(req.headers.traceparent);
+  trace.requestId = id;
   req.headers['x-request-id'] = id;
   req.id = id;
+  req.traceId = trace.traceId;
+  req.spanId = trace.spanId;
   res.setHeader('x-request-id', id);
-  next();
+  res.setHeader('x-trace-id', trace.traceId);
+  runWithTraceContext(trace, next);
 });
 
 // Razorpay signs the exact raw JSON bytes. Preserve them only for the webhook

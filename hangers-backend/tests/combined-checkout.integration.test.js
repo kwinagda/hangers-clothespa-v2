@@ -45,7 +45,7 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
     const provider = { orders: {
       create: async (payload) => {
         calls += 1;
-        providerOrder = { ...payload, id: `order_${sourceType}_${suffix}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
+        providerOrder = { ...payload, id: `order_${suffix.replaceAll('-', '')}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
         return providerOrder;
       },
       fetch: async () => providerOrder,
@@ -71,6 +71,20 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
     assert.equal(prepared.order.amount, 1000);
     assert.equal(prepared.attempt.invoiceId, invoice.id);
     assert.equal(prepared.attempt.razorpayOrderId, providerOrder.id);
+    assert.match(prepared.attempt.paymentJourneyId, /^pj_[0-9a-f-]{36}$/i);
+    const journeyEvents = await prisma.razorpayPaymentJourneyEvent.findMany({
+      where: { checkoutAttemptId: prepared.attempt.id },
+      orderBy: { occurredAt: 'asc' },
+    });
+    assert.deepEqual(journeyEvents.map((event) => event.eventName).sort(), [
+      'RAZORPAY_CHECKOUT_ATTEMPT_RESERVED', 'RAZORPAY_PROVIDER_ORDER_CREATED',
+    ].sort());
+    assert.ok(journeyEvents.every((event) => event.paymentJourneyId === prepared.attempt.paymentJourneyId));
+    assert.equal(journeyEvents.find((event) => event.eventName === 'RAZORPAY_CHECKOUT_ATTEMPT_RESERVED').razorpayOrderId, null);
+    assert.equal(journeyEvents.find((event) => event.eventName === 'RAZORPAY_PROVIDER_ORDER_CREATED').razorpayOrderId, providerOrder.id);
+    assert.ok(journeyEvents.every((event) => event.requestId === null));
+    assert.ok(journeyEvents.every((event) => /^[0-9a-f]{32}$/.test(event.traceId)));
+    assert.ok(journeyEvents.every((event) => /^[0-9a-f]{16}$/.test(event.spanId)));
     const replay = await createInvoiceCheckout(args);
     assert.equal(replay.attempt.id, prepared.attempt.id);
     assert.equal(replay.order.id, providerOrder.id);
@@ -79,6 +93,7 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
     assert.equal(Number(unchanged.paidAmount), 0);
     assert.equal(Number(unchanged.balanceDue), 10);
     // Keep these disposable fixtures out of the following outstanding-total case.
+    await prisma.razorpayPaymentJourneyEvent.deleteMany({ where: { checkoutAttemptId: prepared.attempt.id } });
     await prisma.razorpayCheckoutAttempt.deleteMany({ where: { invoiceId: invoice.id } });
     await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'VOID', voidedAt: new Date() } });
   }

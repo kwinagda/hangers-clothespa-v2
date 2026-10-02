@@ -10,6 +10,7 @@ const { execFileSync } = require('node:child_process');
 const reviewed = Object.freeze({
   '20260930160000_razorpay_saved_cards': '32ff94f560b1204d9bf9e886bb33257f2b07e5f003ed63adad3e2ea029a00754',
   '20260930170000_razorpay_virtual_account_bindings': 'd748327afd154fc36f5a5bdf1197cd75dd0208b2aa16eeaf43d6ff521bfa2f2f',
+  '20261002120000_razorpay_payment_journey_events': 'fbe75da6be93e1815ec1a59564d6ebea23019e11dee8fac043fd8b0bf3f8a94b',
 });
 
 function assertReleaseScope(revision, currentMain, databaseUrl, history, expected) {
@@ -63,8 +64,8 @@ async function main() {
     }
     const after = await db.$queryRaw`SELECT migration_name, checksum, finished_at, rolled_back_at FROM "_prisma_migrations"`;
     if (assertReleaseScope(revision, currentMain, process.env.DATABASE_URL, after, expected).length) throw new Error('Custom migrations remain pending');
-    const columns = await db.$queryRaw`SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('razorpay_saved_card_customers', 'razorpay_saved_card_consents', 'razorpay_virtual_account_bindings')`;
-    for (const [table, fields] of Object.entries({ razorpay_saved_card_customers: ['customerId', 'mode', 'credentialFingerprint', 'razorpayCustomerId', 'verifiedAt'], razorpay_saved_card_consents: ['customerId', 'requestId', 'wordingVersion', 'granted', 'consumedAt'], razorpay_virtual_account_bindings: ['attemptId', 'virtualAccountId', 'providerOrderId', 'accountId', 'amountPaise'] })) {
+    const columns = await db.$queryRaw`SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('razorpay_checkout_attempts', 'razorpay_saved_card_customers', 'razorpay_saved_card_consents', 'razorpay_virtual_account_bindings', 'razorpay_payment_journey_events')`;
+    for (const [table, fields] of Object.entries({ razorpay_checkout_attempts: ['paymentJourneyId'], razorpay_saved_card_customers: ['customerId', 'mode', 'credentialFingerprint', 'razorpayCustomerId', 'verifiedAt'], razorpay_saved_card_consents: ['customerId', 'requestId', 'wordingVersion', 'granted', 'consumedAt'], razorpay_virtual_account_bindings: ['attemptId', 'virtualAccountId', 'providerOrderId', 'accountId', 'amountPaise'], razorpay_payment_journey_events: ['paymentJourneyId', 'checkoutAttemptId', 'requestId', 'traceId', 'spanId', 'eventName', 'outcome', 'razorpayOrderId', 'razorpayPaymentId', 'diagnostics'] })) {
       if (fields.some(field => !columns.some(row => row.table_name === table && row.column_name === field))) throw new Error('Custom schema column verification failed');
     }
     console.log('CUSTOM_CHECKOUT_MIGRATION_COMPLETE');

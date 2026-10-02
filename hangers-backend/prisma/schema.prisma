@@ -1292,6 +1292,7 @@ model RazorpayRefundAttempt {
 
 model RazorpayCheckoutAttempt {
   id                    String    @id @default(cuid())
+  paymentJourneyId      String?
   idempotencyKey        String    @unique
   invoiceId             String
   invoiceNumber         String
@@ -1324,11 +1325,40 @@ model RazorpayCheckoutAttempt {
   updatedAt             DateTime  @updatedAt
 
   @@index([invoiceId, createdAt])
+  @@index([paymentJourneyId, createdAt])
   @@index([customerId, createdAt])
   @@index([status, createdAt])
   @@index([mode, status, nextProviderCheckAt], map: "razorpay_checkout_attempts_mode_status_next_provider_check_idx")
   @@index([createdAt, mode, providerMethod, status], map: "razorpay_checkout_attempts_analytics_idx")
   @@map("razorpay_checkout_attempts")
+}
+
+model RazorpayPaymentJourneyEvent {
+  id                String   @id @default(cuid())
+  paymentJourneyId  String
+  checkoutAttemptId String
+  requestId         String?
+  traceId           String?
+  spanId            String?
+  eventName         String
+  outcome           String
+  priorState        String?
+  nextState         String?
+  invoiceId         String
+  mode              String
+  amountPaise       BigInt
+  currency          String
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  diagnostics       Json?
+  occurredAt        DateTime @default(now())
+
+  @@index([paymentJourneyId, occurredAt])
+  @@index([checkoutAttemptId, occurredAt])
+  @@index([requestId])
+  @@index([razorpayOrderId])
+  @@index([razorpayPaymentId])
+  @@map("razorpay_payment_journey_events")
 }
 
 model RazorpayCheckoutExperimentEvent {
