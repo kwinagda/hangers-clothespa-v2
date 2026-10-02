@@ -460,6 +460,9 @@ test('custom checkout hides choices when SDK readiness times out and restores th
       window.__readyRetryReadyEvents = window.__readyRetryReadyEvents || 0
       window.Razorpay = class {
         constructor() { this.instanceNumber = ++window.__readyRetryInstances }
+        static setFormatter() {
+          return { add: () => ({ on() {}, isValid: () => false }), off() {} }
+        }
         once(event, callback) {
           if (window.__readyRetryReady === true && event === 'ready') setTimeout(() => {
             window.__readyRetryReadyEvents += 1
