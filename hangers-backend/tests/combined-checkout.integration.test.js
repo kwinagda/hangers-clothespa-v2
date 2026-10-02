@@ -1,6 +1,7 @@
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const express = require('express');
 const prisma = require('../src/config/database');
 const { createInvoiceCheckout, reconcileAmbiguousOrderCreation, settleCapturedPayment } = require('../src/services/razorpay-invoice-checkout.service');
 const { getOrderPayments } = require('../src/controllers/payments.controller');
@@ -9,6 +10,7 @@ const { createPublicShareToken } = require('../src/services/publicShare.service'
 const { createRazorpayRefund, reconcileRazorpayRefundWebhook } = require('../src/services/razorpay-refund.service');
 const { processOutboxBatch } = require('../src/services/outbox.service');
 const { LEGAL_TERMS } = require('../src/config/master-data');
+const publicRoutes = require('../src/routes/public.routes');
 
 after(() => prisma.$disconnect());
 const response = () => ({ statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
@@ -249,11 +251,8 @@ test('a revoked share can be reissued, but a cancelled source order still cannot
   process.env.RAZORPAY_TEST_CONTACT_NUMBER = '9930367267';
 
   const suffix = crypto.randomUUID();
-  const customer = await prisma.customer.upsert({
-    where: { phone: '9930367267' },
-    update: {},
-    create: { name: `Cancelled source CI ${suffix}`, phone: '9930367267', notifWhatsApp: false },
-  });
+  let customer;
+  let customerCreated = false;
   let order;
   let invoice;
   const shareHashes = [];
@@ -261,6 +260,11 @@ test('a revoked share can be reissued, but a cancelled source order still cannot
   const hadLegalTerms = await prisma.setting.findUnique({ where: { key: legalTermsKey } });
   let createdLegalTerms = false;
   try {
+    customer = await prisma.customer.findUnique({ where: { phone: '9930367267' } });
+    if (!customer) {
+      customer = await prisma.customer.create({ data: { name: 'Home', phone: '9930367267', notifWhatsApp: false } });
+      customerCreated = true;
+    }
     if (!hadLegalTerms) {
       await prisma.setting.create({ data: { key: legalTermsKey, value: JSON.stringify(LEGAL_TERMS) } });
       createdLegalTerms = true;
@@ -327,6 +331,323 @@ test('a revoked share can be reissued, but a cancelled source order still cannot
     if (invoice) await prisma.invoice.delete({ where: { id: invoice.id } });
     if (order) await prisma.order.delete({ where: { id: order.id } });
     if (createdLegalTerms) await prisma.setting.delete({ where: { key: legalTermsKey } });
+    if (customerCreated) await prisma.customer.delete({ where: { id: customer.id } });
+    if (previousEnv.keyId === undefined) delete process.env.RAZORPAY_KEY_ID;
+    else process.env.RAZORPAY_KEY_ID = previousEnv.keyId;
+    if (previousEnv.keySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET;
+    else process.env.RAZORPAY_KEY_SECRET = previousEnv.keySecret;
+    if (previousEnv.testContact === undefined) delete process.env.RAZORPAY_TEST_CONTACT_NUMBER;
+    else process.env.RAZORPAY_TEST_CONTACT_NUMBER = previousEnv.testContact;
+  }
+});
+
+test('returned orders and cancelled field-service appointments are not payable or included in customer totals', { skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' }, async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  assert.equal(process.env.GITHUB_ACTIONS, 'true');
+  assert.equal(process.env.CI, 'true');
+  assert.equal(url.hostname, 'localhost');
+  assert.equal(url.pathname, '/hangers_test');
+  assert.equal((await prisma.$queryRaw`SELECT current_database() AS name`)[0].name, 'hangers_test');
+
+  const previousEnv = {
+    keyId: process.env.RAZORPAY_KEY_ID,
+    keySecret: process.env.RAZORPAY_KEY_SECRET,
+    testContact: process.env.RAZORPAY_TEST_CONTACT_NUMBER,
+  };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_combined_ci';
+  process.env.RAZORPAY_KEY_SECRET = 'ci-only-not-a-provider-credential';
+  process.env.RAZORPAY_TEST_CONTACT_NUMBER = '9930367267';
+  const suffix = crypto.randomUUID();
+  let customer;
+  let subscription;
+  const invoiceIds = [];
+  const shareHashes = [];
+  const sourceRecords = [];
+  let customerCreated = false;
+  let subscriptionCreated = false;
+  try {
+    customer = await prisma.customer.findUnique({ where: { phone: '9930367267' } })
+    if (!customer) {
+      customer = await prisma.customer.create({ data: { name: 'Home', phone: '9930367267', notifWhatsApp: false } });
+      customerCreated = true;
+    }
+    const sources = [
+      {
+        sourceType: 'ORDER',
+        create: async () => {
+          const source = await prisma.order.create({ data: {
+            orderNumber: `RETURNED-SOURCE-${suffix}`, customerId: customer.id,
+            source: 'COUNTER', status: 'RETURNED', subtotal: 10, totalAmount: 10,
+          } });
+          sourceRecords.push(['order', source.id]);
+          return { orderId: source.id };
+        },
+        expectedCode: 'ORDER_CANCELLED',
+      },
+      {
+        sourceType: 'FIELD_SERVICE',
+        create: async () => {
+          const source = await prisma.serviceAppointment.create({ data: {
+            appointmentNumber: `CANCELLED-FIELD-${suffix}`, customerId: customer.id,
+            serviceName: 'Field service CI', scheduledAt: new Date('2023-01-01'), totalAmount: 10,
+            status: 'CANCELLED',
+          } });
+          sourceRecords.push(['serviceAppointment', source.id]);
+          return { serviceAppointmentId: source.id };
+        },
+        expectedCode: 'APPOINTMENT_CANCELLED',
+      },
+      {
+        sourceType: 'DAILY_IRON',
+        create: async () => {
+          subscription = await prisma.ironSubscription.findUnique({ where: { customerId: customer.id } });
+          if (!subscription) {
+            subscription = await prisma.ironSubscription.create({ data: { customerId: customer.id } });
+            subscriptionCreated = true;
+          }
+          const source = await prisma.ironBill.create({ data: {
+            billNumber: `VOID-IRON-SOURCE-${suffix}`, customerId: customer.id, subscriptionId: subscription.id,
+            billingPeriodStart: new Date('2023-01-01'), billingPeriodEnd: new Date('2023-01-31'),
+            totalPieces: 1, totalAmount: 10, status: 'VOID',
+          } });
+          sourceRecords.push(['ironBill', source.id]);
+          return { ironBillId: source.id };
+        },
+        expectedCode: 'BILL_VOID',
+      },
+    ];
+
+    for (const sourceCase of sources) {
+      const source = await sourceCase.create();
+      const invoice = await prisma.invoice.create({ data: {
+        invoiceNumber: `${sourceCase.sourceType}-SOURCE-INV-${suffix}`,
+        customerId: customer.id,
+        sourceType: sourceCase.sourceType,
+        ...source,
+        status: 'OPEN',
+        currency: 'INR',
+        subtotal: 10,
+        totalAmount: 10,
+        balanceDue: 10,
+        dueDate: new Date('2023-01-02'),
+      } });
+      invoiceIds.push(invoice.id);
+      const token = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: invoice.id, purpose: 'INVOICE_VIEW' });
+      shareHashes.push(crypto.createHash('sha256').update(token).digest('hex'));
+
+      let providerCalls = 0;
+      const provider = { orders: { create: async () => { providerCalls += 1; throw new Error('ineligible source must not reach provider'); } } };
+      await assert.rejects(createInvoiceCheckout({
+        invoice,
+        shareId: `share_${suffix}`,
+        idempotencyKey: `ineligible_${invoice.id}`,
+        customCheckout: true,
+        provider,
+      }), { code: sourceCase.expectedCode });
+      assert.equal(providerCalls, 0);
+
+      const createRes = response();
+      await createPublicRazorpayOrder({ params: { slug: token }, body: {}, id: suffix, get: () => `ineligible_${invoice.id}` }, createRes, undefined, { logRazorpayAction: async () => {} });
+      assert.equal(createRes.statusCode, 409);
+      assert.equal(createRes.body.code, sourceCase.expectedCode);
+      assert.equal(await prisma.razorpayCheckoutAttempt.count({ where: { invoiceId: invoice.id } }), 0);
+    }
+
+    const customerToken = await createPublicShareToken({ resourceType: 'CUSTOMER', resourceId: customer.id, purpose: 'INVOICE_VIEW' });
+    shareHashes.push(crypto.createHash('sha256').update(customerToken).digest('hex'));
+    const customerRes = response();
+    await getPublicInvoice({ params: { slug: customerToken } }, customerRes);
+    assert.equal(customerRes.statusCode, 200);
+    assert.equal(customerRes.body.data.paymentSummary.receivables.some((item) => invoiceIds.includes(item.invoiceId)), false);
+  } finally {
+    if (shareHashes.length) await prisma.publicShareToken.deleteMany({ where: { tokenHash: { in: shareHashes } } });
+    if (invoiceIds.length) await prisma.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
+    for (const [model, id] of sourceRecords.reverse()) await prisma[model].delete({ where: { id } });
+    if (subscriptionCreated && subscription) await prisma.ironSubscription.delete({ where: { id: subscription.id } });
+    if (customerCreated && customer) await prisma.customer.delete({ where: { id: customer.id } });
+    if (previousEnv.keyId === undefined) delete process.env.RAZORPAY_KEY_ID;
+    else process.env.RAZORPAY_KEY_ID = previousEnv.keyId;
+    if (previousEnv.keySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET;
+    else process.env.RAZORPAY_KEY_SECRET = previousEnv.keySecret;
+    if (previousEnv.testContact === undefined) delete process.env.RAZORPAY_TEST_CONTACT_NUMBER;
+    else process.env.RAZORPAY_TEST_CONTACT_NUMBER = previousEnv.testContact;
+  }
+});
+
+test('registered public create-order route prepares and reuses one provider order for active shares across billing sources', { skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' }, async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  assert.equal(process.env.GITHUB_ACTIONS, 'true');
+  assert.equal(process.env.CI, 'true');
+  assert.equal(url.hostname, 'localhost');
+  assert.equal(url.pathname, '/hangers_test');
+  assert.equal((await prisma.$queryRaw`SELECT current_database() AS name`)[0].name, 'hangers_test');
+
+  const previousEnv = {
+    keyId: process.env.RAZORPAY_KEY_ID,
+    keySecret: process.env.RAZORPAY_KEY_SECRET,
+    testContact: process.env.RAZORPAY_TEST_CONTACT_NUMBER,
+  };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_combined_ci';
+  process.env.RAZORPAY_KEY_SECRET = 'ci-only-not-a-provider-credential';
+  process.env.RAZORPAY_TEST_CONTACT_NUMBER = '9930367267';
+  const suffix = crypto.randomUUID();
+  let customer;
+  let subscription;
+  let customerCreated = false;
+  let subscriptionCreated = false;
+  const sources = [];
+  const invoiceIds = [];
+  const shareHashes = [];
+  const providerOrders = new Map();
+  let providerCreateCalls = 0;
+  const provider = { orders: {
+    create: async (payload) => {
+      providerCreateCalls += 1;
+      const order = {
+        id: `order_ci_${suffix.replaceAll('-', '')}_${providerCreateCalls}`,
+        amount: payload.amount,
+        currency: payload.currency,
+        status: 'created',
+        amount_paid: 0,
+        amount_due: payload.amount,
+        attempts: 0,
+        receipt: payload.receipt,
+        notes: payload.notes,
+      };
+      providerOrders.set(order.id, order);
+      return order;
+    },
+    fetch: async (id) => providerOrders.get(id),
+    fetchPayments: async () => ({ items: [] }),
+  } };
+  const routeLayer = publicRoutes.stack.find((layer) => layer.route?.path === '/invoices/:slug/payment/create-order' && layer.route.methods.post);
+  assert.ok(routeLayer, 'production public router must register the create-order endpoint');
+  const endpoint = routeLayer.route.stack.at(-1);
+  const originalHandler = endpoint.handle;
+  const { createPublicRazorpayOrder: createOrderHandler } = require('../src/controllers/public.controller');
+  endpoint.handle = (req, res, next) => createOrderHandler(req, res, next, {
+    provider,
+    logRazorpayAction: async () => {},
+  });
+  const app = express();
+  app.use('/api/v1/public', publicRoutes);
+  const server = app.listen(0, '127.0.0.1');
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('listening', resolve);
+      server.once('error', reject);
+    });
+    customer = await prisma.customer.findUnique({ where: { phone: '9930367267' } });
+    if (!customer) {
+      customer = await prisma.customer.create({ data: { name: 'Home', phone: '9930367267', notifWhatsApp: false } });
+      customerCreated = true;
+    }
+    subscription = await prisma.ironSubscription.findUnique({ where: { customerId: customer.id } });
+    if (!subscription) {
+      subscription = await prisma.ironSubscription.create({ data: { customerId: customer.id } });
+      subscriptionCreated = true;
+    }
+    const sourceCases = [
+      {
+        sourceType: 'ORDER',
+        create: async () => {
+          const row = await prisma.order.create({ data: {
+            orderNumber: `ACTIVE-SHARE-ORDER-${suffix}`, customerId: customer.id,
+            source: 'COUNTER', status: 'PICKED_UP', subtotal: 10, totalAmount: 10,
+          } });
+          sources.push(['order', row.id]);
+          return { orderId: row.id };
+        },
+        shareType: 'ORDER',
+        shareKey: 'orderId',
+      },
+      {
+        sourceType: 'DAILY_IRON',
+        create: async () => {
+          const row = await prisma.ironBill.create({ data: {
+            billNumber: `ACTIVE-SHARE-IRON-${suffix}`, customerId: customer.id, subscriptionId: subscription.id,
+            billingPeriodStart: new Date('2023-01-01'), billingPeriodEnd: new Date('2023-01-31'),
+            totalPieces: 1, totalAmount: 10,
+          } });
+          sources.push(['ironBill', row.id]);
+          return { ironBillId: row.id };
+        },
+        shareType: 'IRON_BILL',
+        shareKey: 'ironBillId',
+      },
+      {
+        sourceType: 'FIELD_SERVICE',
+        create: async () => {
+          const row = await prisma.serviceAppointment.create({ data: {
+            appointmentNumber: `ACTIVE-SHARE-FIELD-${suffix}`, customerId: customer.id,
+            serviceName: 'Field service CI', scheduledAt: new Date('2023-01-01'), totalAmount: 10,
+          } });
+          sources.push(['serviceAppointment', row.id]);
+          return { serviceAppointmentId: row.id };
+        },
+        shareType: 'INVOICE',
+        shareKey: 'invoiceId',
+      },
+    ];
+
+    for (const sourceCase of sourceCases) {
+      const source = await sourceCase.create();
+      const invoice = await prisma.invoice.create({ data: {
+        invoiceNumber: `ACTIVE-SHARE-${sourceCase.sourceType}-${suffix}`,
+        customerId: customer.id,
+        sourceType: sourceCase.sourceType,
+        ...source,
+        status: 'OPEN',
+        currency: 'INR',
+        subtotal: 10,
+        totalAmount: 10,
+        balanceDue: 10,
+        issueDate: new Date('2023-01-01'),
+        dueDate: new Date('2023-01-02'),
+      } });
+      invoiceIds.push(invoice.id);
+      const token = await createPublicShareToken({ resourceType: sourceCase.shareType, resourceId: sourceCase.shareKey === 'invoiceId' ? invoice.id : source[sourceCase.shareKey], purpose: 'INVOICE_VIEW' });
+      shareHashes.push(crypto.createHash('sha256').update(token).digest('hex'));
+      const idempotencyKey = `public_active_${sourceCase.sourceType}_${suffix}`;
+      const requestCheckout = () => fetch(`http://127.0.0.1:${server.address().port}/api/v1/public/invoices/${token}/payment/create-order`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+
+      const firstResponse = await requestCheckout();
+      const first = await firstResponse.json();
+      assert.equal(firstResponse.status, 200, `${sourceCase.sourceType} active share should prepare checkout: ${JSON.stringify(first)}`);
+      assert.equal(first.data.amount, 1000);
+      assert.equal(first.data.currency, 'INR');
+      assert.equal(first.data.invoiceNumber, invoice.invoiceNumber);
+      assert.match(first.data.razorpayOrderId, /^order_ci_/);
+      assert.equal(first.data.mode, 'TEST');
+
+      const replayResponse = await requestCheckout();
+      const replay = await replayResponse.json();
+      assert.equal(replayResponse.status, 200);
+      assert.equal(replay.data.checkoutAttemptId, first.data.checkoutAttemptId);
+      assert.equal(replay.data.razorpayOrderId, first.data.razorpayOrderId);
+      assert.equal(await prisma.razorpayCheckoutAttempt.count({ where: { invoiceId: invoice.id } }), 1);
+      assert.equal(providerCreateCalls, sourceCases.indexOf(sourceCase) + 1);
+      const unchanged = await prisma.invoice.findUnique({ where: { id: invoice.id } });
+      assert.equal(Number(unchanged.paidAmount), 0);
+      assert.equal(Number(unchanged.balanceDue), 10);
+    }
+  } finally {
+    endpoint.handle = originalHandler;
+    await new Promise((resolve) => server.close(resolve));
+    if (shareHashes.length) await prisma.publicShareToken.deleteMany({ where: { tokenHash: { in: shareHashes } } });
+    if (invoiceIds.length) {
+      const attempts = await prisma.razorpayCheckoutAttempt.findMany({ where: { invoiceId: { in: invoiceIds } }, select: { id: true } });
+      if (attempts.length) await prisma.razorpayPaymentJourneyEvent.deleteMany({ where: { checkoutAttemptId: { in: attempts.map((attempt) => attempt.id) } } });
+      await prisma.razorpayCheckoutAttempt.deleteMany({ where: { invoiceId: { in: invoiceIds } } });
+      await prisma.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
+    }
+    for (const [model, id] of sources.reverse()) await prisma[model].delete({ where: { id } });
+    if (subscriptionCreated && subscription) await prisma.ironSubscription.delete({ where: { id: subscription.id } });
+    if (customerCreated && customer) await prisma.customer.delete({ where: { id: customer.id } });
     if (previousEnv.keyId === undefined) delete process.env.RAZORPAY_KEY_ID;
     else process.env.RAZORPAY_KEY_ID = previousEnv.keyId;
     if (previousEnv.keySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET;

@@ -7,6 +7,7 @@ const { writeAuditEvent } = require('./activity.service');
 const { recordPaymentJourneyEvent } = require('./razorpay-payment-journey-logger');
 const { safeText } = require('../utils/redact');
 const { getSafeRazorpayPaymentMethod, getSafeRazorpayPaymentDiagnostics } = require('../utils/razorpay-payment-method');
+const { openInvoiceWhere } = require('./receivables.service');
 
 class RazorpayCheckoutError extends Error {
   constructor(code, message, statusCode = 400, details = {}) {
@@ -198,40 +199,53 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
   const localKey = digest(`${invoice.id}:${idempotencyKey}`);
   const reserveAttempt = () => prisma.$transaction(async (tx) => {
     const lockIds = (plan || [{ invoiceId: invoice.id }]).map((item) => item.invoiceId).sort();
-    if (plan) {
-      const linkedRows = await tx.invoice.findMany({ where: { id: { in: lockIds } }, select: { orderId: true } });
-      for (const orderId of [...new Set(linkedRows.map((row) => row.orderId).filter(Boolean))].sort()) {
-        await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`;
-      }
+    const initialSources = await tx.invoice.findMany({
+      where: { id: { in: lockIds } },
+      select: { orderId: true, ironBillId: true, serviceAppointmentId: true },
+    });
+    for (const sourceId of [...new Set(initialSources.map((row) => row.orderId).filter(Boolean))].sort()) {
+      await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${sourceId} FOR UPDATE`;
+    }
+    for (const sourceId of [...new Set(initialSources.map((row) => row.ironBillId).filter(Boolean))].sort()) {
+      await tx.$queryRaw`SELECT "id" FROM "iron_bills" WHERE "id" = ${sourceId} FOR UPDATE`;
+    }
+    for (const sourceId of [...new Set(initialSources.map((row) => row.serviceAppointmentId).filter(Boolean))].sort()) {
+      await tx.$queryRaw`SELECT "id" FROM "service_appointments" WHERE "id" = ${sourceId} FOR UPDATE`;
     }
     const locked = [];
     for (const id of lockIds) locked.push(...await tx.$queryRaw`SELECT "id" FROM "invoices" WHERE "id" = ${id} FOR UPDATE`);
     if (locked.length !== lockIds.length || !locked.some((row) => row.id === invoice.id)) throw new RazorpayCheckoutError('INVOICE_NOT_PAYABLE', 'Online payment is not available for this invoice', 404);
     const current = await tx.invoice.findUnique({ where: { id: invoice.id } });
     if (!current || current.voidedAt || current.status === 'VOID') throw new RazorpayCheckoutError('INVOICE_NOT_PAYABLE', 'This invoice cannot accept payments', 409);
-    if (current.orderId) {
-      const lockedOrder = await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${current.orderId} FOR UPDATE`;
-      const order = lockedOrder.length
-        ? await tx.order.findUnique({ where: { id: current.orderId }, select: { status: true } })
-        : null;
-      if (!order || order.status === 'CANCELLED') {
-        throw new RazorpayCheckoutError('ORDER_CANCELLED', 'A cancelled order cannot accept a new payment.', 409);
+    const assertSourcePayable = async (source) => {
+      if (source.orderId) {
+        const order = await tx.order.findUnique({ where: { id: source.orderId }, select: { status: true } });
+        if (!order || ['CANCELLED', 'RETURNED'].includes(order.status)) {
+          throw new RazorpayCheckoutError('ORDER_CANCELLED', 'A cancelled or returned order cannot accept a new payment.', 409);
+        }
+      } else if (source.ironBillId) {
+        const bill = await tx.ironBill.findUnique({ where: { id: source.ironBillId }, select: { status: true } });
+        if (!bill || bill.status === 'VOID') {
+          throw new RazorpayCheckoutError('BILL_VOID', 'A voided bill cannot accept payment.', 409);
+        }
+      } else if (source.serviceAppointmentId) {
+        const appointment = await tx.serviceAppointment.findUnique({ where: { id: source.serviceAppointmentId }, select: { status: true } });
+        if (!appointment || appointment.status === 'CANCELLED') {
+          throw new RazorpayCheckoutError('APPOINTMENT_CANCELLED', 'A cancelled appointment cannot accept payment.', 409);
+        }
       }
-    }
+    };
+    await assertSourcePayable(current);
     let currentPlan = null;
     if (plan) {
-      const receivables = await tx.invoice.findMany({ where: { customerId: current.customerId, status: { not: 'VOID' }, balanceDue: { gt: 0 } }, select: { id: true, invoiceNumber: true, customerId: true, orderId: true, currency: true, balanceDue: true, status: true, voidedAt: true }, orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }, { id: 'asc' }] });
+      const receivables = await tx.invoice.findMany({ where: { customerId: current.customerId, ...openInvoiceWhere }, select: { id: true, invoiceNumber: true, customerId: true, orderId: true, ironBillId: true, serviceAppointmentId: true, currency: true, balanceDue: true, status: true, voidedAt: true }, orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }, { id: 'asc' }] });
       if (receivables.length !== plan.length || receivables.some((row, index) => row.id !== plan[index].invoiceId
         || Math.round(Number(row.balanceDue) * 100) !== Math.round(plan[index].amount * 100)
         || row.customerId !== current.customerId || String(row.currency || 'INR') !== String(current.currency || 'INR') || row.voidedAt)) {
         throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_STALE', 'The outstanding invoices changed. Refresh the payment link and try again.', 409);
       }
       currentPlan = receivables.map((row) => ({ invoiceId: row.id, invoiceNumber: row.invoiceNumber, amount: Number(row.balanceDue), orderId: row.orderId || null }));
-      for (const orderId of [...new Set(currentPlan.map((item) => item.orderId).filter(Boolean))].sort()) {
-        const lockedOrder = await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`;
-        const order = lockedOrder.length ? await tx.order.findUnique({ where: { id: orderId }, select: { status: true } }) : null;
-        if (!order || order.status === 'CANCELLED') throw new RazorpayCheckoutError('ORDER_CANCELLED', 'A cancelled order cannot accept a new payment.', 409);
-      }
+      for (const receivable of receivables) await assertSourcePayable(receivable);
     }
     const amountPaise = currentPlan
       ? currentPlan.reduce((sum, item) => sum + BigInt(Math.round(item.amount * 100)), 0n)

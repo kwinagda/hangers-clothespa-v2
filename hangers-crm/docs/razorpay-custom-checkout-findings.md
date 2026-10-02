@@ -2,9 +2,26 @@
 
 ## Current Findings Disposition - 2 October 2026
 
+**Purpose and counting rule:** this file is the backlog for defects, contract questions and evidence gaps discovered while executing A01-A24. Findings are not additional acceptance tasks and do not change the A01-A24 denominator. A finding may explain why an A-item remains Partial, but its ID is not itself a completion percentage.
+
+**A-item sequencing rule:** record each finding under the A-item that exposed it using lettered IDs (A01-a, A01-b, A02-a, etc.). Finish the active A-item and every finding needed for that item's acceptance before moving to the next A-item. Do not silently broaden the active scope: unrelated findings are recorded under the relevant A-item and held for the later findings phase. Work those deferred findings one at a time when that phase begins, updating status/evidence immediately after each acceptance check passes. Preserve unresolved items as open; do not mark a batch complete until every in-scope finding is fixed and verified or explicitly dispositioned with evidence.
+
+**Required detail for every new finding:**
+
+| Field | Record |
+| --- | --- |
+| ID and status | Use the next A-item letter (for example, A01-a) for a finding tied to that task. Keep F-numbers only for existing chronological/cross-cutting history. Record the current state and any provider/activation dependency. |
+| Symptom and exact evidence | User-visible/backend symptom, route or source location, revision, timestamp, and reproducible output. Redact credentials, PAN/CVV, OTPs and customer secrets. |
+| Impact and scope | Customer/payment/ledger/security effect; affected A-item and C-requirement IDs; explicitly state what is not affected. |
+| Bounded remedy | Smallest documented-contract-compliant correction; no guessed provider behavior or unrelated refactor. |
+| Acceptance subtasks | `- [ ]` Reproduce/confirm the defect; `- [ ]` implement the bounded correction; `- [ ]` add/run focused regression; `- [ ]` record exact evidence and update this finding. Omit a subtask only with a recorded reason. |
+| Dependency/disposition | Razorpay response, merchant activation, supported device, unavailable evidence, or none. Only F11 and F35 are currently deferred for Razorpay responses. |
+
+For a finding required by the active A-item, tick its subtasks as they are verified and close it before advancing to the next A-item. Unrelated findings stay open for the later findings phase. A source edit alone is not completion.
+
 This is a chronological evidence register; the bullets below are the current disposition. Do not read older headings such as “Deferred”, “Current Repair Instruction”, or a dated “pending CI” sentence as today's status without checking this section and the master plan's Current Audited Task Register. Preserve dated evidence, but the newest exact-SHA/runtime evidence controls. Checkboxes in Reviewed Repair Progress mean source work was reviewed; they do not mean the linked A01-A24 acceptance is complete.
 
-**New-finding workflow:** any issue discovered while completing an A01-A24 task goes here as an unchecked, detailed subtask with symptom, reproducible evidence, impact/risk, bounded fix, and acceptance criteria. Do not silently enlarge the active task or implement the discovery mid-task. Group newly discovered subtasks into a later findings batch and work/tick that batch together, recording evidence for every checked item. Resolved findings remain checked here with closure evidence; dated failure notes stay historical.
+**New-finding workflow:** any issue discovered while completing an A01-A24 task goes here under that A-item as an unchecked, lettered subtask with symptom, reproducible evidence, impact/risk, bounded fix, and acceptance criteria. If it affects acceptance or safe completion of the active A-item, resolve and verify it before advancing. Otherwise leave it recorded for the later findings phase; do not interrupt the active task with unrelated repairs. Resolved findings remain checked here with closure evidence; dated failure notes stay historical.
 
 | Finding(s) | Current disposition | What remains |
 | --- | --- | --- |
@@ -18,6 +35,40 @@ This is a chronological evidence register; the bullets below are the current dis
 | F47, F50-F51, F53-F56, F61-F62 | Resolved for the specific defect/contract scope described in their dated entries. | Broader A17/A22/A23 acceptance is not closed by these scoped repairs. |
 | F60 | Partially resolved release-control gap. | A24 still needs green exact-SHA CI, review/approval and separately authorized release/migration/post-check gates. |
 | F66 | Resolved at source/test SHA `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30`; both exact-SHA CI jobs passed in run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219). | Broader live account readiness/runtime acceptance remains under A04; this scoped CI regression is closed. |
+
+## Acceptance-Linked Findings
+
+Keep findings grouped under the A-item that exposed them. These Axx-letter entries are acceptance gaps/subtasks, not extra A-items and not replacements for the chronological F-number history below. Resolve the active A-item and its linked findings before beginning the next A-item. Record later findings under their owning A-item using the next letter.
+
+### A01 Findings
+
+#### A01-a - Successful public checkout path lacks end-to-end acceptance evidence
+
+- **Status:** Route-level regression authored; disposable-CI execution pending.
+- **Evidence:** `combined-checkout.integration.test.js` now mounts the registered public router, resolves active `ORDER`, `IRON_BILL`, and `INVOICE` shares for `ORDER`, `DAILY_IRON`, and `FIELD_SERVICE` invoices, and calls the create-order endpoint twice with the same idempotency key using a mock Test provider. It asserts amount/currency/order reference, one provider order and attempt per invoice, and no settlement before capture. Test execution is intentionally not run against local `hangers_db`; it must run only in disposable `hangers_test` CI.
+- **Impact:** A regression in public route wiring, share-to-invoice binding, or the handoff from the public controller to the checkout service could escape the current A01 CI coverage even though the isolated service and lookup tests pass.
+- **Bounded acceptance:** Add and run a Test-only integration case through the registered public HTTP route for active shares across the supported invoice source types. Verify the returned amount/currency and Razorpay order reference, replay the same request without creating a second provider order or checkout attempt, and confirm the invoice remains unpaid until capture. Retain existing expired/revoked/cancelled denials. Use only the disposable CI database (`hangers_test`) and an injected/mock Test provider; never point this case at local `hangers_db` or Live credentials.
+- **Acceptance subtasks:**
+  - [x] Add coverage for the registered public HTTP route and active share resolution, not only the controller or service directly; CI execution pending.
+  - [x] Add eligible unpaid `ORDER`, `DAILY_IRON`, and `FIELD_SERVICE` invoice cases with source-appropriate share types; CI execution pending.
+  - [x] Add assertions that successful preparation plus same-request replay yields one attempt/provider order and leaves invoice settlement unchanged; CI execution pending.
+  - [ ] Run the focused case in disposable CI and record the exact revision and result; preserve the existing invalid-link and cancelled-source regressions.
+- **A01 disposition:** A01 remains Partial until A01-a and A01-b regressions pass on the approved disposable CI database and their exact-SHA evidence is recorded. Do not proceed to A02 before both are closed.
+
+#### A01-b - Checkout eligibility does not match cancelled/returned source rules
+
+- **Status:** Source correction and regression coverage authored; disposable-CI execution pending.
+- **Evidence:** `createInvoiceCheckout` now locks linked Order, IronBill, and ServiceAppointment source rows before invoice rows, rejects returned/cancelled/void sources using the same source-specific payment codes, and applies `openInvoiceWhere` to combined checkout revalidation. Public customer outstanding summaries now use that same eligibility predicate. A CI-gated regression in `combined-checkout.integration.test.js` covers a returned order and cancelled field-service appointment through direct service and active public-share route, asserting no provider order, checkout attempt, or inclusion in customer outstanding totals. The test was not executed locally because it writes fixture data; its run must remain confined to the disposable `hangers_test` CI database.
+- **Impact:** A customer could complete a provider payment for a returned order or cancelled field-service appointment, after which CRM settlement would reject the payment and require Finance review.
+- **Bounded remedy:** Implemented in source: public outstanding selection and checkout reservation now honor `openInvoiceWhere`; source rows are locked consistently before invoice rows; invalid sources are rejected before attempt reservation/provider calls with the existing source-specific error contract.
+- **Acceptance subtasks:**
+  - [x] Add regression assertions for rejecting a `RETURNED` order and cancelled `FIELD_SERVICE` invoice before provider call or checkout-attempt creation; CI execution remains pending.
+  - [x] Apply the shared eligibility predicate to combined checkout revalidation and public customer receivables; CI execution remains pending.
+  - [ ] Verify `DAILY_IRON` void invoices remain blocked and combined receivables do not include cancelled/returned/void sources in disposable CI.
+  - [ ] Run focused regressions against the approved disposable CI database and record exact-SHA results; do not write to local `hangers_db`.
+- **A01 disposition:** Keep A01 open until A01-a's successful public-path coverage and A01-b's source-status protections pass. Do not move to A02 before both are closed.
+
+**A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. A01-a/A01-b remain open pending execution against the previously approved disposable `hangers_test` CI database. No local or production database was changed.
 
 **Current exact-SHA reconciliation:** HEAD `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` ran as Actions run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219); Backend and CRM both succeeded. The CRM responsive UI job passed all 25 browser cases, including SDK readiness timeout/retry after the test SDK mock supplied its formatter dependency. F66 is resolved for this regression. Earlier red run [37004349213](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37004349213) is retained as historical evidence. F65's former “outbox CI pending” statement is superseded: the disposable-DB journey/webhook/outbox integration passed in Backend CI. Read-only local `pg_isready` and `prisma migrate status` show `localhost:5432` accepting connections and the journey-event migration still pending on `hangers_db`; no migration was applied. These observations supersede earlier “PostgreSQL stopped/unavailable” statements as of this audit only.
 
@@ -152,7 +203,11 @@ The findings below form the now-authorized repair batch. Their original evidence
 
 No finding in this file is a passed acceptance case or evidence of a successful payment.
 
-## New Findings During Authorized Repair - Deferred
+## Findings Backlog - Detailed Subtasks Deferred to the Findings Batch
+
+The individual entries below are historical source findings and later discoveries. Their current resolution/provider-wait status is summarized in the disposition table at the top. Do not interpret old imperative wording (“repair”, “implement”, “verify”) as a request to interrupt the current A-item. For any new discovery, append a finding using the required detail above; do not create a new competing checklist in the master implementation plan.
+
+### New Findings During Authorized Repair - Historical Entries
 
 - **F28 - Local capabilities route unavailable in the serving runtime.** User screenshot shows `Route not found: GET /api/v1/public/invoices/:slug/payment/custom/capabilities`. Current source registers that exact route in `src/routes/public.routes.js`, mounted at `/api/v1/public` in `src/index.js`. Source inspection cannot determine whether an old backend process or a different proxy target served the request. Later runtime phase must identify the serving process/target and load the updated API; no server restart or runtime request performed in this source-only phase. This is not evidence of Razorpay rejection or a captured payment.
 - **F29 - Order-create response can race autonomous recovery.** Recovery worker reported that provider creation attaches its result unconditionally while recovery can transition CREATING to REVIEW. Recorded for later under the explicit new-findings rule; no additional repair assigned. Acceptance must inspect the interaction before release.

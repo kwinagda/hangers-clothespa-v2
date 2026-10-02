@@ -21,6 +21,7 @@ const { buildPublicRazorpayCallbackUrl, buildPublicInvoiceReturnUrl } = require(
 const { assertCustomMode, fetchCustomMethods, fetchCustomCardEligibility, getCustomConfiguration } = require('../services/razorpay-custom-capabilities.service');
 const { getRazorpayDowntimeSnapshot, matchRazorpayDowntime } = require('../services/razorpay-downtime.service');
 const { prepareRazorpayVirtualAccount } = require('../services/razorpay-bank-transfer.service');
+const { openInvoiceWhere } = require('../services/receivables.service');
 
 const PUBLIC_SITE_PROFILE_KEY = 'public_site_profile';
 
@@ -497,8 +498,7 @@ const getPublicPaymentSummary = async (customerId, legalTerms) => {
   const invoices = await prisma.invoice.findMany({
     where: {
       customerId,
-      status: { not: 'VOID' },
-      balanceDue: { gt: 0 },
+      ...openInvoiceWhere,
     },
     select: canonicalInvoiceSelect,
     orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }, { id: 'asc' }],
@@ -886,7 +886,7 @@ const preparePublicCustomBankTransfer = async (req, res) => {
   } catch (err) { return customCheckoutFailure(req, res, err); }
 };
 
-const createPublicRazorpayOrder = async (req, res) => {
+const createPublicRazorpayOrder = async (req, res, _next, testHooks = {}) => {
   const startedAt = Date.now();
   try {
     const customCheckout = req.body?.checkoutIntegration === 'CUSTOM';
@@ -936,13 +936,13 @@ const createPublicRazorpayOrder = async (req, res) => {
       }
       allocationPlan = summary.receivables.map((item) => ({ invoiceId: item.invoiceId, amount: Number(item.balanceDue) }));
     }
-    await logRazorpayAction(req, 'RAZORPAY_CHECKOUT_INITIATED', 'Customer initiated Razorpay checkout', {
+    await (testHooks.logRazorpayAction || logRazorpayAction)(req, 'RAZORPAY_CHECKOUT_INITIATED', 'Customer initiated Razorpay checkout', {
       invoiceId: target.invoice.id,
       invoiceNumber: target.invoice.invoiceNumber,
       orderId: target.invoice.orderId,
       requestId: req.id,
     });
-    const result = await createInvoiceCheckout({
+    const result = await (testHooks.createInvoiceCheckout || createInvoiceCheckout)({
       invoice: target.invoice,
       shareId: target.share.id,
       idempotencyKey: req.get('Idempotency-Key'),
@@ -950,8 +950,9 @@ const createPublicRazorpayOrder = async (req, res) => {
       experiment,
       allocationPlan,
       customCheckout,
+      ...(testHooks.provider ? { provider: testHooks.provider } : {}),
     });
-    await logRazorpayAction(req, 'RAZORPAY_ORDER_CREATED', 'Razorpay order created for invoice checkout', {
+    await (testHooks.logRazorpayAction || logRazorpayAction)(req, 'RAZORPAY_ORDER_CREATED', 'Razorpay order created for invoice checkout', {
       checkoutAttemptId: result.attempt.id,
       invoiceId: target.invoice.id,
       invoiceNumber: target.invoice.invoiceNumber,
@@ -979,7 +980,7 @@ const createPublicRazorpayOrder = async (req, res) => {
       ...(experiment ? { experiment: { id: experiment.id, variant: experiment.variant } } : {}),
     });
   } catch (err) {
-    await logRazorpayAction(req, 'RAZORPAY_ORDER_CREATE_FAILED', 'Razorpay order creation failed', {
+    await (testHooks.logRazorpayAction || logRazorpayAction)(req, 'RAZORPAY_ORDER_CREATE_FAILED', 'Razorpay order creation failed', {
       code: safeProviderCode(err), error: safeProviderMessage(err), providerError: razorpayErrorSummary(err), durationMs: Date.now() - startedAt,
     }, 'FAILED');
     if (err instanceof RazorpayCheckoutError) return paymentApiError(res, { statusCode: err.statusCode, code: err.code, message: err.message, requestId: req.id, details: err.details });
