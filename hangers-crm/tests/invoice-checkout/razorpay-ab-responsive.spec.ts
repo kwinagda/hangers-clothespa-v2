@@ -289,6 +289,7 @@ test('custom checkout shows one invoice lookup error and never labels it a pendi
 })
 
 test('active custom checkout renders only returned methods and remains usable at narrow and desktop widths', async ({ page, request }) => {
+  const before = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   const origin = 'http://localhost:55104'
   const paymentMethods = {
     upi: true,
@@ -410,7 +411,7 @@ test('active custom checkout renders only returned methods and remains usable at
   expect(apiRequests.some((entry) => entry.includes('/payment/verify'))).toBe(false)
   expect(providerRequests).toEqual(['https://checkout.razorpay.com/v1/razorpay.js', 'https://checkout.razorpay.com/v1/razorpay.js'])
   const stats = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
-  expect(stats.createOrderRequests).toBe(0)
+  expect(stats.createOrderRequests).toBe(before.createOrderRequests)
 })
 
 test('closing Checkout immediately checks the attempt and keeps a nonterminal payment locked', async ({ page }) => {
