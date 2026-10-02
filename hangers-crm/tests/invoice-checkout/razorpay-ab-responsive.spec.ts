@@ -418,12 +418,12 @@ test('Standard Checkout capture refreshes the invoice and never reopens Pay afte
     await page.goto('/invoice/variant-standard-success')
     await continueFromInvoiceToPayment(page)
 
-    await expect(page.getByText('PAID', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Invoice paid' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Pay/ })).toHaveCount(0)
     await expect(page.locator('body')).toContainText(/Balance Due\s*₹0/)
 
     await page.reload()
-    await expect(page.getByText('PAID', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Invoice paid' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Pay/ })).toHaveCount(0)
     const dimensions = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
