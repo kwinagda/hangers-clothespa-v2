@@ -20,22 +20,35 @@ const dependencies = (name) => {
   if (name === '../InvoicePaymentButton') return { __esModule: true, default: (props) => React.createElement('button', {
     'data-anchor': props.invoiceId, 'data-scope': props.paymentScope,
   }, 'Pay outstanding') }
-  if (name === './CustomCheckoutFlow') return { __esModule: true, default: () => React.createElement('div', { 'data-testid': 'custom-checkout' }) }
+  if (name === './CustomCheckoutFlow') return { __esModule: true, default: (props) => React.createElement('div', {
+    'data-testid': 'custom-checkout',
+    'data-initial-status': props.initialStatus?.status,
+    'data-order-id': props.initialStatus?.razorpayOrderId,
+    'data-payment-id': props.initialStatus?.razorpayPaymentId,
+  }) }
   if (name === './availability') return { checkoutAvailability }
   if (name === './page.module.css') return { __esModule: true, default: {} }
   return require(name)
 }
 new Function('require', 'module', 'exports', compiled)(dependencies, module, module.exports)
 
-async function render(payload, query = {}, status = 200) {
+async function render(payload, query = {}, responseStatus = 200, paymentStatus = { data: { status: 'NONE' } }, customCheckout = false) {
   const previousFetch = globalThis.fetch
+  const previousCustomCheckout = process.env.NEXT_PUBLIC_RAZORPAY_CUSTOM_CHECKOUT
+  if (customCheckout) process.env.NEXT_PUBLIC_RAZORPAY_CUSTOM_CHECKOUT = 'true'
   globalThis.fetch = async (url) => {
-    const body = String(url).includes('/payment/status') ? { data: { status: 'NONE' } } : payload
+    const isPaymentStatus = String(url).includes('/payment/status')
+    const body = isPaymentStatus ? paymentStatus : payload
+    const status = isPaymentStatus ? 200 : responseStatus
     return { ok: status >= 200 && status < 300, status, json: async () => body }
   }
   try {
     return renderToStaticMarkup(await module.exports.default({ params: Promise.resolve({ slug: 'local-qa' }), searchParams: Promise.resolve(query) }))
-  } finally { globalThis.fetch = previousFetch }
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousCustomCheckout === undefined) delete process.env.NEXT_PUBLIC_RAZORPAY_CUSTOM_CHECKOUT
+    else process.env.NEXT_PUBLIC_RAZORPAY_CUSTOM_CHECKOUT = previousCustomCheckout
+  }
 }
 
 test('paid invoice renders confirmation and invoice link without payment action', async () => {
@@ -43,6 +56,20 @@ test('paid invoice renders confirmation and invoice link without payment action'
   assert.match(html, /Invoice paid/)
   assert.match(html, /aria-current="step">3/)
   assert.match(html, /View invoice details/)
+  assert.doesNotMatch(html, /<button/)
+})
+
+test('server-confirmed capture and provider references seed Custom Checkout receipt state', async () => {
+  const html = await render(
+    { data: { invoice: { id: 'invoice-captured', invoiceNumber: 'INV-CAPTURED', balanceDue: 0, status: 'PAID' } } },
+    {}, 200,
+    { data: { status: 'CAPTURED', razorpayOrderId: 'order_verified', razorpayPaymentId: 'pay_verified' } },
+    true,
+  )
+  assert.match(html, /data-testid="custom-checkout"/)
+  assert.match(html, /data-initial-status="CAPTURED"/)
+  assert.match(html, /data-order-id="order_verified"/)
+  assert.match(html, /data-payment-id="pay_verified"/)
   assert.doesNotMatch(html, /<button/)
 })
 

@@ -10,6 +10,17 @@ export const dynamic = 'force-dynamic'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
 const SERVER_API_BASE_URL = process.env.CRM_SERVER_API_URL || API_BASE_URL
+type CapturedCheckoutSnapshot = {
+  status: 'CAPTURED'
+  razorpayOrderId?: string | null
+  razorpayPaymentId?: string | null
+  paymentId?: string | null
+  capturedAmountPaise?: string | number | null
+  currency?: string | null
+  capturedAt?: string | null
+  observedAt?: string | null
+  allocations?: Array<{ invoiceId: string; invoiceNumber: string; amountPaise: string }>
+}
 const money = (value: unknown) => {
   const amount = Number(value)
   return value == null || !Number.isFinite(amount) ? 'Unavailable' : new Intl.NumberFormat('en-IN', {
@@ -72,11 +83,12 @@ export default async function PublicInvoiceCheckoutPage({
   const amount = Number(balance)
   const availability = balance == null ? 'UNAVAILABLE' : checkoutAvailability(balance, invoice?.status, outstanding)
   const payable = availability === 'PAYABLE'
+  let initialCapture: CapturedCheckoutSnapshot | undefined
   let confirmed = availability === 'PAID'
   const invoiceId = outstanding
     ? items[0]?.invoiceId || query.invoiceId
     : invoice?.id
-  if (availability === 'NO_BALANCE' && invoiceId) {
+  if ((availability === 'NO_BALANCE' || availability === 'PAID') && invoiceId) {
     try {
       const statusQuery = new URLSearchParams({ invoiceId, checkoutIntegration: 'CUSTOM' })
       const response = await fetch(`${SERVER_API_BASE_URL}/public/invoices/${encodeURIComponent(slug)}/payment/status?${statusQuery}`, {
@@ -84,7 +96,10 @@ export default async function PublicInvoiceCheckoutPage({
       })
       if (response.ok) {
         const payload = await response.json()
-        confirmed = payload?.data?.status === 'CAPTURED'
+        if (payload?.data?.status === 'CAPTURED') {
+          initialCapture = payload.data as CapturedCheckoutSnapshot
+          confirmed = true
+        }
       }
     } catch {
       // A zero balance alone does not establish a captured checkout payment.
@@ -133,6 +148,7 @@ export default async function PublicInvoiceCheckoutPage({
             slug={slug} invoiceId={invoiceId} invoiceNumber={invoiceNumber} orderNumber={orderNumber}
             amountPaise={Math.round(amount * 100)} customerName={customerName} customerPhone={customerPhone} outstanding={outstanding}
             paymentAllowed={payable}
+            initialStatus={initialCapture}
           /> : payable && <InvoicePaymentButton
             key={`${slug}-${outstanding ? 'outstanding' : 'invoice'}`}
             slug={slug}

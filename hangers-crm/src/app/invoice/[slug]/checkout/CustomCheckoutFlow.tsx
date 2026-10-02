@@ -11,34 +11,35 @@ import styles from '../RazorpayCustomCheckout.module.css'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
 type Status = {
-  status: string; attemptId?: string; razorpayOrderId?: string; razorpayPaymentId?: string
-  canResumeCheckout?: boolean; providerLookupUnavailable?: boolean; observedAt?: string
-  capturedAmountPaise?: number | string; currency?: string
-  capturedAt?: string; providerError?: ProviderError | null; retryPolicyGate?: string | null
+  status: string; attemptId?: string | null; razorpayOrderId?: string | null; razorpayPaymentId?: string | null
+  canResumeCheckout?: boolean; providerLookupUnavailable?: boolean; observedAt?: string | null
+  capturedAmountPaise?: number | string | null; currency?: string | null
+  capturedAt?: string | null; providerError?: ProviderError | null; retryPolicyGate?: string | null
   allocations?: Array<{ invoiceId: string; invoiceNumber: string; amountPaise: string }>
   invoice?: { balanceDue?: number; status?: string }
 }
 type Capabilities = { key: string; mode: string; methods: Methods; configuration: Configuration }
-const observationTime = (value?: string) => {
+const observationTime = (value?: string | null) => {
   const timestamp = value ? Date.parse(value) : NaN
   return Number.isFinite(timestamp) ? `${new Date(timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST (Asia/Kolkata)` : ''
 }
 
-export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, orderNumber, amountPaise, customerName, customerPhone, outstanding = false, paymentAllowed = true }: {
+export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, orderNumber, amountPaise, customerName, customerPhone, outstanding = false, paymentAllowed = true, initialStatus }: {
   slug: string; invoiceId?: string; invoiceNumber?: string; orderNumber?: string; amountPaise: number
   customerName?: string; customerPhone?: string; outstanding?: boolean
   paymentAllowed?: boolean
+  initialStatus?: Status
 }) {
   const router = useRouter()
   const base = `${API}/public/invoices/${encodeURIComponent(slug)}/payment`
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
-  const [status, setStatus] = useState<Status | null>(null)
+  const [status, setStatus] = useState<Status | null>(initialStatus || null)
   const [order, setOrder] = useState<CheckoutOrder | null>(null)
   const [message, setMessage] = useState('')
   const [diagnostic, setDiagnostic] = useState<ProviderError | null>(null)
   const [successReferences, setSuccessReferences] = useState<Array<{ order_id?: string; payment_id?: string }>>([])
   const [busy, setBusy] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!initialStatus)
   const [loadError, setLoadError] = useState('')
   const [methodsError, setMethodsError] = useState('')
   const [checkedAt, setCheckedAt] = useState('')
@@ -53,7 +54,7 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
   const preparing = useRef<Promise<CheckoutOrder> | null>(null)
   const checking = useRef<Promise<void> | null>(null)
   const lastCheck = useRef(0)
-  const confirmed = useRef(false)
+  const confirmed = useRef(initialStatus?.status === 'CAPTURED')
   const query = invoiceId ? `?invoiceId=${encodeURIComponent(invoiceId)}` : ''
 
   const rememberBackoff = useCallback((error: any) => {
