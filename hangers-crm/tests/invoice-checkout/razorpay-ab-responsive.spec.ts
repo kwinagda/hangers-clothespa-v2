@@ -425,6 +425,7 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   }
   let verifyRequests = 0
   let capabilitiesLookups = 0
+  let createOrderRequests = 0
   await page.route('**/payment/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -441,6 +442,13 @@ test('custom checkout hides choices when SDK readiness times out and restores th
     }
     if (request.method() === 'GET' && path.endsWith('/custom/downtime')) {
       return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'unknown', incidents: [] } } })
+    }
+    if (request.method() === 'POST' && path.endsWith('/payment/create-order')) {
+      createOrderRequests += 1
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
+        key: 'rzp_test_ready_retry', mode: 'TEST', amount: 100, currency: 'INR',
+        testContact: '+919930367267', checkoutAttemptId: 'ready-retry-attempt', razorpayOrderId: 'order_ready_retry',
+      } } })
     }
     if (path.endsWith('/payment/verify')) verifyRequests += 1
     return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
@@ -482,6 +490,7 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryReadyEvents?: number }).__readyRetryReadyEvents || 0), { timeout: 10000 }).toBeGreaterThan(0)
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible({ timeout: 10000 })
   expect(verifyRequests).toBe(0)
+  expect(createOrderRequests).toBe(1)
   expect(await page.evaluate(() => (window as Window & { __readyRetryPayments?: number }).__readyRetryPayments)).toBe(0)
 })
 
