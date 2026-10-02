@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { collapseQueuedWhatsAppEvents } from '../../src/lib/notificationTimeline'
 
 const approvedTestContact = '+91 9930367267'
+const invoicePayButtonName = 'Pay online · ₹1'
 
 const viewports = [
   { name: 'narrow-phone', width: 320, height: 700 },
@@ -45,8 +46,8 @@ test('invoice checkout A/B presentation stays responsive without starting a paym
 
     for (const variant of ['a', 'b'] as const) {
       await page.goto(`/invoice/variant-${variant}`)
-      const expectedCta = variant === 'a' ? 'Pay ₹1' : 'Pay invoice · ₹1'
-      const payButton = page.getByRole('button', { name: expectedCta, exact: true })
+      await expect(page.getByText(variant === 'a' ? 'Pay online' : 'Pay this invoice online', { exact: true })).toBeVisible()
+      const payButton = page.getByRole('button', { name: invoicePayButtonName, exact: true })
 
       await expect(payButton).toBeVisible()
       await expect(page.locator('body')).toContainText(approvedTestContact)
@@ -172,8 +173,7 @@ test('both checkout variants log a CTA click and safely surface a rejected start
   for (const [index, variant] of (['a', 'b'] as const).map((variant, index) => [index, variant] as const)) {
     await page.route('https://checkout.razorpay.com/**', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: '' }))
     await page.goto(`/invoice/variant-${variant}`)
-    const expectedCta = variant === 'a' ? 'Pay ₹1' : 'Pay invoice · ₹1'
-    await page.getByRole('button', { name: expectedCta, exact: true }).click()
+    await page.getByRole('button', { name: invoicePayButtonName, exact: true }).click()
     await expect(page.getByText('Order creation is blocked in this UI test.')).toBeVisible()
     await expect.poll(async () => {
       const stats = await request.get('http://127.0.0.1:55102/__test__/stats')
@@ -221,7 +221,7 @@ test('experiment assignment outage does not disable invoice payment', async ({ p
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/invoice/variant-telemetry-down')
-  const payButton = page.getByRole('button', { name: 'Pay ₹1', exact: true })
+  const payButton = page.getByRole('button', { name: invoicePayButtonName, exact: true })
   await expect(payButton).toBeEnabled()
   await payButton.click()
   await expect(page.getByText('Order creation is blocked in this UI test.')).toBeVisible()
@@ -244,7 +244,7 @@ test('untrusted payment.failed description is hidden and status is checked befor
   }, { sensitiveDescription })
 
   await page.goto('/invoice/variant-callback-failure')
-  await page.getByRole('button', { name: 'Pay ₹1', exact: true }).click()
+  await page.getByRole('button', { name: invoicePayButtonName, exact: true }).click()
   const callbackStatus = page.locator('div[role="status"]').filter({ hasText: 'Check the final status before trying again.' })
   await expect(callbackStatus).toBeVisible()
   await expect(callbackStatus).not.toContainText('Bank said call')
@@ -253,7 +253,7 @@ test('untrusted payment.failed description is hidden and status is checked befor
 
   await page.getByRole('button', { name: 'Check Razorpay status' }).click()
   await expect(page.locator('div[role="status"]').filter({ hasText: 'This payment did not complete. You can start a new attempt.' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Pay ₹1', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: invoicePayButtonName, exact: true })).toBeEnabled()
 })
 
 test('custom checkout shows one invoice lookup error and never labels it a pending payment', async ({ page, request }) => {
@@ -292,7 +292,7 @@ test('closing Checkout immediately checks the attempt and keeps a nonterminal pa
   })
 
   await page.goto('/invoice/variant-modal-dismiss')
-  await page.getByRole('button', { name: 'Pay ₹1', exact: true }).click()
+  await page.getByRole('button', { name: invoicePayButtonName, exact: true }).click()
 
   await expect(page.getByText('Payment status under review')).toBeVisible()
   await expect(page.locator('div[role="status"]').filter({ hasText: 'Razorpay is still processing this payment.' })).toBeVisible()
@@ -310,7 +310,7 @@ test('customer can choose the documented redirect callback fallback without repl
     }
   })
   await page.goto('/invoice/variant-callback-failure')
-  await expect(page.getByRole('button', { name: 'Pay ₹1', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: invoicePayButtonName, exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Checkout not opening? Use redirect checkout' }).click()
   await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __checkoutOptions?: unknown }).__checkoutOptions))).toBe(true)
   const options = await page.evaluate(() => (window as Window & { __checkoutOptions?: Record<string, unknown> }).__checkoutOptions)
@@ -328,7 +328,7 @@ test('redirect fallback is hidden unless the API confirms its callback route is 
     await route.fulfill({ json: { success: true, data: { status: 'NONE', redirectCheckoutAvailable: false } } })
   })
   await page.goto('/invoice/variant-redirect-disabled')
-  await expect(page.getByRole('button', { name: 'Pay ₹1', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: invoicePayButtonName, exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Checkout not opening? Use redirect checkout' })).toHaveCount(0)
 })
 
@@ -344,7 +344,7 @@ test('Standard Checkout hides the deprecated UPI Collect flow without hiding oth
   })
 
   await page.goto('/invoice/variant-callback-failure')
-  await page.getByRole('button', { name: 'Pay ₹1', exact: true }).click()
+  await page.getByRole('button', { name: invoicePayButtonName, exact: true }).click()
   await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __checkoutOptions?: unknown }).__checkoutOptions))).toBe(true)
   const options = await page.evaluate(() => (window as Window & { __checkoutOptions?: Record<string, any> }).__checkoutOptions)
 
@@ -356,10 +356,10 @@ test('Standard Checkout hides the deprecated UPI Collect flow without hiding oth
 test('terminal create-order failure shows safe retry guidance and retains the attempt reference', async ({ page, request }) => {
   await page.route('https://checkout.razorpay.com/**', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: '' }))
   await page.goto('/invoice/variant-terminal-failure')
-  await page.getByRole('button', { name: 'Pay ₹1', exact: true }).click()
+  await page.getByRole('button', { name: invoicePayButtonName, exact: true }).click()
 
   await expect(page.getByRole('status')).toContainText('This payment attempt failed. Start a new attempt to continue.')
-  await expect(page.getByRole('button', { name: 'Pay ₹1', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: invoicePayButtonName, exact: true })).toBeEnabled()
   await expect.poll(async () => {
     const stats = await request.get('http://127.0.0.1:55102/__test__/stats')
     const body = await stats.json()
@@ -409,7 +409,7 @@ test('Standard Checkout capture refreshes the invoice and never reopens Pay afte
     await request.post('http://127.0.0.1:55102/__test__/reset-standard-success')
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     await page.goto('/invoice/variant-standard-success')
-    await page.getByRole('button', { name: 'Pay ₹1', exact: true }).click()
+    await page.getByRole('button', { name: invoicePayButtonName, exact: true }).click()
 
     await expect(page.getByText('PAID', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: /Pay/ })).toHaveCount(0)
@@ -459,7 +459,7 @@ test('manual reconciliation resumes only the same provider-confirmed unattempted
   await expect(page.getByText('Payment status under review')).toBeVisible()
   await expect(page.getByText('Razorpay order reference: order_review')).toBeVisible()
   await page.getByRole('button', { name: 'Check Razorpay status' }).click()
-  await expect(page.getByRole('button', { name: 'Resume secure checkout' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue to secure checkout' })).toBeVisible()
   expect(reconciliationCalls).toBe(1)
 })
 
@@ -499,6 +499,6 @@ test('page-return recovery releases the checkout after Razorpay confirms the pay
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
 
   await expect(page.locator('div[role="status"]').filter({ hasText: 'This payment did not complete. You can start a new attempt.' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Pay ₹1', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: invoicePayButtonName, exact: true })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Check Razorpay status' })).toHaveCount(0)
 })

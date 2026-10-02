@@ -28,7 +28,7 @@ const invoice = {
   createdAt: '2026-09-24T00:00:00.000Z',
   deliveryDate: '2026-09-25T00:00:00.000Z',
   customer: { name: 'Home QA', phone: '9930367267' },
-  items: [{ sourceType: 'SERVICE', garmentType: 'Test garment', serviceName: 'Dry Clean', quantity: 1, unitPrice: 1, subtotal: 1 }],
+  items: [{ sourceType: 'SERVICE', garmentType: 'SERVICE', serviceName: 'Hangers service item', quantity: 1, unitPrice: 1, subtotal: 1 }],
   legalTerms: { sections: [] },
 }
 
@@ -67,7 +67,7 @@ const server = http.createServer((req, res) => {
     const receivable = (invoiceId, invoiceNumber, sourceNumber, balanceDue) => ({
       invoiceId, invoiceNumber, sourceNumber, sourceType: 'ORDER', dueDate: '2026-09-27T00:00:00.000Z',
       totalAmount: balanceDue, paidAmount: 0, balanceDue, totalPieces: 1,
-      items: [{ serviceName: 'Dry Clean', garmentType: 'SERVICE', quantity: 1, unitPrice: balanceDue, subtotal: balanceDue }],
+      items: [{ serviceName: 'Hangers service item', garmentType: 'SERVICE', quantity: 1, unitPrice: balanceDue, subtotal: balanceDue }],
     })
     const receivables = [
       ...(['ALL', 'summary-invoice-42'].includes(summaryCapturedInvoiceId) ? [] : [receivable('summary-invoice-42', 'INV-SUMMARY-42', 'HCS-SUM-42', 42)]),
