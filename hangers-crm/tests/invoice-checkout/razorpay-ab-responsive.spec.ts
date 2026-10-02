@@ -356,8 +356,11 @@ test('active custom checkout renders only returned methods and remains usable at
   for (const width of [320, 1440]) {
     await page.setViewportSize({ width, height: width === 320 ? 700 : 900 })
     await page.goto('http://localhost:55104/invoice/variant-a/checkout')
+    expect(await page.evaluate(() => window.location.hostname)).toBe('localhost')
     await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Pay Hangers Clothes Spa' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Pay Hangers Clothes Spa' }),
+      `Checkout form did not render. API requests: ${apiRequests.join('; ')}; body: ${await page.locator('body').innerText()}`,
+    ).toBeVisible()
     await expect(page.getByRole('radio', { name: 'UPI' })).toBeVisible()
     await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible()
     await expect(page.getByRole('radio', { name: 'Netbanking' })).toBeVisible()
