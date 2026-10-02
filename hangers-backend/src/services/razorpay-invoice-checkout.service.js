@@ -965,7 +965,12 @@ const settleCapturedPayment = async ({ paymentId, providerOrderId, signature = n
           eventType: OUTBOX_EVENT.PAYMENT_RECEIVED,
           aggregateType: 'order',
           aggregateId: settlement.order.id,
-          payload: { paymentId: settlement.payment.id, source: `RAZORPAY_${source}` },
+          payload: {
+            paymentId: settlement.payment.id,
+            source: `RAZORPAY_${source}`,
+            checkoutAttemptId: completedAttempt.id,
+            paymentJourneyId: completedAttempt.paymentJourneyId,
+          },
           dedupeKey: `payment-received:${settlement.payment.id}`,
         });
       } else if (settlement.payment) {
@@ -973,7 +978,12 @@ const settleCapturedPayment = async ({ paymentId, providerOrderId, signature = n
           eventType: OUTBOX_EVENT.INVOICE_PAYMENT_RECEIVED,
           aggregateType: 'invoice',
           aggregateId: attempt.invoiceId,
-          payload: { paymentId: settlement.payment.id, source: `RAZORPAY_${source}` },
+          payload: {
+            paymentId: settlement.payment.id,
+            source: `RAZORPAY_${source}`,
+            checkoutAttemptId: completedAttempt.id,
+            paymentJourneyId: completedAttempt.paymentJourneyId,
+          },
           dedupeKey: `payment-received:${settlement.payment.id}`,
         });
       }

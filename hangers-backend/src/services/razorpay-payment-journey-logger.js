@@ -36,6 +36,11 @@ const buildJourneyEvent = ({ attempt, action, status, metadata = {} }) => {
     ...(Number.isInteger(metadata.sourceWebhookAttempt) && metadata.sourceWebhookAttempt >= 1
       ? { sourceWebhookAttempt: metadata.sourceWebhookAttempt } : {}),
     ...(safeLabel(metadata.webhookErrorCode) ? { webhookErrorCode: safeLabel(metadata.webhookErrorCode) } : {}),
+    ...(safeLabel(metadata.sourceOutboxEventId) ? { sourceOutboxEventId: safeLabel(metadata.sourceOutboxEventId) } : {}),
+    ...(safeLabel(metadata.sourceOutboxEventType) ? { sourceOutboxEventType: safeLabel(metadata.sourceOutboxEventType) } : {}),
+    ...(Number.isInteger(metadata.sourceOutboxAttempt) && metadata.sourceOutboxAttempt >= 1
+      ? { sourceOutboxAttempt: metadata.sourceOutboxAttempt } : {}),
+    ...(safeLabel(metadata.notificationProviderOutcome) ? { notificationProviderOutcome: safeLabel(metadata.notificationProviderOutcome) } : {}),
     ...(safeLabel(providerError.code) ? { providerErrorCode: safeLabel(providerError.code) } : {}),
     ...(safeLabel(providerError.source) ? { providerErrorSource: safeLabel(providerError.source) } : {}),
     ...(safeLabel(providerError.step) ? { providerErrorStep: safeLabel(providerError.step) } : {}),

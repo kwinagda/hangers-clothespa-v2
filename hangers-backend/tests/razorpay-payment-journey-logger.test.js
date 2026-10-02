@@ -86,6 +86,36 @@ test('journey event records webhook linkage and keeps retry distinct from paymen
   });
 });
 
+test('journey event records notification outbox correlation without retaining arbitrary payload data', () => {
+  const event = buildJourneyEvent({
+    attempt,
+    action: 'RAZORPAY_NOTIFICATION_RETRY_SCHEDULED',
+    status: 'FAILURE',
+    metadata: {
+      journeyOutcome: 'RETRY',
+      crmPaymentId: 'payment_fixture_2',
+      sourceOutboxEventId: 'outbox_fixture_1',
+      sourceOutboxEventType: 'INVOICE_PAYMENT_RECEIVED',
+      sourceOutboxAttempt: 3,
+      notificationProviderOutcome: 'RETRY_SCHEDULED',
+      errorCode: 'WHATOMATE_TIMEOUT',
+      retryReason: 'TRANSIENT_NOTIFICATION_FAILURE',
+      payload: { phone: '+919999999999', otp: '654321' },
+    },
+  });
+  assert.equal(event.outcome, 'RETRY');
+  assert.deepEqual(event.diagnostics, {
+    crmPaymentId: 'payment_fixture_2',
+    sourceOutboxEventId: 'outbox_fixture_1',
+    sourceOutboxEventType: 'INVOICE_PAYMENT_RECEIVED',
+    sourceOutboxAttempt: 3,
+    notificationProviderOutcome: 'RETRY_SCHEDULED',
+    errorCode: 'WHATOMATE_TIMEOUT',
+    retryReason: 'TRANSIENT_NOTIFICATION_FAILURE',
+  });
+  assert.doesNotMatch(JSON.stringify(event, (_, value) => typeof value === 'bigint' ? value.toString() : value), /999999999|654321|"payload"/);
+});
+
 test('legacy attempt gets a persisted journey ID before its event is appended', async () => {
   let persistedAttempt;
   let persistedEvent;

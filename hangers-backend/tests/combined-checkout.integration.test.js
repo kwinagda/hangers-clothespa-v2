@@ -7,6 +7,7 @@ const { getOrderPayments } = require('../src/controllers/payments.controller');
 const { createPublicRazorpayOrder, getPublicInvoice, getPublicRazorpayCheckoutStatus } = require('../src/controllers/public.controller');
 const { createPublicShareToken } = require('../src/services/publicShare.service');
 const { createRazorpayRefund, reconcileRazorpayRefundWebhook } = require('../src/services/razorpay-refund.service');
+const { processOutboxBatch } = require('../src/services/outbox.service');
 const { LEGAL_TERMS } = require('../src/config/master-data');
 
 after(() => prisma.$disconnect());
@@ -511,7 +512,25 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   assert.equal(replay.alreadyRecorded, true);
   assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: providerPayment.id } }), 1);
   assert.equal(await prisma.receipt.count({ where: { paymentId: settled.payment.id } }), 1);
-  assert.equal(await prisma.outboxEvent.count({ where: { dedupeKey: `payment-received:${settled.payment.id}` } }), 1);
+  let paymentNotification = await prisma.outboxEvent.findUnique({ where: { dedupeKey: `payment-received:${settled.payment.id}` } });
+  assert.ok(paymentNotification);
+  assert.equal(paymentNotification.payload.checkoutAttemptId, settled.attempt.id);
+  assert.equal(paymentNotification.payload.paymentJourneyId, settled.attempt.paymentJourneyId);
+  assert.equal(await processOutboxBatch({ onlyEventId: paymentNotification.id }), 1,
+    'the Home QA fixture has WhatsApp disabled, so the targeted notification is safely recorded as skipped without a provider send');
+  paymentNotification = await prisma.outboxEvent.findUnique({ where: { id: paymentNotification.id } });
+  assert.equal(paymentNotification.status, 'PROCESSED');
+  const notificationJourney = await prisma.razorpayPaymentJourneyEvent.findMany({
+    where: { checkoutAttemptId: settled.attempt.id, eventName: { startsWith: 'RAZORPAY_NOTIFICATION_' } },
+    orderBy: { occurredAt: 'asc' },
+  });
+  assert.deepEqual(notificationJourney.map(({ eventName, outcome }) => [eventName, outcome]), [
+    ['RAZORPAY_NOTIFICATION_QUEUED', 'SUCCESS'],
+    ['RAZORPAY_NOTIFICATION_SKIPPED', 'IGNORED'],
+  ]);
+  assert.equal(notificationJourney[0].diagnostics.sourceOutboxEventId, paymentNotification.id);
+  assert.equal(notificationJourney[1].diagnostics.notificationProviderOutcome, 'SKIPPED');
+  assert.equal(JSON.stringify(notificationJourney.map((item) => item.diagnostics)).includes('9930367267'), false);
 
   const staff = await prisma.staff.create({ data: {
     name: `Refund CI ${suffix}`, phone: `ci-refund-${suffix}`, passwordHash: 'integration-test-only', role: 'ACCOUNTS',
