@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const prisma = require('../src/config/database');
 const { createInvoiceCheckout, reconcileAmbiguousOrderCreation, settleCapturedPayment } = require('../src/services/razorpay-invoice-checkout.service');
 const { getOrderPayments } = require('../src/controllers/payments.controller');
-const { getPublicInvoice, getPublicRazorpayCheckoutStatus } = require('../src/controllers/public.controller');
+const { createPublicRazorpayOrder, getPublicInvoice, getPublicRazorpayCheckoutStatus } = require('../src/controllers/public.controller');
 const { createPublicShareToken } = require('../src/services/publicShare.service');
 const { createRazorpayRefund, reconcileRazorpayRefundWebhook } = require('../src/services/razorpay-refund.service');
 const { LEGAL_TERMS } = require('../src/config/master-data');
@@ -171,6 +171,34 @@ test('public invoice lookup resolves invoice, order, iron-bill and customer shar
       customerRes.body.data.paymentSummary.receivables.map((invoice) => invoice.sourceType).sort(),
       ['DAILY_IRON', 'FIELD_SERVICE', 'ORDER'],
     );
+
+    const expiredToken = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: invoices[0].id, purpose: 'INVOICE_VIEW' });
+    const expiredHash = crypto.createHash('sha256').update(expiredToken).digest('hex');
+    shareHashes.push(expiredHash);
+    await prisma.publicShareToken.updateMany({ where: { tokenHash: expiredHash }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+    const revokedToken = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: invoices[0].id, purpose: 'INVOICE_VIEW' });
+    const revokedHash = crypto.createHash('sha256').update(revokedToken).digest('hex');
+    shareHashes.push(revokedHash);
+    await prisma.publicShareToken.updateMany({ where: { tokenHash: revokedHash }, data: { revokedAt: new Date() } });
+
+    for (const [state, token] of [['expired', expiredToken], ['revoked', revokedToken]]) {
+      const invoiceRes = response();
+      await getPublicInvoice({ params: { slug: token } }, invoiceRes);
+      assert.equal(invoiceRes.statusCode, 404, `${state} invoice share must not expose invoice details`);
+      assert.equal(invoiceRes.body.success, false);
+
+      const statusRes = response();
+      await getPublicRazorpayCheckoutStatus({ params: { slug: token }, query: { invoiceId: invoices[0].id }, id: `${suffix}_${state}` }, statusRes);
+      assert.equal(statusRes.statusCode, 404, `${state} invoice share must not expose payment status`);
+      assert.equal(statusRes.body.success, false);
+
+      const createRes = response();
+      await createPublicRazorpayOrder({ params: { slug: token }, body: {}, id: `${suffix}_${state}`, get: () => `${suffix}_${state}` }, createRes);
+      assert.equal(createRes.statusCode, 404, `${state} invoice share must not create a payable Razorpay order`);
+      assert.equal(createRes.body.success, false);
+    }
+    assert.equal(await prisma.razorpayCheckoutAttempt.count({ where: { invoiceId: invoices[0].id } }), 0, 'expired/revoked links must not create checkout attempts');
   } finally {
     if (shareHashes.length) await prisma.publicShareToken.deleteMany({ where: { tokenHash: { in: shareHashes } } });
     if (invoiceIds.length) await prisma.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
