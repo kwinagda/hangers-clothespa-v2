@@ -539,6 +539,81 @@ test('rapid duplicate custom-checkout submits invoke the SDK payment method once
   expect(verifyRequests).toBe(0)
 })
 
+test('card validation focuses the invalid control and links its error for assistive technology', async ({ page }) => {
+  const origin = 'http://localhost:55104'
+  const corsHeaders = {
+    'access-control-allow-origin': origin,
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type,idempotency-key',
+  }
+  let verifyRequests = 0
+  await page.route('**/payment/**', async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+    if (request.method() === 'GET' && path.endsWith('/custom/capabilities')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
+        key: 'rzp_test_card_field_error', mode: 'TEST', methods: { card: true, card_networks: { VISA: 1 } },
+        configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: [] },
+      } } })
+    }
+    if (request.method() === 'GET' && path.endsWith('/payment/status')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'NONE' } } })
+    }
+    if (request.method() === 'GET' && path.endsWith('/custom/downtime')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: { status: 'unknown', incidents: [] } } })
+    }
+    if (request.method() === 'POST' && path.endsWith('/payment/create-order')) {
+      return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
+        key: 'rzp_test_card_field_error', amount: 100, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
+        checkoutAttemptId: 'card-field-error-attempt', razorpayOrderId: 'order_card_field_error', invoiceNumber: 'AB-CARD-ERROR-FIXTURE',
+      } } })
+    }
+    if (path.endsWith('/payment/verify')) verifyRequests += 1
+    return route.fulfill({ status: 204, headers: corsHeaders, body: '' })
+  })
+  await page.route('https://checkout.razorpay.com/v1/razorpay.js', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/javascript', body: `
+      window.Razorpay = class {
+        constructor() { this.methods = { card: true, card_networks: { VISA: 1 } } }
+        once(event, callback) { if (event === 'ready') callback({ methods: this.methods }) }
+        on() {}
+        setFormatter() {
+          return {
+            add: (_kind, input) => {
+              const listeners = new Map()
+              input.addEventListener('input', () => listeners.get('change')?.call({ type: 'visa' }))
+              return { on: (event, listener) => listeners.set(event, listener), isValid: () => false }
+            },
+            off() {},
+          }
+        }
+        createPayment() { window.__cardErrorPaymentCalls = (window.__cardErrorPaymentCalls || 0) + 1 }
+      }
+    ` })
+  })
+
+  await page.goto(`${origin}/invoice/variant-a/checkout`)
+  await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
+  await page.getByRole('radio', { name: 'Credit or debit card' }).check()
+  await page.getByLabel('Card number').fill('123')
+  await page.getByLabel('Name on card').fill('Test Customer')
+  await page.getByLabel('Expiry', { exact: true }).fill('12 / 30')
+  await page.getByLabel('CVV').fill('123')
+  await expect(page.getByRole('button', { name: 'Pay ₹1' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Pay ₹1' }).click()
+
+  const cardNumber = page.getByLabel('Card number')
+  await expect(cardNumber).toBeFocused()
+  await expect(cardNumber).toHaveAttribute('aria-invalid', 'true')
+  const errorId = await cardNumber.getAttribute('aria-describedby')
+  expect(errorId).toBeTruthy()
+  await expect(page.locator(`[id="${errorId}"]`)).toContainText('Check the card number, expiry date and security code')
+  expect(verifyRequests).toBe(0)
+  expect(await page.evaluate(() => (window as Window & { __cardErrorPaymentCalls?: number }).__cardErrorPaymentCalls || 0)).toBe(0)
+})
+
 test('closing Checkout immediately checks the attempt and keeps a nonterminal payment locked', async ({ page }) => {
   await page.addInitScript(() => {
     (window as Window & { Razorpay?: unknown }).Razorpay = class {
