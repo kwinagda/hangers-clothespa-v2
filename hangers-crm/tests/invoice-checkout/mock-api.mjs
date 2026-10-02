@@ -13,6 +13,7 @@ const experimentEvents = []
 const clientEvents = []
 const summaryStatusInvoiceIds = []
 const summaryAssignmentInvoiceIds = []
+const checkoutOrigins = new Set(['http://127.0.0.1:55103', 'http://localhost:55104'])
 
 const invoice = {
   invoiceNumber: 'AB-VISUAL-FIXTURE',
@@ -33,7 +34,11 @@ const invoice = {
 }
 
 const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://127.0.0.1:55103')
+  const requestOrigin = req.headers.origin
+  if (typeof requestOrigin === 'string' && checkoutOrigins.has(requestOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin)
+    res.setHeader('Vary', 'Origin')
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'content-type,idempotency-key')
   res.setHeader('Cache-Control', 'no-store')
