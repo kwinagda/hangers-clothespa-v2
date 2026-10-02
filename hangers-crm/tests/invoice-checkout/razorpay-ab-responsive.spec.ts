@@ -712,7 +712,7 @@ test('a reopened invoice discovers and records a captured payment without browse
   const before = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   await page.goto('/invoice/variant-recover-captured')
 
-  await expect(page.getByText('PAID', { exact: true })).toBeVisible()
+  await expect(page.locator('header').getByText('PAID', { exact: true })).toBeVisible()
   await expect(page.locator('body')).toContainText(/Balance Due\s*₹0/)
   const after = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   expect(after.serverSideStatusLookups).toBeGreaterThan(before.serverSideStatusLookups)
@@ -755,12 +755,12 @@ test('Standard Checkout capture refreshes the invoice and never reopens Pay afte
 
     await expect(page.getByRole('button', { name: 'Payment received', exact: true })).toBeVisible()
     await page.getByRole('link', { name: /invoice details/ }).click()
-    await expect(page.getByText('PAID', { exact: true })).toBeVisible()
+    await expect(page.locator('header').getByText('PAID', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: /Pay/ })).toHaveCount(0)
     await expect(page.locator('body')).toContainText(/Balance Due\s*₹0/)
 
     await page.reload()
-    await expect(page.getByText('PAID', { exact: true })).toBeVisible()
+    await expect(page.locator('header').getByText('PAID', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: /Pay/ })).toHaveCount(0)
     const dimensions = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
