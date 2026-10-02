@@ -1,6 +1,6 @@
 # Custom Checkout Build Findings
 
-## Current Findings Disposition - 2 October 2026
+## Current Findings Disposition - 3 October 2026
 
 **Purpose and counting rule:** this file is the backlog for defects, contract questions and evidence gaps discovered while executing A01-A24. Findings are not additional acceptance tasks and do not change the A01-A24 denominator. A finding may explain why an A-item remains Partial, but its ID is not itself a completion percentage.
 
@@ -130,7 +130,21 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [x] Rerun disposable-DB integration and confirm journey event IDs remain populated (run `37055637233`; 6/6 passed).
 - **Disposition:** Closed; the fixture IDs satisfy the production logger's allowlist and journey references remain populated.
 
-**A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. Exact-SHA PR #10 run [37055637233](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37055637233), commit `9d1ce4332d8dd411cfbd9f73a611db66bbd273d5`, passed Backend and CRM. Its disposable `hangers_test` combined-checkout integration passed 6/6, and the other A01-related receivables and journey CI checks passed. A01 and findings A01-a through A01-g are closed. No local or production database was changed. A02 is the next plan item and has not been started in this completion pass.
+**A01 verification status (3 October 2026):** The earlier note calling A01 CI verification blocked by the read-only smoke-check rule was incorrect and is withdrawn. That rule was supplied under “Codex tool update checks”; these are product integration tests, not tool smoke checks. Exact-SHA PR #10 run [37055637233](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37055637233), commit `9d1ce4332d8dd411cfbd9f73a611db66bbd273d5`, passed Backend and CRM. Its disposable `hangers_test` combined-checkout integration passed 6/6, and the other A01-related receivables and journey CI checks passed. A01 and findings A01-a through A01-g are closed. No local or production database was changed. A02 is now the active plan item; its separately scoped status is recorded below.
+
+## A02 Findings
+
+#### A02-a - Combined collection lacks one real Razorpay Test capture and reconciliation
+
+- **Status:** Deferred at the final payment action; all non-provider A02 checks pass.
+- **Evidence:** Exact-SHA PR #10 run [37055637233](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37055637233) passed Backend and CRM. The combined `hangers_test` integration covers a ₹5,880 two-invoice allocation split into ₹2,680 and ₹3,200, capture-state verification, atomic settlement, zero balances, paid status, invoice history, refreshed public status, and idempotent replay. The responsive browser test covers combined total, one remaining invoice, simulated success, refresh and reload. These tests use injected provider data and do not prove a transaction through Razorpay's Test Checkout. The local configuration is Test-keyed, and the existing `http://localhost:5002` app is running; no provider order or payment was created for this A02 pass.
+- **Impact:** The remaining acceptance claim is provider-to-CRM end-to-end reconciliation for one combined Test payment. Mocks cannot establish that external boundary.
+- **Bounded acceptance:** Use only a newly created local Test invoice set for the approved Home profile and `rzp_test` configuration; verify the resulting Razorpay order/payment and the two exact CRM allocations read-only. Never use Live credentials or an existing non-test balance. The final mock-bank Success action in Chrome is a handoff-required financial action, so the assistant must stop before selecting it. Do not create a second order or repeat the payment if the result is ambiguous.
+- **Acceptance subtasks:**
+  - [x] Verify one-remaining-invoice amount, full combined total and invoice anchor in the UI tests.
+  - [x] Verify mocked capture refresh/reload, idempotency, exact allocation amounts, paid/zero-balance ledger state and public status in CI.
+  - [ ] Complete one Razorpay Test capture and read-only provider/CRM reconciliation after the user performs the final mock-bank success action.
+- **Disposition:** Keep A02 Partial and do not repeat completed mock/DB suites without a code change or new evidence. Under the finite A-item rule, defer this one handoff-dependent item and continue with A03; revisit A02-a only when the final Test Checkout action can be completed.
 
 **Current exact-SHA reconciliation:** HEAD `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` ran as Actions run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219); Backend and CRM both succeeded. The CRM responsive UI job passed all 25 browser cases, including SDK readiness timeout/retry after the test SDK mock supplied its formatter dependency. F66 is resolved for this regression. Earlier red run [37004349213](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37004349213) is retained as historical evidence. F65's former “outbox CI pending” statement is superseded: the disposable-DB journey/webhook/outbox integration passed in Backend CI. Read-only local `pg_isready` and `prisma migrate status` show `localhost:5432` accepting connections and the journey-event migration still pending on `hangers_db`; no migration was applied. These observations supersede earlier “PostgreSQL stopped/unavailable” statements as of this audit only.
 
