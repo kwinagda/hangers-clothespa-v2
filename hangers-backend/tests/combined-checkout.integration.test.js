@@ -60,7 +60,8 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
       const provider = { orders: {
         create: async (payload) => {
           calls += 1;
-          providerOrder = { ...payload, id: `order_${sourceType.replaceAll('_', '').toLowerCase()}${suffix.replaceAll('-', '')}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
+          const sourceCode = { ORDER: 'o', DAILY_IRON: 'd', FIELD_SERVICE: 'f' }[sourceType];
+          providerOrder = { ...payload, id: `order_${sourceCode}${suffix.replaceAll('-', '')}`, status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0 };
           return providerOrder;
         },
         fetch: async () => providerOrder,
@@ -74,6 +75,7 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
       const accepted = simultaneous.filter((result) => result.status === 'fulfilled');
       assert.ok(accepted.length >= 1, 'one simultaneous checkout must prepare');
       const prepared = accepted[0].value;
+      assert.match(providerOrder.id, /^order_[A-Za-z0-9]{6,40}$/);
       for (const result of simultaneous) {
         if (result.status === 'fulfilled') {
           assert.equal(result.value.attempt.id, prepared.attempt.id);
