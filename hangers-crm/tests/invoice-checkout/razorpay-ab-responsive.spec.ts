@@ -375,7 +375,7 @@ test('active custom checkout renders only returned methods and remains usable at
     ` })
   })
 
-  for (const width of [320, 1440]) {
+  for (const width of [320, 720, 1440]) {
     await page.setViewportSize({ width, height: width === 320 ? 700 : 900 })
     await page.goto('http://localhost:55104/invoice/variant-a/checkout')
     expect(await page.evaluate(() => window.location.hostname)).toBe('localhost')
@@ -403,13 +403,14 @@ test('active custom checkout renders only returned methods and remains usable at
     await page.getByRole('radio', { name: 'UPI' }).focus()
     await page.keyboard.press('ArrowDown')
     await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeFocused()
+    await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeChecked()
     await page.goto('about:blank')
   }
 
   expect(apiRequests.some((entry) => entry.includes('/custom/capabilities'))).toBe(true)
   expect(apiRequests.some((entry) => entry.includes('/payment/create-order'))).toBe(true)
   expect(apiRequests.some((entry) => entry.includes('/payment/verify'))).toBe(false)
-  expect(providerRequests).toEqual(['https://checkout.razorpay.com/v1/razorpay.js', 'https://checkout.razorpay.com/v1/razorpay.js'])
+  expect(providerRequests).toEqual(Array(3).fill('https://checkout.razorpay.com/v1/razorpay.js'))
   const stats = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   expect(stats.createOrderRequests).toBe(before.createOrderRequests)
 })
