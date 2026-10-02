@@ -637,3 +637,30 @@ test('page-return recovery releases the checkout after Razorpay confirms the pay
   await expect(page.getByRole('button', { name: invoicePayButtonName, exact: true })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Check Razorpay status' })).toHaveCount(0)
 })
+
+test('visibility return keeps Pay blocked until the refreshed provider status is terminal', async ({ page }) => {
+  let statusReads = 0
+  await page.route('**/payment/status**', async (route) => {
+    statusReads += 1
+    const data = statusReads === 1
+      ? { status: 'PENDING', attemptId: 'attempt_visibility', razorpayOrderId: 'order_visibility', canResumeCheckout: false }
+      : { status: 'FAILED', attemptId: 'attempt_visibility', razorpayOrderId: 'order_visibility', canResumeCheckout: true }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, data }),
+    })
+  })
+
+  await page.goto('/invoice/variant-recover-pending')
+  await expect(page.getByText('Payment status under review')).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
+  await expect.poll(() => statusReads).toBeGreaterThanOrEqual(1)
+
+  await page.waitForTimeout(1600)
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await expect(page.locator('div[role="status"]').filter({ hasText: 'This payment did not complete. You can start a new attempt.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: invoicePayButtonName, exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Check Razorpay status' })).toHaveCount(0)
+  expect(statusReads).toBeGreaterThanOrEqual(2)
+})
