@@ -579,7 +579,7 @@ test('card validation focuses the invalid control and links its error for assist
         constructor() { this.methods = { card: true, card_networks: { VISA: 1 } } }
         once(event, callback) { if (event === 'ready') callback({ methods: this.methods }) }
         on() {}
-        setFormatter() {
+        static setFormatter() {
           return {
             add: (_kind, input) => {
               const listeners = new Map()
