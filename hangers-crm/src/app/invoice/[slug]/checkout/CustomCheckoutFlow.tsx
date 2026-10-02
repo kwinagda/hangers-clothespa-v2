@@ -266,7 +266,6 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
     <h2>Payment received</h2><p>{status.capturedAmountPaise != null && Number.isSafeInteger(Number(status.capturedAmountPaise)) && status.currency
       ? `${money(Number(status.capturedAmountPaise), status.currency)} paid to Hangers Clothes Spa.` : 'Your payment has been confirmed by Hangers.'}</p>
     {invoiceNumber && <p>Invoice {invoiceNumber}</p>}
-    {status.razorpayOrderId && <p>Razorpay order: <b>{status.razorpayOrderId}</b></p>}
     {status.capturedAt && <p>{new Date(status.capturedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</p>}
     {!!status.allocations?.length && <details className={styles.details}><summary>Paid invoice split</summary><ul>
       {status.allocations.map((item) => <li key={item.invoiceId}>{item.invoiceNumber}: {money(Number(item.amountPaise), status.currency || 'INR')}</li>)}

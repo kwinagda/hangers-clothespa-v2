@@ -722,8 +722,8 @@ test('a reopened invoice discovers and records a captured payment without browse
   await expect(page.getByRole('heading', { name: 'Invoice paid', level: 1 })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Payment received' })).toBeVisible()
   await page.getByText('Payment references').click()
-  await expect(page.getByText('order_test_captured')).toBeVisible()
-  await expect(page.getByText('pay_test_captured')).toBeVisible()
+  await expect(page.getByText('order_test_captured', { exact: true })).toBeVisible()
+  await expect(page.getByText('pay_test_captured', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /Pay/ })).toHaveCount(0)
 })
 
