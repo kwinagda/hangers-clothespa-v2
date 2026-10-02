@@ -307,7 +307,7 @@ test('active custom checkout renders only returned methods and remains usable at
   const providerRequests: string[] = []
   page.on('pageerror', (error) => apiRequests.push(`page error: ${error.message}`))
 
-  await page.route('**/api/v1/public/invoices/**/payment/**', async (route) => {
+  await page.route('**/payment/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
     apiRequests.push(`${request.method()} ${path}`)
