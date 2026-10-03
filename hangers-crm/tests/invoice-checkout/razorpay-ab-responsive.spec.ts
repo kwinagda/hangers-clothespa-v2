@@ -270,20 +270,25 @@ test('custom checkout shows one invoice lookup error and never labels it a pendi
   const corsHeaders = { 'access-control-allow-origin': 'http://localhost:55104', 'access-control-allow-credentials': 'true' }
   await page.route('**/payment/custom/capabilities**', (route) => {
     capabilitiesLookups += 1
-    return route.fulfill({ status: 404, headers: corsHeaders, contentType: 'application/json', body: JSON.stringify({ message: 'Invoice not found' }) })
+    return route.fulfill({ status: 404, headers: corsHeaders, contentType: 'application/json', body: JSON.stringify({
+      success: false, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found',
+    }) })
   })
   await page.route('**/payment/status**', (route) => {
     statusLookups += 1
-    return route.fulfill({ status: 404, headers: corsHeaders, contentType: 'application/json', body: JSON.stringify({ message: 'Invoice not found' }) })
+    return route.fulfill({ status: 404, headers: corsHeaders, contentType: 'application/json', body: JSON.stringify({
+      success: false, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found',
+    }) })
   })
   await page.goto('http://localhost:55104/invoice/variant-a/checkout')
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   await expect.poll(() => capabilitiesLookups).toBe(1)
   await expect.poll(() => statusLookups).toBe(1)
-  const lookupError = page.getByText('Invoice not found', { exact: true })
-  await expect(lookupError).toHaveCount(1)
+  const unavailable = page.getByText('This invoice link is no longer available. Return to the invoice or contact Hangers.', { exact: true })
+  await expect(unavailable).toHaveCount(1)
   await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Retry loading payment details' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Back to invoice', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Retry|Reload payment methods/ })).toHaveCount(0)
   const after = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   expect(after.createOrderRequests).toBe(before.createOrderRequests)
 })
@@ -496,7 +501,7 @@ test('CRED eligibility retry clears the previous ineligible result without submi
   expect(await page.evaluate(() => (window as Window & { __credPaymentSubmitted?: boolean }).__credPaymentSubmitted)).not.toBe(true)
 })
 
-test('custom checkout uses Razorpay documented methods fallback during SDK readiness delay', async ({ page }) => {
+test('custom checkout keeps methods hidden until SDK readiness and retries after timeout', async ({ page }) => {
   const origin = 'http://localhost:55104'
   const corsHeaders = {
     'access-control-allow-origin': origin,
@@ -515,7 +520,7 @@ test('custom checkout uses Razorpay documented methods fallback during SDK readi
     if (request.method() === 'GET' && path.endsWith('/custom/capabilities')) {
       capabilitiesLookups += 1
       return route.fulfill({ status: 200, headers: corsHeaders, json: { success: true, data: {
-        key: 'rzp_test_ready_retry', mode: 'TEST', methods: { card: true },
+        key: 'rzp_test_ready_retry', mode: 'TEST', methods: null,
         configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: [] },
       } } })
     }
@@ -543,14 +548,17 @@ test('custom checkout uses Razorpay documented methods fallback during SDK readi
       window.__readyRetryPayments = window.__readyRetryPayments || 0
       window.__readyRetryReadyEvents = window.__readyRetryReadyEvents || 0
       window.Razorpay = class {
-        constructor() { this.instanceNumber = ++window.__readyRetryInstances }
+        constructor() {
+          this.instanceNumber = ++window.__readyRetryInstances
+          this.methods = window.__readyRetryReady === true ? { card: true } : {}
+        }
         static setFormatter() {
           return { add: () => ({ on() {}, isValid: () => false }), off() {} }
         }
         once(event, callback) {
           if (window.__readyRetryReady === true && event === 'ready') setTimeout(() => {
             window.__readyRetryReadyEvents += 1
-            callback({ methods: { card: true } })
+            callback({ methods: this.methods })
           }, 0)
         }
         on() {}
@@ -562,25 +570,23 @@ test('custom checkout uses Razorpay documented methods fallback during SDK readi
   await page.goto(`${origin}/invoice/variant-a/checkout`)
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   const checkout = page.getByRole('region', { name: 'Invoice payment' })
-  const loadError = 'Payment tools could not load. Check your connection and retry.'
-  await expect(checkout.getByRole('alert')).toContainText(loadError, { timeout: 8000 })
+  await expect(checkout.getByRole('alert')).toContainText('Payment tools could not load. Check your connection and retry.', { timeout: 8000 })
   await expect(checkout.getByRole('radio')).toHaveCount(0)
-  await expect(checkout.getByRole('button', { name: 'Pay ₹1' })).toHaveCount(0)
+  await expect(checkout.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
   await expect.poll(() => capabilitiesLookups).toBe(1)
 
-  await page.getByRole('button', { name: 'Retry secure checkout' }).click()
+  await page.getByRole('button', { name: 'Retry payment methods' }).click()
   await expect.poll(() => sdkScriptRequests).toBe(2)
-  await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible({ timeout: 10000 })
-  await expect(page.getByRole('radio', { name: 'UPI' })).toBeVisible()
-  await expect(page.getByRole('radio', { name: 'Netbanking' })).toBeVisible()
-  await expect(checkout.getByRole('status')).toContainText('Loading your account’s full payment options.', { timeout: 8000 })
-  await expect(page.getByRole('button', { name: 'Reload payment methods' })).toBeVisible()
+  await expect(checkout.getByRole('alert')).toContainText('Razorpay payment methods could not be confirmed. Retry loading payment methods.', { timeout: 8000 })
+  await expect(checkout.getByRole('radio')).toHaveCount(0)
+  await expect(checkout.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
+  expect(createOrderRequests).toBe(0)
+  expect(verifyRequests).toBe(0)
 
   const instancesBeforeRetry = await page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0)
   await page.evaluate(() => { (window as Window & { __readyRetryReady?: boolean }).__readyRetryReady = true })
-  await page.getByRole('button', { name: 'Reload payment methods' }).click()
+  await page.getByRole('button', { name: 'Retry payment methods' }).click()
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0), { timeout: 10000 }).toBeGreaterThan(instancesBeforeRetry)
-  await expect(checkout.getByRole('status')).not.toContainText('Loading your account’s full payment options.')
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryReadyEvents?: number }).__readyRetryReadyEvents || 0), { timeout: 10000 }).toBeGreaterThan(0)
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible({ timeout: 10000 })
   expect(sdkScriptRequests).toBe(2)
