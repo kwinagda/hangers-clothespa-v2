@@ -9,10 +9,11 @@ export type PolicySection = {
   link?: { href: string; label: string }
 }
 
-export async function PolicyPage({ title, intro, sections }: {
+export async function PolicyPage({ title, intro, sections, lastUpdated = '29 September 2026' }: {
   title: string
   intro: string
   sections: PolicySection[]
+  lastUpdated?: string
 }) {
   const profile = await getPublicSiteProfile()
   if (!profile) return <PublicUnavailable />
@@ -24,7 +25,7 @@ export async function PolicyPage({ title, intro, sections }: {
     intro={intro}
   >
     <article className="dp-policy" aria-label={title}>
-      <p className="dp-copy" style={{ marginBottom: 30 }}><strong>Last updated: 29 September 2026</strong></p>
+      <p className="dp-copy" style={{ marginBottom: 30 }}><strong>Last updated: {lastUpdated}</strong></p>
       {sections.map((section) => <section className="dp-section" key={section.title}>
         <h2 className="dp-title">{section.title}</h2>
         {section.paragraphs.map((paragraph, index) => <p className="dp-copy" key={index} style={{ marginBottom: 14 }}>{paragraph}</p>)}

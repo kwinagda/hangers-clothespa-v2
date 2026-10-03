@@ -71,8 +71,34 @@ jobs:
       - name: Run scoped Razorpay Payment Gateway and deployment contracts
         run: npm run test:razorpay-release
 
+      - name: Verify Custom Checkout and payment-state contracts
+        run: node --test tests/razorpay-custom-capabilities.unit.test.js tests/razorpay-saved-cards.unit.test.js tests/razorpay-downtime.unit.test.js tests/razorpay-refund-binding.unit.test.js tests/razorpay-dispute.unit.test.js tests/razorpay-webhook-dispatch.unit.test.js tests/razorpay-bank-transfer.unit.test.js tests/razorpay-webhook-state-concurrency.unit.test.js
+
+      - name: Verify Home-only Test notification dispatch
+        run: node --test tests/local-outbox-scope.test.js tests/dev-outbox.test.js tests/outbox-retry.test.js tests/whatomate-dev-gate.test.js
+
+      - name: Verify bounded Custom Checkout acceptance regressions
+        run: node --test tests/checkout-callback-recovery-acceptance.unit.test.js tests/checkout-concurrency-acceptance.unit.test.js tests/checkout-downtime-acceptance.unit.test.js tests/checkout-refund-acceptance.unit.test.js
+
+      - name: Verify payment diagnostic privacy
+        run: node --test tests/redact.util.test.js tests/activity-provider-error-redaction.test.js
+
+      - name: Verify guarded Custom schema release policy
+        run: node --test tests/deploy-custom-checkout-migrations.test.js
+
       - name: Verify combined invoice checkout against disposable database
         run: RUN_COMBINED_CHECKOUT_INTEGRATION=1 node --test tests/combined-checkout.integration.test.js
+
+      - name: Verify invoice allocation ownership boundaries
+        run: node --test tests/receivables-workflow.test.js
+
+      - name: Verify signed inbox and worker recovery with India timezone
+        run: |
+          psql "$DATABASE_URL" -c "ALTER ROLE hangers SET timezone TO 'Asia/Kolkata'"
+          RUN_LOCAL_WEBHOOK_INTEGRATION=1 RAZORPAY_KEY_ID=rzp_test_webhook_ci node --test tests/razorpay-webhook-local.integration.test.js
+
+      - name: Verify payment journey retries and webhook correlation against disposable database
+        run: RUN_DB_INTEGRATION=1 node --test --test-name-pattern='Razorpay durable webhook inbox retries a transient worker failure|a confirmed failed payment retry reserves a new attempt and Razorpay order' tests/order-workflow.integration.test.js
 
   crm:
     name: CRM — type-check, build
@@ -95,6 +121,24 @@ jobs:
 
       - name: Type check
         run: npx tsc --noEmit
+
+      - name: Verify invoice checkout state rendering
+        run: node --experimental-strip-types --test tests/invoice-checkout/checkout-page.unit.mjs
+
+      - name: Verify Custom Checkout mode and origin gates
+        run: node --experimental-strip-types --test tests/invoice-checkout/checkout-mode.unit.mjs
+
+      - name: Verify documented EMI response handling
+        run: node --experimental-strip-types --test tests/invoice-checkout/checkout-emi-plans.unit.mjs
+
+      - name: Verify guarded UPI app discovery
+        run: node --experimental-strip-types --test tests/invoice-checkout/checkout-upi-discovery.unit.mjs
+
+      - name: Verify SDK diagnostic privacy
+        run: node --experimental-strip-types --test tests/invoice-checkout/payment-diagnostic-privacy.unit.mjs
+
+      - name: Verify staging API proxy privacy headers
+        run: node --test tests/staging-api-proxy.test.js
 
       - name: Build
         run: npm run build

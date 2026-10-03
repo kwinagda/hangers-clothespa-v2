@@ -2,6 +2,11 @@ const prisma = require('../config/database');
 const { writeAuditEvent, log } = require('./activity.service');
 const { getRazorpay } = require('./razorpay-invoice-checkout.service');
 
+const getProviderErrorCode = (error) => {
+  const root = error?.response?.data?.error || error?.error;
+  return root && typeof root === 'object' && typeof root.code === 'string' ? root.code : null;
+};
+
 const DISPUTE_STATES = new Set(['open', 'under_review', 'won', 'lost', 'closed']);
 const NEXT_STATES = {
   OPEN: new Set(['OPEN', 'UNDER_REVIEW', 'WON', 'LOST', 'CLOSED']),
@@ -160,7 +165,7 @@ const syncRazorpayDisputePage = async ({ provider, count, skip, to, actor, reque
           action: 'RAZORPAY_DISPUTE_SYNC_ITEM_FAILED', status: 'FAILURE',
           resource: 'razorpay_dispute', resourceId: providerDispute.id,
           description: 'A provider dispute could not be reconciled; finance review is required',
-          metadata: { provider: 'RAZORPAY', mode, pageSkip: skip, errorCode: String(error?.code || 'DISPUTE_SYNC_ITEM_FAILED').slice(0, 80) },
+          metadata: { provider: 'RAZORPAY', mode, pageSkip: skip, providerErrorCode: getProviderErrorCode(error) },
           ...requestMeta,
         });
       }
@@ -184,7 +189,7 @@ const syncRazorpayDisputePage = async ({ provider, count, skip, to, actor, reque
       action: 'RAZORPAY_DISPUTE_BATCH_SYNC_FAILED', status: 'FAILURE',
       resource: 'razorpay_dispute_sync',
       description: 'Razorpay dispute page could not be synchronized',
-      metadata: { provider: 'RAZORPAY', mode, count, skip, errorCode: String(error?.code || 'PROVIDER_OR_SYNC_ERROR').slice(0, 80) },
+      metadata: { provider: 'RAZORPAY', mode, count, skip, providerErrorCode: getProviderErrorCode(error) },
       ...requestMeta,
     });
     throw error;

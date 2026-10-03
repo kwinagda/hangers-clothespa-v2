@@ -16,6 +16,7 @@ const { sendOtpSchema, verifyOtpSchema }           = require('../validation/auth
 const { AUTH_CHALLENGE_PURPOSE, createAuthChallenge, verifyAuthChallenge } = require('../services/authChallenge.service');
 const { maskPhone }                                = require('../utils/redact');
 const { normalizeCustomerName }                    = require('../utils/customer-normalization');
+const { isDevPhoneAllowed }                        = require('../services/whatomate.service');
 const OTP_SEND_MAX_FAILURES = 5;
 const OTP_SEND_WINDOW_MS = 10 * 60 * 1000;
 const OTP_VERIFY_MAX_FAILURES = 10;
@@ -103,6 +104,15 @@ const sendOtpController = async (req, res) => {
   const { phone } = parsed.data;
 
   const normalizedPhone = normalizePhone(phone);
+
+  // Shared auth has no invoice mode: use only server-owned Test/QA configuration.
+  const restrictedTestContext = String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_')
+    || process.env.NODE_ENV !== 'production'
+    || process.env.DEV_MODE === 'true';
+  if (restrictedTestContext
+    && (normalizedPhone !== '9930367267' || !isDevPhoneAllowed(normalizedPhone))) {
+    return badRequest(res, 'Test OTP requests require the approved Home contact and development recipient allowlist.');
+  }
 
   try {
     const ipScopeKey = (req.ip || req.headers['x-forwarded-for'] || 'unknown').toString().slice(0, 64);

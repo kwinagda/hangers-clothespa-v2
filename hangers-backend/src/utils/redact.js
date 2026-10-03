@@ -25,9 +25,13 @@ const safeText = (value, limit) => {
   if (typeof value !== 'string') return undefined;
   const text = value
     .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\b(?:cvv|cvc|otp|pin|password|key[_ -]?secret|api[_ -]?key|signature|authorization|access[_ -]?token|refresh[_ -]?token)\b["']?\s*[:=]?\s*["']?([A-Za-z0-9+/=_-]+)/gi, '[redacted-credential]')
+    .replace(/\b(?:token|card|cust)_[A-Za-z0-9]+\b/gi, '[redacted-instrument]')
+    .replace(/\brzp_(?:test|live)_[A-Za-z0-9]+\b/gi, '[redacted-credential]')
+    .replace(/\b[a-f0-9]{64}\b/gi, '[redacted-credential]')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
     .replace(/(?:\+?\d[\d ()-]{7,}\d)/g, '[redacted-number]')
-    .replace(/\b\d{4,16}\b/g, '[redacted-number]')
+    .replace(/\b\d{3,}\b/g, '[redacted-number]')
     .trim();
   return text ? text.slice(0, limit) : undefined;
 };
@@ -37,6 +41,37 @@ const safeProviderId = (value, prefix) => (
     ? value
     : undefined
 );
+
+const sanitizeRazorpayErrorSummary = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const status = Number(value.httpStatus || value.status);
+  const result = {
+    ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { httpStatus: status } : {}),
+  };
+  for (const [field, limit] of Object.entries({
+    code: 80,
+    description: 240,
+    field: 80,
+    source: 64,
+    step: 80,
+    reason: 120,
+  })) {
+    const raw = value[field];
+    const sanitized = safeText(raw, limit);
+    if (!sanitized) continue;
+    if (field !== 'description' && sanitized !== raw) continue;
+    result[field] = sanitized;
+  }
+  if (value.origin === 'razorpay') result.origin = 'razorpay';
+  const metadata = value.metadata && typeof value.metadata === 'object' && !Array.isArray(value.metadata)
+    ? value.metadata
+    : {};
+  const paymentId = safeProviderId(value.payment_id || metadata.payment_id, 'pay');
+  const orderId = safeProviderId(value.order_id || metadata.order_id, 'order');
+  if (paymentId) result.payment_id = paymentId;
+  if (orderId) result.order_id = orderId;
+  return result;
+};
 
 // Razorpay's documented error envelope is nested under `error`. Keep this
 // provider-specific so existing MSG91/WhatsApp summaries remain unchanged.
@@ -58,7 +93,14 @@ const razorpayErrorSummary = (err) => {
     ...(safeProviderId(metadata.payment_id, 'pay') ? { payment_id: safeProviderId(metadata.payment_id, 'pay') } : {}),
     ...(safeProviderId(metadata.order_id, 'order') ? { order_id: safeProviderId(metadata.order_id, 'order') } : {}),
   };
-  return summary;
+  return sanitizeRazorpayErrorSummary(summary);
 };
 
-module.exports = { maskPhone, maskToken, providerErrorSummary, razorpayErrorSummary, safeText };
+module.exports = {
+  maskPhone,
+  maskToken,
+  providerErrorSummary,
+  razorpayErrorSummary,
+  safeText,
+  sanitizeRazorpayErrorSummary,
+};

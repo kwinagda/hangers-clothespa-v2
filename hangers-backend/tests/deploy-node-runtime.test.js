@@ -130,7 +130,9 @@ test('PM2 runtime gate executes each online payment process binary', (t) => {
   for (const pid of [101, 102]) {
     const processDir = path.join(procRoot, String(pid));
     fs.mkdirSync(processDir);
-    fs.symlinkSync(process.execPath, path.join(processDir, 'exe'));
+    const executable = path.join(processDir, 'exe');
+    fs.writeFileSync(executable, '#!/bin/sh\nprintf "v24.11.0\\n"\n');
+    fs.chmodSync(executable, 0o755);
   }
 
   const processes = [
@@ -141,7 +143,7 @@ test('PM2 runtime gate executes each online payment process binary', (t) => {
   const output = [];
   assert.deepEqual(checkProcesses(processes, procRoot, (line) => output.push(line)), []);
   assert.equal(output.length, 2);
-  assert.ok(output.every((line) => line.includes(process.version)));
+  assert.ok(output.every((line) => line.includes('Node.js v24.11.0')));
 
   processes[1].pm2_env.status = 'stopped';
   assert.match(checkProcesses(processes, procRoot).join('\n'), /hangers-worker is not online/);

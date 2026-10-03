@@ -13,6 +13,7 @@ const experimentEvents = []
 const clientEvents = []
 const summaryStatusInvoiceIds = []
 const summaryAssignmentInvoiceIds = []
+const checkoutOrigins = new Set(['http://127.0.0.1:55103', 'http://localhost:55104'])
 
 const invoice = {
   invoiceNumber: 'AB-VISUAL-FIXTURE',
@@ -28,12 +29,16 @@ const invoice = {
   createdAt: '2026-09-24T00:00:00.000Z',
   deliveryDate: '2026-09-25T00:00:00.000Z',
   customer: { name: 'Home QA', phone: '9930367267' },
-  items: [{ sourceType: 'SERVICE', garmentType: 'Test garment', serviceName: 'Dry Clean', quantity: 1, unitPrice: 1, subtotal: 1 }],
+  items: [{ sourceType: 'SERVICE', garmentType: 'SERVICE', serviceName: 'Hangers service item', quantity: 1, unitPrice: 1, subtotal: 1 }],
   legalTerms: { sections: [] },
 }
 
 const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://127.0.0.1:55103')
+  const requestOrigin = req.headers.origin
+  if (typeof requestOrigin === 'string' && checkoutOrigins.has(requestOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin)
+    res.setHeader('Vary', 'Origin')
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'content-type,idempotency-key')
   res.setHeader('Cache-Control', 'no-store')
@@ -50,7 +55,7 @@ const server = http.createServer((req, res) => {
     return
   }
   if (req.method === 'POST' && path === '/__test__/reset-summary-payment') {
-    summaryCapturedInvoiceId = ''
+    summaryCapturedInvoiceId = new URL(req.url, 'http://127.0.0.1').searchParams.get('paidInvoice') === 'summary-invoice-55' ? 'summary-invoice-55' : ''
     summaryCreatedInvoiceIds.length = 0
     summaryVerifiedInvoiceIds.length = 0
     res.writeHead(200).end(JSON.stringify({ success: true }))
@@ -67,7 +72,7 @@ const server = http.createServer((req, res) => {
     const receivable = (invoiceId, invoiceNumber, sourceNumber, balanceDue) => ({
       invoiceId, invoiceNumber, sourceNumber, sourceType: 'ORDER', dueDate: '2026-09-27T00:00:00.000Z',
       totalAmount: balanceDue, paidAmount: 0, balanceDue, totalPieces: 1,
-      items: [{ serviceName: 'Dry Clean', garmentType: 'SERVICE', quantity: 1, unitPrice: balanceDue, subtotal: balanceDue }],
+      items: [{ serviceName: 'Hangers service item', garmentType: 'SERVICE', quantity: 1, unitPrice: balanceDue, subtotal: balanceDue }],
     })
     const receivables = [
       ...(['ALL', 'summary-invoice-42'].includes(summaryCapturedInvoiceId) ? [] : [receivable('summary-invoice-42', 'INV-SUMMARY-42', 'HCS-SUM-42', 42)]),
@@ -86,7 +91,7 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && /^\/api\/v1\/public\/invoices\/variant-(?:[ab]|telemetry-down|callback-failure|modal-dismiss|terminal-failure|recover-captured|recover-pending|recover-failed|standard-success|redirect-disabled)$/.test(path)) {
     const invoiceData = ((slug === 'variant-recover-captured' && recoverCaptured) || (slug === 'variant-standard-success' && standardCheckoutCaptured))
-      ? { ...invoice, paymentStatus: 'PAID', paidAmount: 1, balanceDue: 0 }
+      ? { ...invoice, id: 'invoice_recover_captured', status: 'PAID', paymentStatus: 'PAID', paidAmount: 1, balanceDue: 0 }
       : invoice
     res.writeHead(200).end(JSON.stringify({ success: true, data: { invoice: invoiceData } }))
     return
@@ -231,7 +236,11 @@ const server = http.createServer((req, res) => {
     if (!hasAttemptId) serverSideStatusLookups += 1
     if (slug === 'variant-recover-captured' && !hasAttemptId) {
       recoverCaptured = true
-      res.writeHead(200).end(JSON.stringify({ success: true, data: { status: 'CAPTURED', attemptId: 'server-resolved-attempt', invoice: { status: 'PAID', balanceDue: 0 }, paymentId: 'pay_test_captured' } }))
+      res.writeHead(200).end(JSON.stringify({ success: true, data: {
+        status: 'CAPTURED', attemptId: null, invoice: { status: 'PAID', balanceDue: 0 },
+        paymentId: 'pay_test_captured', razorpayOrderId: 'order_test_captured', razorpayPaymentId: 'pay_test_captured',
+        capturedAmountPaise: '100', currency: 'INR', capturedAt: '2026-10-02T00:00:00.000Z',
+      } }))
       return
     }
     if (slug === 'variant-standard-success' && standardCheckoutCaptured && !hasAttemptId) {

@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const { maskPhone, providerErrorSummary } = require('../utils/redact');
 
 const isDevMode = () => {
+  if (process.env.NODE_ENV === 'production') return false;
   const k = process.env.MSG91_AUTH_KEY || '';
   return process.env.DEV_MODE === 'true'
     || process.env.WA_DELIVERY_OTP_DEV === 'true'

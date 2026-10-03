@@ -69,6 +69,37 @@ test('multi-invoice settlement rejects a newly cancelled order before creating p
   assert.equal(created, false);
 });
 
+test('verified Razorpay allocation refuses foreign customer and currency before any ledger write', async () => {
+  for (const scenario of [
+    { expectedCustomerId: 'foreign-customer', secondCustomer: 'customer-1', secondCurrency: 'INR', code: 'INVALID_ALLOCATION_PLAN' },
+    { expectedCustomerId: 'customer-1', secondCustomer: 'foreign-customer', secondCurrency: 'INR', code: 'ALLOCATION_BALANCE_CHANGED' },
+    { expectedCustomerId: 'customer-1', secondCustomer: 'customer-1', secondCurrency: 'USD', code: 'ALLOCATION_BALANCE_CHANGED' },
+  ]) {
+    const invoices = [
+      { id: 'invoice-1', orderId: null, customerId: 'customer-1', currency: 'INR', status: 'OPEN', balanceDue: 80 },
+      { id: 'invoice-2', orderId: null, customerId: scenario.secondCustomer, currency: scenario.secondCurrency, status: 'OPEN', balanceDue: 50 },
+    ];
+    const original = structuredClone(invoices);
+    let writes = 0;
+    const failWrite = async () => { writes += 1; throw new Error('Unexpected ledger write'); };
+    const tx = {
+      invoice: { findMany: async () => invoices, update: failWrite },
+      payment: { create: failWrite },
+      paymentAllocation: { create: failWrite, createMany: failWrite },
+      receipt: { create: failWrite },
+      outboxEvent: { create: failWrite },
+      $queryRaw: async () => [{ id: 'locked' }],
+    };
+    await assert.rejects(recordInvoiceAllocationsSettlement(tx, {
+      allocations: [{ invoiceId: 'invoice-1', amount: 80 }, { invoiceId: 'invoice-2', amount: 50 }],
+      expectedCustomerId: scenario.expectedCustomerId, expectedCurrency: 'INR', amount: 130,
+      method: 'RAZORPAY', providerCaptureVerified: true,
+    }), { code: scenario.code });
+    assert.equal(writes, 0);
+    assert.deepEqual(invoices, original);
+  }
+});
+
 test('operational queues separate received, processing, ironing and delivery stages', () => {
   const views = ORDER_WORKFLOW.views;
   for (const [key, status] of Object.entries({ received: 'PICKED_UP', in_process: 'PROCESSING', at_plant: 'SENT_TO_PLANT', pending_ironing: 'IRONING', out_for_delivery: 'OUT_FOR_DELIVERY', delivered: 'DELIVERED' })) {
