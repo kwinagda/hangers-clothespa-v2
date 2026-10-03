@@ -287,7 +287,7 @@ test('custom checkout shows one invoice lookup error and never labels it a pendi
   const unavailable = page.getByText('This invoice link is no longer available. Return to the invoice or contact Hangers.', { exact: true })
   await expect(unavailable).toHaveCount(1)
   await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: 'Back to invoice', exact: true })).toBeVisible()
+  await expect(page.getByLabel('Back to invoice')).toBeVisible()
   await expect(page.getByRole('button', { name: /Retry|Reload payment methods/ })).toHaveCount(0)
   const after = await (await request.get('http://127.0.0.1:55102/__test__/stats')).json()
   expect(after.createOrderRequests).toBe(before.createOrderRequests)
