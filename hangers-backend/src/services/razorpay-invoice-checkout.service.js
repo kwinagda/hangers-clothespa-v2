@@ -50,6 +50,25 @@ const clearProviderFailure = {
   providerErrorStep: null,
   providerErrorReason: null,
 };
+const updateCreatingAttempt = async (tx, attempt, data) => {
+  const result = await tx.razorpayCheckoutAttempt.updateMany({
+    where: { id: attempt.id, mode: attempt.mode, status: 'CREATING', razorpayOrderId: null },
+    data,
+  });
+  return {
+    transitioned: result.count === 1,
+    attempt: await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } }),
+  };
+};
+const attachKnownOrderToReview = async (tx, attempt, orderId) => {
+  if (orderId) {
+    await tx.razorpayCheckoutAttempt.updateMany({
+      where: { id: attempt.id, mode: attempt.mode, status: 'REVIEW', razorpayOrderId: null },
+      data: { razorpayOrderId: orderId },
+    });
+  }
+  return tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
+};
 const HISTORICAL_ORDER_REQUEST = 'FINANCE_HISTORICAL_ORDER_BIND';
 // Return only documented provider diagnostics, never an SDK/transport Error or
 // arbitrary metadata. Exact text is transient; logs retain redacted summaries.
@@ -403,6 +422,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
   let attempt = reservation.attempt;
   const currentInvoice = reservation.current;
   let providerAccepted = false;
+  let createdOrder = null;
 
   try {
     const order = await razorpay.orders.create({
@@ -419,26 +439,53 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
         ...(shareId ? { share_id: shareId } : {}),
       },
     });
+    createdOrder = order;
     providerAccepted = true;
     if (customCheckout && !canResumeUnattemptedCheckout({
       attempt: { ...attempt, status: 'CREATED', razorpayOrderId: order.id }, providerOrder: order,
       providerPayments: await razorpay.orders.fetchPayments(order.id),
     })) throw new RazorpayCheckoutError('PROVIDER_ORDER_BINDING_MISMATCH', 'The returned provider order could not be verified. Check this attempt before continuing.', 409);
-    attempt = await prisma.$transaction(async (tx) => {
-      const updated = await tx.razorpayCheckoutAttempt.update({
-        where: { id: attempt.id },
-        data: { status: 'CREATED', razorpayOrderId: order.id },
-      });
+    const persisted = await prisma.$transaction(async (tx) => {
+      const result = await updateCreatingAttempt(tx, attempt, { status: 'CREATED', razorpayOrderId: order.id });
+      if (!result.transitioned) {
+        let current = result.attempt;
+        if (current?.status === 'REVIEW' && !current.razorpayOrderId) {
+          current = await attachKnownOrderToReview(tx, attempt, order.id);
+        }
+        if (current) await auditAttemptTransition(tx, current,
+          'RAZORPAY_PROVIDER_ORDER_CREATE_RESPONSE_AFTER_RECOVERY',
+          'The provider order-create response arrived after recovery advanced the attempt; the newer attempt state was preserved', {
+            observedProviderOrderId: order.id,
+            linkedProviderOrderId: current.razorpayOrderId || null,
+            priorState: current.status,
+            nextState: current.status,
+            source: 'CHECKOUT_CREATE_RESPONSE',
+          }, current.status === 'CREATED' && current.razorpayOrderId === order.id ? 'SUCCESS' : 'FAILURE');
+        return { ...result, attempt: current };
+      }
+      const updated = result.attempt;
       await auditAttemptTransition(tx, updated, 'RAZORPAY_PROVIDER_ORDER_CREATED', 'Razorpay accepted the server-created order', {
         razorpayOrderId: order.id,
         providerReceipt: `hc-${attempt.id}`.slice(0, 40),
         priorState: 'CREATING',
         nextState: 'CREATED',
       });
-      return updated;
+      return { ...result, attempt: updated };
     });
+    if (!persisted.transitioned) {
+      if (persisted.attempt?.status === 'CREATED' && persisted.attempt.razorpayOrderId === order.id) {
+        return { attempt: persisted.attempt, order, reused: true };
+      }
+      throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_CHANGED', 'This payment attempt changed while Razorpay was responding. Check its status before continuing.', 409, {
+        checkoutAttemptId: attempt.id,
+        razorpayOrderId: order.id,
+        currentStatus: persisted.attempt?.status || null,
+      });
+    }
+    attempt = persisted.attempt;
     return { attempt, order, reused: false };
   } catch (error) {
+    if (error?.code === 'CHECKOUT_ATTEMPT_CHANGED') throw error;
     const providerStatus = Number(error?.statusCode || error?.response?.status);
     const providerCode = safeProviderCode(error);
     const providerError = getProviderError(error);
@@ -452,10 +499,8 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
       && providerError?.field === 'amount'
       && !providerError?.metadata?.order_id && !providerError?.metadata?.payment_id;
     if (amountValidationRejected) {
-      await prisma.$transaction(async (tx) => {
-        const updated = await tx.razorpayCheckoutAttempt.update({
-          where: { id: attempt.id },
-          data: { status: 'CREATE_FAILED', failureCode: providerCode, failureMessage: safeProviderMessage(error),
+      const rejected = await prisma.$transaction(async (tx) => {
+        const result = await updateCreatingAttempt(tx, attempt, { status: 'CREATE_FAILED', failureCode: providerCode, failureMessage: safeProviderMessage(error),
             ...(customCheckout ? {
               providerErrorCode: getProviderError(error)?.code ?? null,
               providerErrorSource: getProviderError(error)?.source ?? null,
@@ -463,8 +508,19 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
               providerErrorReason: getProviderError(error)?.reason ?? null,
               failureMessage: getProviderError(error)?.description ?? null,
             } : {}),
-          },
         });
+        if (!result.transitioned) {
+          if (result.attempt) await auditAttemptTransition(tx, result.attempt,
+            'RAZORPAY_ORDER_CREATE_REJECTION_AFTER_RECOVERY',
+            'A definitive order-create rejection arrived after recovery advanced the attempt; the newer attempt state was preserved', {
+              providerError: customCheckout ? getProviderError(error) : null,
+              priorState: result.attempt.status,
+              nextState: result.attempt.status,
+              source: 'CHECKOUT_CREATE_RESPONSE',
+            }, 'FAILURE');
+          return result;
+        }
+        const updated = result.attempt;
         await auditAttemptTransition(tx, updated, 'RAZORPAY_ORDER_CREATE_REJECTED', 'Razorpay returned a definitive client error and rejected order creation; no payable order was created', {
           errorCode: providerCode,
           providerStatus,
@@ -472,33 +528,61 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
           priorState: 'CREATING',
           nextState: 'CREATE_FAILED',
         }, 'FAILURE');
+        return result;
+      });
+      if (!rejected.transitioned) throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_CHANGED', 'This payment attempt changed while Razorpay was responding. Check its status before continuing.', 409, {
+        checkoutAttemptId: attempt.id,
+        currentStatus: rejected.attempt?.status || null,
       });
       throw new RazorpayCheckoutError('CHECKOUT_ORDER_REJECTED', customCheckout ? 'Razorpay did not accept this checkout request.' : 'Razorpay rejected this checkout request. No payment was taken; you can try again.', 400, { checkoutAttemptId: attempt.id, providerCode, ...(customCheckout ? { provider: getProviderError(error) } : {}) });
     }
-    await prisma.$transaction(async (tx) => {
-      const updated = await tx.razorpayCheckoutAttempt.update({
-        where: { id: attempt.id },
-        data: {
+    const outcome = await prisma.$transaction(async (tx) => {
+      const result = await updateCreatingAttempt(tx, attempt, {
         // A timeout/connection reset can occur after Razorpay accepted the
         // request. Keep the invoice blocked for reconciliation instead of
         // risking a second payable order.
-          status: 'REVIEW',
-          failureCode: safeProviderCode(error),
-          failureMessage: safeProviderMessage(error),
-        },
+        status: 'REVIEW',
+        ...(createdOrder?.id ? { razorpayOrderId: createdOrder.id } : {}),
+        failureCode: safeProviderCode(error),
+        failureMessage: safeProviderMessage(error),
       });
+      let updated = result.attempt;
+      if (!result.transitioned) {
+        if (updated?.status === 'REVIEW' && !updated.razorpayOrderId && createdOrder?.id) {
+          updated = await attachKnownOrderToReview(tx, attempt, createdOrder.id);
+        }
+        if (updated) await auditAttemptTransition(tx, updated, 'RAZORPAY_ORDER_CREATE_OUTCOME_AFTER_RECOVERY',
+          'An order-create error arrived after recovery advanced the attempt; the newer attempt state was preserved', {
+            errorCode: safeProviderCode(error),
+            observedProviderOrderId: createdOrder?.id || null,
+            priorState: updated.status,
+            nextState: updated.status,
+            source: 'CHECKOUT_CREATE_RESPONSE',
+          }, 'FAILURE');
+        return result;
+      }
       await auditAttemptTransition(tx, updated, 'RAZORPAY_ORDER_CREATE_OUTCOME_UNKNOWN', 'Order creation outcome is ambiguous and requires reconciliation before another attempt', {
         errorCode: safeProviderCode(error),
         providerError: getProviderError(error),
+        observedProviderOrderId: createdOrder?.id || null,
         priorState: 'CREATING',
         nextState: 'REVIEW',
       }, 'FAILURE');
-    }).catch((auditError) => console.error('[razorpay-checkout] could not persist ambiguous attempt:', auditError?.code || 'DB_ERROR'));
+      return result;
+    }).catch((auditError) => {
+      console.error('[razorpay-checkout] could not persist ambiguous attempt:', auditError?.code || 'DB_ERROR');
+      return null;
+    });
+    if (outcome && !outcome.transitioned) throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_CHANGED', 'This payment attempt changed while Razorpay was responding. Check its status before continuing.', 409, {
+      checkoutAttemptId: attempt.id,
+      ...(createdOrder?.id ? { razorpayOrderId: createdOrder.id } : {}),
+      currentStatus: outcome.attempt?.status || null,
+    });
     throw new RazorpayCheckoutError(
       'CHECKOUT_RESULT_UNKNOWN',
       'Razorpay could not confirm whether this order was created. Do not retry; this attempt must be checked first.',
       503,
-      { checkoutAttemptId: attempt.id, ...(customCheckout ? { provider: getProviderError(error), providerLookupUnavailable: true } : {}) }
+      { checkoutAttemptId: attempt.id, ...(createdOrder?.id ? { razorpayOrderId: createdOrder.id } : {}), ...(customCheckout ? { provider: getProviderError(error), providerLookupUnavailable: true } : {}) }
     );
   }
 };
@@ -1027,4 +1111,4 @@ const settleCapturedPayment = async ({ paymentId, providerOrderId, signature = n
   }
 };
 
-module.exports = { RazorpayCheckoutError, assertProviderCheckoutBinding, auditAttemptTransition, canResumeUnattemptedCheckout, canRetryFailedCheckout, createInvoiceCheckout, getMode, getProviderError, getProviderPaymentError, getRazorpay, getUnattemptedCheckoutResumeBlockReason, markAttemptFailed, markAttemptPending, matchesExpectedCheckoutBinding, reconcileAmbiguousOrderCreation, safeProviderCode, safeProviderMessage, settleCapturedPayment };
+module.exports = { RazorpayCheckoutError, assertProviderCheckoutBinding, auditAttemptTransition, canResumeUnattemptedCheckout, canRetryFailedCheckout, createInvoiceCheckout, getMode, getProviderError, getProviderPaymentError, getRazorpay, getUnattemptedCheckoutResumeBlockReason, markAttemptFailed, markAttemptPending, matchesExpectedCheckoutBinding, reconcileAmbiguousOrderCreation, safeProviderCode, safeProviderMessage, settleCapturedPayment, updateCreatingAttempt };
