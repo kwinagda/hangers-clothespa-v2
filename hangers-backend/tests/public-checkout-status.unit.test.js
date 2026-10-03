@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { getPublicRazorpayCheckoutStatus } = require('../src/controllers/public.controller');
+const { RazorpayCheckoutError } = require('../src/services/razorpay-invoice-checkout.service');
 
 process.env.RAZORPAY_KEY_ID = 'rzp_test_status_unit';
 const targetFor = (invoice, shareId) => ({ invoice, share: { id: shareId, resourceType: 'INVOICE', resourceId: invoice.id } });
@@ -348,7 +349,7 @@ test('an explicit missing attempt ID does not fall back to invoice payment histo
   assert.equal(res.body.code, 'CHECKOUT_ATTEMPT_NOT_FOUND');
 });
 
-test('a fresh invoice link sees another link’s unresolved attempt but cannot resume it', async () => {
+test('a fresh invoice link can inspect an unresolved attempt but cannot resume an attempted payment', async () => {
   const invoice = { id: 'invoice_790', customerId: 'customer_790', invoiceNumber: 'INV-790', status: 'OPEN', balanceDue: 73, paidAmount: 0 };
   const activeAttempt = boundAttempt(invoice, 'original_share', {
     id: 'attempt_original', status: 'PENDING', razorpayOrderId: 'order_existing', razorpayPaymentId: 'pay_existing', amountPaise: 7300n,
@@ -385,16 +386,67 @@ test('a fresh invoice link sees another link’s unresolved attempt but cannot r
   }, res, undefined, {
     getPublicInvoiceForPayment: async () => targetFor(invoice, 'fresh_share'),
     prisma: fakePrisma,
-    getRazorpay: () => { providerCalls += 1; throw new Error('must not query another link’s order'); },
+    getRazorpay: () => {
+      providerCalls += 1;
+      return { orders: {
+        fetchPayments: async () => ({ count: 1, items: [{
+          id: 'pay_existing', order_id: 'order_existing', amount: 7300, currency: 'INR', status: 'created',
+        }] }),
+        fetch: async () => ({
+          id: 'order_existing', amount: 7300, currency: 'INR', status: 'attempted', attempts: 1,
+          amount_due: 7300, amount_paid: 0,
+          notes: { crm_attempt_id: activeAttempt.id, invoice_id: invoice.id, share_id: 'original_share' },
+        }),
+      } };
+    },
+    markAttemptPending: async ({ attemptId, paymentId }) => ({ ...activeAttempt, id: attemptId, razorpayPaymentId: paymentId }),
   });
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data.status, 'PENDING');
   assert.equal(res.body.data.canResumeCheckout, false);
-  assert.equal(res.body.data.attemptId, null);
+  assert.equal(res.body.data.attemptId, activeAttempt.id);
   assert.equal(res.body.data.razorpayOrderId, 'order_existing');
   assert.equal(res.body.data.razorpayPaymentId, 'pay_existing');
-  assert.equal(providerCalls, 0);
+  assert.equal(providerCalls, 1);
+});
+
+test('a fresh invoice link resumes the same provider order only when Razorpay confirms zero attempts and payments', async () => {
+  const invoice = { id: 'invoice_share_resume', customerId: 'customer_share_resume', invoiceNumber: 'INV-SHARE-RESUME', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
+  const attempt = boundAttempt(invoice, 'original_share', {
+    id: 'attempt_share_resume', status: 'CREATED', razorpayOrderId: 'order_share_resume',
+  });
+  let lookup = 0;
+  const res = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'fresh_invoice_link' }, query: { checkoutIntegration: 'CUSTOM' }, headers: {}, id: 'request_share_resume',
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'fresh_share'),
+    prisma: {
+      razorpayCheckoutAttempt: {
+        findFirst: async ({ where }) => {
+          lookup += 1;
+          if (lookup === 1) return null;
+          assert.deepEqual(where.status, { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] });
+          return attempt;
+        },
+      },
+      invoice: { findUnique: async () => invoice },
+    },
+    getRazorpay: () => boundProvider(attempt, []),
+    logRazorpayAction: async () => {},
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.status, 'CREATED');
+  assert.equal(res.body.data.attemptId, attempt.id);
+  assert.equal(res.body.data.razorpayOrderId, attempt.razorpayOrderId);
+  assert.equal(res.body.data.canResumeCheckout, true);
+  assert.equal(res.body.data.providerLookupUnavailable, false);
 });
 
 test('provider status outage preserves the unresolved attempt and never enables another payment', async () => {
@@ -442,4 +494,54 @@ test('provider status outage preserves the unresolved attempt and never enables 
   assert.equal(res.body.data.invoice.balanceDue, 100);
   assert.equal(settlementCalls, 0);
   assert.equal(failureCalls, 0);
+});
+
+test('unexpected checkout status failures log safe request correlation without raw exceptions', async () => {
+  const log = [];
+  const res = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'test-share' }, query: { checkoutIntegration: 'CUSTOM' }, headers: {}, id: 'request_status_diag',
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => { throw new Error('do not persist this raw detail'); },
+    logRazorpayAction: async (_req, action, description, metadata, status) => log.push({ action, description, metadata, status }),
+  });
+
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.code, 'CHECKOUT_STATUS_CHECK_FAILED');
+  assert.equal(log.length, 1);
+  assert.equal(log[0].action, 'RAZORPAY_PAYMENT_STATUS_CHECK_FAILED');
+  assert.equal(log[0].metadata.requestId, 'request_status_diag');
+  assert.equal(log[0].metadata.errorClass, 'Error');
+  assert.equal(log[0].metadata.applicationErrorCode, null);
+  assert.equal(JSON.stringify(log[0]).includes('do not persist this raw detail'), false);
+});
+
+test('typed checkout status failures log their safe CRM code and invoice correlation', async () => {
+  const log = [];
+  const invoice = { id: 'invoice_diag', customerId: 'customer_diag', invoiceNumber: 'INV-DIAG', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
+  const res = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'test-share' }, query: { checkoutIntegration: 'CUSTOM' }, headers: {}, id: 'request_typed_diag',
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => targetFor(invoice, 'test-share'),
+    prisma: { razorpayCheckoutAttempt: { findFirst: async () => { throw new RazorpayCheckoutError('CHECKOUT_DIAGNOSTIC', 'safe client message', 503); } } },
+    logRazorpayAction: async (_req, action, description, metadata, status) => log.push({ action, description, metadata, status }),
+  });
+
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.code, 'CHECKOUT_DIAGNOSTIC');
+  assert.equal(log[0].metadata.requestId, 'request_typed_diag');
+  assert.equal(log[0].metadata.invoiceId, invoice.id);
+  assert.equal(log[0].metadata.applicationErrorCode, 'CHECKOUT_DIAGNOSTIC');
+  assert.equal(log[0].metadata.errorClass, 'RazorpayCheckoutError');
 });

@@ -1,6 +1,6 @@
 const prisma = require('../config/database');
 const { RazorpayCheckoutError } = require('./razorpay-invoice-checkout.service');
-const { getCheckoutAccountContext, persistWebhookEvidence, providerId, requireWebhookContext } = require('./razorpay-checkout-account.service');
+const { getDowntimeApiContext, persistWebhookEvidence, providerId, requireWebhookContext } = require('./razorpay-checkout-account.service');
 
 // https://razorpay.com/docs/api/payments/downtime/entity/
 // https://razorpay.com/docs/webhooks/payments/#payments-downtime
@@ -137,7 +137,7 @@ const publicSnapshot = (entry, mode) => {
 const getRazorpayDowntimeSnapshot = async ({ mode, refresh = false, provider } = {}) => {
   let context;
   try {
-    context = getCheckoutAccountContext({ feature: 'DOWNTIME', mode, provider });
+    context = getDowntimeApiContext({ mode, provider });
   } catch (error) {
     return publicSnapshot({ reasonCode: error instanceof RazorpayCheckoutError ? error.code : 'DOWNTIME_SNAPSHOT_UNAVAILABLE' }, ['TEST', 'LIVE'].includes(mode) ? mode : null);
   }

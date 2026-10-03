@@ -37,6 +37,20 @@ const fetchCustomMethods = async () => {
   return { mode, key: process.env.RAZORPAY_KEY_ID, methods, observedAt: new Date().toISOString() };
 };
 
+// The browser SDK's `ready` event remains the only method inventory used by
+// Custom Checkout. Keep validated checkout configuration available when the
+// optional server-side methods read is temporarily unavailable.
+const getCustomCheckoutBootstrap = async () => {
+  const mode = assertCustomMode();
+  let methods = null;
+  try { methods = (await fetchCustomMethods()).methods; } catch (error) {
+    const code = typeof error?.code === 'string' && /^[A-Za-z0-9_.-]{1,80}$/.test(error.code)
+      ? error.code : 'METHODS_LOOKUP_FAILED';
+    console.warn(JSON.stringify({ event: 'razorpay.checkout.methods_lookup_unavailable', mode, code }));
+  }
+  return { mode, key: process.env.RAZORPAY_KEY_ID, methods, configuration: getCustomConfiguration() };
+};
+
 const approvedArtwork = () => {
   let entries;
   try { entries = JSON.parse(process.env.RAZORPAY_CUSTOM_APPROVED_ARTWORK || '[]'); } catch { entries = []; }
@@ -97,4 +111,4 @@ const fetchCustomCardEligibility = async (iin) => {
   }
 };
 
-module.exports = { assertCustomMode, enabled, fetchCustomMethods, fetchCustomCardEligibility, getCustomConfiguration };
+module.exports = { assertCustomMode, enabled, fetchCustomMethods, getCustomCheckoutBootstrap, fetchCustomCardEligibility, getCustomConfiguration };

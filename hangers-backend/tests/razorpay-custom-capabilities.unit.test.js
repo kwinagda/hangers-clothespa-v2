@@ -10,8 +10,10 @@ checkout.getRazorpay = originalGetRazorpay;
 test('Custom discovery preserves provider facts and rejects unverified contracts', async (t) => {
   const previousEnv = { ...process.env };
   const previousFetch = global.fetch;
+  const previousWarn = console.warn;
   t.after(() => {
     global.fetch = previousFetch;
+    console.warn = previousWarn;
     for (const key of Object.keys(process.env)) if (!(key in previousEnv)) delete process.env[key];
     Object.assign(process.env, previousEnv);
   });
@@ -37,6 +39,19 @@ test('Custom discovery preserves provider facts and rejects unverified contracts
       assert.equal(error.message, 'Provider contract test description');
       return true;
     });
+  });
+
+  await t.test('Temporary methods API outages still return a server-validated checkout bootstrap', async () => {
+    global.fetch = async () => { throw new Error('transient provider transport detail'); };
+    const logs = [];
+    console.warn = (line) => logs.push(JSON.parse(line));
+    const result = await capabilities.getCustomCheckoutBootstrap();
+    assert.equal(result.mode, 'TEST');
+    assert.equal(result.key, 'rzp_test_contract');
+    assert.equal(result.methods, null);
+    assert.ok(result.configuration);
+    assert.doesNotMatch(JSON.stringify(result), /transient provider transport detail/);
+    assert.deepEqual(logs, [{ event: 'razorpay.checkout.methods_lookup_unavailable', mode: 'TEST', code: 'METHODS_LOOKUP_FAILED' }]);
   });
 
   await t.test('Unknown method entity fails closed', async () => {

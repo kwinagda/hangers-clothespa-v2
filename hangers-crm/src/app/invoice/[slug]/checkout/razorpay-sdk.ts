@@ -139,10 +139,14 @@ const throttledUntil = new Map<string, number>()
 const throttleCount = new Map<string, number>()
 
 export async function checkoutRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
-  const scope = new URL(url, window.location.href).origin
+  const requestUrl = new URL(url, window.location.href)
+  const method = (init.method || 'GET').toUpperCase()
+  // A throttled checkout mutation must not prevent the independent status read
+  // needed to reconcile an order whose response may have been lost.
+  const scope = `${requestUrl.origin}${requestUrl.pathname}:${method}`
   const retryAt = throttledUntil.get(scope) || 0
   if (Date.now() < retryAt) throw Object.assign(new Error('Payment requests are temporarily limited. Wait before checking again.'), { status: 429, retryAt })
-  const response = await fetch(url, { ...init, cache: 'no-store', credentials: init.credentials ?? 'include', signal: init.signal || AbortSignal.timeout(15000) })
+  const response = await fetch(requestUrl, { ...init, cache: 'no-store', credentials: init.credentials ?? 'include', signal: init.signal || AbortSignal.timeout(15000) })
   const retryAfter = response.headers.get('Retry-After')
   let nextRetryAt: number | undefined
   if (response.status === 429 || (!response.ok && retryAfter !== null)) {

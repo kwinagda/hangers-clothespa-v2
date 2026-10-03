@@ -267,9 +267,10 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
       if (customCheckout && (prior.invoiceId !== current.id || prior.customerId !== current.customerId)) {
         throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_BINDING_MISMATCH', 'The existing checkout belongs to a different invoice scope. Check its status before continuing.', 409, { checkoutAttemptId: prior.id });
       }
-      if (customCheckout && prior.publicShareId !== (shareId || null)) {
-        throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_BINDING_MISMATCH', 'An existing checkout belongs to a different invoice link. Check its status before continuing.', 409, { checkoutAttemptId: prior.id });
-      }
+      // Public invoice links can be rotated while an unpaid checkout attempt
+      // remains valid. Reuse is safe only after the provider checks below prove
+      // that the original bound order has no payment attempts; keep the
+      // original share binding on the attempt/order for audit and settlement.
       if ((prior.experimentId || null) !== (experiment?.id || null)
         || (prior.experimentVariant || null) !== (experiment?.variant || null)
         || (prior.experimentVisitorHash || null) !== (experiment?.visitorHash || null)) {

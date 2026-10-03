@@ -41,7 +41,7 @@ const mockInvoicePaymentApi = async (page: import('@playwright/test').Page, veri
     const path = new URL(request.url()).pathname
     const endpoint = path.split('/').pop()
     if (request.method() === 'GET' && endpoint === 'capabilities') {
-      const methods = await page.evaluate(() => (window as any).__customCheckoutMethods)
+      const methods = await page.evaluate(() => (window as any).__customCheckoutRestMethodsUnavailable ? null : (window as any).__customCheckoutMethods)
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: {
         key: 'rzp_test_local_custom', mode: 'TEST', methods,
         configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: ['DICL'] },
@@ -163,8 +163,12 @@ const openLocalTestCheckout = async (page: import('@playwright/test').Page) => {
   await expect(page.locator('body')).toContainText('+91 9930367267')
 }
 
+const clickInvoiceCheckout = async (page: import('@playwright/test').Page) => {
+  await page.getByRole('button', { name: /^(Continue to secure checkout|Pay online)/ }).click()
+}
+
 const beginLocalCustomCheckout = async (page: import('@playwright/test').Page, collectEmail = true) => {
-  await page.getByRole('button', { name: /^Pay/ }).click()
+  await clickInvoiceCheckout(page)
   await expect(page).toHaveURL(/\/checkout(?:\?|$)/)
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Invoice payment' })).toBeVisible()
@@ -179,20 +183,124 @@ test('invoice lookup failure is shown once and is not mislabeled as a pending pa
   await openLocalTestCheckout(page)
   await page.route('**/api/v1/public/invoices/**/payment/**', async (route) => {
     if (route.request().method() === 'GET') {
-      const endpoint = new URL(route.request().url()).pathname.split('/').pop()
-      const message = endpoint === 'capabilities' ? 'Invoice not found' : 'Payment status unavailable'
-      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message }) })
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({
+        success: false, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found',
+      }) })
       return
     }
     await route.continue()
   })
 
-  await page.getByRole('button', { name: /^Pay/ }).click()
+  await clickInvoiceCheckout(page)
   await expect(page).toHaveURL(/\/checkout(?:\?|$)/)
   await expect(page.getByRole('region', { name: 'Invoice payment' }).getByRole('alert')).toHaveCount(1)
-  await expect(page.getByText('Payment status unavailable', { exact: true })).toBeVisible()
+  await expect(page.getByText('This invoice link is no longer available. Return to the invoice or contact Hangers.', { exact: true })).toBeVisible()
   await expect(page.getByText('Invoice not found', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Invoice payment' }).getByRole('alert').getByRole('link', { name: 'Back to invoice', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Retry|Reload payment methods/ })).toHaveCount(0)
+})
+
+test('missing checkout API route shows one useful retry instead of raw route errors', async ({ page }) => {
+  await openLocalTestCheckout(page)
+  await page.route('**/api/v1/public/invoices/**/payment/**', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({
+        success: false, message: `Route not found: GET ${new URL(route.request().url()).pathname}`,
+      }) })
+      return
+    }
+    await route.continue()
+  })
+
+  await clickInvoiceCheckout(page)
+  await expect(page).toHaveURL(/\/checkout(?:\?|$)/)
+  const alert = page.getByRole('region', { name: 'Invoice payment' }).getByRole('alert')
+  await expect(alert).toHaveCount(1)
+  await expect(alert).toContainText('Payment status could not be checked just now.')
+  await expect(alert).not.toContainText('Route not found')
+  await expect(alert).not.toContainText('/api/v1/')
+  await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry checking payment status' })).toBeVisible()
+})
+
+test('one transient startup status-read failure recovers without blocking an invoice', async ({ page }) => {
+  await installCustomCheckoutMock(page)
+  const verifiedPayloads: any[] = []
+  await mockInvoicePaymentApi(page, verifiedPayloads)
+  let statusReads = 0
+  await page.route('**/api/v1/public/invoices/**/payment/status**', async (route) => {
+    statusReads += 1
+    if (statusReads === 1) {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'temporary status read failure' }) })
+      return
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { status: 'NONE' } }) })
+  })
+  await page.goto(`${invoiceUrl}/checkout`)
+  await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
+
+  await expect.poll(() => statusReads).toBe(2)
+  await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Invoice payment' }).getByRole('alert')).toHaveCount(0)
+  await page.getByRole('radio', { name: 'Netbanking', exact: true }).check()
+  await expect(page.getByText(/Razorpay order/)).toBeVisible()
+  await expect(page.getByRole('radio', { name: 'Credit or debit card', exact: true })).toBeEnabled()
+  await expect(page.locator('form').getByRole('button', { name: /^Pay/ })).toBeEnabled()
+})
+
+test('a provider-confirmed untouched order clears a stale preparation error and safely resumes', async ({ page }) => {
+  await installCustomCheckoutMock(page, false)
+  await mockInvoicePaymentApi(page, [])
+  let statusReads = 0
+  let orderCreates = 0
+  await page.route('**/api/v1/public/invoices/**/payment/**', async (route) => {
+    const request = route.request()
+    const endpoint = new URL(request.url()).pathname.split('/').pop()
+    if (request.method() === 'GET' && endpoint === 'capabilities') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: {
+        key: 'rzp_test_local_custom', mode: 'TEST', methods: { card: true, upi: true, upi_intent: true, netbanking: { HDFC: 'HDFC Bank' } },
+        configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: ['DICL'] },
+      } }) })
+      return
+    }
+    if (request.method() === 'GET' && endpoint === 'status') {
+      statusReads += 1
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: statusReads === 1
+        ? { status: 'NONE' }
+        : { status: 'CREATED', attemptId: 'attempt_local_resume', razorpayOrderId: 'order_local_resume', canResumeCheckout: true, providerLookupUnavailable: false } }) })
+      return
+    }
+    if (request.method() === 'GET' && endpoint === 'downtime') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { status: 'unknown', incidents: [] } }) })
+      return
+    }
+    if (request.method() === 'POST' && endpoint === 'create-order') {
+      orderCreates += 1
+      if (orderCreates === 1) {
+        await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ success: false, code: 'CHECKOUT_ORDER_CREATE_FAILED', message: 'Failed to start online payment' }) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: {
+        key: 'rzp_test_local_custom', amount: qaAmountPaise, currency: 'INR', mode: 'TEST', testContact: '+919930367267',
+        razorpayOrderId: 'order_local_resume', checkoutAttemptId: 'attempt_local_resume',
+      } }) })
+      return
+    }
+    if (request.method() === 'POST') {
+      await route.fulfill({ status: 204, body: '' })
+      return
+    }
+    await route.continue()
+  })
+
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page, false)
+  await expect.poll(() => orderCreates).toBe(2)
+  await expect(page.getByText('Failed to start online payment', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Payment status under review' })).toHaveCount(0)
+  await page.getByRole('radio', { name: 'Netbanking', exact: true }).check()
+  await expect(page.getByRole('button', { name: /^(Pay|Show QR for) / })).toBeEnabled()
 })
 
 test('long method error reflows at narrow width and retry remains keyboard accessible', async ({ page }) => {
@@ -221,7 +329,7 @@ test('long method error reflows at narrow width and retry remains keyboard acces
 
   await openLocalTestCheckout(page)
   await page.setViewportSize({ width: 720, height: 900 })
-  await page.getByRole('button', { name: /^Pay/ }).click()
+  await clickInvoiceCheckout(page)
   const alert = page.getByRole('region', { name: 'Invoice payment' }).getByRole('alert')
   await expect(alert).toContainText(longMessage)
   await expect(alert.getByRole('button', { name: 'Reload payment methods' })).toBeVisible()
@@ -262,6 +370,7 @@ test('local Test Mode UPI selection submits the selected Razorpay intent app and
   expect(await page.evaluate(() => (window as Window & { __emitCustomSuccess?: () => boolean }).__emitCustomSuccess?.())).toBe(true)
 
   await expect(page.getByRole('heading', { name: 'Payment received' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Payment received' })).toBeFocused()
   expect(payment).toMatchObject({ data: { method: 'upi', order_id: 'order_custom_local_test' }, options: { app: 'phonepe' } })
   expect(verifiedPayloads).toEqual([{
     razorpayOrderId: 'order_custom_local_test', razorpayPaymentId: 'pay_custom_local_test',
@@ -373,7 +482,8 @@ test(`closed bank flow can check ${status} status without creating another payme
   expect(await page.evaluate(() => (window as any).__customPaymentFocused)).toBe(true)
   await page.route('**/payment/status*', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: {
-      status, razorpayOrderId: 'order_custom_local_test', razorpayPaymentId: 'pay_custom_local_test',
+    status, razorpayOrderId: 'order_custom_local_test', razorpayPaymentId: 'pay_custom_local_test',
+      attemptId: 'attempt_custom_local_test',
     } }),
   }))
   // Recovery intentionally coalesces status checks within a 1.5-second window.
@@ -384,6 +494,7 @@ test(`closed bank flow can check ${status} status without creating another payme
   if (status === 'CAPTURED') {
     await expect(page.getByRole('heading', { name: 'Payment received' })).toBeVisible()
   } else {
+    await expect(page.getByRole('heading', { name: 'Payment status under review' })).toBeFocused()
     await expect(page.getByRole('button', { name: 'Confirming payment...' })).toBeDisabled()
     await expect(page.getByRole('radio', { name: 'Wallet' })).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Check payment status', exact: true }).first()).toBeVisible()
@@ -633,15 +744,24 @@ test('card network acceptance is not guessed from a local BIN-prefix list', asyn
   await expect(page.getByText('DICL', { exact: true })).toHaveCount(0)
 })
 
-test('custom checkout shows no guessed methods when Razorpay does not return its method list', async ({ page }) => {
+test('unconfirmed methods stay hidden after ready timeout and appear when Razorpay is ready', async ({ page }) => {
   await installCustomCheckoutMock(page, true, false)
+  await page.addInitScript(() => { (window as any).__customCheckoutRestMethodsUnavailable = true })
   await mockInvoicePaymentApi(page, [])
   await openLocalTestCheckout(page)
   await beginLocalCustomCheckout(page, false)
 
-  await expect(page.locator('[class*="notice"]')).toContainText('Payment choices are hidden until Razorpay confirms availability.', { timeout: 7000 })
+  const methodsError = page.getByRole('alert').filter({ hasText: 'Razorpay payment methods could not be confirmed.' })
+  await expect(methodsError).toBeVisible({ timeout: 7000 })
+  await expect(methodsError.getByRole('button', { name: 'Retry payment methods' })).toBeVisible()
   await expect(page.getByRole('radio')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Retry loading methods' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
+
+  await page.evaluate(() => { (window as any).__customCheckoutNoReady = false })
+  await methodsError.getByRole('button', { name: 'Retry payment methods' }).click()
+  await expect(page.getByRole('radio', { name: 'Wallet', exact: true })).toBeVisible({ timeout: 7000 })
+  await expect(page.getByRole('radio')).toHaveCount(7)
+  await expect(page.getByText(/Loading your account’s full payment options/)).toHaveCount(0)
 })
 
 test('payment method options stay in a single vertical list', async ({ page }) => {
@@ -660,18 +780,15 @@ test('payment method options stay in a single vertical list', async ({ page }) =
   expect(boxes.every((box, index) => index === 0 || box.y > boxes[index - 1].y)).toBe(true)
 })
 
-test('availability warning and refresh action remain visually separated', async ({ page }) => {
+test('unknown instrument availability stays silent and does not block available methods', async ({ page }) => {
   await installCustomCheckoutMock(page)
   await mockInvoicePaymentApi(page, [])
   await openLocalTestCheckout(page)
   await beginLocalCustomCheckout(page, false)
 
   const status = page.getByText('Current availability for this payment instrument could not be confirmed.', { exact: true })
-  await expect(status).toBeVisible()
-  const actions = page.locator('[class*="availabilityActions"]')
-  await expect(actions.getByRole('button', { name: 'Refresh availability' })).toBeVisible()
-  await expect(actions).toHaveCSS('display', 'flex')
-  await expect(actions).toHaveCSS('gap', '8px')
+  await expect(status).toHaveCount(0)
+  await expect(page.getByRole('radio', { name: 'Credit or debit card', exact: true })).toBeEnabled()
 })
 
 test('custom checkout fits narrow mobile viewport without horizontal overflow', async ({ page }) => {

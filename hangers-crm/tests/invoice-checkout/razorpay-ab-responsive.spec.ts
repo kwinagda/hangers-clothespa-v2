@@ -496,7 +496,7 @@ test('CRED eligibility retry clears the previous ineligible result without submi
   expect(await page.evaluate(() => (window as Window & { __credPaymentSubmitted?: boolean }).__credPaymentSubmitted)).not.toBe(true)
 })
 
-test('custom checkout hides choices when SDK readiness times out and restores them after retry', async ({ page }) => {
+test('custom checkout uses Razorpay documented methods fallback during SDK readiness delay', async ({ page }) => {
   const origin = 'http://localhost:55104'
   const corsHeaders = {
     'access-control-allow-origin': origin,
@@ -568,23 +568,23 @@ test('custom checkout hides choices when SDK readiness times out and restores th
   await expect(checkout.getByRole('button', { name: 'Pay ₹1' })).toHaveCount(0)
   await expect.poll(() => capabilitiesLookups).toBe(1)
 
-  await page.getByRole('button', { name: 'Retry loading methods' }).click()
-  await expect.poll(() => capabilitiesLookups, { timeout: 10000 }).toBe(2)
-  const readinessError = 'Razorpay did not return the payment methods enabled for this account.'
-  await expect(checkout.getByRole('alert')).toContainText(readinessError, { timeout: 8000 })
-  await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Pay ₹1' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Retry secure checkout' }).click()
+  await expect.poll(() => sdkScriptRequests).toBe(2)
+  await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible({ timeout: 10000 })
+  await expect(page.getByRole('radio', { name: 'UPI' })).toBeVisible()
+  await expect(page.getByRole('radio', { name: 'Netbanking' })).toBeVisible()
+  await expect(checkout.getByRole('status')).toContainText('Loading your account’s full payment options.', { timeout: 8000 })
+  await expect(page.getByRole('button', { name: 'Reload payment methods' })).toBeVisible()
 
   const instancesBeforeRetry = await page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0)
   await page.evaluate(() => { (window as Window & { __readyRetryReady?: boolean }).__readyRetryReady = true })
-  await page.getByRole('button', { name: 'Retry loading methods' }).click()
-  await expect.poll(() => capabilitiesLookups, { timeout: 10000 }).toBe(3)
+  await page.getByRole('button', { name: 'Reload payment methods' }).click()
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0), { timeout: 10000 }).toBeGreaterThan(instancesBeforeRetry)
-  const retryAlertText = await checkout.getByRole('alert').allTextContents()
-  expect(retryAlertText, 'SDK retry should clear the readiness error').toEqual([])
+  await expect(checkout.getByRole('status')).not.toContainText('Loading your account’s full payment options.')
   await expect.poll(() => page.evaluate(() => (window as Window & { __readyRetryReadyEvents?: number }).__readyRetryReadyEvents || 0), { timeout: 10000 }).toBeGreaterThan(0)
   await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible({ timeout: 10000 })
   expect(sdkScriptRequests).toBe(2)
+  expect(capabilitiesLookups).toBe(1)
   expect(verifyRequests).toBe(0)
   expect(createOrderRequests).toBe(1)
   expect(await page.evaluate(() => (window as Window & { __readyRetryPayments?: number }).__readyRetryPayments)).toBe(0)

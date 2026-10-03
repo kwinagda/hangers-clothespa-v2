@@ -8,6 +8,7 @@ import ts from 'typescript'
 import { checkoutAvailability } from '../../src/app/invoice/[slug]/checkout/availability.ts'
 
 const require = createRequire(import.meta.url)
+const postcss = require('postcss')
 const source = readFileSync(new URL('../../src/app/invoice/[slug]/checkout/page.tsx', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022,
@@ -132,4 +133,63 @@ test('API outage is recoverable and not presented as a missing invoice', async (
   assert.match(html, /Retry loading checkout/)
   assert.doesNotMatch(html, /<button/)
   await assert.rejects(render({}, {}, 404), /NOT_FOUND/)
+})
+
+test('custom checkout normal, error, warning, and selected text meet WCAG AA source-color contrast', () => {
+  const css = readFileSync(new URL('../../src/app/invoice/[slug]/RazorpayCustomCheckout.module.css', import.meta.url), 'utf8')
+  const root = postcss.parse(css)
+  const declarations = (selector) => {
+    let result = {}
+    root.walkRules((rule) => {
+      if (rule.selector.split(',').map((item) => item.trim()).includes(selector)) {
+        Object.assign(result, Object.fromEntries(rule.nodes.filter((node) => node.type === 'decl').map((node) => [node.prop, node.value])))
+      }
+    })
+    return result
+  }
+  const luminance = (hex) => {
+    const normalized = hex.length === 4 ? `#${[...hex.slice(1)].map((channel) => channel + channel).join('')}` : hex
+    const channels = normalized.slice(1).match(/.{2}/g).map((channel) => parseInt(channel, 16) / 255)
+      .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+  }
+  const ratio = (foreground, background) => {
+    const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a)
+    return (values[0] + 0.05) / (values[1] + 0.05)
+  }
+  const colorPairs = [
+    ['.heading p', '#ffffff'],
+    ['.heading p', '#f3f7fa'],
+    ['.references', '#ffffff'],
+    ['.references', '#f3f7fa'],
+    ['.checkout small', '#ffffff'],
+    ['.checkout small', '#f3f7fa'],
+    ['.notice', declarations('.notice').background],
+    ['.error', declarations('.error').background],
+    ['.checkout', '#f3f7fa'],
+    ['.checkout', declarations('.methodSelected').background],
+  ]
+  for (const [foregroundSelector, backgroundColor] of colorPairs) {
+    const textColor = declarations(foregroundSelector).color || declarations('.checkout').color
+    assert.ok(textColor && backgroundColor && ratio(textColor, backgroundColor) >= 4.5,
+      `${foregroundSelector} text ${textColor} on ${backgroundColor} must meet 4.5:1`)
+  }
+  assert.doesNotMatch(declarations('.actions button:disabled').opacity || '', /./,
+    'disabled primary actions must not fade their text/background below the contrast target')
+  assert.doesNotMatch(declarations('.brandChoice:disabled').opacity || '', /./,
+    'disabled UPI app choices must not fade their text/background below the contrast target')
+  const focusOutline = declarations('.brandChoice:focus-visible').outline || ''
+  const focusColor = focusOutline.match(/#[\da-f]{6}/i)?.[0]
+  assert.ok(focusColor, 'checkout controls must retain a visible focus outline')
+  for (const background of ['#ffffff', '#f3f7fa']) {
+    for (const selector of ['.actions button', '.brandChoice']) {
+      const style = declarations(selector)
+      assert.ok(ratio(style.color, style.background) >= 4.5,
+        `${selector} text must remain at least 4.5:1 while disabled on ${background}`)
+    }
+    assert.ok(ratio(focusColor, background) >= 3,
+      `focus indicator must have at least 3:1 contrast against ${background}`)
+  }
+  assert.match(declarations('.method:focus-within').outline || '', /3px solid #075985/i,
+    'payment-method keyboard focus must keep a visible outline')
 })

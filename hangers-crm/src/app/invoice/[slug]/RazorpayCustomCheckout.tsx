@@ -87,26 +87,6 @@ const FORMATTER_NETWORK_CODES: Record<string, string> = {
   visa: 'VISA', mastercard: 'MC', maestro: 'MAES', maestro16: 'MAES', rupay: 'RUPAY',
   'American Express': 'AMEX',
 }
-const sameConfiguration = (left: unknown, right: unknown): boolean => {
-  if (left === right) return true
-  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
-  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right)
-    && left.length === right.length && left.every((value, index) => sameConfiguration(value, right[index]))
-  const a = left as Record<string, unknown>, b = right as Record<string, unknown>
-  return Object.keys(a).length === Object.keys(b).length
-    && Object.keys(a).every((key) => Object.prototype.hasOwnProperty.call(b, key) && sameConfiguration(a[key], b[key]))
-}
-const inventoryAgrees = (sdk: Methods, rest: Methods): boolean => {
-  const flags = ['card', 'debit_card', 'credit_card', 'prepaid_card', 'amex', 'upi', 'upi_intent', 'emi']
-  if (flags.some((key) => enabled(sdk[key]) && key in rest && !enabled(rest[key]))) return false
-  // Custom Checkout's ready inventory controls browser choices. The account
-  // API can contain additional providers; never expose those through the SDK.
-  return ['card_networks', 'netbanking', 'wallet', 'cardless_emi', 'paylater', 'app'].every((key) => {
-    const accountOptions = new Set(optionKeys(rest[key]))
-    return optionKeys(sdk[key]).every((code) => accountOptions.has(code))
-  })
-}
-
 export default function RazorpayCustomCheckout({
   order,
   invoiceNumber,
@@ -119,7 +99,6 @@ export default function RazorpayCustomCheckout({
   onCheckStatus,
   apiBase,
   invoiceId,
-  discoveredMethods,
   configuration,
   onPrepare,
   onSubmitted,
@@ -136,7 +115,6 @@ export default function RazorpayCustomCheckout({
   onCheckStatus: () => void
   apiBase?: string
   invoiceId?: string
-  discoveredMethods?: Methods
   configuration?: Configuration
   onPrepare?: () => Promise<CheckoutOrder>
   onSubmitted?: () => void
@@ -150,7 +128,7 @@ export default function RazorpayCustomCheckout({
   const [wallets, setWallets] = useState<string[]>([])
   const [upiApps, setUpiApps] = useState<string[]>([])
   const [upiDiscovery, setUpiDiscovery] = useState<'pending' | 'ready' | 'empty' | 'failed'>('pending')
-  const [authoritativeMethods, setAuthoritativeMethods] = useState<Methods | undefined>(discoveredMethods)
+  const [authoritativeMethods, setAuthoritativeMethods] = useState<Methods | undefined>(undefined)
   const [bank, setBank] = useState('')
   const [wallet, setWallet] = useState('')
   const [provider, setProvider] = useState('')
@@ -166,7 +144,6 @@ export default function RazorpayCustomCheckout({
   const [mobile, setMobile] = useState<boolean | null>(null)
   const [contact, setContact] = useState(order.testContact || customerPhone || '')
   const [downtime, setDowntime] = useState<{ status: string; fetchedAt?: string; staleAfterMs?: number; incidents: Array<{ id: string; severity: string; match: { action: string } }> } | null>(null)
-  const [downtimeRefresh, setDowntimeRefresh] = useState(0)
   const [now, setNow] = useState(Date.now())
   const fieldErrorId = useId()
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -184,6 +161,7 @@ export default function RazorpayCustomCheckout({
   const visibleTransfer = transfer?.binding === transferBinding && !recoveryRequired && Date.parse(transfer.expiresAt) > now
     && (!transfer.closeBy || transfer.closeBy * 1000 > now) ? transfer : null
   const transferLocked = useRef(false)
+  const preparationInFlight = useRef(false)
   const aliveRef = useRef(true)
   const credSequence = useRef(0)
   const submittedRef = useRef(false)
@@ -227,6 +205,7 @@ export default function RazorpayCustomCheckout({
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
     setMobile(isMobile)
     let readyTimer: ReturnType<typeof setTimeout> | undefined
+    let readyReceived = false
     setMethods(null)
     setMethodLoadError('')
     setMethod('')
@@ -236,15 +215,7 @@ export default function RazorpayCustomCheckout({
 
     const initialize = async () => {
       try {
-        let restMethods = discoveredMethods
-        if (methodLoadAttempt > 0 && discoveredMethods) {
-          if (!apiBase) throw new Error('Authoritative payment availability cannot be refreshed. Reopen checkout.')
-          const refreshed = await checkoutRequest<{ key: string; methods: Methods; configuration: Configuration }>(`${apiBase}/custom/capabilities${invoiceId ? `?invoiceId=${encodeURIComponent(invoiceId)}` : ''}`)
-          if (refreshed.key !== order.key || !sameConfiguration(refreshed.configuration, configuration)) throw new Error('Payment configuration changed. Reopen checkout before paying.')
-          restMethods = refreshed.methods
-        }
         if (!mounted) return
-        setAuthoritativeMethods(restMethods)
         const Razorpay = await loadCustomSdk()
         if (!mounted) return
         constructorRef.current = Razorpay
@@ -265,24 +236,35 @@ export default function RazorpayCustomCheckout({
         instance.on('payment.success', (response) => callbacks.success?.(response))
         instance.on('payment.error', (response: PaymentError) => callbacks.error?.(response))
 
-        let methodsReceived = false
         const acceptMethods = (payload?: any) => {
-          if (!mounted || methodsReceived) return
+          if (!mounted) return
           const available = payload?.methods || instance.methods || {}
           if (!available || !Object.keys(available).length) return
-          methodsReceived = true
+          readyReceived = true
           if (readyTimer) clearTimeout(readyTimer)
-          if (restMethods && !inventoryAgrees(available, restMethods)) {
-            setMethodLoadError('Payment availability changed. Reload payment methods before paying.')
-            return
-          }
           setMethodLoadError('')
           setMethods(available)
+          setAuthoritativeMethods(available)
         }
-        callbacks.ready = acceptMethods
+        callbacks.ready = (payload) => {
+          const available = payload?.methods || instance.methods
+          if (available && typeof available === 'object' && !Array.isArray(available)) {
+            readyReceived = true
+            if (Object.keys(available).length) acceptMethods({ methods: available })
+            else {
+              if (readyTimer) clearTimeout(readyTimer)
+              setMethods({})
+              setAuthoritativeMethods({})
+            }
+            return
+          }
+          acceptMethods(payload)
+        }
         instance.once('ready', (payload?: any) => callbacks.ready?.(payload))
         readyTimer = setTimeout(() => {
-          if (mounted && !methodsReceived) setMethodLoadError('Razorpay did not return the payment methods enabled for this account.')
+          if (mounted && !readyReceived) {
+            setMethodLoadError('Razorpay payment methods could not be confirmed. Retry loading payment methods.')
+          }
         }, 5000)
         if (instance.methods && Object.keys(instance.methods).length) acceptMethods()
 
@@ -315,7 +297,7 @@ export default function RazorpayCustomCheckout({
       if (readyTimer) clearTimeout(readyTimer)
       instanceRef.current = null
     }
-  }, [order.key, order.redirect, order.callbackUrl, methodLoadAttempt, discoveredMethods, apiBase, invoiceId, configuration])
+  }, [order.key, order.redirect, order.callbackUrl, methodLoadAttempt, configuration])
 
   useEffect(() => {
     const tick = () => setNow(Date.now())
@@ -331,11 +313,24 @@ export default function RazorpayCustomCheckout({
   }, [order.testContact])
 
   useEffect(() => {
-    if (order.razorpayOrderId) { setPreparing(false); return }
-    if (!method || order.razorpayOrderId || !onPrepare || preparing) return
+    if (order.razorpayOrderId) {
+      preparationInFlight.current = false
+      setPreparing(false)
+      return
+    }
+    if (!method || order.razorpayOrderId || !onPrepare || preparationInFlight.current) return
+    preparationInFlight.current = true
     setPreparing(true)
-    void onPrepare().catch((err) => { if (aliveRef.current) setError(err?.message || 'Payment preparation is unavailable.') })
-      .finally(() => { if (aliveRef.current) setPreparing(false) })
+    void onPrepare().then(() => {
+      if (aliveRef.current) setError('')
+    }).catch(() => {
+      // The parent owns safe recovery and shows one sanitized status message.
+      if (aliveRef.current) setError('')
+    })
+      .finally(() => {
+        preparationInFlight.current = false
+        if (aliveRef.current) setPreparing(false)
+      })
   }, [method, order.razorpayOrderId, onPrepare])
 
   const availableMethods = useMemo(() => {
@@ -377,9 +372,11 @@ export default function RazorpayCustomCheckout({
   const iinNetwork = networkCode(eligibility?.network || null)
   const detectedNetwork = savedCard?.sdk.token ? networkCode(savedCard.network || null) : iinNetwork || formatterNetwork
   // Formatter and Methods use separate namespaces. Unknown is not permission to bypass exclusions.
-  const networkUnavailable = (method === 'card' || method === 'emi') && (!detectedNetwork
+  const cardOrEmi = method === 'card' || method === 'emi'
+  const excludedNetwork = Boolean(detectedNetwork && configuration?.excludedCardNetworks?.includes(detectedNetwork))
+  const networkUnavailable = cardOrEmi && (excludedNetwork || (!detectedNetwork
     || Boolean(!savedCard?.sdk.token && formatterNetwork && iinNetwork && formatterNetwork !== iinNetwork)
-    || !enabled(methods?.card_networks?.[detectedNetwork]) || Boolean(configuration?.excludedCardNetworks?.includes(detectedNetwork)))
+    || !enabled(methods?.card_networks?.[detectedNetwork])))
   const intentUnavailable = upiIntentUnavailable(methods, authoritativeMethods, configuration?.feeBearer)
   const upiUnavailable = mobile === null || (mobile && (intentUnavailable || upiDiscovery !== 'ready' || !upiApps.includes(upiApp)))
   const collectContact = method === 'cred'
@@ -422,7 +419,7 @@ export default function RazorpayCustomCheckout({
     window.addEventListener('focus', onReturn)
     document.addEventListener('visibilitychange', onReturn)
     return () => { mounted = false; if (expiryTimer) clearTimeout(expiryTimer); window.removeEventListener('online', onReturn); window.removeEventListener('focus', onReturn); document.removeEventListener('visibilitychange', onReturn) }
-  }, [apiBase, invoiceId, method, bank, mobile, upiApp, detectedNetwork, eligibility?.issuerCode, eligibility?.type, downtimeRefresh])
+  }, [apiBase, invoiceId, method, bank, mobile, upiApp, detectedNetwork, eligibility?.issuerCode, eligibility?.type])
 
   const checkCardEligibility = async () => {
     if (!apiBase) return
@@ -664,17 +661,13 @@ export default function RazorpayCustomCheckout({
 
       {!methods && !methodLoadError && !error && <p role="status">Loading available payment methods…</p>}
       {methodLoadError && <div className={styles.notice} role="alert">
-        <p>{methodLoadError} Payment choices are hidden until Razorpay confirms availability.</p>
-        <button type="button" className={styles.retry} onClick={() => setMethodLoadAttempt((attempt) => attempt + 1)}>Retry loading methods</button>
+        <p>{methodLoadError}</p>
+        <button type="button" className={styles.retry} onClick={() => { setMethodLoadError(''); setError(''); setMethodLoadAttempt((attempt) => attempt + 1) }}>Retry payment methods</button>
       </div>}
       {error && <p className={styles.error} role="alert">{error}</p>}
       {methods && !availableMethods.length && <div className={styles.notice} role="status"><p>No available payment option was returned for this checkout.</p><button type="button" onClick={() => setMethodLoadAttempt((attempt) => attempt + 1)}>Reload payment methods</button></div>}
       {configuration && configuration.feeBearer !== 'MERCHANT' && <p className={styles.notice} role="status">Online payment configuration needs review. Please contact Hangers before paying.</p>}
       {downtimeFresh && downtime?.incidents.some((incident) => incident.match.action === 'warn') && <p className={styles.notice} role="status">Razorpay reports a current disruption for this payment option. You can choose another available method.</p>}
-      {(downtime && (!downtimeFresh || downtime.incidents.some((incident) => incident.match.action === 'unknown')) || apiBase && method) && <div className={styles.availabilityActions}>
-        {downtime && (!downtimeFresh || downtime.incidents.some((incident) => incident.match.action === 'unknown')) && <small role="status">Current availability for this payment instrument could not be confirmed.</small>}
-        {apiBase && method && <button type="button" className={styles.retry} disabled={submitting} onClick={() => setDowntimeRefresh((value) => value + 1)}>Refresh availability</button>}
-      </div>}
       {!!availableMethods.length && <>
         <fieldset disabled={submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {!order.email && <div className={styles.row}>

@@ -51,7 +51,8 @@ const fixture = (status) => {
     settleCapturedPayment: async (input) => {
       assert.equal(input.providerOrderId, attempt.razorpayOrderId);
       assert.equal(input.expectedInvoiceId, invoice.id);
-      assert.equal(input.expectedShareId, attempt.publicShareId);
+      assert.equal(input.expectedShareId, undefined,
+        'a currently valid share may settle its invoice even when the provider order was created from an older share');
       counts.settlements += 1;
       // Settlement persistence is a double, not proof of database idempotency.
       const alreadyRecorded = attempt.status === 'CAPTURED';

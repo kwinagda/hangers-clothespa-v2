@@ -2265,19 +2265,24 @@ integrationTest('Razorpay checkout resumes the same unpaid Order from a refreshe
     orders: {
       create: async (payload) => {
         createCalls += 1;
-        providerOrder = { id: `order_refresh_${runId}`, amount: payload.amount, currency: payload.currency, notes: payload.notes };
+        providerOrder = {
+          id: `order_refresh_${runId}`, amount: payload.amount, currency: payload.currency,
+          status: 'created', attempts: 0, amount_due: payload.amount, amount_paid: 0,
+          receipt: payload.receipt, notes: payload.notes,
+        };
         return providerOrder;
       },
       fetch: async () => providerOrder,
+      fetchPayments: async () => ({ count: 0, items: [] }),
     },
     payments: { fetch: async () => providerPayment },
   };
   try {
     const original = await createInvoiceCheckout({
-      invoice, shareId: firstToken, idempotencyKey: `refresh-original-${runId}`, provider,
+      invoice, shareId: firstToken, idempotencyKey: `refresh-original-${runId}`, provider, customCheckout: true,
     });
     const resumed = await createInvoiceCheckout({
-      invoice, shareId: refreshedToken, idempotencyKey: `refresh-resumed-${runId}`, provider,
+      invoice, shareId: refreshedToken, idempotencyKey: `refresh-resumed-${runId}`, provider, customCheckout: true,
     });
     assert.equal(resumed.reused, true);
     assert.equal(resumed.attempt.id, original.attempt.id);

@@ -170,16 +170,6 @@ label.fields {
   font-weight: 400;
 }
 
-.availabilityActions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 8px 0;
-}
-
-.availabilityActions .retry { margin-top: 0; }
-
 .notice,
 .error {
   margin: 0 0 12px;
@@ -195,6 +185,8 @@ label.fields {
 }
 
 .notice p { margin: 0; }
+.notice h2:focus-visible,
+.result h2:focus-visible { outline: 3px solid #075985; outline-offset: 4px; }
 .retry {
   margin-top: 8px;
   padding: 0;
@@ -263,7 +255,7 @@ label.fields {
 .brandChoice img { object-fit: contain; }
 .brandChoice span { overflow-wrap: anywhere; }
 .brandChoice:focus-visible { outline: 3px solid #08769a; outline-offset: 3px; }
-.brandChoice:disabled { cursor: default; opacity: .6; }
+.brandChoice:disabled { cursor: default; }
 
 .network {
   padding: 3px 7px;
@@ -297,7 +289,6 @@ label.fields {
 
 .actions button:disabled {
   cursor: wait;
-  opacity: 0.65;
 }
 
 .actions button[type='submit'] { flex: 1 1 220px; }

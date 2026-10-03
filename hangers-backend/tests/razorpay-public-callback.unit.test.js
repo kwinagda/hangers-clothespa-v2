@@ -46,9 +46,11 @@ const invokeCallback = async (body, settlePayment = async () => ({}), target = {
 
 const callbackFields = { razorpay_order_id: 'order_123', razorpay_payment_id: 'pay_123', razorpay_signature: 'signature_123' };
 
-test('redirect callback binds verification to the resolved invoice and share, then uses a fixed invoice return', async () => {
-  const result = await invokeCallback(callbackFields);
-  assert.deepEqual(result.settlements, [{ providerOrderId: 'order_123', paymentId: 'pay_123', signature: 'signature_123', source: 'PUBLIC_INVOICE', expectedInvoiceId: 'invoice_123', expectedShareId: 'share_123' }]);
+test('redirect callback binds verification to the resolved invoice and provider order, then uses a fixed invoice return', async () => {
+  const result = await invokeCallback(callbackFields, undefined, {
+    invoice: { id: 'invoice_123' }, share: { id: 'fresh_share_456' },
+  });
+  assert.deepEqual(result.settlements, [{ providerOrderId: 'order_123', paymentId: 'pay_123', signature: 'signature_123', source: 'PUBLIC_INVOICE', expectedInvoiceId: 'invoice_123' }]);
   assert.equal(result.status, 303);
   const destination = new URL(result.destination);
   assert.equal(destination.pathname, '/invoice/share-token');

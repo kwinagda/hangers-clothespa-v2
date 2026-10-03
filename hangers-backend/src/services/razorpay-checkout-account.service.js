@@ -5,6 +5,28 @@ const { assertCustomMode, getCustomConfiguration } = require('./razorpay-custom-
 const providerId = (value, prefix) => typeof value === 'string'
   && new RegExp(`^${prefix}_[A-Za-z0-9]{1,100}$`).test(value) ? value : null;
 
+const getDowntimeApiContext = ({ mode, provider } = {}) => {
+  const activeMode = assertCustomMode();
+  if (mode !== undefined && mode !== activeMode) {
+    throw new RazorpayCheckoutError('RAZORPAY_MODE_MISMATCH', 'Checkout feature belongs to a different payment mode', 409);
+  }
+  const client = provider || getRazorpay();
+  if (!provider) {
+    client.api.rq.interceptors.request.use((request) => {
+      request.timeout = 10_000;
+      request.signal = AbortSignal.timeout(15_000);
+      return request;
+    });
+  }
+  return {
+    mode: activeMode,
+    cacheKey: crypto.createHash('sha256').update(JSON.stringify([
+      activeMode, process.env.RAZORPAY_KEY_ID,
+    ])).digest('hex'),
+    provider: client,
+  };
+};
+
 // These are deployment gates, not claims that Razorpay has activated a feature.
 // Configure each mode only after its account/feature prerequisites are verified.
 const getCheckoutAccountContext = ({ feature, mode, accountId, provider, webhook = false } = {}) => {
@@ -65,4 +87,4 @@ const persistWebhookEvidence = async (tx, event, evidence, references = {}) => {
   }
 };
 
-module.exports = { getCheckoutAccountContext, persistWebhookEvidence, providerId, requireWebhookContext };
+module.exports = { getCheckoutAccountContext, getDowntimeApiContext, persistWebhookEvidence, providerId, requireWebhookContext };

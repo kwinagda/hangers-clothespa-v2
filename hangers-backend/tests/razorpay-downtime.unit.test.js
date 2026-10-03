@@ -64,6 +64,14 @@ test('downtime snapshots and webhook reconciliation preserve durable evidence', 
   };
   const event = (status) => ({ id: 'event-fixture', mode: 'TEST', attempts: 2, event: `payment.downtime.${status}`, payload: { accountId: 'acc_contract', downtime: incident({ status }) } });
 
+  await t.test('documented downtime API works without a configured account ID', async () => {
+    delete process.env.RAZORPAY_ACCOUNT_ID_TEST;
+    const snapshot = await downtime.getRazorpayDowntimeSnapshot({ provider, refresh: true });
+    assert.equal(snapshot.status, 'fresh');
+    assert.equal(snapshot.reasonCode, null);
+    process.env.RAZORPAY_ACCOUNT_ID_TEST = 'acc_contract';
+  });
+
   await t.test('fresh snapshot becomes stale on outage without leaking raw error', async () => {
     assert.equal((await downtime.getRazorpayDowntimeSnapshot({ provider, refresh: true })).status, 'fresh');
     unavailable = true;

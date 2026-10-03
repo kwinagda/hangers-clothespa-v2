@@ -26,7 +26,7 @@ const harness = () => {
     '../config/database': { $transaction: () => assert.fail('Unexpected database access') },
     './razorpay-invoice-checkout.service': { RazorpayCheckoutError },
     './razorpay-checkout-account.service': {
-      getCheckoutAccountContext: ({ provider }) => {
+      getDowntimeApiContext: ({ provider }) => {
         assert.ok(provider, 'Only an injected provider is allowed');
         return { mode: 'TEST', cacheKey: 'isolated-downtime', provider };
       },
