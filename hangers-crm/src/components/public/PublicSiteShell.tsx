@@ -145,7 +145,7 @@ export default function PublicSiteShell({ profile, children }: { profile: Public
       .dw-btn.outline{border:1.5px solid #fff;color:#fff !important;padding:15px 28px}
       .dw-footer{padding:0 clamp(16px,4vw,28px) 48px;color:var(--hg-text)}
       .dw-footer-grid{max-width:var(--hg-container);margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:32px;font-size:14px;line-height:1.8}
-      .dw-footer-logo{height:36px;margin-bottom:12px}
+      .dw-footer-logo{height:36px;width:auto;max-width:100%;align-self:flex-start;margin-bottom:12px}
       .dw-footer-col{display:flex;flex-direction:column}
       .dw-footer-col b{color:var(--hg-navy)}
       .dw-footer-col a,.dw-footer-col span{color:var(--hg-text);font-size:14px}
