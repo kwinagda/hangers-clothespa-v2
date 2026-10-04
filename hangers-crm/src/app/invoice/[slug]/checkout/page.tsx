@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { ChevronLeft, LockKeyhole } from 'lucide-react'
 import { LOGO_BLUE_URL } from '@/lib/branding'
 import InvoicePaymentButton from '../InvoicePaymentButton'
 import CustomCheckoutFlow from './CustomCheckoutFlow'
@@ -113,36 +114,24 @@ export default async function PublicInvoiceCheckoutPage({
   const customerPhone = summary?.customer?.phone || invoice?.customer?.phone
   const title = outstanding ? 'Pay open invoices' : `Invoice ${invoiceNumber || ''}`
   const backHref = `/invoice/${encodeURIComponent(slug)}`
-  let supportPhone: string | undefined
-  try {
-    const response = await fetch(`${SERVER_API_BASE_URL}/public/site-profile`, {
-      cache: 'no-store', signal: AbortSignal.timeout(15000),
-    })
-    if (response.ok) {
-      const payload = await response.json()
-      const phone = payload?.data?.profile?.phone || payload?.profile?.phone
-      if (typeof phone === 'string' && /^\+?[\d\s()-]+$/.test(phone) && phone.replace(/\D/g, '').length >= 7) supportPhone = phone
-    }
-  } catch {
-    // Missing business contact must not produce a fabricated help destination.
-  }
 
   return (
     <main className={styles.page}>
       <header className={styles.topbar}>
-        <Link href={backHref} aria-label="Back to invoice"><img src={LOGO_BLUE_URL} alt="Hangers Clothes Spa" /></Link>
-        <span>Invoice payment</span>
+        <Link className={styles.headerBack} href={backHref} aria-label="Back to invoice details"><ChevronLeft size={22} aria-hidden="true" /></Link>
+        <img className={styles.brandLogo} src={LOGO_BLUE_URL} alt="Hangers Clothes Spa" />
+        <span className={styles.topbarLabel}><LockKeyhole size={13} aria-hidden="true" />Secure</span>
       </header>
       <div className={styles.layout}>
         <section className={styles.main}>
           <nav className={styles.steps} aria-label="Checkout progress">
-            <Link className={styles.complete} href={backHref}>1 <b>Invoice</b></Link><i aria-hidden="true" />
-            <span className={noPaymentRequired ? styles.complete : styles.active} aria-current={!noPaymentRequired ? 'step' : undefined}>2 <b>Payment</b></span><i aria-hidden="true" />
-            <span className={noPaymentRequired ? styles.active : undefined} aria-current={noPaymentRequired ? 'step' : undefined}>3 <b>{balanceComplete ? 'Complete' : 'Confirmation'}</b></span>
+            <Link className={styles.complete} href={backHref}><span className={styles.stepNumber}>1</span><b>Invoice</b></Link><i aria-hidden="true" />
+            <span className={noPaymentRequired ? styles.complete : styles.active} aria-current={!noPaymentRequired ? 'step' : undefined}><span className={styles.stepNumber}>2</span><b>Payment</b></span><i aria-hidden="true" />
+            <span className={noPaymentRequired ? styles.active : undefined} aria-current={noPaymentRequired ? 'step' : undefined}><span className={styles.stepNumber}>3</span><b>{balanceComplete ? 'Complete' : 'Confirmation'}</b></span>
           </nav>
           <div className={styles.heading}>
             <h1>{confirmed ? outstanding ? 'Payment received' : 'Invoice paid' : availability === 'NO_BALANCE' ? 'No balance due' : payable ? 'Complete your payment' : 'Online payment unavailable'}</h1>
-            <p>{noPaymentRequired ? 'No further payment is required for this balance. View the invoice details below.' : payable ? 'Choose a payment method for your Hangers service invoices. Payment is processed by Razorpay.' : availability === 'CANCELLED' ? 'This invoice is cancelled and cannot accept payment.' : availability === 'BELOW_MINIMUM' ? 'This balance is below the online payment minimum. Refer to your invoice for settlement details.' : 'We could not establish a valid payable balance. Please check the invoice before paying.'}</p>
+            {!payable && <p>{noPaymentRequired ? 'No further payment is required for this balance.' : availability === 'CANCELLED' ? 'This invoice is cancelled and cannot accept payment.' : availability === 'BELOW_MINIMUM' ? 'This balance is below the online payment minimum. Refer to your invoice for settlement details.' : 'We could not establish a valid payable balance. Please check the invoice before paying.'}</p>}
           </div>
           {(payable || (noPaymentRequired && invoiceId)) && process.env.NEXT_PUBLIC_RAZORPAY_CUSTOM_CHECKOUT === 'true' ? <CustomCheckoutFlow
             slug={slug} invoiceId={invoiceId} invoiceNumber={invoiceNumber} orderNumber={orderNumber}
@@ -163,11 +152,11 @@ export default async function PublicInvoiceCheckoutPage({
             checkoutPage
           />}
           <Link className={styles.back} href={backHref}>{noPaymentRequired ? 'View invoice details' : 'Back to invoice details'}</Link>
-          {supportPhone && <p><a className={styles.back} href={`tel:${supportPhone.replace(/[^+\d]/g, '')}`}>Contact Hangers: {supportPhone}</a></p>}
         </section>
-        <aside className={styles.summary} aria-label="Payment summary">
-          <h2>Payment summary</h2>
-          <p className={styles.customer}>{customerName || 'Customer'}</p>
+        <aside className={styles.sidebar} aria-label="Payment summary">
+          <div className={styles.summary}>
+          <h2>{orderNumber ? `Order ${orderNumber}` : 'Payment summary'}</h2>
+          <div className={styles.total}><span>Total due</span><strong>{availability === 'UNAVAILABLE' ? 'Unavailable' : money(amount)}</strong></div>
           {outstanding ? <>
             <p className={styles.reference}>{items.length} {items.length === 1 ? 'invoice' : 'invoices'} in this balance</p>
             <details className={styles.split}>
@@ -177,12 +166,18 @@ export default async function PublicInvoiceCheckoutPage({
             </ul>
             </details>
           </> : <>
-            {orderNumber && <p className={styles.reference}>Order {orderNumber}</p>}
             {invoiceNumber && <p className={styles.reference}>Invoice {invoiceNumber}</p>}
-            <p className={styles.reference}>Hangers service invoice</p>
+            {!!invoice?.items?.length && <details className={styles.split}>
+              <summary>View bill details</summary>
+              <ul className={styles.items}>{invoice.items.map((item: any, index: number) => <li key={index}>
+                <span>{item.garmentType || item.serviceName}<br /><small>{item.quantity} × {money(item.unitPrice)}</small></span>
+                <b>{money(item.subtotal)}</b>
+              </li>)}</ul>
+            </details>}
           </>}
-          <div className={styles.total}><span>Total due</span><strong>{availability === 'UNAVAILABLE' ? 'Unavailable' : money(amount)}</strong></div>
           <p className={styles.secure}>Payment processed by Razorpay</p>
+          </div>
+          <div id="checkout-payment-actions" />
         </aside>
       </div>
       <footer className={styles.footer}>{title} · Hangers Clothes Spa</footer>

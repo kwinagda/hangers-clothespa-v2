@@ -320,7 +320,7 @@ export default function InvoicePaymentButton({ slug, invoiceId, invoiceNumber, o
           await verifyPaymentResponse(response)
         } } : {}),
       })
-      checkout.on('payment.failed', (payload: any) => {
+      checkout.on('payment.failed', (_payload: any) => {
         trackPaymentClientEvent('PAYMENT_FAILED_CALLBACK', activeAttemptId.current || undefined)
         trackExperimentEvent('PAYMENT_FAILED_CALLBACK', activeAttemptId.current || undefined)
         setBusy(false)

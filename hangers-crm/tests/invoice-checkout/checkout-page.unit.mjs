@@ -55,7 +55,7 @@ async function render(payload, query = {}, responseStatus = 200, paymentStatus =
 test('paid invoice renders confirmation and invoice link without payment action', async () => {
   const html = await render({ data: { invoice: { id: 'invoice-a', invoiceNumber: 'INV-A', balanceDue: 0, status: 'PAID' } } })
   assert.match(html, /Invoice paid/)
-  assert.match(html, /aria-current="step">3/)
+  assert.match(html, /aria-current="step"><span>3<\/span>/)
   assert.match(html, /View invoice details/)
   assert.doesNotMatch(html, /<button/)
 })
@@ -79,9 +79,9 @@ test('zero-balance invoice advances to complete without claiming a Razorpay capt
     id: 'invoice-settled', invoiceNumber: 'INV-SETTLED', balanceDue: 0, paidAmount: 10, status: 'PICKED_UP',
   } } })
   assert.match(html, /No balance due/)
-  assert.match(html, /aria-current="step">3 <b>Complete<\/b>/)
-  assert.match(html, /2 <b>Payment<\/b>/)
-  assert.doesNotMatch(html, /aria-current="step">2|Payment received|Invoice paid|<button/)
+  assert.match(html, /aria-current="step"><span>3<\/span><b>Complete<\/b>/)
+  assert.match(html, /<span>2<\/span><b>Payment<\/b>/)
+  assert.doesNotMatch(html, /aria-current="step"><span>2|Payment received|Invoice paid|<button/)
 })
 
 test('all supported invoice source types expose checkout for a positive unpaid balance', async (t) => {
@@ -190,6 +190,6 @@ test('custom checkout normal, error, warning, and selected text meet WCAG AA sou
     assert.ok(ratio(focusColor, background) >= 3,
       `focus indicator must have at least 3:1 contrast against ${background}`)
   }
-  assert.match(declarations('.method:focus-within').outline || '', /3px solid #075985/i,
+  assert.match(declarations('.method:focus-within').outline || '', /3px solid #035a8f/i,
     'payment-method keyboard focus must keep a visible outline')
 })

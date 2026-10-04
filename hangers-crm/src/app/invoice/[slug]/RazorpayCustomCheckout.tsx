@@ -1,7 +1,10 @@
 'use client'
 
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Banknote, CalendarDays, Check, ChevronLeft, ChevronRight, CreditCard, Landmark, LockKeyhole, Search, Smartphone, Wallet, X } from 'lucide-react'
 import { LOGO_BLUE_URL } from '@/lib/branding'
+import { Button } from '@/components/ui/Button'
 import styles from './RazorpayCustomCheckout.module.css'
 import SavedCards, { SavedCardSelection } from './checkout/SavedCards'
 import { CardEligibility, Configuration, Methods, checkoutRequest, enabled, issuerPlans, networkCode, money, loadCustomSdk, supportedUpiIntentApps, upiIntentUnavailable } from './checkout/razorpay-sdk'
@@ -17,6 +20,15 @@ type CheckoutOrder = {
   email?: string
   callbackUrl?: string
   redirect?: boolean
+}
+
+function BankLogo({ url }: { url?: string }) {
+  const [failedUrl, setFailedUrl] = useState<string>()
+  return <span className={styles.bankLogo} aria-hidden="true">
+    {url && failedUrl !== url
+      ? <img src={url} alt="" onError={() => setFailedUrl(url)} />
+      : <Landmark size={22} />}
+  </span>
 }
 
 type PaymentError = {
@@ -124,12 +136,15 @@ export default function RazorpayCustomCheckout({
   const [methodLoadError, setMethodLoadError] = useState('')
   const [methodLoadAttempt, setMethodLoadAttempt] = useState(0)
   const [method, setMethod] = useState('')
+  const [methodPage, setMethodPage] = useState(false)
   const [banks, setBanks] = useState<string[]>([])
   const [wallets, setWallets] = useState<string[]>([])
   const [upiApps, setUpiApps] = useState<string[]>([])
   const [upiDiscovery, setUpiDiscovery] = useState<'pending' | 'ready' | 'empty' | 'failed'>('pending')
   const [authoritativeMethods, setAuthoritativeMethods] = useState<Methods | undefined>(undefined)
   const [bank, setBank] = useState('')
+  const [bankQuery, setBankQuery] = useState('')
+  const bankDialog = useRef<HTMLDialogElement>(null)
   const [wallet, setWallet] = useState('')
   const [provider, setProvider] = useState('')
   const [upiApp, setUpiApp] = useState('')
@@ -146,6 +161,15 @@ export default function RazorpayCustomCheckout({
   const [downtime, setDowntime] = useState<{ status: string; fetchedAt?: string; staleAfterMs?: number; incidents: Array<{ id: string; severity: string; match: { action: string } }> } | null>(null)
   const [now, setNow] = useState(Date.now())
   const fieldErrorId = useId()
+  const formId = `${fieldErrorId}-payment-form`
+  const [actionTarget, setActionTarget] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 900px)')
+    const update = () => setActionTarget(desktop.matches ? document.getElementById('checkout-payment-actions') : null)
+    update()
+    desktop.addEventListener('change', update)
+    return () => desktop.removeEventListener('change', update)
+  }, [])
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [credEligible, setCredEligible] = useState(false)
   const [credBusy, setCredBusy] = useState(false)
@@ -351,6 +375,34 @@ export default function RazorpayCustomCheckout({
     if (configuration?.bankTransfer && apiBase) list.push({ id: 'bank_transfer', label: 'Bank transfer' })
     return list
   }, [methods, order.amount, configuration?.bankTransfer, apiBase])
+
+  const methodSubtitle = (id: string) => {
+    if (id === 'card') return cardNetworks.length ? 'Cards enabled for this checkout' : 'Enter card details'
+    if (id === 'upi') {
+      if (mobile === false) return 'Scan a UPI QR code'
+      if (mobile && intentUnavailable) return 'UPI app payment unavailable on this device'
+      if (mobile && upiDiscovery === 'ready') return `${upiApps.length} UPI apps available`
+      return 'Checking UPI app availability'
+    }
+    if (id === 'netbanking') return `${banks.length} ${banks.length === 1 ? 'bank' : 'banks'} available`
+    if (id === 'wallet') return `${wallets.length} ${wallets.length === 1 ? 'wallet' : 'wallets'} available`
+    if (id === 'emi') return 'Check card eligibility for available plans'
+    if (id === 'cardless_emi') return `${optionKeys(methods?.cardless_emi).length} providers available`
+    if (id === 'paylater') return `${optionKeys(methods?.paylater).length} providers available`
+    if (id === 'cred') return 'Check availability for this payment'
+    if (id === 'bank_transfer') return 'Get current transfer instructions'
+    return ''
+  }
+
+  const methodIcon = (id: string) => {
+    if (id === 'upi' || id === 'cred') return Smartphone
+    if (id === 'netbanking') return Landmark
+    if (id === 'wallet') return Wallet
+    if (id === 'emi' || id === 'cardless_emi') return CalendarDays
+    if (id === 'paylater') return CalendarDays
+    if (id === 'bank_transfer') return Banknote
+    return CreditCard
+  }
 
   useEffect(() => {
     if (!availableMethods.some((item) => item.id === method)) setMethod(availableMethods[0]?.id || '')
@@ -634,31 +686,36 @@ export default function RazorpayCustomCheckout({
     }
   }
 
+  const paymentActions = <div className={styles.actions}>
+    <p className={styles.payingWith}><span>Paying with</span><b>{availableMethods.find((item) => item.id === method)?.label || 'Choose a payment method'}</b></p>
+    {method !== 'bank_transfer' && <Button size="lg" type="submit" form={formId} disabled={(method === 'card' && saveRequested && !savedCard?.sdk.token && savedCard?.sdk.save !== 1) || savedCardsBusy || recoveryRequired || submitting || preparing || !order.razorpayOrderId || !methods || !method || Boolean(configuration && configuration.feeBearer !== 'MERCHANT') || networkUnavailable || ((method === 'card' || method === 'emi') && !savedCard?.sdk.token && !cardFormatterReady) || (method === 'emi' && !emiDurations.length) || (method === 'upi' && upiUnavailable)}>
+      <LockKeyhole size={16} aria-hidden="true" />
+      {submitting ? 'Confirming payment...' : preparing ? 'Preparing payment...' : `${method === 'upi' && mobile === false ? 'Show QR for' : 'Pay'} ${money(order.amount, order.currency)}`}
+    </Button>}
+    <button type="button" className={styles.cancel} onClick={onCancel} disabled={submitting}>Cancel</button>
+    {submitting && <button type="button" className={styles.cancel} onClick={onCheckStatus}>Check payment status</button>}
+    {submitting && typeof instanceRef.current?.focus === 'function' && <button type="button" className={styles.cancel} onClick={() => {
+      try { instanceRef.current?.focus?.() } catch { setError('Could not return to payment. Check payment status to continue.') }
+    }}>Return to payment</button>}
+    {submitting && method === 'upi' && typeof instanceRef.current?.emit === 'function' && <button type="button" className={styles.cancel} onClick={() => {
+      try { instanceRef.current?.emit?.('payment.cancel') } catch { setError('Cancellation could not be confirmed. Check payment status.') }
+      onCheckStatus()
+    }}>Cancel UPI request and check status</button>}
+  </div>
+
   return (
-    <form ref={formRef} className={styles.checkout} onSubmit={submit} onInvalid={(event) => {
+    <form id={formId} ref={formRef} className={styles.checkout} onSubmit={submit} onInvalid={(event) => {
       const input = event.target as HTMLInputElement | HTMLSelectElement
       if (input.name) setFieldErrors((current) => ({ ...current, [input.name]: input.validationMessage }))
     }} onChange={(event) => {
       const input = event.target as HTMLInputElement | HTMLSelectElement
       if (input.name) setFieldErrors((current) => { const next = { ...current }; delete next[input.name]; return next })
     }}>
-      <div className={styles.heading}>
-        <div className={styles.branding}>
-          <img src={LOGO_BLUE_URL} alt="Hangers Clothes Spa" />
-          <div>
-          <h3>Pay Hangers Clothes Spa</h3>
-          <p>Choose a secure payment method for your service invoice.</p>
-          </div>
-        </div>
-        <strong>{money(order.amount, order.currency)}</strong>
-      </div>
-      <div className={styles.references}>
+      <details className={styles.details}><summary>Checkout references</summary><div className={styles.references}>
         {invoiceNumber && <span>Invoice <b>{invoiceNumber}</b></span>}
         {orderNumber && <span>Order <b>{orderNumber}</b></span>}
         {order.razorpayOrderId && <span>Razorpay order <b>{order.razorpayOrderId}</b></span>}
-      </div>
-      <p className={styles.quip}>Payment for your Hangers services.</p>
-
+      </div></details>
       {!methods && !methodLoadError && !error && <p role="status">Loading available payment methods…</p>}
       {methodLoadError && <div className={styles.notice} role="alert">
         <p>{methodLoadError}</p>
@@ -670,6 +727,12 @@ export default function RazorpayCustomCheckout({
       {downtimeFresh && downtime?.incidents.some((incident) => incident.match.action === 'warn') && <p className={styles.notice} role="status">Razorpay reports a current disruption for this payment option. You can choose another available method.</p>}
       {!!availableMethods.length && <>
         <fieldset disabled={submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <div className={styles.contactCard}>
+          <span className={styles.avatar} aria-hidden="true">{customerName?.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('') || <Smartphone size={20} />}</span>
+          <div className={styles.contactInfo}><b>{customerName || 'Customer'}</b><span>{contact || customerPhone}{order.email && <> · {order.email}</>}</span></div>
+          {(!order.email || collectContact) && <details className={styles.contactEdit}>
+          <summary>Edit contact</summary>
+          <div className={styles.contactFields}>
         {!order.email && <div className={styles.row}>
           <label>Email address (optional)<input name="email" {...fieldProps('email')} type="text" inputMode="email" autoComplete="email" disabled={submitting} /></label>
           {fieldMessage('email')}
@@ -677,16 +740,42 @@ export default function RazorpayCustomCheckout({
         {collectContact && <div className={styles.row}>
           <label>Mobile number with country code<input name="contact" {...fieldProps('contact')} type="tel" autoComplete="tel" value={contact} onChange={(event) => { credSequence.current += 1; setCredBusy(false); setCredEligible(false); setContact(event.target.value) }} readOnly={Boolean(order.testContact)} disabled={submitting} required />{fieldMessage('contact')}</label>
         </div>}
-        <fieldset className={styles.methods} disabled={submitting}>
-          <legend>Payment method</legend>
-          {availableMethods.map((item) => (
+          </div></details>}
+        </div>
+        {methodPage && <nav className={styles.methodBreadcrumb} aria-label="Payment method">
+          <button type="button" disabled={submitting} onClick={() => setMethodPage(false)}><ChevronLeft size={16} aria-hidden="true" />Payment methods</button>
+          <span aria-hidden="true">/</span><span aria-current="page">{availableMethods.find((item) => item.id === method)?.label}</span>
+        </nav>}
+        <fieldset className={styles.methods} disabled={submitting} hidden={methodPage}>
+          <legend>Choose a payment method</legend>
+          {[availableMethods.filter((item) => item.id === 'upi'), availableMethods.filter((item) => item.id !== 'upi')].filter((group) => group.length).map((group) => <div className={styles.methodSection} key={group[0].id === 'upi' ? 'upi' : 'other'}>
+          <h3>{group[0].id === 'upi' ? 'Pay by any UPI app' : 'More ways to pay'}</h3>
+          <div className={styles.methodGroup}>
+          {group.map((item) => (
             <label key={item.id} className={method === item.id ? `${styles.method} ${styles.methodSelected}` : styles.method}>
-              <input type="radio" name="payment-method" value={item.id} checked={method === item.id} onChange={() => { setMethod(item.id); setError('') }} />
-              <span>{item.label}</span>
+              <input type="radio" aria-label={item.label} name="payment-method" value={item.id} checked={method === item.id} onClick={() => setMethodPage(true)} onChange={() => { setMethod(item.id); setError('') }} />
+              {(() => { const Icon = methodIcon(item.id); return <span className={styles.methodIcon} aria-hidden="true"><Icon size={20} strokeWidth={1.8} /></span> })()}
+              <span className={styles.methodCopy}>
+                <span className={styles.methodLabel}>{item.label}</span>
+                <span className={styles.methodSubtitle}>{methodSubtitle(item.id)}</span>
+              </span>
+              {item.id === 'card' && networkAssets.length > 0 && <span className={styles.methodAssets} aria-label="Enabled card networks">
+                {networkAssets.map((asset) => <img key={asset.code} src={asset.url} alt={asset.label} width={40} height={25} loading="lazy" referrerPolicy="no-referrer" />)}
+              </span>}
+              {item.id === 'upi' && upiDiscovery === 'ready' && upiApps.length > 0 && <span className={styles.methodAssets} aria-label="Supported UPI apps">
+                {upiApps.slice(0, 4).map((app) => {
+                  const asset = configuration?.artwork.find((entry) => entry.kind === 'upi' && entry.code === app)
+                  return asset ? <img key={app} src={asset.url} alt={asset.label} width={26} height={26} loading="lazy" referrerPolicy="no-referrer" /> : <span key={app}>{app === 'any' ? 'Other' : app}</span>
+                })}
+              </span>}
+              <ChevronRight className={styles.methodChevron} size={18} aria-hidden="true" />
             </label>
           ))}
+          </div></div>)}
         </fieldset>
 
+        {method && (methodPage || method === 'upi') && <section className={styles.methodDetails} aria-labelledby={`${fieldErrorId}-selected-method`}>
+        <h4 className={styles.methodDetailsHeading} id={`${fieldErrorId}-selected-method`}>{availableMethods.find((item) => item.id === method)?.label || 'Selected payment'} details</h4>
         {(method === 'card' || method === 'emi') && <div className={styles.fields}>
           {method === 'card' && configuration?.savedCards && <SavedCards mode={order.key.startsWith('rzp_test_') ? 'TEST' : 'LIVE'} keyId={order.key} disabled={submitting} onChange={setSavedCard}
             approvedTestContact={order.testContact} contextKey={`${invoiceId || ''}:${order.razorpayOrderId}`}
@@ -702,7 +791,6 @@ export default function RazorpayCustomCheckout({
             {fieldMessage('emi-duration')}
             {!emiDurations.length && <small>Enter your card and check issuer eligibility to see available plans.</small>}
           </label>}
-          <label>Name on card<input name="card-name" {...fieldProps('card-name')} autoComplete="cc-name" defaultValue={customerName || ''} required />{fieldMessage('card-name')}</label>
           <label>Card number
             <div className={styles.cardNumber}>
               <input name="card-number" {...fieldProps('card-number')} inputMode="numeric" autoComplete="cc-number" placeholder="Card number" disabled={submitting || !cardFormatterReady} onBlur={() => void checkCardEligibility()} required />
@@ -714,12 +802,16 @@ export default function RazorpayCustomCheckout({
           </label>
           {cardNetworks.length ? <div className={styles.networks} aria-label="Card networks enabled for this account">
             <span>Enabled card networks</span>
-            <div>{networkAssets.map((asset) => <img key={asset.code} src={asset.url} alt={asset.label} width={48} height={30} loading="lazy" referrerPolicy="no-referrer" />)}</div>
+            <div>{cardNetworks.map((code) => {
+              const asset = networkAssets.find((entry) => entry.code === code)
+              return asset ? <img key={code} src={asset.url} alt={asset.label} width={48} height={30} loading="lazy" referrerPolicy="no-referrer" /> : <span key={code} className={styles.network}>{code}</span>
+            })}</div>
           </div> : <small>Razorpay will validate this card during payment.</small>}
           <div className={styles.row}>
             <label>Expiry<input name="card-expiry" {...fieldProps('card-expiry')} inputMode="numeric" autoComplete="cc-exp" placeholder="MM / YY" disabled={submitting} required />{fieldMessage('card-expiry')}</label>
             <label>CVV<input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" disabled={submitting} required />{fieldMessage('card-cvv')}</label>
           </div>
+          <label>Name on card<input name="card-name" {...fieldProps('card-name')} autoComplete="cc-name" defaultValue={customerName || ''} required />{fieldMessage('card-name')}</label>
           <button type="button" disabled={submitting || eligibilityBusy} onClick={() => void checkCardEligibility()}>{eligibilityBusy ? 'Checking card...' : method === 'emi' ? 'Check EMI eligibility' : 'Check card eligibility'}</button>
           {method === 'emi' && eligibility && <small>{eligibility.issuerName || eligibility.issuerCode}: {eligibility.emiAvailable === true ? 'Select an available plan.' : 'EMI availability is not confirmed for this card.'}</small>}
           {method === 'emi' && selectedPlan && <small>{selectedPlan.duration} months at {selectedPlan.rate}% annual interest{Number.isFinite(installment) ? `; ${money(Math.round(installment as number))} per month` : ''}. Issuer fees and taxes, where applicable, are confirmed by your bank.</small>}
@@ -727,12 +819,30 @@ export default function RazorpayCustomCheckout({
           </>}
         </div>}
 
-        {method === 'netbanking' && <label className={styles.fields}>Select bank
+        {method === 'netbanking' && <div className={styles.fields}>
+          <div className={styles.bankGrid} role="group" aria-label="Available banks">
+            {banks.slice(0, 6).map((code) => <button type="button" key={code} className={styles.brandChoice} aria-pressed={bank === code} onClick={() => setBank(code)}>
+              <BankLogo url={configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === code)?.url} /><span>{typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code}</span>
+            </button>)}
+          </div>
+          <button type="button" className={styles.bankSearch} onClick={() => { setBankQuery(''); bankDialog.current?.showModal() }}><Search size={16} aria-hidden="true" />Search all banks</button>
+          <label>Select bank
           <select name="bank" {...fieldProps('bank')} value={bank} onChange={(event) => setBank(event.target.value)} required>
             {banks.map((code) => <option key={code} value={code}>{typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code}</option>)}
           </select>
           {fieldMessage('bank')}
-        </label>}
+          </label>
+          <dialog ref={bankDialog} className={styles.bankDialog} aria-labelledby={`${fieldErrorId}-bank-title`}>
+            <div className={styles.bankDialogHeader}><h3 id={`${fieldErrorId}-bank-title`}>Choose your bank</h3><button type="button" aria-label="Close bank search" onClick={() => bankDialog.current?.close()}><X size={20} /></button></div>
+            <label>Search banks<input type="search" value={bankQuery} onChange={(event) => setBankQuery(event.target.value)} autoComplete="off" /></label>
+            <div className={styles.bankResults}>
+              {banks.filter((code) => `${code} ${methods?.netbanking?.[code] || ''}`.toLowerCase().includes(bankQuery.toLowerCase())).map((code) => <button type="button" key={code} onClick={() => { setBank(code); bankDialog.current?.close() }}>
+                <BankLogo url={configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === code)?.url} /><span>{typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code}</span>{bank === code && <Check size={18} aria-label="Selected" />}
+              </button>)}
+              {!banks.some((code) => `${code} ${methods?.netbanking?.[code] || ''}`.toLowerCase().includes(bankQuery.toLowerCase())) && <p role="status">No matching banks</p>}
+            </div>
+          </dialog>
+        </div>}
 
         {method === 'wallet' && <label className={styles.fields}>Select wallet
           <select name="wallet" {...fieldProps('wallet')} value={wallet} onChange={(event) => setWallet(event.target.value)} required>
@@ -779,22 +889,10 @@ export default function RazorpayCustomCheckout({
             <button type="button" onClick={onCheckStatus}>Check bank transfer status</button>
           </>}
         </div>}
+        </section>}
 
         </fieldset>
-        <div className={styles.actions}>
-          {method !== 'bank_transfer' && <button type="submit" disabled={(method === 'card' && saveRequested && !savedCard?.sdk.token && savedCard?.sdk.save !== 1) || savedCardsBusy || recoveryRequired || submitting || preparing || !order.razorpayOrderId || !methods || !method || Boolean(configuration && configuration.feeBearer !== 'MERCHANT') || networkUnavailable || ((method === 'card' || method === 'emi') && !savedCard?.sdk.token && !cardFormatterReady) || (method === 'emi' && !emiDurations.length) || (method === 'upi' && upiUnavailable)}>
-            {submitting ? 'Confirming payment...' : preparing ? 'Preparing payment...' : `${method === 'upi' && mobile === false ? 'Show QR for' : 'Pay'} ${money(order.amount, order.currency)}`}
-          </button>}
-          <button type="button" className={styles.cancel} onClick={onCancel} disabled={submitting}>Cancel</button>
-          {submitting && <button type="button" className={styles.cancel} onClick={onCheckStatus}>Check payment status</button>}
-          {submitting && typeof instanceRef.current?.focus === 'function' && <button type="button" className={styles.cancel} onClick={() => {
-            try { instanceRef.current?.focus?.() } catch { setError('Could not return to payment. Check payment status to continue.') }
-          }}>Return to payment</button>}
-          {submitting && method === 'upi' && typeof instanceRef.current?.emit === 'function' && <button type="button" className={styles.cancel} onClick={() => {
-            try { instanceRef.current?.emit?.('payment.cancel') } catch { setError('Cancellation could not be confirmed. Check payment status.') }
-            onCheckStatus()
-          }}>Cancel UPI request and check status</button>}
-        </div>
+        {actionTarget ? createPortal(paymentActions, actionTarget) : paymentActions}
       </>}
     </form>
   )

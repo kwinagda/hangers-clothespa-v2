@@ -10,7 +10,7 @@ export type CheckoutOrder = {
 }
 export type Methods = Record<string, any>
 export type RefreshMethods = () => Promise<Methods>
-export type Artwork = { kind: 'network' | 'upi' | 'wallet'; code: string; label: string; url: string; source: string }
+export type Artwork = { kind: 'network' | 'upi' | 'wallet' | 'bank'; code: string; label: string; url: string; source: string }
 export type Configuration = {
   feeBearer: 'MERCHANT' | 'CUSTOMER' | 'UNVERIFIED'; savedCards: boolean; bankTransfer: boolean; artwork: Artwork[]
   excludedCardNetworks?: string[]

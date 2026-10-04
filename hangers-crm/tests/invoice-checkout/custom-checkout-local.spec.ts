@@ -173,7 +173,8 @@ const beginLocalCustomCheckout = async (page: import('@playwright/test').Page, c
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Invoice payment' })).toBeVisible()
   if (collectEmail) {
-    const email = page.getByRole('textbox', { name: 'Email address', exact: true })
+    await page.getByText('Edit contact', { exact: true }).click()
+    const email = page.getByRole('textbox', { name: /^Email address/ })
     await expect(email).toBeVisible()
     await email.fill('kevinnagda@gmail.com')
   }
@@ -246,7 +247,7 @@ test('one transient startup status-read failure recovers without blocking an inv
   await page.getByRole('radio', { name: 'Netbanking', exact: true }).check()
   await expect(page.getByText(/Razorpay order/)).toBeVisible()
   await expect(page.getByRole('radio', { name: 'Credit or debit card', exact: true })).toBeEnabled()
-  await expect(page.locator('form').getByRole('button', { name: /^Pay/ })).toBeEnabled()
+  await expect(page.getByRole('button', { name: /^Pay/ })).toBeEnabled()
 })
 
 test('a provider-confirmed untouched order clears a stale preparation error and safely resumes', async ({ page }) => {
@@ -807,4 +808,44 @@ test('custom checkout fits narrow mobile viewport without horizontal overflow', 
   })
   expect(checkoutBounds.left).toBeGreaterThanOrEqual(0)
   expect(checkoutBounds.right).toBeLessThanOrEqual(checkoutBounds.viewportWidth)
+})
+
+test('redesigned checkout keeps the summary and associated Pay control in the supplied responsive layout', async ({ page }) => {
+  await installCustomCheckoutMock(page, false)
+  await mockInvoicePaymentApi(page, [])
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page)
+  for (const width of [1366, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.screenshot({ path: `test-results/checkout-redesign-methods-${width}.png`, fullPage: true })
+  }
+  await page.getByRole('radio', { name: 'Credit or debit card', exact: true }).check()
+  await expect(page.getByRole('navigation', { name: 'Payment method', exact: true })).toContainText('Credit or debit card')
+  await page.getByLabel('Card number').fill('4100 2800 0000 1007')
+  await page.getByLabel('Expiry', { exact: true }).fill('12 / 30')
+  await page.getByLabel('CVV', { exact: true }).fill('123')
+  for (const width of [360, 390, 820, 1366, 1920]) {
+    await page.setViewportSize({ width, height: 900 })
+    const summary = page.getByRole('complementary', { name: 'Payment summary' })
+    const pay = page.getByRole('button', { name: /^Pay / })
+    await expect(pay).toBeEnabled()
+    await expect.poll(() => pay.evaluate((button) => Boolean((button as HTMLButtonElement).form))).toBe(true)
+    await expect.poll(() => pay.evaluate((button) => Boolean(button.closest('#checkout-payment-actions')))).toBe(width >= 900)
+    const summaryBox = await summary.boundingBox()
+    const formBox = await page.locator('form').boundingBox()
+    expect(summaryBox).not.toBeNull()
+    expect(formBox).not.toBeNull()
+    if (width >= 900) expect(summaryBox!.x).toBeGreaterThan(formBox!.x + formBox!.width)
+    else expect(summaryBox!.y + summaryBox!.height).toBeLessThan(formBox!.y)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await page.screenshot({ path: `test-results/checkout-redesign-${width}.png`, fullPage: true })
+  }
+  await page.getByRole('button', { name: 'Payment methods', exact: true }).click()
+  await page.getByRole('radio', { name: 'Netbanking', exact: true }).check()
+  await page.getByRole('button', { name: 'Search all banks' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Choose your bank' })
+  await dialog.getByRole('searchbox', { name: 'Search banks' }).fill('State Bank')
+  await dialog.getByRole('button', { name: 'State Bank of India' }).click()
+  await expect(dialog).not.toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Select bank' })).toHaveValue('SBIN')
 })
