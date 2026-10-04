@@ -89,8 +89,10 @@ const server = http.createServer((req, res) => {
     } } }))
     return
   }
-  if (req.method === 'GET' && /^\/api\/v1\/public\/invoices\/variant-(?:[ab]|telemetry-down|callback-failure|modal-dismiss|terminal-failure|recover-captured|recover-pending|recover-failed|standard-success|redirect-disabled)$/.test(path)) {
-    const invoiceData = ((slug === 'variant-recover-captured' && recoverCaptured) || (slug === 'variant-standard-success' && standardCheckoutCaptured))
+  if (req.method === 'GET' && /^\/api\/v1\/public\/invoices\/variant-(?:[ab]|redesign|telemetry-down|callback-failure|modal-dismiss|terminal-failure|recover-captured|recover-pending|recover-failed|standard-success|redirect-disabled)$/.test(path)) {
+    const invoiceData = slug === 'variant-redesign'
+      ? { ...invoice, subtotal: 180, totalAmount: 180, balanceDue: 180, items: [{ ...invoice.items[0], unitPrice: 180, subtotal: 180 }] }
+      : ((slug === 'variant-recover-captured' && recoverCaptured) || (slug === 'variant-standard-success' && standardCheckoutCaptured))
       ? { ...invoice, id: 'invoice_recover_captured', status: 'PAID', paymentStatus: 'PAID', paidAmount: 1, balanceDue: 0 }
       : invoice
     res.writeHead(200).end(JSON.stringify({ success: true, data: { invoice: invoiceData } }))

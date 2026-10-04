@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-const invoiceUrl = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_URL || ''
+const invoiceUrl = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_URL || (process.env.CI ? 'http://localhost:55104/invoice/variant-redesign' : '')
 const invoiceId = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_INVOICE_ID || ''
 const invoiceNumber = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_INVOICE_NUMBER || process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_ORDER_NUMBER || ''
 const orderNumber = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_ORDER_NUMBER || ''
@@ -155,7 +155,8 @@ const mockInvoicePaymentApi = async (page: import('@playwright/test').Page, veri
 const openLocalTestCheckout = async (page: import('@playwright/test').Page) => {
   if (!invoiceUrl) throw new Error('Set RAZORPAY_CUSTOM_CHECKOUT_QA_URL to an existing Home invoice on localhost:5002.')
   const url = new URL(invoiceUrl)
-  if (url.origin !== 'http://localhost:5002' || !/^\/invoice\/[^/]+$/.test(url.pathname)) {
+  const allowedOrigin = process.env.CI ? 'http://localhost:55104' : 'http://localhost:5002'
+  if (url.origin !== allowedOrigin || !/^\/invoice\/[^/]+$/.test(url.pathname)) {
     throw new Error('Custom Checkout QA must use an existing invoice URL on localhost:5002.')
   }
   await page.goto(invoiceUrl)

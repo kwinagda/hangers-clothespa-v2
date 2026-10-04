@@ -4,7 +4,7 @@ if (!process.env.CI) throw new Error('This isolated mock harness is only for CI;
 
 export default defineConfig({
   testDir: './tests/invoice-checkout',
-  testMatch: 'razorpay-ab-responsive.spec.ts',
+  testMatch: ['razorpay-ab-responsive.spec.ts', 'custom-checkout-local.spec.ts'],
   workers: 1,
   reporter: 'list',
   use: { baseURL: 'http://127.0.0.1:55103', headless: true },

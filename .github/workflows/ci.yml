@@ -125,6 +125,12 @@ jobs:
       - name: Verify invoice checkout state rendering
         run: node --experimental-strip-types --test tests/invoice-checkout/checkout-page.unit.mjs
 
+      - name: Verify checkout navigation and authenticated recommendations
+        run: node --test tests/invoice-checkout/checkout-recommended.unit.mjs tests/invoice-checkout/checkout-result-back.unit.mjs
+
+      - name: Lint checkout implementation
+        run: npm run lint:checkout
+
       - name: Verify Custom Checkout mode and origin gates
         run: node --experimental-strip-types --test tests/invoice-checkout/checkout-mode.unit.mjs
 
@@ -149,4 +155,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Verify combined-checkout responsive UI
-        run: npx playwright test --config=playwright.combined-ci.config.ts
+        run: npx playwright test --config=playwright.combined-ci.config.ts razorpay-ab-responsive.spec.ts
+
+      - name: Verify bounded redesigned method controls
+        run: npx playwright test --config=playwright.combined-ci.config.ts custom-checkout-local.spec.ts --grep 'submits a Razorpay-enabled wallet|disabled numeric and null provider flags|submits an available card EMI plan|documented emi_plans response shape|submits cardless EMI only|redesigned checkout keeps the summary|redesign navigation returns|bank search filters'
