@@ -404,7 +404,7 @@ test('active custom checkout renders only returned methods and remains usable at
     await expect(page.getByRole('radio', { name: 'Wallet' })).toBeVisible()
     await expect(page.getByRole('radio', { name: 'Card EMI' })).toHaveCount(0)
     await page.getByRole('radio', { name: 'Netbanking' }).check()
-    await expect(page.getByLabel('Select bank')).toHaveValue('HDFC')
+    await expect(page.locator('input[name="bank"]')).toHaveValue('HDFC')
     await expect(page.getByRole('button', { name: 'Pay ₹1' })).toBeVisible()
 
     const layout = await page.evaluate(() => ({
@@ -647,7 +647,7 @@ test('rapid duplicate custom-checkout submits invoke the SDK payment method once
   await page.goto(`${origin}/invoice/variant-a/checkout`)
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   await page.getByRole('radio', { name: 'Netbanking' }).check()
-  await page.getByLabel('Select bank').selectOption('HDFC')
+  await expect(page.locator('input[name="bank"]')).toHaveValue('HDFC')
   await expect(page.getByRole('button', { name: 'Pay ₹1' })).toBeEnabled()
   await page.locator('form').evaluate((form) => {
     const event = new Event('submit', { bubbles: true, cancelable: true })
@@ -717,7 +717,7 @@ test('card validation focuses the invalid control and links its error for assist
 
   await page.goto(`${origin}/invoice/variant-a/checkout`)
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
-  await page.getByRole('radio', { name: 'Credit or debit card' }).check()
+  await page.getByRole('radio', { name: 'Credit or debit card' }).click()
   const cardNumber = page.locator('input[name="card-number"]')
   await expect(cardNumber).toBeEnabled()
   await cardNumber.fill('123')
@@ -875,7 +875,7 @@ test('Standard Checkout capture refreshes the invoice and never reopens Pay afte
     await continueFromInvoiceToPayment(page)
 
     await expect(page.getByRole('button', { name: 'Payment received', exact: true })).toBeVisible()
-    await page.getByRole('link', { name: /invoice details/ }).click()
+    await page.getByText('Back to invoice details', { exact: true }).click()
     await expect(page.locator('header').getByText('PAID', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: /Pay/ })).toHaveCount(0)
     await expect(page.locator('body')).toContainText(/Balance Due\s*₹0/)
