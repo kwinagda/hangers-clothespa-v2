@@ -1,7 +1,8 @@
 'use client'
 
 import { ClipboardEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Minus, Plus, ShieldCheck } from 'lucide-react'
+import { Check, Minus, Plus } from 'lucide-react'
+import VideoSlot from '@/components/public/VideoSlot'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
 const PICKUP_INTAKE_API = (process.env.NEXT_PUBLIC_PICKUP_INTAKE_URL || '').replace(/\/$/, '')
@@ -263,12 +264,114 @@ export default function PickupRequestForm({ services, pickupTimeSlots }: { servi
     const token = await confirmOtp()
     if (token) await savePickupRequest(form, token)
   }
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerMonth, setPickerMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
+  const [pickedDate, setPickedDate] = useState('')
+  const [pickedSlot, setPickedSlot] = useState('')
+  const [tried, setTried] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [shake, setShake] = useState(false)
+  const [formSuccess, setFormSuccess] = useState(false)
+  const dateLabel = pickedDate ? new Date(pickedDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
+  const slotLabel = pickedSlot ? (pickupTimeSlots.find((slot) => slot.value === pickedSlot)?.label || pickedSlot) : ''
 
-  return <form ref={formRef} className="booking" onSubmit={submit} onInput={refreshFormReady} onChange={refreshFormReady}>
+  useEffect(() => {
+    if (otpStatus !== 'error' || otp.length !== 6 || otpPhone !== phone) return
+    setShake(true)
+    const timer = window.setTimeout(() => { setShake(false); setOtpDigits(Array(6).fill('')) }, 1100)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otpStatus])
+
+  useEffect(() => {
+    if (status === 'success') setFormSuccess(true)
+  }, [status])
+
+  const fieldRule = (name: string, value: string): string => {
+    if (name === 'name') {
+      const trimmed = value.trim()
+      if (trimmed.length < 2 || trimmed.length > 60 || !/^[A-Za-z][A-Za-z .'-]*$/.test(trimmed)) return 'Enter your full name using letters only'
+    }
+    if (name === 'phone' && !/^[6-9]\d{9}$/.test(value)) return 'Enter a valid 10-digit mobile number'
+    if (name === 'addressLine1' && value.trim().length < 5) return 'Enter flat, building and street (at least 5 characters)'
+    if (name === 'addressLine2' && !LOCALITIES.includes(value)) return 'Select your locality from the list'
+    if (name === 'pincode' && !/^400\d{3}$/.test(value)) return 'Enter a 6-digit Mumbai PIN code starting with 400'
+    if (name === 'preferredDate' && !value) return 'Choose a pickup date'
+    if (name === 'preferredSlot' && !value) return 'Choose a pickup time'
+    return ''
+  }
+
+  const currentValues = (): Record<string, string> => {
+    const form = formRef.current
+    const get = (n: string) => (form?.elements.namedItem(n) as HTMLInputElement | null)?.value ?? ''
+    return { name: get('name'), phone, addressLine1: get('addressLine1'), addressLine2: get('addressLine2'), pincode: get('pincode'), preferredDate: pickedDate, preferredSlot: pickedSlot }
+  }
+
+  const validateAll = () => {
+    const values = currentValues()
+    const next: Record<string, string> = {}
+    Object.entries(values).forEach(([key, value]) => { const msg = fieldRule(key, value); if (msg) next[key] = msg })
+    if (!items.length) next.items = 'Choose at least one item to collect'
+    setErrors(next)
+    return next
+  }
+
+  const blurCheck = (name: string) => {
+    const value = currentValues()[name] ?? ''
+    const msg = fieldRule(name, value)
+    setErrors((current) => { const copy = { ...current }; if (msg) copy[name] = msg; else delete copy[name]; return copy })
+  }
+
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+  const monthDays = (() => {
+    const first = pickerMonth
+    const startPad = first.getDay()
+    const days = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate()
+    const cells: (Date | null)[] = Array(startPad).fill(null)
+    for (let d = 1; d <= days; d += 1) cells.push(new Date(first.getFullYear(), first.getMonth(), d))
+    return cells
+  })()
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+  const toIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const canGoBack = pickerMonth > new Date(todayStart.getFullYear(), todayStart.getMonth(), 1)
+
+  const onFormSubmit = (event: FormEvent<HTMLFormElement>) => {
+    const next = validateAll()
+    setTried(true)
+    if (Object.keys(next).length) {
+      event.preventDefault()
+      const firstKey = Object.keys(next)[0]
+      const target = document.querySelector<HTMLElement>(`[data-field="${firstKey}"]`) || document.getElementById('step-items')
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+    submit(event)
+  }
+
+  const sectionError = (stepKey: string) => Object.keys(errors).some((key) => STEP_FIELDS[stepKey].includes(key))
+  const errorChips = Object.entries(errors).map(([key, msg]) => ({ key, msg, step: STEP_OF[key] || 'details' }))
+
+  if (formSuccess && status === 'success') {
+    return <div className="booking-success" aria-live="polite">
+      <style>{styles}</style>
+      <VideoSlot clip="otpok" caption={false} />
+      <h2>Pickup confirmed</h2>
+      <p>{totalPieces} items · {dateLabel} · {slotLabel}. We will confirm the collection window on WhatsApp.</p>
+      {message && <p className="form-message success">{message}</p>}
+    </div>
+  }
+
+  return <form ref={formRef} className="booking" onSubmit={onFormSubmit} onInput={refreshFormReady} onChange={refreshFormReady} noValidate>
     <style>{styles}</style>
     <div className="booking-main">
-      <section className="booking-step">
+      {tried && errorChips.length > 0 && <div className="error-summary" role="alert">
+        <strong>Complete these to continue</strong>
+        <div className="error-chips">{errorChips.map((chip) => <button type="button" key={chip.key} onClick={() => scrollTo(`step-${chip.step}`)}>{chip.msg}</button>)}</div>
+      </div>}
+      <section id="step-items" className={`booking-step${sectionError('items') ? ' has-error' : ''}`}>
         <StepTitle number="01" title="What are we collecting?" required />
+        {errors.items && <p className="field-error">{errors.items}</p>}
         <div className="service-counts">
           {services.map((service) => <div className="service-count" key={service.key}>
             <div><strong>{service.name}</strong><small>{service.description}</small></div>
@@ -277,24 +380,36 @@ export default function PickupRequestForm({ services, pickupTimeSlots }: { servi
         </div>
       </section>
 
-      <section className="booking-step">
+      <section id="step-schedule" className={`booking-step${sectionError('schedule') ? ' has-error' : ''}`}>
         <StepTitle number="02" title="When should we come?" />
         <div className="booking-fields">
-          <label><FieldLabel>Preferred date</FieldLabel><input name="preferredDate" required type="date" min={new Date().toISOString().slice(0, 10)} /></label>
-          <label><FieldLabel>Preferred time</FieldLabel><select name="preferredSlot" required defaultValue=""><option value="" disabled>Select a pickup time</option>{pickupTimeSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label>
+          <div className="full" data-field="preferredDate">
+            <span className="label-text">Preferred date <b className="required-mark">*</b></span>
+            <button type="button" className="date-trigger" onClick={() => setPickerOpen(true)} aria-haspopup="dialog">{dateLabel || 'Choose a date'}</button>
+            <input type="hidden" name="preferredDate" value={pickedDate} required />
+            {errors.preferredDate && <p className="field-error">{errors.preferredDate}</p>}
+          </div>
+          <div className="full" data-field="preferredSlot">
+            <span className="label-text">Preferred time <b className="required-mark">*</b></span>
+            <div className="slot-toggles" role="group" aria-label="Preferred time">
+              {slotButtons(pickupTimeSlots).map((slot) => <button type="button" key={slot.value} aria-pressed={pickedSlot === slot.value} className={pickedSlot === slot.value ? 'on' : ''} onClick={() => { setPickedSlot(slot.value); setErrors((c) => { const n = { ...c }; delete n.preferredSlot; return n }) }}>{slot.label}</button>)}
+            </div>
+            <input type="hidden" name="preferredSlot" value={pickedSlot} required />
+            {errors.preferredSlot && <p className="field-error">{errors.preferredSlot}</p>}
+          </div>
         </div>
       </section>
 
-      <section className="booking-step">
+      <section id="step-details" className={`booking-step${sectionError('details') ? ' has-error' : ''}`}>
         <StepTitle number="03" title="Your pickup details" />
         <div className="booking-fields">
-          <label><FieldLabel>Full name</FieldLabel><input name="name" required minLength={2} autoComplete="name" /></label>
-          <label><FieldLabel>Mobile number</FieldLabel><div className="phone-field"><span aria-hidden="true">+91</span><input value={phone} onChange={(event) => changePhone(event.target.value)} required type="tel" inputMode="numeric" pattern="[0-9]{10}" minLength={10} maxLength={10} autoComplete="tel-national" aria-label="10-digit Indian mobile number" placeholder="10-digit mobile number" /></div></label>
-          <label className="full"><FieldLabel>Flat, building and street</FieldLabel><textarea name="addressLine1" required minLength={5} autoComplete="address-line1" /></label>
-          <label><FieldLabel>Area or locality</FieldLabel><input name="addressLine2" required minLength={2} autoComplete="address-line2" /></label>
-          <label>Landmark <span className="optional">Optional</span><input name="landmark" /></label>
-          <label><FieldLabel>City</FieldLabel><input name="city" required minLength={2} autoComplete="address-level2" defaultValue="Mumbai" /></label>
-          <label><FieldLabel>PIN code</FieldLabel><input name="pincode" required inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} onInput={(event) => { event.currentTarget.value = event.currentTarget.value.replace(/\D/g, '').slice(0, 6) }} autoComplete="postal-code" /></label>
+          <label data-field="name"><FieldLabel>Full name</FieldLabel><input name="name" required autoComplete="name" aria-invalid={Boolean(errors.name)} onBlur={() => blurCheck('name')} onInput={(event) => { event.currentTarget.value = event.currentTarget.value.replace(/[^A-Za-z .'-]/g, '').slice(0, 60) }} />{errors.name && <span className="field-error">{errors.name}</span>}</label>
+          <label data-field="phone"><FieldLabel>Mobile number</FieldLabel><div className="phone-field"><span aria-hidden="true">+91</span><input value={phone} onChange={(event) => changePhone(event.target.value)} onBlur={() => blurCheck('phone')} required type="tel" inputMode="numeric" pattern="[0-9]{10}" minLength={10} maxLength={10} autoComplete="tel-national" aria-invalid={Boolean(errors.phone)} /></div>{errors.phone && <span className="field-error">{errors.phone}</span>}</label>
+          <label className="full" data-field="addressLine1"><FieldLabel>Flat, building and street</FieldLabel><textarea name="addressLine1" required minLength={5} autoComplete="address-line1" aria-invalid={Boolean(errors.addressLine1)} onBlur={() => blurCheck('addressLine1')} />{errors.addressLine1 && <span className="field-error">{errors.addressLine1}</span>}</label>
+          <label data-field="addressLine2"><FieldLabel>Area or locality</FieldLabel><select name="addressLine2" required defaultValue="" aria-invalid={Boolean(errors.addressLine2)} onBlur={() => blurCheck('addressLine2')}><option value="" disabled>Select your locality</option>{LOCALITIES.map((area) => <option key={area} value={area}>{area}</option>)}</select>{errors.addressLine2 && <span className="field-error">{errors.addressLine2}</span>}</label>
+          <label><span>Landmark <span className="optional">Optional</span></span><input name="landmark" /></label>
+          <label className="fixed-field"><FieldLabel>City</FieldLabel><span className="fixed-tag">Fixed</span><input name="city" readOnly value="Mumbai" /></label>
+          <label data-field="pincode"><FieldLabel>PIN code</FieldLabel><input name="pincode" required inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} autoComplete="postal-code" aria-invalid={Boolean(errors.pincode)} onBlur={() => blurCheck('pincode')} onInput={(event) => { event.currentTarget.value = event.currentTarget.value.replace(/\D/g, '').slice(0, 6) }} />{errors.pincode && <span className="field-error">{errors.pincode}</span>}</label>
           <label className="full">Pickup instructions <span className="optional">Optional</span><textarea name="notes" maxLength={500} /></label>
         </div>
       </section>
@@ -302,12 +417,17 @@ export default function PickupRequestForm({ services, pickupTimeSlots }: { servi
 
     <aside className="booking-summary">
       <h2>Your pickup request</h2>
-      {items.length ? <>{services.filter((service) => (counts[service.key] || 0) > 0).map((service) => <div className="summary-line" key={service.key}><span>{service.name}</span><strong>{counts[service.key]} pcs</strong></div>)}<div className="summary-line total"><span>Total pieces</span><strong>{totalPieces}</strong></div></> : <div className="summary-empty">Add approximate quantities so the team can prepare for collection. The final order is created only after intake.</div>}
+      {items.length ? <>
+        <div className="summary-count">{totalPieces}<span> pieces</span></div>
+        {services.filter((service) => (counts[service.key] || 0) > 0).map((service) => <div className="summary-line" key={service.key}><span>{service.name}</span><strong>{counts[service.key]} pcs</strong></div>)}
+        {dateLabel && <div className="summary-line"><span>Date</span><strong>{dateLabel}</strong></div>}
+        {slotLabel && <div className="summary-line"><span>Time</span><strong>{slotLabel}</strong></div>}
+      </> : <p className="summary-empty">Choose at least one item to see your request here.</p>}
       {status !== 'success' && <div className={`confirmation-flow ${verificationToken ? 'verified' : ''}`}>
-        <div className="confirmation-copy"><ShieldCheck size={18}/><span><strong>Confirm your pickup</strong><small>{verificationToken ? `Mobile number +91 ${phone} is verified.` : otpPhone && otpPhone === phone ? `Enter the 6-digit OTP sent to +91 ${phone} on WhatsApp.` : 'Confirm your pickup by verifying your mobile number. We’ll send a 6-digit OTP on WhatsApp.'}</small></span></div>
+        <div className="confirmation-copy"><span><strong>Confirm your pickup</strong><small>{verificationToken ? `Mobile number +91 ${phone} is verified.` : otpPhone && otpPhone === phone ? `Enter the 6-digit OTP sent to +91 ${phone} on WhatsApp.` : 'We send a 6-digit code on WhatsApp to confirm your number.'}</small></span></div>
         {Boolean(otpPhone) && otpPhone === phone && !verificationToken && <div className="otp-entry">
           <span className="otp-label">6-digit OTP <b className="required-mark">*</b></span>
-          <div className="otp-boxes" onPaste={pasteOtp}>
+          <div className={`otp-boxes${shake ? ' shake' : ''}`} onPaste={pasteOtp}>
             {Array.from({ length: 6 }, (_, index) => <input
               key={index}
               ref={(element) => { otpInputs.current[index] = element }}
@@ -322,20 +442,139 @@ export default function PickupRequestForm({ services, pickupTimeSlots }: { servi
               maxLength={1}
               autoComplete={index === 0 ? 'one-time-code' : 'off'}
               aria-label={`Verification code digit ${index + 1}`}
+              className={otpStatus === 'error' && otp.length === 6 ? 'bad' : ''}
             />)}
           </div>
           <button className="resend-code" type="button" onClick={sendOtp} disabled={cooldown > 0 || otpStatus === 'sending'}>{cooldown > 0 ? `Resend OTP in ${cooldown}s` : otpStatus === 'sending' ? 'Sending OTP...' : 'Resend OTP'}</button>
         </div>}
       </div>}
-      {status !== 'success' && <button className="submit" type="submit" disabled={!formReady || status === 'saving' || otpStatus === 'sending' || otpStatus === 'verifying'}>{status === 'saving' ? 'Confirming pickup...' : otpStatus === 'sending' ? 'Sending OTP...' : otpStatus === 'verifying' ? 'Verifying OTP...' : otpPhone && otpPhone === phone && !verificationToken ? 'Verify & confirm pickup' : verificationToken ? 'Confirm pickup request' : 'Confirm pickup with OTP'}</button>}
-      {message && <p aria-live="polite" className={`form-message ${status === 'error' || otpStatus === 'error' ? 'error' : status === 'success' || otpStatus === 'verified' ? 'success' : 'info'}`}>{status === 'success' && <Check size={14} />} {message}</p>}
+      {status !== 'success' && <button className="submit" type="submit" disabled={status === 'saving' || otpStatus === 'sending' || otpStatus === 'verifying'}>{status === 'saving' ? 'Confirming pickup...' : otpStatus === 'sending' ? 'Sending OTP...' : otpStatus === 'verifying' ? 'Verifying OTP...' : verificationToken && otpPhone === phone ? 'Confirm pickup' : 'Confirm pickup with OTP'}</button>}
+      {message && <p aria-live="polite" className={`form-message ${status === 'error' || otpStatus === 'error' ? 'error' : status === 'success' || otpStatus === 'verified' ? 'success' : 'info'}`}>{message}</p>}
     </aside>
+
+    {pickerOpen && <div className="picker-scrim" onClick={() => setPickerOpen(false)}>
+      <div className="picker" role="dialog" aria-modal="true" aria-label="Choose a pickup date" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === 'Escape') setPickerOpen(false) }}>
+        <div className="picker-head">
+          <button type="button" aria-label="Previous month" disabled={!canGoBack} onClick={() => setPickerMonth(new Date(pickerMonth.getFullYear(), pickerMonth.getMonth() - 1, 1))}>‹</button>
+          <strong>{pickerMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</strong>
+          <button type="button" aria-label="Next month" onClick={() => setPickerMonth(new Date(pickerMonth.getFullYear(), pickerMonth.getMonth() + 1, 1))}>›</button>
+        </div>
+        <div className="picker-grid" role="grid">
+          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => <span key={d} className="dow">{d}</span>)}
+          {monthDays.map((day, i) => {
+            if (!day) return <span key={`pad-${i}`} />
+            const iso = toIso(day)
+            const disabled = day < todayStart
+            const isToday = iso === toIso(todayStart)
+            const selected = iso === pickedDate
+            return <button type="button" key={iso} disabled={disabled} aria-pressed={selected} className={`day${isToday ? ' today' : ''}${selected ? ' selected' : ''}`} onClick={() => { setPickedDate(iso); setErrors((c) => { const n = { ...c }; delete n.preferredDate; return n }); setPickerOpen(false) }}>{day.getDate()}</button>
+          })}
+        </div>
+        <div className="picker-foot">
+          <button type="button" onClick={() => { setPickedDate(''); setPickerOpen(false) }}>Clear</button>
+          <button type="button" onClick={() => { const t = new Date(); setPickerMonth(new Date(t.getFullYear(), t.getMonth(), 1)); setPickedDate(toIso(t)); setPickerOpen(false) }}>Today</button>
+        </div>
+      </div>
+    </div>}
   </form>
 }
 
+const LOCALITIES = ['Mulund', 'Bhandup', 'Thane', 'Nahur', 'Vikhroli', 'Kanjurmarg', 'Powai', 'Ghatkopar']
+const STEP_FIELDS: Record<string, string[]> = { items: ['items'], schedule: ['preferredDate', 'preferredSlot'], details: ['name', 'phone', 'addressLine1', 'addressLine2', 'pincode'] }
+const STEP_OF: Record<string, string> = { items: 'items', preferredDate: 'schedule', preferredSlot: 'schedule', name: 'details', phone: 'details', addressLine1: 'details', addressLine2: 'details', pincode: 'details' }
+
+function slotButtons(slots: { value: string; label: string }[]) {
+  const pick = (word: string) => slots.find((s) => s.label.toLowerCase().includes(word) || s.value.toLowerCase().includes(word))
+  const named = ['Morning', 'Afternoon', 'Evening'].map((w) => pick(w.toLowerCase())).filter(Boolean) as { value: string; label: string }[]
+  return named.length ? named : slots
+}
+
 function StepTitle({ number, title, required = false }: { number: string; title: string; required?: boolean }) { return <div className="booking-step-title"><span>{number}</span><h2>{title}{required && <b className="required-mark"> *</b>}</h2></div> }
-function FieldLabel({ children }: { children: ReactNode }) { return <span>{children} <b className="required-mark">*</b></span> }
+function FieldLabel({ children }: { children: ReactNode }) { return <span className="label-text">{children} <b className="required-mark">*</b></span> }
 
 const styles = `
-.booking{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(280px,.65fr);gap:42px;align-items:start}.booking-main{display:grid;gap:34px}.booking-step{padding-bottom:32px;border-bottom:1px solid #dce8f0}.booking-step:last-child{border:0}.booking-step-title{display:flex;gap:13px;align-items:center;margin-bottom:18px}.booking-step-title span{display:grid;width:30px;height:30px;place-items:center;border-radius:50%;color:#fff;background:#023c62;font-size:12px;font-weight:800}.booking-step-title h2{margin:0;color:#023c62;font-size:21px}.required-mark{color:#dc2626;font-weight:850}.optional{margin-left:5px;color:#8da0b0;font-size:10px;font-weight:550}.service-counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.service-count{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:15px;border:1px solid #dce8f0;border-radius:8px;background:#fff}.service-count strong{display:block;color:#023c62;font-size:14px}.service-count small{display:block;margin-top:3px;color:#7d93a8;font-size:11.5px;line-height:1.4}.counter{display:flex;align-items:center;gap:8px}.counter button{display:grid;width:28px;height:28px;place-items:center;border:1px solid #c6dbe8;border-radius:6px;color:#023c62;background:#fff;cursor:pointer}.counter b{min-width:20px;text-align:center}.booking-fields{display:grid;grid-template-columns:1fr 1fr;gap:13px}.booking label{display:grid;gap:6px;color:#4b6479;font-size:13px;font-weight:650}.booking label.full{grid-column:1/-1}.booking input,.booking select,.booking textarea{width:100%;padding:11px 12px;border:1px solid #c8dce9;border-radius:7px;color:#10243a;background:#fff;font:inherit;box-sizing:border-box}.booking input:invalid:not(:placeholder-shown),.booking textarea:invalid:not(:placeholder-shown),.booking select:invalid{border-color:#e29a9a}.booking textarea{min-height:82px;resize:vertical}.phone-field{display:flex;align-items:stretch;border:1px solid #c8dce9;border-radius:7px;background:#fff;overflow:hidden;transition:border-color .16s ease,box-shadow .16s ease}.phone-field:focus-within{border-color:#0b78bb;box-shadow:0 0 0 3px rgba(11,120,187,.1)}.phone-field>span{display:flex;align-items:center;padding:0 11px;color:#36566f;background:#f1f6f9;border-right:1px solid #d8e5ed;font-size:14px;font-weight:750}.booking .phone-field input{min-width:0;border:0;border-radius:0;box-shadow:none;outline:0}.booking-summary{position:sticky;top:132px;min-width:0;padding:25px;border:1px solid #dce8f0;border-radius:12px;background:#fff;overflow:hidden}.booking-summary h2{margin:0 0 18px;color:#023c62;font-size:20px}.summary-line{display:flex;justify-content:space-between;gap:15px;padding:12px 0;border-bottom:1px solid #edf3f7;color:#4b6479;font-size:13.5px}.summary-line.total{color:#17344c;font-weight:750}.summary-empty{padding:18px 0;color:#7d93a8;font-size:13.5px;line-height:1.6}.confirmation-flow{display:grid;min-width:0;gap:13px;margin-top:18px;padding:14px;border:1px solid #d5e5ee;border-radius:8px;background:#f7fafc;transition:border-color .2s ease,background .2s ease}.confirmation-flow.verified{border-color:#a7e2c0;background:#f0fdf6}.confirmation-copy{display:flex;min-width:0;align-items:flex-start;gap:9px;color:#023c62}.confirmation-copy>svg{flex:0 0 auto;margin-top:1px}.confirmation-copy>span{display:grid;min-width:0;gap:3px}.confirmation-copy strong{font-size:13px}.confirmation-copy small{color:#71879a;font-size:11.5px;font-weight:400;line-height:1.45;overflow-wrap:anywhere}.otp-entry{display:grid;min-width:0;gap:9px}.otp-label{display:flex;align-items:center;gap:3px;color:#4b6479;font-size:11.5px;font-weight:700}.otp-boxes{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;width:100%;min-width:0}.booking .otp-boxes input{display:block;width:100%!important;max-width:100%;min-width:0;height:46px;padding:0;border:1px solid #b9cfdd;border-radius:7px;text-align:center;color:#023c62;background:#fff;font-size:20px;font-weight:800;caret-color:#0b78bb;box-sizing:border-box;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}.booking .otp-boxes input:focus{outline:0;border-color:#0b78bb;box-shadow:0 0 0 3px rgba(11,120,187,.13);transform:translateY(-1px)}.resend-code{justify-self:start;padding:0;border:0;color:#176a98;background:transparent;font:inherit;font-size:11.5px;font-weight:700;cursor:pointer}.resend-code:disabled{color:#8ba0ae;cursor:not-allowed}.submit{width:100%;min-height:46px;margin-top:14px;border:0;border-radius:8px;color:#fff;background:#023c62;font:inherit;font-weight:750;cursor:pointer}.submit:disabled{cursor:not-allowed;opacity:.55}.form-message{display:flex;align-items:flex-start;gap:5px;margin:14px 0 0;padding:11px;border-radius:7px;font-size:13px;line-height:1.5}.form-message svg{flex:0 0 auto;margin-top:2px}.form-message.success{color:#166534;background:#dcfce7}.form-message.error{color:#991b1b;background:#fee2e2}.form-message.info{color:#075985;background:#e0f2fe}@media(max-width:800px){.booking{grid-template-columns:1fr}.booking-summary{position:static;grid-row:2;margin-top:2px}}@media(max-width:560px){.service-counts,.booking-fields{grid-template-columns:1fr}.booking label.full{grid-column:auto}.booking-summary{padding:20px}.otp-boxes{gap:5px}.booking .otp-boxes input{height:46px;font-size:19px}}@media(prefers-reduced-motion:reduce){.confirmation-flow,.booking .otp-boxes input{transition:none}}
+.booking{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(280px,.65fr);gap:42px;align-items:start;font-family:'Space Grotesk',sans-serif;color:#0b2536}
+.booking-main{display:grid;gap:34px}
+.booking-step{padding-bottom:32px;border-bottom:1px solid #d6e2ec;border-radius:0}
+.booking-step:last-child{border:0}
+.booking-step.has-error{outline:2px solid #b3261e;outline-offset:10px;border-radius:12px}
+.booking-step-title{display:flex;gap:13px;align-items:center;margin-bottom:20px}
+.booking-step-title span{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:#E8F0F7;color:#023c62;font-weight:700}
+.booking-step-title h2{margin:0;color:#023c62;font-size:clamp(22px,3vw,30px);letter-spacing:-.03em}
+.required-mark{color:#b3261e}
+.optional{color:#5b7486;font-weight:500;font-size:13px}
+.service-counts{display:grid;gap:12px}
+.service-count{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:16px 20px;border:1px solid #c9d9e6;border-radius:20px;background:#fff}
+.service-count strong{display:block;color:#023c62;font-size:18px}
+.service-count small{color:#5b7486;font-size:13px}
+.counter{display:flex;align-items:center;gap:12px}
+.counter button{width:44px;height:44px;border-radius:50%;border:0;background:#E8F0F7;color:#023c62;display:grid;place-items:center;cursor:pointer}
+.counter b{min-width:24px;text-align:center;font-size:18px}
+.booking-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.booking-fields label,.booking-fields .full{display:grid;gap:8px;color:#3d5668;font-size:14px}
+.booking-fields .full{grid-column:1/-1}
+.booking-fields label.full{grid-column:1/-1}
+.label-text{font-weight:600;color:#023c62}
+.booking-fields input,.booking-fields select,.booking-fields textarea{width:100%;min-height:52px;border:1px solid #c9d9e6;border-radius:14px;background:#F1F6FA;padding:12px 14px;font:inherit;font-size:16px;color:#0b2536;outline:none}
+.booking-fields textarea{min-height:90px;resize:vertical}
+.booking-fields input:focus,.booking-fields select:focus,.booking-fields textarea:focus{border-color:#023c62;box-shadow:0 0 0 4px rgba(2,60,98,.12);background:#fff}
+.booking-fields input[aria-invalid=true],.booking-fields select[aria-invalid=true],.booking-fields textarea[aria-invalid=true]{border-color:#b3261e;background:#fff1f0}
+.field-error{color:#b3261e;font-size:13px;margin:0}
+.phone-field{display:flex;align-items:center;gap:0}
+.phone-field span{min-height:52px;display:grid;place-items:center;padding:0 14px;border:1px solid #c9d9e6;border-right:0;border-radius:14px 0 0 14px;background:#E8F0F7;color:#023c62;font-weight:600}
+.phone-field input{border-radius:0 14px 14px 0}
+.fixed-field{position:relative}
+.fixed-field .fixed-tag{position:absolute;right:12px;top:36px;padding:3px 10px;border-radius:999px;background:#E8F0F7;color:#023c62;font-size:12px;font-weight:600}
+.fixed-field input{background:#f4f7fb;color:#5b7486}
+.date-trigger{min-height:52px;width:100%;text-align:left;border:1px solid #c9d9e6;border-radius:14px;background:#F1F6FA;padding:0 14px;font:inherit;font-size:16px;color:#023c62;font-weight:600;cursor:pointer}
+.slot-toggles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.slot-toggles button{min-height:54px;border:1px solid #c9d9e6;border-radius:14px;background:#fff;color:#023c62;font:inherit;font-weight:600;cursor:pointer}
+.slot-toggles button.on{background:#023c62;border-color:#023c62;color:#fff}
+.error-summary{padding:16px 18px;border-radius:18px;background:#fff1f0;border:1px solid #f1c2bd;color:#b3261e}
+.error-summary strong{display:block;margin-bottom:10px}
+.error-chips{display:flex;flex-wrap:wrap;gap:8px}
+.error-chips button{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid #b3261e;background:#fff;color:#b3261e;font:inherit;font-size:13px;cursor:pointer}
+.booking-summary{position:sticky;top:110px;display:grid;gap:16px;padding:28px;border-radius:28px;background:#023c62;color:#fff;box-shadow:0 30px 80px rgba(2,60,98,.35)}
+.booking-summary h2{margin:0;font-size:22px;letter-spacing:-.03em}
+.summary-count{font-size:clamp(48px,6vw,72px);font-weight:700;letter-spacing:-.04em;line-height:1}
+.summary-count span{font-size:18px;font-weight:500;opacity:.8}
+.summary-line{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-top:1px solid rgba(255,255,255,.14);font-size:15px}
+.summary-empty{margin:0;color:#d3e4f1;font-size:15px}
+.confirmation-copy{display:flex;gap:10px;align-items:flex-start}
+.confirmation-copy small{display:block;color:#d3e4f1;font-size:13px;margin-top:4px}
+.otp-entry{display:grid;gap:10px}
+.otp-label{font-weight:600;font-size:14px}
+.otp-boxes{display:flex;gap:8px;justify-content:space-between}
+.otp-boxes input{width:clamp(40px,12vw,52px);height:clamp(52px,14vw,60px);border-radius:14px;border:1px solid #9cc0dc;background:#fff;color:#023c62;font:inherit;font-size:22px;font-weight:700;text-align:center;outline:none}
+.otp-boxes input.bad{border-color:#b3261e;background:#fff1f0}
+.otp-boxes.shake{animation:hg-shake .48s}
+@keyframes hg-shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+.resend-code{justify-self:start;background:none;border:0;color:#d3e4f1;font:inherit;font-size:14px;text-decoration:underline;cursor:pointer;padding:6px 0}
+.resend-code:disabled{opacity:.55;cursor:default}
+.submit{min-height:56px;border:0;border-radius:999px;background:#fff;color:#023c62;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
+.submit:disabled{opacity:.6;cursor:default}
+.form-message{margin:0;font-size:14px;line-height:1.5;color:#d3e4f1}
+.form-message.error{color:#ffb4ab}
+.form-message.success{color:#fff}
+.picker-scrim{position:fixed;inset:0;z-index:300;background:rgba(2,36,58,.45);backdrop-filter:blur(3px);display:grid;place-items:center;padding:16px;animation:hg-fade .3s}
+.picker{width:min(380px,100%);border-radius:28px;background:#fff;padding:22px;box-shadow:0 30px 80px rgba(2,60,98,.35);animation:hg-rise .4s cubic-bezier(.2,.7,.2,1)}
+@keyframes hg-fade{from{opacity:0}to{opacity:1}}
+@keyframes hg-rise{from{opacity:0;transform:translateY(30px) scale(.96)}to{opacity:1;transform:none}}
+.picker-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;color:#023c62}
+.picker-head button{width:44px;height:44px;border-radius:50%;border:0;background:#E8F0F7;color:#023c62;font-size:20px;cursor:pointer}
+.picker-head button:disabled{opacity:.35;cursor:default}
+.picker-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.picker-grid .dow{color:#5b7486;font-size:12px;font-weight:600;padding:6px 0}
+.picker-grid .day{height:44px;border:1.5px solid transparent;border-radius:50%;background:none;color:#023c62;font:inherit;cursor:pointer}
+.picker-grid .day:disabled{color:#b9c8d4;cursor:default}
+.picker-grid .day.today{border-color:#023c62}
+.picker-grid .day.selected{background:#023c62;color:#fff}
+.picker-foot{display:flex;justify-content:space-between;margin-top:12px}
+.picker-foot button{min-height:44px;padding:0 14px;border:0;background:none;color:#023c62;font:inherit;font-weight:600;cursor:pointer}
+.booking-success{display:grid;gap:18px;max-width:560px;margin:0 auto;text-align:center;color:#0b2536}
+.booking-success h2{margin:0;color:#023c62;font-size:clamp(28px,4vw,40px);letter-spacing:-.03em}
+.booking-success p{margin:0;color:#3d5668;font-size:17px;line-height:1.55}
+@media(max-width:900px){.booking{grid-template-columns:1fr;gap:28px}.booking-summary{position:static}}
+@media(max-width:600px){.booking-fields{grid-template-columns:1fr}.slot-toggles button{min-height:52px;font-size:14px;padding:0 6px}}
+@media(prefers-reduced-motion:reduce){.otp-boxes.shake,.picker-scrim,.picker{animation:none}}
 `
