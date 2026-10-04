@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import RateChartClient from './RateChartClient'
 import MarketingPage from '@/components/public/MarketingPage'
+import { organizationRef } from '@/lib/schema'
 import VideoSlot from '@/components/public/VideoSlot'
 import { getPublicSiteProfile } from '@/lib/publicSite'
 import { SITE_URL } from '@/lib/seo'
@@ -48,7 +49,22 @@ export default async function PublicRateChartPage() {
   const categories = Array.isArray(rateChart?.categories) ? rateChart.categories : []
   if (!profile) return <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#023c62' }}>Website details are being configured.</main>
   if (!rateChart) return <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#023c62', padding: 24 }}><div><h1 style={{ margin: 0, fontSize: 28 }}>Rate chart unavailable</h1><p>Please try again later or contact Hangers Clothes Spa.</p></div></main>
-  return <MarketingPage profile={profile} crumbs={[{ label: 'Home', href: '/' }, { label: 'Rate chart' }]} title="Current catalog prices." intro="Search garment care prices by service category. Rates are subject to item and fabric inspection.">
+  const offersSchema = categories.length ? {
+    '@context': 'https://schema.org',
+    '@type': 'OfferCatalog',
+    name: 'Hangers service rates',
+    itemListElement: categories.flatMap((category: any) =>
+      Array.isArray(category.items) ? category.items.map((item: any) => ({
+        '@type': 'Offer',
+        itemOffered: { '@type': 'Service', name: item.name, category: category.label || category.name },
+        price: Number(item.price || 0),
+        priceCurrency: 'INR',
+        seller: organizationRef(),
+      })) : []
+    ),
+  } : null
+  return <MarketingPage profile={profile} crumbs={[{ label: 'Home', href: '/' }, { label: 'Rate chart' }]} title="Current rates for every active service." intro="Search by garment or browse by service category. Prices below come directly from the active Hangers pricing catalog.">
+    {offersSchema && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(offersSchema).replace(/</g, '\\u003c') }} />}
     <section style={{ maxWidth: 1320, margin: '0 auto', padding: '24px clamp(16px,4vw,28px) 0' }}><VideoSlot clip="rates" /></section>
     <section style={{ maxWidth: 1320, margin: '0 auto', padding: '8px clamp(16px,4vw,28px) 48px' }}><RateChartClient categories={categories} /></section>
   </MarketingPage>
