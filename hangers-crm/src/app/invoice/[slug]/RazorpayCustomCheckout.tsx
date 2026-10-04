@@ -7,6 +7,7 @@ import { LOGO_BLUE_URL } from '@/lib/branding'
 import { Button } from '@/components/ui/Button'
 import styles from './RazorpayCustomCheckout.module.css'
 import SavedCards, { SavedCardSelection } from './checkout/SavedCards'
+import { useCheckoutBack } from './checkout/CheckoutNavigation'
 import { CardEligibility, Configuration, Methods, checkoutRequest, enabled, issuerPlans, networkCode, money, loadCustomSdk, supportedUpiIntentApps, upiIntentUnavailable } from './checkout/razorpay-sdk'
 
 type CheckoutOrder = {
@@ -22,12 +23,12 @@ type CheckoutOrder = {
   redirect?: boolean
 }
 
-function BankLogo({ url }: { url?: string }) {
+function BankLogo({ url, label }: { url?: string; label: string }) {
   const [failedUrl, setFailedUrl] = useState<string>()
   return <span className={styles.bankLogo} aria-hidden="true">
     {url && failedUrl !== url
       ? <img src={url} alt="" onError={() => setFailedUrl(url)} />
-      : <Landmark size={22} />}
+      : <span className={styles.bankInitials}>{label.trim().split(/\s+/).filter((part) => /^[A-Za-z0-9]/.test(part)).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span>}
   </span>
 }
 
@@ -115,6 +116,8 @@ export default function RazorpayCustomCheckout({
   onPrepare,
   onSubmitted,
   recoveryRequired = false,
+  readOnly = false,
+  showList = false,
 }: {
   order: CheckoutOrder
   invoiceNumber?: string
@@ -131,6 +134,8 @@ export default function RazorpayCustomCheckout({
   onPrepare?: () => Promise<CheckoutOrder>
   onSubmitted?: () => void
   recoveryRequired?: boolean
+  readOnly?: boolean
+  showList?: boolean
 }) {
   const [methods, setMethods] = useState<Record<string, any> | null>(null)
   const [methodLoadError, setMethodLoadError] = useState('')
@@ -145,6 +150,7 @@ export default function RazorpayCustomCheckout({
   const [bank, setBank] = useState('')
   const [bankQuery, setBankQuery] = useState('')
   const bankDialog = useRef<HTMLDialogElement>(null)
+  const bankSearchTrigger = useRef<HTMLButtonElement>(null)
   const [wallet, setWallet] = useState('')
   const [provider, setProvider] = useState('')
   const [upiApp, setUpiApp] = useState('')
@@ -206,11 +212,28 @@ export default function RazorpayCustomCheckout({
   })
   const fieldMessage = (name: string) => fieldErrors[name]
     ? <small id={`${fieldErrorId}-${name}`} className={styles.fieldError}>{fieldErrors[name]}</small> : null
+  const leaveMethod = () => {
+    setMethodPage(false)
+    requestAnimationFrame(() => formRef.current?.querySelector<HTMLInputElement>(`input[name="payment-method"][value="${method}"]`)?.focus())
+  }
+  useEffect(() => { if (readOnly || showList) setMethodPage(false) }, [readOnly, showList])
+  useCheckoutBack(3, () => {
+    if (!bankDialog.current?.open) return false
+    bankDialog.current.close()
+    return true
+  })
+  useCheckoutBack(1, () => {
+    if (!methodPage || submitting) return false
+    leaveMethod()
+    return true
+  })
   const invalidFields = (names: string[], message: string) => {
     setFieldErrors(Object.fromEntries(names.map((name) => [name, message])))
     setError(message)
     const control = formRef.current?.elements.namedItem(names[0])
-    if (control instanceof HTMLElement) control.focus()
+    const firstControl = control instanceof RadioNodeList ? Array.from(control).find((element) => element instanceof HTMLElement) : control
+    if (names[0] === 'bank') bankSearchTrigger.current?.focus()
+    else if (firstControl instanceof HTMLElement) firstControl.focus()
   }
   useEffect(() => {
     aliveRef.current = true
@@ -342,7 +365,7 @@ export default function RazorpayCustomCheckout({
       setPreparing(false)
       return
     }
-    if (!method || order.razorpayOrderId || !onPrepare || preparationInFlight.current) return
+    if (!method || order.razorpayOrderId || !onPrepare || recoveryRequired || readOnly || preparationInFlight.current) return
     preparationInFlight.current = true
     setPreparing(true)
     void onPrepare().then(() => {
@@ -355,7 +378,7 @@ export default function RazorpayCustomCheckout({
         preparationInFlight.current = false
         if (aliveRef.current) setPreparing(false)
       })
-  }, [method, order.razorpayOrderId, onPrepare])
+  }, [method, order.razorpayOrderId, onPrepare, recoveryRequired, readOnly])
 
   const availableMethods = useMemo(() => {
     if (!methods) return []
@@ -436,6 +459,8 @@ export default function RazorpayCustomCheckout({
     && Number.isFinite(downtime.staleAfterMs) && Number(downtime.staleAfterMs) > 0
     && now < Date.parse(downtime.fetchedAt || '') + Number(downtime.staleAfterMs)
   const networkAssets = (configuration?.artwork || []).filter((asset) => asset.kind === 'network' && cardNetworks.includes(asset.code))
+  const preferredBankCodes = ['HDFC', 'ICIC', 'SBIN', 'UTIB', 'KKBK', 'YESB']
+  const popularBanks = [...preferredBankCodes.filter((code) => banks.includes(code)), ...banks.filter((code) => !preferredBankCodes.includes(code))].slice(0, 6)
   const selectedPlan = plans.find((plan) => String(plan.duration) === emiDuration)
   const installment = selectedPlan && constructorRef.current?.emi?.calculator
     ? constructorRef.current.emi.calculator(order.amount, selectedPlan.duration, selectedPlan.rate) : null
@@ -546,7 +571,7 @@ export default function RazorpayCustomCheckout({
     setEligibility(null)
     setEligibilityBusy(false)
     eligibilitySequence.current += 1
-    if (!methods || (method !== 'card' && method !== 'emi') || savedCard?.sdk.token) return
+    if (!methods || !methodPage || (method !== 'card' && method !== 'emi') || savedCard?.sdk.token) return
     const form = formRef.current
     const input = form?.querySelector<HTMLInputElement>('[name="card-number"]')
     const sdk = constructorRef.current
@@ -570,7 +595,7 @@ export default function RazorpayCustomCheckout({
       expiryFieldRef.current = null
       eligibilitySequence.current += 1
     }
-  }, [methods, method, savedCard?.sdk.token])
+  }, [methods, method, methodPage, savedCard?.sdk.token])
 
   useEffect(() => {
     if (!emiDurations.includes(emiDuration)) setEmiDuration(emiDurations[0] || '')
@@ -578,7 +603,7 @@ export default function RazorpayCustomCheckout({
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if ((method === 'card' && saveRequested && !savedCard?.sdk.token && savedCard?.sdk.save !== 1) || savedCardsBusyRef.current || recoveryRequired || submittedRef.current || submitting || preparing || !order.razorpayOrderId || !instanceRef.current || !method) return
+    if (readOnly || (method === 'card' && saveRequested && !savedCard?.sdk.token && savedCard?.sdk.save !== 1) || savedCardsBusyRef.current || recoveryRequired || submittedRef.current || submitting || preparing || !order.razorpayOrderId || !instanceRef.current || !method) return
     if (method === 'bank_transfer') return
     if (configuration && configuration.feeBearer !== 'MERCHANT') return setError('Payment configuration needs review. Please contact Hangers before paying.')
     if (!methods || !availableMethods.some((item) => item.id === method)) return
@@ -686,11 +711,24 @@ export default function RazorpayCustomCheckout({
     }
   }
 
+  const upiControls = <div className={styles.upiControls}>
+    {mobile && !intentUnavailable && upiDiscovery === 'ready' ? <div className={styles.brandChoices} role="group" aria-label="UPI apps">
+      {upiApps.map((app) => {
+        const asset = configuration?.artwork.find((entry) => entry.kind === 'upi' && entry.code === app)
+        return <button key={app} type="button" className={styles.brandChoice} aria-pressed={upiApp === app} disabled={submitting} onClick={() => setUpiApp(app)}>
+          {asset && <img src={asset.url} alt="" width={32} height={32} referrerPolicy="no-referrer" />}
+          <span>{asset?.label || (app === 'any' ? 'Other UPI apps' : app)}</span>
+        </button>
+      })}
+    </div> : <span className={styles.hint} role="status">{mobile === null ? 'Checking device support...' : mobile === false ? 'Scan the QR in the Razorpay payment window using your UPI app.' : intentUnavailable ? 'UPI Intent is disabled for this checkout. Choose another payment method.' : upiDiscovery === 'pending' ? 'Checking supported UPI apps...' : upiDiscovery === 'failed' ? 'Supported UPI apps could not be confirmed.' : 'No supported UPI app option was returned. Choose another payment method.'}</span>}
+    {mobile && !intentUnavailable && (upiDiscovery === 'failed' || upiDiscovery === 'empty') && <button type="button" disabled={submitting} onClick={() => setMethodLoadAttempt((value) => value + 1)}>Retry UPI discovery</button>}
+  </div>
+
   const paymentActions = <div className={styles.actions}>
     <p className={styles.payingWith}><span>Paying with</span><b>{availableMethods.find((item) => item.id === method)?.label || 'Choose a payment method'}</b></p>
     {method !== 'bank_transfer' && <Button size="lg" type="submit" form={formId} disabled={(method === 'card' && saveRequested && !savedCard?.sdk.token && savedCard?.sdk.save !== 1) || savedCardsBusy || recoveryRequired || submitting || preparing || !order.razorpayOrderId || !methods || !method || Boolean(configuration && configuration.feeBearer !== 'MERCHANT') || networkUnavailable || ((method === 'card' || method === 'emi') && !savedCard?.sdk.token && !cardFormatterReady) || (method === 'emi' && !emiDurations.length) || (method === 'upi' && upiUnavailable)}>
       <LockKeyhole size={16} aria-hidden="true" />
-      {submitting ? 'Confirming payment...' : preparing ? 'Preparing payment...' : `${method === 'upi' && mobile === false ? 'Show QR for' : 'Pay'} ${money(order.amount, order.currency)}`}
+      {submitting ? 'Confirming payment...' : preparing ? 'Preparing payment...' : `${method === 'upi' && mobile === false ? 'Show QR for' : 'Pay'} ${money(order.amount, order.currency)}${method === 'upi' && mobile === false ? '' : ` with ${availableMethods.find((item) => item.id === method)?.label || ''}`}`}
     </Button>}
     <button type="button" className={styles.cancel} onClick={onCancel} disabled={submitting}>Cancel</button>
     {submitting && <button type="button" className={styles.cancel} onClick={onCheckStatus}>Check payment status</button>}
@@ -726,7 +764,7 @@ export default function RazorpayCustomCheckout({
       {configuration && configuration.feeBearer !== 'MERCHANT' && <p className={styles.notice} role="status">Online payment configuration needs review. Please contact Hangers before paying.</p>}
       {downtimeFresh && downtime?.incidents.some((incident) => incident.match.action === 'warn') && <p className={styles.notice} role="status">Razorpay reports a current disruption for this payment option. You can choose another available method.</p>}
       {!!availableMethods.length && <>
-        <fieldset disabled={submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <fieldset disabled={readOnly || submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className={styles.contactCard}>
           <span className={styles.avatar} aria-hidden="true">{customerName?.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('') || <Smartphone size={20} />}</span>
           <div className={styles.contactInfo}><b>{customerName || 'Customer'}</b><span>{contact || customerPhone}{order.email && <> · {order.email}</>}</span></div>
@@ -743,9 +781,19 @@ export default function RazorpayCustomCheckout({
           </div></details>}
         </div>
         {methodPage && <nav className={styles.methodBreadcrumb} aria-label="Payment method">
-          <button type="button" disabled={submitting} onClick={() => setMethodPage(false)}><ChevronLeft size={16} aria-hidden="true" />Payment methods</button>
+          <button type="button" disabled={submitting} onClick={leaveMethod}><ChevronLeft size={16} aria-hidden="true" />Payment methods</button>
           <span aria-hidden="true">/</span><span aria-current="page">{availableMethods.find((item) => item.id === method)?.label}</span>
         </nav>}
+        {configuration?.savedCards && <div hidden={methodPage && method !== 'card'}>
+          <SavedCards mode={order.key.startsWith('rzp_test_') ? 'TEST' : 'LIVE'} keyId={order.key} disabled={submitting || recoveryRequired}
+            presentation={methodPage ? 'card' : 'list'}
+            onChange={(selection) => { setSavedCard(selection); if (selection?.sdk.token) setMethod('card') }}
+            approvedTestContact={order.testContact} contextKey={`${invoiceId || ''}:${order.razorpayOrderId}`}
+            onSaveRequested={setSaveRequested} onBusy={(value) => { savedCardsBusyRef.current = value; setSavedCardsBusy(value) }} />
+          {!methodPage && method === 'card' && savedCard?.sdk.token && <label>{savedCard.cvvRequired === false ? 'CVV (optional)' : 'CVV'}
+            <input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" required={savedCard.cvvRequired !== false} />{fieldMessage('card-cvv')}
+          </label>}
+        </div>}
         <fieldset className={styles.methods} disabled={submitting} hidden={methodPage}>
           <legend>Choose a payment method</legend>
           {[availableMethods.filter((item) => item.id === 'upi'), availableMethods.filter((item) => item.id !== 'upi')].filter((group) => group.length).map((group) => <div className={styles.methodSection} key={group[0].id === 'upi' ? 'upi' : 'other'}>
@@ -753,7 +801,7 @@ export default function RazorpayCustomCheckout({
           <div className={styles.methodGroup}>
           {group.map((item) => (
             <label key={item.id} className={method === item.id ? `${styles.method} ${styles.methodSelected}` : styles.method}>
-              <input type="radio" aria-label={item.label} name="payment-method" value={item.id} checked={method === item.id} onClick={() => setMethodPage(true)} onChange={() => { setMethod(item.id); setError('') }} />
+              <input type="radio" aria-label={item.label} name="payment-method" value={item.id} checked={method === item.id} onClick={() => setMethodPage(item.id !== 'upi')} onChange={() => { setMethod(item.id); setError('') }} />
               {(() => { const Icon = methodIcon(item.id); return <span className={styles.methodIcon} aria-hidden="true"><Icon size={20} strokeWidth={1.8} /></span> })()}
               <span className={styles.methodCopy}>
                 <span className={styles.methodLabel}>{item.label}</span>
@@ -771,26 +819,25 @@ export default function RazorpayCustomCheckout({
               <ChevronRight className={styles.methodChevron} size={18} aria-hidden="true" />
             </label>
           ))}
-          </div></div>)}
+          </div>{group[0].id === 'upi' && method === 'upi' && upiControls}</div>)}
         </fieldset>
 
-        {method && (methodPage || method === 'upi') && <section className={styles.methodDetails} aria-labelledby={`${fieldErrorId}-selected-method`}>
+        {method && methodPage && <section className={styles.methodDetails} aria-labelledby={`${fieldErrorId}-selected-method`}>
         <h4 className={styles.methodDetailsHeading} id={`${fieldErrorId}-selected-method`}>{availableMethods.find((item) => item.id === method)?.label || 'Selected payment'} details</h4>
         {(method === 'card' || method === 'emi') && <div className={styles.fields}>
-          {method === 'card' && configuration?.savedCards && <SavedCards mode={order.key.startsWith('rzp_test_') ? 'TEST' : 'LIVE'} keyId={order.key} disabled={submitting} onChange={setSavedCard}
-            approvedTestContact={order.testContact} contextKey={`${invoiceId || ''}:${order.razorpayOrderId}`}
-            onSaveRequested={setSaveRequested} onBusy={(value) => { savedCardsBusyRef.current = value; setSavedCardsBusy(value) }} />}
           {method === 'card' && savedCard?.sdk.token ? <>
             <p>{savedCard.network || 'Card'} ending {savedCard.last4}</p>
             <label>{savedCard.cvvRequired === false ? 'CVV (optional)' : 'CVV'}<input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" disabled={submitting} required={savedCard.cvvRequired !== false} />{fieldMessage('card-cvv')}</label>
           </> : <>
-          {method === 'emi' && <label>EMI duration
-            <select name="emi-duration" {...fieldProps('emi-duration')} value={emiDuration} onChange={(event) => setEmiDuration(event.target.value)} required>
-              {emiDurations.map((duration) => <option key={duration} value={duration}>{duration} months</option>)}
-            </select>
+          {method === 'emi' && <fieldset className={styles.optionList}>
+            <legend>EMI duration</legend>
+              {emiDurations.map((duration) => <label key={duration} className={styles.optionRow}>
+                <input type="radio" name="emi-duration" {...fieldProps('emi-duration')} value={duration} checked={emiDuration === String(duration)} onChange={(event) => setEmiDuration(event.target.value)} required />
+                <span>{duration} months</span>
+              </label>)}
             {fieldMessage('emi-duration')}
             {!emiDurations.length && <small>Enter your card and check issuer eligibility to see available plans.</small>}
-          </label>}
+          </fieldset>}
           <label>Card number
             <div className={styles.cardNumber}>
               <input name="card-number" {...fieldProps('card-number')} inputMode="numeric" autoComplete="cc-number" placeholder="Card number" disabled={submitting || !cardFormatterReady} onBlur={() => void checkCardEligibility()} required />
@@ -821,55 +868,55 @@ export default function RazorpayCustomCheckout({
 
         {method === 'netbanking' && <div className={styles.fields}>
           <div className={styles.bankGrid} role="group" aria-label="Available banks">
-            {banks.slice(0, 6).map((code) => <button type="button" key={code} className={styles.brandChoice} aria-pressed={bank === code} onClick={() => setBank(code)}>
-              <BankLogo url={configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === code)?.url} /><span>{typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code}</span>
+            {popularBanks.map((code) => <button type="button" key={code} className={styles.brandChoice} aria-pressed={bank === code} onClick={() => setBank(code)}>
+              <BankLogo label={typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code} url={configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === code)?.url} /><span>{typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code}</span>{bank === code && <Check size={16} aria-label="Selected" />}
             </button>)}
           </div>
-          <button type="button" className={styles.bankSearch} onClick={() => { setBankQuery(''); bankDialog.current?.showModal() }}><Search size={16} aria-hidden="true" />Search all banks</button>
-          <label>Select bank
-          <select name="bank" {...fieldProps('bank')} value={bank} onChange={(event) => setBank(event.target.value)} required>
-            {banks.map((code) => <option key={code} value={code}>{typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code}</option>)}
-          </select>
+          <button ref={bankSearchTrigger} type="button" {...fieldProps('bank')} className={styles.bankSearch} onClick={() => {
+            setBankQuery(''); bankDialog.current?.showModal()
+            bankDialog.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
+          }}><Search size={16} aria-hidden="true" />Search all banks</button>
+          <input type="hidden" name="bank" value={bank} />
+          {bank && !popularBanks.includes(bank) && <div className={styles.selectedBank} role="status">
+            <BankLogo label={typeof methods?.netbanking?.[bank] === 'string' ? methods.netbanking[bank] : bank} url={configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === bank)?.url} />
+            <span>{typeof methods?.netbanking?.[bank] === 'string' ? methods.netbanking[bank] : bank}</span><Check size={18} aria-label="Selected bank" />
+          </div>}
           {fieldMessage('bank')}
-          </label>
-          <dialog ref={bankDialog} className={styles.bankDialog} aria-labelledby={`${fieldErrorId}-bank-title`}>
+          <dialog ref={bankDialog} className={styles.bankDialog} aria-labelledby={`${fieldErrorId}-bank-title`} onClose={() => bankSearchTrigger.current?.focus()} onClick={(event) => {
+            if (event.target !== event.currentTarget) return
+            const bounds = event.currentTarget.getBoundingClientRect()
+            if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) event.currentTarget.close()
+          }}>
             <div className={styles.bankDialogHeader}><h3 id={`${fieldErrorId}-bank-title`}>Choose your bank</h3><button type="button" aria-label="Close bank search" onClick={() => bankDialog.current?.close()}><X size={20} /></button></div>
-            <label>Search banks<input type="search" value={bankQuery} onChange={(event) => setBankQuery(event.target.value)} autoComplete="off" /></label>
+            <label>Search banks<input type="search" value={bankQuery} onChange={(event) => setBankQuery(event.target.value)} autoComplete="off" autoFocus /></label>
             <div className={styles.bankResults}>
               {banks.filter((code) => `${code} ${methods?.netbanking?.[code] || ''}`.toLowerCase().includes(bankQuery.toLowerCase())).map((code) => <button type="button" key={code} onClick={() => { setBank(code); bankDialog.current?.close() }}>
-                <BankLogo url={configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === code)?.url} /><span>{typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code}</span>{bank === code && <Check size={18} aria-label="Selected" />}
+                <BankLogo label={typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code} url={configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === code)?.url} /><span>{typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code}</span>{bank === code && <Check size={18} aria-label="Selected" />}
               </button>)}
               {!banks.some((code) => `${code} ${methods?.netbanking?.[code] || ''}`.toLowerCase().includes(bankQuery.toLowerCase())) && <p role="status">No matching banks</p>}
             </div>
           </dialog>
         </div>}
 
-        {method === 'wallet' && <label className={styles.fields}>Select wallet
-          <select name="wallet" {...fieldProps('wallet')} value={wallet} onChange={(event) => setWallet(event.target.value)} required>
-            {wallets.map((code) => <option key={code} value={code}>{code}</option>)}
-          </select>
+        {method === 'wallet' && <fieldset className={styles.optionList}><legend>Select wallet</legend>
+          {wallets.map((code) => {
+            const asset = configuration?.artwork.find((entry) => entry.kind === 'wallet' && entry.code === code)
+            return <label key={code} className={styles.optionRow}>
+              <input type="radio" name="wallet" {...fieldProps('wallet')} value={code} checked={wallet === code} onChange={(event) => setWallet(event.target.value)} required />
+              <BankLogo label={asset?.label || code} url={asset?.url} /><span>{asset?.label || (typeof methods?.wallet?.[code] === 'string' ? methods.wallet[code] : code)}</span>
+            </label>
+          })}
           {fieldMessage('wallet')}
-        </label>}
+        </fieldset>}
 
-        {(method === 'cardless_emi' || method === 'paylater') && <label className={styles.fields}>Select provider
-          <select name="provider" {...fieldProps('provider')} value={provider} onChange={(event) => setProvider(event.target.value)} required>
-            {optionKeys(methods?.[method]).map((code) => <option key={code} value={code}>{code}</option>)}
-          </select>
+        {(method === 'cardless_emi' || method === 'paylater') && <fieldset className={styles.optionList}><legend>Select provider</legend>
+          {optionKeys(methods?.[method]).map((code) => <label key={code} className={styles.optionRow}>
+            <input type="radio" name="provider" {...fieldProps('provider')} value={code} checked={provider === code} onChange={(event) => setProvider(event.target.value)} required />
+            <BankLogo label={typeof methods?.[method]?.[code] === 'string' ? methods[method][code] : code} /><span>{typeof methods?.[method]?.[code] === 'string' ? methods[method][code] : code}</span>
+          </label>)}
           {fieldMessage('provider')}
-        </label>}
+        </fieldset>}
 
-        {method === 'upi' && <div className={styles.fields}>
-          {mobile && !intentUnavailable && upiDiscovery === 'ready' ? <div className={styles.brandChoices} role="group" aria-label="UPI apps">
-            {upiApps.map((app) => {
-              const asset = configuration?.artwork.find((entry) => entry.kind === 'upi' && entry.code === app)
-              return <button key={app} type="button" className={styles.brandChoice} aria-pressed={upiApp === app} disabled={submitting} onClick={() => setUpiApp(app)}>
-                {asset && <img src={asset.url} alt="" width={32} height={32} referrerPolicy="no-referrer" />}
-                <span>{asset?.label || (app === 'any' ? 'Other UPI apps' : app)}</span>
-              </button>
-            })}
-          </div> : <span className={styles.hint} role="status">{mobile === null ? 'Checking device support...' : mobile === false ? 'Scan the QR in the Razorpay payment window using your UPI app.' : intentUnavailable ? 'UPI Intent is disabled for this checkout. Choose another payment method.' : upiDiscovery === 'pending' ? 'Checking supported UPI apps...' : upiDiscovery === 'failed' ? 'Supported UPI apps could not be confirmed.' : 'No supported UPI app option was returned. Choose another payment method.'}</span>}
-          {mobile && !intentUnavailable && (upiDiscovery === 'failed' || upiDiscovery === 'empty') && <button type="button" disabled={submitting} onClick={() => setMethodLoadAttempt((value) => value + 1)}>Retry UPI discovery</button>}
-        </div>}
 
         {method === 'cred' && <div className={styles.fields}>
           <button type="button" disabled={submitting || credBusy} onClick={() => void checkCred()}>{credBusy ? 'Checking CRED...' : 'Check CRED eligibility'}</button>
@@ -892,7 +939,7 @@ export default function RazorpayCustomCheckout({
         </section>}
 
         </fieldset>
-        {actionTarget ? createPortal(paymentActions, actionTarget) : paymentActions}
+        {!readOnly && (actionTarget ? createPortal(paymentActions, actionTarget) : paymentActions)}
       </>}
     </form>
   )

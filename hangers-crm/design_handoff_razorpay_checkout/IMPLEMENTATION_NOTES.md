@@ -93,7 +93,7 @@ Paths below are relative to `hangers-crm/src/app/invoice/[slug]`.
 - [x] Phase 0: inspect supplied inputs/current contracts; record screen ownership, conflicts, data sources and risks here.
 - [x] All phases authorized; proceed sequentially without further approval pauses. Contact action omitted pending number.
 - [x] Phase 1: shared shell/tokens; 360/390/820/1366/1920 layout test passes, TypeScript passes, checkout-scoped ESLint passes, invoice units 29/29 pass. Support action omitted. No payment/provider write.
-- [ ] Phase 2: returned method navigation and bounded keyboard/back priority.
+- [x] Phase 2: six returned non-UPI method pages/breadcrumbs, keyboard selection and modal-first Back pass. Result Back uses priority 2 and preserves server resume gates (3/3 state-render tests); authenticated-only Recommended presentation passes 3/3. These mocks do not prove provider-token activation/lifecycle.
 - [ ] Phase 3: real method controls, bank modal/artwork and ready-to-pay validation.
 - [ ] Phase 4: server-truthful handoff, status and result presentation.
 - [ ] Phase 5: specified CSS motion/reduced-motion without fake state transitions.
@@ -101,6 +101,24 @@ Paths below are relative to `hangers-crm/src/app/invoice/[slug]`.
 - [ ] Phase 7: shipped/deviation/remaining-item handover and approved contact decision.
 
 After each phase: update this file's actual evidence and report checks before proceeding. All phases are authorized; no inter-phase approval wait is required. Do not reset A01-A24, invent new acceptance tracks, or claim deferred provider/production coverage is complete. New unrelated findings remain recommendations in the separate UI report, not an endless implementation loop.
+
+## Phase 2 Evidence
+
+- The method list keeps provider-generated UPI controls in their own section. SavedCards remains mounted across list/card navigation and displays Recommended only after authenticated card data exists; this does not close the deferred provider-token lifecycle.
+- Bounded browser bundle: SDK-only card submission and five-width summary placement passed 2/2. Navigation passed 1/1 after targeting the header Back link rather than the separate invoice-return link. No payment, ledger or notification was written.
+- TypeScript, checkout ESLint and invoice units 29/29 passed with Node 24. The browser evidence used the existing localhost API and a temporary Home share with mocked SDK endpoints; it is not native mobile handoff or provider acceptance.
+- Existing-profile-only testing remains mandatory. Further interactive checks use Kevin's connected Chrome, not a separate local Playwright browser.
+- Recommended presentation fixtures pass 3/3: guest/stale card data hidden, authenticated empty list hidden, authenticated masked card shown. No session, token or selector leaks into markup.
+- Result Back fixtures pass 3/3: captured returns read-only methods with no Pay/order preparation; pending stays locked; failed is selectable only when the server explicitly permits resume. Read-only display never triggers automatic order preparation.
+
+## Phase 3 Work and Evidence (Not Closed)
+
+- Wallets, Cardless EMI, Pay Later and returned EMI durations now use labelled native radio rows. Submission continues to use the existing provider identifiers; no methods, plans, fees or validation facts are invented.
+- Bank search uses the supplied popular-bank ranking intersected with returned account inventory, then returned alternatives. Full search remains account inventory only. Removed the duplicate legacy dropdown; grid/modal selection populates the same bank submission value.
+- Native modal retains browser focus trapping, bottom-sheet/desktop layout, explicit search focus, Escape, backdrop close and trigger focus return. Missing/inaccessible approved artwork uses initials rather than a generic bank icon.
+- Kevin Chrome check against the existing Home Test invoice: account returned 45 banks and six wallets; bank filtering and Escape focus return passed, wallet radios rendered, and the documented Test card reached enabled Pay via the actual formatter. No payment was submitted. IIN lookup returned the provider message "The requested URL was not found on the server"; this remains the existing provider lookup limitation, not a fabricated success.
+- TypeScript, checkout ESLint, diff whitespace checks and the changed invoice-state unit bundle pass (22/22). Updated the affected browser assertions to radio/grid semantics and added a bounded modal regression; those browser cases are not yet rerun under the approved existing-profile constraint.
+- The connector rejected test-script installation as unsupported; no tab script or API fixture was installed. Actual Test APIs were used for the interactive checks instead. Preserve existing local order/ledger evidence; do not reset payment status for screenshots.
 
 ## Phase 1 Evidence
 

@@ -12,13 +12,14 @@ type Card = { selector: string; network: string | null; last4: string | null; se
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
 const BASE = `${API}/customer/payments/razorpay/saved-cards`
 
-export default function SavedCards({ mode, keyId, disabled, onChange, onBusy, onSaveRequested, contextKey, approvedTestContact }: {
+export default function SavedCards({ mode, keyId, disabled, onChange, onBusy, onSaveRequested, contextKey, approvedTestContact, presentation = 'card' }: {
   mode: 'TEST' | 'LIVE'; keyId: string; disabled: boolean
   onChange: (selection: SavedCardSelection | null) => void
   onBusy?: (busy: boolean) => void
   onSaveRequested?: (requested: boolean) => void
   contextKey?: string
   approvedTestContact?: string
+  presentation?: 'list' | 'card'
 }) {
   const [token, setToken] = useState('')
   const [phone, setPhone] = useState('')
@@ -134,8 +135,9 @@ export default function SavedCards({ mode, keyId, disabled, onChange, onBusy, on
     return () => { mounted = false }
   }, [token, reload])
 
+  if (presentation === 'list' && (!token || !cards.length)) return null
   return <div className={styles.fields}>
-    <h4>Saved cards</h4>
+    <h4>{presentation === 'list' ? 'Recommended' : 'Saved cards'}</h4>
     {!token ? <>
       <label>Your mobile number<input type="tel" autoComplete="tel" value={phone} readOnly={mode === 'TEST'} disabled={busy || disabled} onChange={(event) => { setPhone(event.target.value); setOtpSent(false); if (otpInput.current) otpInput.current.value = '' }} /></label>
       <button type="button" disabled={busy || disabled || !phone || (mode === 'TEST' && (!approvedTestContact || phone !== approvedTestContact))} onClick={() => void act(async (current) => {
@@ -187,7 +189,7 @@ export default function SavedCards({ mode, keyId, disabled, onChange, onBusy, on
         })}>Remove</button>
       </div>)}
       {selected && <button type="button" disabled={disabled || busy} onClick={() => { clearSelection(); resetSaveRequested() }}>Use a new card</button>}
-      {!selected && consent && <>
+      {presentation === 'card' && !selected && consent && <>
         <label><input type="checkbox" checked={granted} disabled={disabled || busy} onChange={(event) => { setSaveRequested(event.target.checked); clearSelection() }} />{consent.text}</label>
         <button type="button" disabled={disabled || busy} onClick={() => void act(async (current) => {
           clearSelection()

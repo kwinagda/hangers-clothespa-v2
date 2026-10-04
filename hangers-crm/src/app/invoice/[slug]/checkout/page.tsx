@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ChevronLeft, LockKeyhole } from 'lucide-react'
+import { LockKeyhole } from 'lucide-react'
+import { CheckoutBack, CheckoutNavigation } from './CheckoutNavigation'
 import { LOGO_BLUE_URL } from '@/lib/branding'
 import InvoicePaymentButton from '../InvoicePaymentButton'
 import CustomCheckoutFlow from './CustomCheckoutFlow'
@@ -116,9 +117,9 @@ export default async function PublicInvoiceCheckoutPage({
   const backHref = `/invoice/${encodeURIComponent(slug)}`
 
   return (
-    <main className={styles.page}>
+    <CheckoutNavigation><main className={styles.page}>
       <header className={styles.topbar}>
-        <Link className={styles.headerBack} href={backHref} aria-label="Back to invoice details"><ChevronLeft size={22} aria-hidden="true" /></Link>
+        <CheckoutBack className={styles.headerBack} href={backHref} />
         <img className={styles.brandLogo} src={LOGO_BLUE_URL} alt="Hangers Clothes Spa" />
         <span className={styles.topbarLabel}><LockKeyhole size={13} aria-hidden="true" />Secure</span>
       </header>
@@ -181,6 +182,6 @@ export default async function PublicInvoiceCheckoutPage({
         </aside>
       </div>
       <footer className={styles.footer}>{title} · Hangers Clothes Spa</footer>
-    </main>
+    </main></CheckoutNavigation>
   )
 }

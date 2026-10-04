@@ -28,6 +28,10 @@ const dependencies = (name) => {
     'data-payment-id': props.initialStatus?.razorpayPaymentId,
   }) }
   if (name === './availability') return { checkoutAvailability }
+  if (name === './CheckoutNavigation') return {
+    CheckoutNavigation: ({ children }) => React.createElement(React.Fragment, null, children),
+    CheckoutBack: ({ href, className }) => React.createElement('a', { href, className, 'aria-label': 'Back to invoice details' }, 'Back'),
+  }
   if (name === './page.module.css') return { __esModule: true, default: {} }
   return require(name)
 }
