@@ -6,7 +6,7 @@ import { ArrowRight, Menu, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { LOGO_BLUE_URL, LOGO_WHITE_URL } from '@/lib/branding'
 import type { PublicSiteProfile } from '@/lib/publicSite'
-import { MARKETING_FONT_HREF, MARKETING_TOKENS_CSS } from './marketingTokens'
+import { MARKETING_TOKENS_CSS } from './marketingTokens'
 import { reduceMotion } from './marketingMotion'
 
 const NAV: [string, string][] = [
@@ -94,7 +94,6 @@ export default function PublicSiteShell({ profile, children }: { profile: Public
     } : undefined,
   }
   return <div className="dw-root">
-    <link rel="stylesheet" href={MARKETING_FONT_HREF} precedence="default" />
     <style>{MARKETING_TOKENS_CSS}</style>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, '\\u003c') }} />
     <style>{`
