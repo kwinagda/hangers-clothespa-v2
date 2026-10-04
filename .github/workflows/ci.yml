@@ -126,7 +126,7 @@ jobs:
         run: node --experimental-strip-types --test tests/invoice-checkout/checkout-page.unit.mjs
 
       - name: Verify checkout navigation and authenticated recommendations
-        run: node --test tests/invoice-checkout/checkout-recommended.unit.mjs tests/invoice-checkout/checkout-result-back.unit.mjs
+        run: node --test tests/invoice-checkout/checkout-recommended.unit.mjs tests/invoice-checkout/checkout-result-back.unit.mjs tests/invoice-checkout/checkout-handoff.unit.mjs
 
       - name: Lint checkout implementation
         run: npm run lint:checkout

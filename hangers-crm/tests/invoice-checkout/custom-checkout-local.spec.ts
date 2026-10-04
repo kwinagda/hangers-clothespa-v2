@@ -517,6 +517,10 @@ test('local custom checkout submits a Razorpay-enabled wallet', async ({ page })
   await page.getByRole('button', { name: /^(Pay|Show QR for) / }).click()
   const payment = await page.evaluate(() => (window as Window & { __customPayment?: any }).__customPayment)
   expect(payment.data).toMatchObject({ method: 'wallet', wallet: 'payzapp' })
+  await expect(page.getByRole('region', { name: 'Payment in progress' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Waiting for payzapp to confirm' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Select wallet' })).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Confirming payment...', exact: true })).toBeDisabled()
 })
 
 test('disabled numeric and null provider flags are excluded from checkout options', async ({ page }) => {

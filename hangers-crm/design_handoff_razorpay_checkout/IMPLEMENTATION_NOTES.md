@@ -94,7 +94,7 @@ Paths below are relative to `hangers-crm/src/app/invoice/[slug]`.
 - [x] All phases authorized; proceed sequentially without further approval pauses. Contact action omitted pending number.
 - [x] Phase 1: shared shell/tokens; 360/390/820/1366/1920 layout test passes, TypeScript passes, checkout-scoped ESLint passes, invoice units 29/29 pass. Support action omitted. No payment/provider write.
 - [x] Phase 2: six returned non-UPI method pages/breadcrumbs, keyboard selection and modal-first Back pass. Result Back uses priority 2 and preserves server resume gates (3/3 state-render tests); authenticated-only Recommended presentation passes 3/3. These mocks do not prove provider-token activation/lifecycle.
-- [ ] Phase 3: real method controls, bank modal/artwork and ready-to-pay validation.
+- [x] Phase 3: real method controls, bank modal/artwork and ready-to-pay validation. Bounded redesign CI passes 8/8 at `9a9a629`; actual Test formatter/card readiness was observed in Kevin Chrome. Existing provider limitations are unchanged.
 - [ ] Phase 4: server-truthful handoff, status and result presentation.
 - [ ] Phase 5: specified CSS motion/reduced-motion without fake state transitions.
 - [ ] Phase 6: approved finite QA scope, existing regressions, two comparison screenshots and exact reported check results.
@@ -111,7 +111,9 @@ After each phase: update this file's actual evidence and report checks before pr
 - Recommended presentation fixtures pass 3/3: guest/stale card data hidden, authenticated empty list hidden, authenticated masked card shown. No session, token or selector leaks into markup.
 - Result Back fixtures pass 3/3: captured returns read-only methods with no Pay/order preparation; pending stays locked; failed is selectable only when the server explicitly permits resume. Read-only display never triggers automatic order preparation.
 
-## Phase 3 Work and Evidence (Not Closed)
+## Phase 3 Work and Evidence
+
+Closure update: exact-SHA CI run `37230448565` passes all eight bounded redesign browser checks, TypeScript, checkout lint, build and both navigation/recommendation unit fixtures. Backend checks also pass. Retained browser regressions are 25/26, not green: the keyboard test expects a card-list radio to remain mounted after ArrowDown opens the new card page. The initial bundle and two repair cycles are exhausted; preserve this failure for the final QA disposition rather than run an endless repair loop. The goal is not complete and no release/deployment is claimed. Earlier runs `37229797982` and `37230093599` are historical failed repairs, not current evidence.
 
 - Wallets, Cardless EMI, Pay Later and returned EMI durations now use labelled native radio rows. Submission continues to use the existing provider identifiers; no methods, plans, fees or validation facts are invented.
 - Bank search uses the supplied popular-bank ranking intersected with returned account inventory, then returned alternatives. Full search remains account inventory only. Removed the duplicate legacy dropdown; grid/modal selection populates the same bank submission value.
@@ -119,6 +121,14 @@ After each phase: update this file's actual evidence and report checks before pr
 - Kevin Chrome check against the existing Home Test invoice: account returned 45 banks and six wallets; bank filtering and Escape focus return passed, wallet radios rendered, and the documented Test card reached enabled Pay via the actual formatter. No payment was submitted. IIN lookup returned the provider message "The requested URL was not found on the server"; this remains the existing provider lookup limitation, not a fabricated success.
 - TypeScript, checkout ESLint, diff whitespace checks and the changed invoice-state unit bundle pass (22/22). Updated the affected browser assertions to radio/grid semantics and added a bounded modal regression; those browser cases are not yet rerun under the approved existing-profile constraint.
 - The connector rejected test-script installation as unsupported; no tab script or API fixture was installed. Actual Test APIs were used for the interactive checks instead. Preserve existing local order/ledger evidence; do not reset payment status for screenshots.
+
+## Phase 4 Work (In Progress)
+
+- Added a real submission-driven handoff view: selected returned bank/wallet/provider/app label, UPI approval instructions, processing steps and waiting presentation. The SDK instance and callback listeners remain mounted; only form controls are hidden while submitted. Return-to-payment, status and documented UPI cancel actions retain their existing SDK/server calls. No mock QR, bank OTP page, deep link or paid transition is introduced.
+- Re-read [UPI Intent Mobile Web](https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods/upi-intent-mweb/): customer-triggered synchronous createPayment, loading until provider response, and payment.cancel are documented. The new UI wraps these existing calls rather than replacing them.
+- Countdown remains unimplemented: there is no verified provider expiry in the current UI contract. The legacy desktop SDK payload's timeout is not interpreted as an authoritative deadline or proof of failure. A decorative waiting ring must not pretend to count down. Inline QR/app reopen beyond the existing SDK focus operation remains unproven, not guessed.
+- Check-payment-status now says "Checking with Razorpay..." while the existing server read is in progress. Existing server observations/received timestamps stay visible in IST.
+- Required final result-screen comparison, not-completed retry presentation, genuine timeout evidence and Phase 4 browser fixtures remain open. This is not Phase 4 completion or a release claim.
 
 ## Phase 1 Evidence
 

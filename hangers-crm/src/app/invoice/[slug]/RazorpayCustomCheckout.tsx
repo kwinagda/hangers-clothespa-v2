@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import styles from './RazorpayCustomCheckout.module.css'
 import SavedCards, { SavedCardSelection } from './checkout/SavedCards'
 import { useCheckoutBack } from './checkout/CheckoutNavigation'
+import CheckoutHandoff, { Handoff } from './checkout/CheckoutHandoff'
 import { CardEligibility, Configuration, Methods, checkoutRequest, enabled, issuerPlans, networkCode, money, loadCustomSdk, supportedUpiIntentApps, upiIntentUnavailable } from './checkout/razorpay-sdk'
 
 type CheckoutOrder = {
@@ -157,6 +158,7 @@ export default function RazorpayCustomCheckout({
   const [emiDuration, setEmiDuration] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [handoff, setHandoff] = useState<Handoff | null>(null)
   const [cardNetwork, setCardNetwork] = useState('')
   const [cardFormatterReady, setCardFormatterReady] = useState(false)
   const [preparing, setPreparing] = useState(false)
@@ -691,9 +693,16 @@ export default function RazorpayCustomCheckout({
 
     submittedRef.current = true
     setSubmitting(true)
+    const selectedLabel = method === 'netbanking' ? (typeof methods?.netbanking?.[bank] === 'string' ? methods.netbanking[bank] : bank)
+      : method === 'wallet' ? configuration?.artwork.find((asset) => asset.kind === 'wallet' && asset.code === wallet)?.label || wallet
+      : method === 'cardless_emi' || method === 'paylater' ? (typeof methods?.[method]?.[provider] === 'string' ? methods[method][provider] : provider)
+      : method === 'upi' && mobile ? configuration?.artwork.find((asset) => asset.kind === 'upi' && asset.code === upiApp)?.label || upiApp
+      : availableMethods.find((item) => item.id === method)?.label || method
+    setHandoff({ method, label: selectedLabel, ...(method === 'upi' ? { upiMode: mobile ? 'intent' : 'qr' } : {}), stage: 'opening' })
     onSubmitted?.()
     try {
       const result = instanceRef.current.createPayment(payment, options)
+      setHandoff((current) => current ? { ...current, stage: 'waiting' } : current)
       // Card data is not retained in component state or sent to CRM APIs.
       form?.querySelectorAll<HTMLInputElement>('[name="card-number"], [name="card-cvv"], [name="card-expiry"]').forEach((input) => { input.value = '' })
       if (result && typeof (result as Promise<void>).catch === 'function') {
@@ -764,7 +773,8 @@ export default function RazorpayCustomCheckout({
       {configuration && configuration.feeBearer !== 'MERCHANT' && <p className={styles.notice} role="status">Online payment configuration needs review. Please contact Hangers before paying.</p>}
       {downtimeFresh && downtime?.incidents.some((incident) => incident.match.action === 'warn') && <p className={styles.notice} role="status">Razorpay reports a current disruption for this payment option. You can choose another available method.</p>}
       {!!availableMethods.length && <>
-        <fieldset disabled={readOnly || submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        {submitting && handoff && !showList && <CheckoutHandoff handoff={handoff} />}
+        <fieldset hidden={submitting && !showList} disabled={readOnly || submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className={styles.contactCard}>
           <span className={styles.avatar} aria-hidden="true">{customerName?.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('') || <Smartphone size={20} />}</span>
           <div className={styles.contactInfo}><b>{customerName || 'Customer'}</b><span>{contact || customerPhone}{order.email && <> · {order.email}</>}</span></div>

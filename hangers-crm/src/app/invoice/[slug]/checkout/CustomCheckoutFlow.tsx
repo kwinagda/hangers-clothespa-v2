@@ -392,7 +392,7 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
         setMessage(value?.error?.description || 'The payment result is unconfirmed. Check its status before retrying.')
         lastCheck.current = 0; void recover()
       }} onCheckStatus={() => void recover()} onCancel={() => { setOrder(null); setSubmitted(true); void recover() }} />}
-    {showPaymentReview && <div className={styles.reviewState} role="status">
+    {showPaymentReview && !(submitted && order && !browseMethods) && <div className={styles.reviewState} role="status" aria-live="polite">
       <Clock3 size={32} aria-hidden="true" /><div><h2 ref={reviewHeading} tabIndex={-1}>Payment status under review</h2><p>We are checking the existing payment. Do not pay again until its status is confirmed.</p></div>
     </div>}
     {message && <p role="status" aria-live="polite">{message}</p>}
@@ -416,6 +416,6 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
     {checkedAt && <details className={styles.details}><summary>Last checked {checkedAt}</summary><p><small>{observationTime(status?.observedAt)
       ? `Server observation: ${observationTime(status?.observedAt)}` : 'Server observation time unavailable.'}
       {' '}Browser received status: {checkedAt}</small></p></details>}
-    {(needsRecovery || loadError) && <div className={styles.actions}><button type="button" disabled={busy || offline} onClick={() => void recover(true)}>{busy ? 'Checking...' : 'Check payment status'}</button></div>}
+    {(needsRecovery || loadError) && <div className={styles.actions}><button type="button" disabled={busy || offline} onClick={() => void recover(true)}>{busy ? 'Checking with Razorpay...' : 'Check payment status'}</button></div>}
   </section>
 }
