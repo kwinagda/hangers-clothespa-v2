@@ -10,7 +10,7 @@ export const MARKETING_TOKENS_CSS = `
   --hg-shadow-header:0 6px 24px rgba(2,60,98,.08);--hg-shadow-bar:0 10px 30px rgba(2,60,98,.35);
   --hg-scrim:rgba(2,36,58,.45);
   --hg-radius-card:24px;--hg-radius-form:28px;--hg-radius-small:20px;--hg-radius-pill:999px;
-  --hg-container:1320px;--hg-container-form:1100px;
+  --hg-container:100%;--hg-container-form:1100px;
   --hg-section-gap:clamp(48px,9vw,110px);
   --hg-ease:cubic-bezier(.2,.7,.2,1);
 }

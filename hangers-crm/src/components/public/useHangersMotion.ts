@@ -77,6 +77,20 @@ export function useHangersMotion(rootRef: RefObject<HTMLElement | null>, enabled
         ;(el as HTMLElement & { _words?: HTMLElement[] })._words = inner
         io.observe(el)
       })
+      $$<HTMLElement>('[data-scrub]').forEach((el) => {
+        if (seen.has(el)) return
+        seen.add(el)
+        if (reduce || !el.textContent?.trim()) return
+        const words = el.textContent.trim().split(/\s+/)
+        el.textContent = ''
+        words.forEach((w) => {
+          const span = document.createElement('span')
+          span.textContent = w + ' '
+          span.style.opacity = '.16'
+          span.style.transition = 'opacity .25s'
+          el.appendChild(span)
+        })
+      })
       $$<HTMLElement>('[data-count]').forEach((el) => { if (!seen.has(el)) { seen.add(el); io.observe(el) } })
       applyMobile()
     }
