@@ -48,6 +48,7 @@ export default function VideoSlot({ clip, caption = true }: { clip: MarketingCli
 
   return <figure style={{ margin: '0 auto', maxWidth: MAX_WIDTH[ratio] || '460px' }}>
     <div style={{ position: 'relative', aspectRatio: ratio, borderRadius: 28, overflow: 'hidden', background: 'linear-gradient(150deg,#E8F0F7,#c4d9ea)', boxShadow: '0 20px 50px rgba(2,60,98,.12)' }}>
+      <img src={sources.webm.replace(/\.webm$/, '.jpg')} alt="" aria-hidden="true" decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
       {!loaded && <div aria-hidden="true" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
         <span style={{ width: 52, height: 52, borderRadius: '50%', background: '#023c62' }} />
       </div>}

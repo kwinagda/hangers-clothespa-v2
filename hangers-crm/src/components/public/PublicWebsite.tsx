@@ -95,6 +95,8 @@ export default function PublicWebsite({ profile, currentRates }: { profile: Publ
       .hg-btn:hover{background:#0a5a8f;border-color:#0a5a8f;color:#fff}
       .hg-media{position:relative;aspect-ratio:4/5;max-height:620px;width:100%;overflow:hidden;border-radius:24px;background:linear-gradient(160deg,#E8F0F7,#cfe0ee);box-shadow:0 20px 50px rgba(2,60,98,.12)}
       .hg-media video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+      .hg-hide-m{}
+      @media(max-width:760px){.hg-hide-m{display:none !important}}
       .hg-chip{position:absolute;right:20px;top:20px;padding:14px 18px;border-radius:16px;background:#023c62;color:#fff}
       .hg-chip strong{display:block;font-size:26px;font-weight:700}
       .hg-chip span{font-size:12px;opacity:.85}
@@ -177,7 +179,7 @@ export default function PublicWebsite({ profile, currentRates }: { profile: Publ
           </div>
           <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, minWidth: 0 }}>
             <HangerIcon />
-            <div className="hg-media" data-hide-m style={{ height: 'min(375px,34vh)', minWidth: 200, maxWidth: '80%', aspectRatio: '4/5' }}>
+            <div className="hg-media hg-hide-m" style={{ height: 'min(375px,34vh)', minWidth: 200, maxWidth: '80%', aspectRatio: '4/5' }}>
               <LoopVideo src="/marketing-video/welcome.mp4" label="Hangers avatar welcome" />
               <div className="hg-chip"><span>Pickup above</span><strong>Rs. {profile.pickupMinimumOrder}</strong><span>is free</span></div>
             </div>
