@@ -20,4 +20,5 @@ export const MARKETING_TOKENS_CSS = `
 .dw-root a:hover{color:var(--hg-navy-hover)}
 .dw-root :focus-visible{outline:3px solid #fff;outline-offset:2px;box-shadow:0 0 0 5px var(--hg-navy);border-radius:4px}
 @media (prefers-reduced-motion: reduce){.dw-root *{transition-duration:.01ms !important;animation-duration:.01ms !important;animation-iteration-count:1 !important}}
+@media (pointer: fine) { body.hgm-cur, body.hgm-cur * { cursor: none !important } }
 `
