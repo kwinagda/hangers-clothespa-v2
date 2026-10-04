@@ -49,7 +49,7 @@ function fixture(status) {
 }
 
 test('Back from a captured result shows read-only methods without exposing order preparation', () => {
-  const view = fixture({ status: 'CAPTURED', capturedAmountPaise: 1000, currency: 'INR' })
+  const view = fixture({ status: 'CAPTURED', capturedAmountPaise: 1000, currency: 'INR', canResumeCheckout: true })
   assert.match(view.render(), /Payment received/)
   assert.equal(view.back(), true)
   const html = view.render()

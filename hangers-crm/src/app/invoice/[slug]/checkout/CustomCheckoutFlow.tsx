@@ -319,7 +319,7 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
     }
   }
 
-  const canPrepare = Boolean(!invoiceUnavailable && paymentAllowed && status && !status.providerLookupUnavailable && (['NONE', 'CREATE_FAILED'].includes(status.status) || status.canResumeCheckout))
+  const canPrepare = Boolean(!invoiceUnavailable && paymentAllowed && status && status.status !== 'CAPTURED' && !status.providerLookupUnavailable && (['NONE', 'CREATE_FAILED'].includes(status.status) || status.canResumeCheckout))
   const showForm = Boolean(capabilities && (canPrepare || order))
   const showPaymentReview = Boolean(!invoiceUnavailable && paymentAllowed && !loading && status?.attemptId && !status.canResumeCheckout
     && (status.providerLookupUnavailable || ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'].includes(status.status)))

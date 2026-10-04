@@ -412,6 +412,7 @@ test('active custom checkout renders only returned methods and remains usable at
       content: document.documentElement.scrollWidth,
     }))
     expect(layout.content, `custom checkout at ${width}px must not overflow`).toBeLessThanOrEqual(layout.viewport + 2)
+    await page.getByRole('button', { name: 'Payment methods', exact: true }).click()
     await page.getByRole('radio', { name: 'UPI' }).focus()
     await page.keyboard.press('ArrowDown')
     await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeFocused()
@@ -646,7 +647,7 @@ test('rapid duplicate custom-checkout submits invoke the SDK payment method once
 
   await page.goto(`${origin}/invoice/variant-a/checkout`)
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
-  await page.getByRole('radio', { name: 'Netbanking' }).check()
+  await page.getByRole('radio', { name: 'Netbanking' }).click()
   await expect(page.locator('input[name="bank"]')).toHaveValue('HDFC')
   await expect(page.getByRole('button', { name: 'Pay ₹1' })).toBeEnabled()
   await page.locator('form').evaluate((form) => {
