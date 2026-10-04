@@ -51,7 +51,7 @@ export default function VideoSlot({ clip, caption = true }: { clip: MarketingCli
       {!loaded && <div aria-hidden="true" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
         <span style={{ width: 52, height: 52, borderRadius: '50%', background: '#023c62' }} />
       </div>}
-      <video ref={videoRef} aria-label={item.title} muted loop playsInline preload="auto" onLoadedData={() => setLoaded(true)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: loaded ? 1 : 0, transition: 'opacity .5s', zIndex: 1 }}>
+      <video ref={videoRef} aria-label={item.title} muted loop playsInline preload="none" poster={`${sources.webm.replace(/\.webm$/, '.jpg')}`} onLoadedData={() => setLoaded(true)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: loaded ? 1 : 0, transition: 'opacity .5s', zIndex: 1 }}>
         <source src={sources.webm} type="video/webm" />
         <source src={sources.mp4} type="video/mp4" />
       </video>

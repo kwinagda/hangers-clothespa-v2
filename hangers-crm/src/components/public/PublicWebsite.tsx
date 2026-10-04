@@ -54,7 +54,7 @@ function LoopVideo({ src, srcMobile, label, className }: { src: string; srcMobil
     return () => io.disconnect()
   }, [chosen])
   const base = chosen.replace(/\.mp4$/, '')
-  return <video ref={ref} className={className} aria-label={label} muted loop playsInline preload="metadata">
+  return <video ref={ref} className={className} aria-label={label} muted loop playsInline preload="none" poster={`${base}.jpg`}>
     <source src={`${base}.webm`} type="video/webm" />
     <source src={`${base}.mp4`} type="video/mp4" />
   </video>
