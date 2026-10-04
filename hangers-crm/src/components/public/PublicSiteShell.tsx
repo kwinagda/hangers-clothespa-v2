@@ -29,7 +29,7 @@ const LEGAL_LINKS: [string, string][] = [
   ['/privacy-policy', 'Privacy Policy'],
   ['/cancellation-refund', 'Cancellation and Refund'],
   ['/shipping-exchange', 'Shipping and Exchange'],
-  ['/contact-us', 'Contact Us'],
+  ['/contact', 'Contact Us'],
 ]
 
 const WHATSAPP = 'https://wa.me/917977417014'
