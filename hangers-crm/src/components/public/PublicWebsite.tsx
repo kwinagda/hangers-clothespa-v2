@@ -77,13 +77,13 @@ export default function PublicWebsite({ profile, currentRates }: { profile: Publ
   return <PublicSiteShell profile={profile}>
     <div ref={motionRoot}>
     <style>{`
-      .hg-home{width:calc(100% - 48px);margin:0 auto}
+      .hg-home{width:min(100% - 48px,1320px);margin:0 auto}
       .hg-section{padding:clamp(48px,7vw,96px) 0}
       .hg-kicker{margin:0 0 14px;color:#3f6a88;font-size:14px;font-weight:600}
       .hg-h2{margin:0;color:#023c62;font-size:clamp(34px,5.4vw,80px);line-height:1;letter-spacing:-.04em;font-weight:700;text-wrap:balance}
       .hg-lede{max-width:620px;margin:20px 0 0;color:var(--text);font-size:18px;line-height:1.5}
       .hg-story{position:relative;height:280vh}
-      .hg-story-inner{position:sticky;top:68px;height:calc(100vh - 68px);overflow:hidden;display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:24px;align-items:center;margin:0 auto;padding:0 clamp(16px,4vw,28px)}
+      .hg-story-inner{position:sticky;top:68px;height:calc(100vh - 68px);overflow:hidden;display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:24px;align-items:center;max-width:1320px;margin:0 auto;padding:0 clamp(16px,4vw,28px)}
       .hg-eyebrow{display:inline-flex;align-items:center;gap:10px;margin:0 0 14px;color:#3f6a88;font-size:14px;font-weight:500}
       .hg-eyebrow:before{content:'';width:28px;height:2px;background:#023c62}
       .hg-story h1{margin:0;color:#023c62;font-size:clamp(32px,min(11vw,10.5vh),110px);line-height:.95;letter-spacing:-.045em;font-weight:700}
@@ -117,7 +117,7 @@ export default function PublicWebsite({ profile, currentRates }: { profile: Publ
       .hg-service h3{margin:0;font-size:28px;font-weight:600;letter-spacing:-.03em}
       .hg-service p{margin:8px 0 0;line-height:1.45;opacity:.85}
       .hg-curtain{background:#023c62;color:#fff;margin-top:110px}
-      .hg-curtain-inner{width:calc(100% - 48px);margin:0 auto;padding:clamp(56px,9vw,110px) 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:56px;align-items:center}
+      .hg-curtain-inner{width:min(100% - 48px,1320px);margin:0 auto;padding:clamp(56px,9vw,110px) 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:56px;align-items:center}
       .hg-curtain h2{margin:0;font-size:clamp(34px,4.6vw,68px);line-height:1;letter-spacing:-.04em;font-weight:700}
       .hg-curtain p{margin:22px 0 28px;max-width:520px;color:#d3e4f1;font-size:18px;line-height:1.5}
       .hg-curtain .hg-btn{background:#fff;color:#023c62;border-color:#fff}
@@ -159,7 +159,7 @@ export default function PublicWebsite({ profile, currentRates }: { profile: Publ
       .hg-fact-light span{display:block;margin-top:6px;color:var(--text)}
       @keyframes hg-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
       @media(max-width:900px){.hg-story-inner{grid-template-columns:1fr;gap:36px;align-content:center}.hg-media{aspect-ratio:3/2;max-height:none}.hg-rate-row{grid-template-columns:1fr auto;padding:16px 18px}.hg-rate-row.head span:nth-child(2),.hg-rate-row span:nth-child(2){display:none}.hg-pin-inner{grid-template-columns:1fr}.hg-rail-wrap{display:none}}
-      @media(max-width:560px){.hg-home{width:calc(100% - 36px)}.hg-section{padding:44px 0}.hg-curtain-inner{width:calc(100% - 36px)}.hg-service{min-height:220px}.hg-chip{right:12px;top:12px}.hg-pin-inner{padding:0 18px}}
+      @media(max-width:560px){.hg-home{width:min(100% - 36px,1320px)}.hg-section{padding:44px 0}.hg-curtain-inner{width:min(100% - 36px,1320px)}.hg-service{min-height:220px}.hg-chip{right:12px;top:12px}.hg-pin-inner{padding:0 18px}}
       @media(prefers-reduced-motion:reduce){.hg-story,.hg-pin{height:auto}.hg-story-inner,.hg-pin-inner{position:relative;top:0;height:auto}.hg-step-panel{position:relative;opacity:1;transform:none;margin-bottom:24px}.hg-pin-stage{height:auto}}
     `}</style>
     <div className="hg-home">
