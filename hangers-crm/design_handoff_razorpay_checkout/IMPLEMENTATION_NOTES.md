@@ -134,6 +134,18 @@ Continuation: failed/not-completed screens now hide payable controls while viewi
 
 CI `37231069849` (`79c73ef`) completed: backend and checkout type/lint/build/unit checks passed; retained browsers 25/26; redesign browsers 7/8. The new wallet handoff assertion passed. Phase 2 keyboard acceptance is now explicitly Partial. This is contradictory evidence, not a new task, token-budget reset or a reason for endless repair. Full CI remains red and Phase 6 cannot be closed from these runs.
 
+Result-screen revision `37ab468` is committed and pushed; focused handoff/result units pass 9/9. Exact-SHA CI `37247497095` is running. Kevin Chrome's existing Home QA share expired and was extended three hours without changing payment records. Methods returned, but Cancel exposed a backend share/attempt lookup mismatch (HTTP 404 for the existing attempt under the newer share). Evidence and later remediation are recorded as UI-L07 in the separate redesign audit. No attempt reset, rebind, replacement provider order or payment submission was used to bypass this limitation.
+
+CI `37247497095` completed: redesigned methods 8/8 and new result screens 3/3 pass; type/lint/build/units and backend pass. Retained regressions are 24/26: the known ArrowDown mismatch plus an ambiguous payment-reference locator now matching both receipt and expanded details. This is not a payment capture failure or a green full suite. Result state rendering/retry guards are fixture-proven; actual local recovery and final visual comparison remain open. Phase 5 presentation work is in progress while these explicitly recorded acceptance limitations remain unresolved; it does not close Phase 4 or the goal.
+
+## Phase 5 Work (In Progress)
+
+- Added first-session CSS logo intro (2800ms), skipped by `?nointro`, unavailable storage or reduced motion. It does not change SDK or payment state and does not intercept clicks.
+- Server-confirmed success uses a 450ms pop, 500ms tick draw, two 1600ms ripples, eight 1100ms confetti dots, and a 900ms CSS digit-reel amount reveal. The reveal ends at the exact provider-formatted amount; it is presentation, not arithmetic/payment state. No requestAnimationFrame, animation library or video.
+- Result/handoff children fade and rise 10px over 400ms with 50ms stagger. Reduced motion suppresses animation and renders the final amount/tick immediately.
+- Motion rendering/type/lint checks and final desktop/mobile inspection are still required; do not mark this phase complete from code alone.
+- Focused handoff/result/motion units pass 11/11; local TypeScript, checkout ESLint and whitespace checks pass. Added the two motion fixtures to CI. Rendered motion remains unverified, so Phase 5 stays open.
+
 ## Phase 1 Evidence
 
 - README background, summary 20px radius, allowed 400/500/600/700 weights, exact 3px #035a8f focus with 2px offset and reduced motion applied. Existing logo and right-hand Pay association retained.

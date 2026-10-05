@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CircleCheck, CircleX, Clock3, LoaderCircle } from 'lucide-react'
+import { CircleX, Clock3, LoaderCircle } from 'lucide-react'
+import { PaidAmount, PaymentReceivedMark } from './PaymentReceivedVisual'
 import RazorpayCustomCheckout from '../RazorpayCustomCheckout'
 import { customCheckoutModeAllowed } from './checkout-mode'
 import { checkoutRequestMessage, isInvoiceNotFound } from './checkout-errors'
@@ -358,10 +359,10 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
 
   if (status?.status === 'CAPTURED' && !browseMethods) return <section className={styles.result} role="status" aria-live="polite">
     <div className={styles.successHeader}>
-    <span className={styles.successMark} aria-hidden="true"><CircleCheck size={46} strokeWidth={2} /></span>
+    <PaymentReceivedMark />
     <h2 ref={receiptHeading} tabIndex={-1}>Payment received</h2>
     {status.capturedAmountPaise != null && Number.isSafeInteger(Number(status.capturedAmountPaise)) && status.currency
-      ? <strong className={styles.paidAmount}>{money(Number(status.capturedAmountPaise), status.currency)}</strong> : <p>Your payment has been confirmed by Hangers.</p>}
+      ? <PaidAmount label={money(Number(status.capturedAmountPaise), status.currency)} /> : <p>Your payment has been confirmed by Hangers.</p>}
     {status.capturedAt && observationTime(status.capturedAt) && <p>Captured {observationTime(status.capturedAt)}</p>}
     </div>
     <dl className={styles.receiptRows}>

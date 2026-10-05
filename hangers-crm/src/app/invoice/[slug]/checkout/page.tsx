@@ -5,6 +5,7 @@ import { CheckoutBack, CheckoutNavigation } from './CheckoutNavigation'
 import { LOGO_BLUE_URL } from '@/lib/branding'
 import InvoicePaymentButton from '../InvoicePaymentButton'
 import CustomCheckoutFlow from './CustomCheckoutFlow'
+import CheckoutIntro from './CheckoutIntro'
 import styles from './page.module.css'
 import { checkoutAvailability } from './availability'
 
@@ -51,7 +52,7 @@ export default async function PublicInvoiceCheckoutPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>
-  searchParams: Promise<{ scope?: string; invoiceId?: string }>
+  searchParams: Promise<{ scope?: string; invoiceId?: string; nointro?: string }>
 }) {
   const [{ slug }, query] = await Promise.all([params, searchParams])
   const retryParams = new URLSearchParams()
@@ -118,6 +119,7 @@ export default async function PublicInvoiceCheckoutPage({
 
   return (
     <CheckoutNavigation><main className={styles.page}>
+      <CheckoutIntro skip={query.nointro !== undefined} />
       <header className={styles.topbar}>
         <CheckoutBack className={styles.headerBack} href={backHref} />
         <img className={styles.brandLogo} src={LOGO_BLUE_URL} alt="Hangers Clothes Spa" />

@@ -331,8 +331,33 @@ label.fields {
 .successHeader { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .successHeader h2 { margin: 0; font-size: 26px; font-weight: 600; }
 .successHeader p { margin: 0; color: #6b7fa3; font-size: 13px; }
-.successMark { display: grid; width: 80px; height: 80px; place-items: center; border-radius: 50%; background: #0d7a4e; color: #fff; animation: successPop 450ms ease-out both; }
+.successVisual { position: relative; display: grid; width: 80px; height: 80px; place-items: center; }
+.successMark { position: relative; display: grid; width: 80px; height: 80px; place-items: center; border-radius: 50%; background: #0d7a4e; color: #fff; animation: successPop 450ms cubic-bezier(.2, 1.6, .4, 1) both; }
+.successMark svg path { stroke-dasharray: 24; animation: successTick 500ms ease-out 250ms both; }
+.successRipple { position: absolute; inset: 0; border-radius: 50%; background: #e6f7f0; animation: successRipple 1600ms ease-out 2; }
+.confetti { position: absolute; left: 36px; top: 36px; width: 8px; height: 8px; border-radius: 50%; background: #b8d0e8; animation: successConfetti 1100ms ease-out 250ms both; }
+.confetti:nth-of-type(2) { --x: -70px; --y: -60px; background: #023c62; }
+.confetti:nth-of-type(3) { --x: 70px; --y: -64px; animation-delay: 290ms; }
+.confetti:nth-of-type(4) { --x: -84px; --y: 8px; animation-delay: 330ms; }
+.confetti:nth-of-type(5) { --x: 86px; --y: 4px; background: #023c62; animation-delay: 370ms; }
+.confetti:nth-of-type(6) { --x: -46px; --y: -90px; background: #0d7a4e; animation-delay: 410ms; }
+.confetti:nth-of-type(7) { --x: 50px; --y: -88px; background: #023c62; animation-delay: 450ms; }
+.confetti:nth-of-type(8) { --x: -30px; --y: 70px; animation-delay: 490ms; }
+.confetti:nth-of-type(9) { --x: 34px; --y: 74px; background: #0d7a4e; animation-delay: 530ms; }
 .paidAmount { color: #023c62; font-size: 40px; font-weight: 700; line-height: 1.1; }
+.amountReel { display: inline-flex; }
+.amountAccessible { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.amountDigit { height: 1.1em; overflow: hidden; }
+.amountDigit > span { display: flex; flex-direction: column; transform: translateY(calc(var(--amount-digit) * -1.1em)); animation: amountCount 900ms ease-out both; }
+.amountDigit > span > span { height: 1.1em; line-height: 1.1em; }
+@keyframes amountCount { from { transform: translateY(0); } to { transform: translateY(calc(var(--amount-digit) * -1.1em)); } }
+@keyframes successTick { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+@keyframes successRipple { from { transform: scale(.9); opacity: .8; } to { transform: scale(1.7); opacity: 0; } }
+@keyframes successConfetti { from { transform: translate(0, 0) scale(.4); opacity: 1; } to { transform: translate(var(--x), var(--y)) scale(1); opacity: 0; } }
+.result > *, .handoff > *, .terminalResult > * { animation: stateEnter 400ms ease-out both; }
+.result > :nth-child(2), .handoff > :nth-child(2), .terminalResult > :nth-child(2) { animation-delay: 50ms; }
+.result > :nth-child(3), .handoff > :nth-child(3), .terminalResult > :nth-child(3) { animation-delay: 100ms; }
+.result > :nth-child(4), .handoff > :nth-child(4), .terminalResult > :nth-child(4) { animation-delay: 150ms; }
 .result > a { display: flex; align-items: center; justify-content: center; min-height: 48px; margin-top: 20px; padding: 12px 16px; border-radius: 12px; background: #023c62; color: #fff; text-decoration: none; font-size: 14px; font-weight: 600; }
 .receiptRows { margin: 24px 0 0; padding: 4px 16px; border: 1px solid #dce8f0; border-radius: 16px; }
 .receiptRows > div { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 12px 0; font-size: 14px; }
@@ -647,7 +672,10 @@ label.fields {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .successMark, .reviewState, .failureState, .loading svg { animation: none; }
+  .successRipple, .confetti { display: none; }
+  .successMark svg path, .amountDigit > span, .result > *, .handoff > *, .terminalResult > * { animation: none; }
+  .successMark svg path { stroke-dashoffset: 0; }
+  .successMark, .reviewState, .failureState, .terminalResult, .loading svg { animation: none; }
   .method {
     transition: none;
   }
