@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { LOGO_BLUE_URL } from '@/lib/branding'
+import CheckoutMotion from './CheckoutMotion'
 import styles from './page.module.css'
 
 export default function CheckoutIntro({ skip }: { skip: boolean }) {
@@ -16,8 +17,17 @@ export default function CheckoutIntro({ skip }: { skip: boolean }) {
       return
     }
     setVisible(true)
-    const timer = window.setTimeout(() => setVisible(false), 2800)
+    const timer = window.setTimeout(() => setVisible(false), 3000)
     return () => window.clearTimeout(timer)
   }, [skip])
-  return visible ? <div className={styles.intro} aria-hidden="true"><img src={LOGO_BLUE_URL} alt="" /></div> : null
+  return visible ? <div className={styles.intro}>
+    <CheckoutMotion
+      src="/checkout-motion/logo-reveal.mp4"
+      poster={LOGO_BLUE_URL}
+      className={styles.introMotion}
+      videoClassName={styles.introVideo}
+      loop={false}
+      fallback={<img className={styles.introFallbackLogo} src={LOGO_BLUE_URL} alt="" />}
+    />
+  </div> : null
 }

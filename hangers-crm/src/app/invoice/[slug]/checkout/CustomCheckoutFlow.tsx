@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CircleX, Clock3, LoaderCircle } from 'lucide-react'
 import { PaidAmount, PaymentReceivedMark } from './PaymentReceivedVisual'
+import CheckoutMotion from './CheckoutMotion'
 import RazorpayCustomCheckout from '../RazorpayCustomCheckout'
 import { customCheckoutModeAllowed } from './checkout-mode'
 import { checkoutRequestMessage, isInvoiceNotFound } from './checkout-errors'
@@ -14,7 +15,7 @@ import { SITE_URL } from '@/lib/seo'
 import { Button } from '@/components/ui/Button'
 import styles from '../RazorpayCustomCheckout.module.css'
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002/api/v1'
 type Status = {
   status: string; attemptId?: string | null; razorpayOrderId?: string | null; razorpayPaymentId?: string | null
   canResumeCheckout?: boolean; providerLookupUnavailable?: boolean; observedAt?: string | null
@@ -400,7 +401,15 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
     </div>}
     {terminalResult && !browseMethods && <div className={styles.terminalResult} role="status" aria-live="polite">
       <div className={styles.failureState}>
-        <CircleX size={32} aria-hidden="true" /><div><h2>{notCompleted ? 'Payment not completed' : 'Payment failed'}</h2>
+        {status?.status === 'FAILED'
+          ? <CheckoutMotion
+              src="/checkout-motion/payment-failed.mp4"
+              className={styles.failureMotion}
+              videoClassName={styles.stateMotionVideo}
+              fallback={<CircleX size={32} />}
+            />
+          : <CircleX size={32} aria-hidden="true" />}
+        <div><h2>{notCompleted ? 'Payment not completed' : 'Payment failed'}</h2>
         <p>{status?.providerError?.description || (notCompleted ? 'The checkout did not complete. Check the existing payment before trying again.' : 'Razorpay reports the previous attempt failed.')}</p></div>
       </div>
       {canPrepare ? <div className={styles.resultActions}>

@@ -1,7 +1,9 @@
-// Public Razorpay-hosted assets observed in Standard Checkout on 1 October 2026.
-// User approved their use after support ticket #21192410. These are artwork,
-// not a payment-method availability list; the SDK/API controls availability.
-const source = 'https://checkout.razorpay.com/v1/checkout.js';
+// Exact upstream URL is retained as provenance; SDK/API controls availability.
+const providerArtwork = [
+  ['cardless_emi', 'cshe', 'CASHe', '/payment-provider-logos/cashe.png', 'https://www.cashe.co.in/wp-content/themes/cashe/images/logo.png'],
+  ['cardless_emi', 'tvsc', 'TVS Credit', '/payment-provider-logos/tvs-credit.svg', 'https://www.tvscredit.com/wp-content/uploads/2025/03/tvs_credit_logo.svg'],
+  ['cardless_emi', 'liquiloans', 'LiquiLoans', '/payment-provider-logos/liquiloans.png', 'https://www.liquiloans.com/investment-assets/img/logo_new.png'],
+];
 const assets = [
   ['bank', 'HDFC', 'HDFC Bank', 'https://cdn.razorpay.com/bank/HDFC.gif'],
   ['bank', 'ICIC', 'ICICI Bank', 'https://cdn.razorpay.com/bank/ICIC.gif'],
@@ -44,10 +46,26 @@ const assets = [
   ['bank', 'AIRP', 'Airtel Payments Bank', 'https://cdn.razorpay.com/bank/AIRP.gif'],
   ['bank', 'IPOS', 'India Post Payments Bank', 'https://cdn.razorpay.com/bank/IPOS.gif'],
   ['bank', 'PYTM', 'Paytm Payments Bank', 'https://cdn.razorpay.com/bank/PYTM.gif'],
+  ['bank', 'BARB_R', 'Bank of Baroda - Retail Banking', 'https://cdn.razorpay.com/bank/BARB_R.gif'],
+  ['bank', 'VIJB', 'Bank of Baroda - Retail Banking (Erstwhile Vijaya Bank)', 'https://cdn.razorpay.com/bank/VIJB.gif'],
+  ['bank', 'BKID_C', 'Bank of India - Corporate Banking', 'https://cdn.razorpay.com/bank/BKID_C.gif'],
+  ['bank', 'DEUT', 'Deutsche Bank', 'https://cdn.razorpay.com/bank/DEUT.gif'],
+  ['bank', 'FSFB', 'Fincare Small Finance Bank', 'https://cdn.razorpay.com/bank/FSFB.gif'],
+  ['bank', 'IBKL', 'IDBI', 'https://cdn.razorpay.com/bank/IBKL.gif'],
+  ['bank', 'ALLA', 'Indian Bank (Erstwhile Allahabad Bank)', 'https://cdn.razorpay.com/bank/ALLA.gif'],
+  ['bank', 'JSFB', 'Jana Small Finance Bank', 'https://cdn.razorpay.com/bank/JSFB.gif'],
+  ['bank', 'LAVB_R', 'Lakshmi Vilas Bank - Retail Banking', 'https://cdn.razorpay.com/bank/LAVB_R.gif'],
+  ['bank', 'NSPB', 'NSDL Payments Bank', 'https://cdn.razorpay.com/bank/NSPB.gif'],
+  ['bank', 'ORBC', 'PNB (Erstwhile-Oriental Bank of Commerce)', 'https://cdn.razorpay.com/bank/ORBC.gif'],
+  ['bank', 'UTBI', 'PNB (Erstwhile-United Bank of India)', 'https://cdn.razorpay.com/bank/UTBI.gif'],
+  ['bank', 'PUNB_R', 'Punjab National Bank - Retail Banking', 'https://cdn.razorpay.com/bank/PUNB_R.gif'],
+  ['bank', 'SCBL', 'Standard Chartered Bank', 'https://cdn.razorpay.com/bank/SCBL.gif'],
+  ['bank', 'CORP', 'Union Bank of India (Erstwhile Corporation Bank)', 'https://cdn.razorpay.com/bank/CORP.gif'],
   ['network', 'VISA', 'Visa', 'https://cdn.razorpay.com/card-networks/visa.svg'],
   ['network', 'MC', 'Mastercard', 'https://cdn.razorpay.com/card-networks/mastercard.svg'],
   ['network', 'RUPAY', 'RuPay', 'https://cdn.razorpay.com/card-networks/rupay.svg'],
   ['network', 'AMEX', 'American Express', 'https://cdn.razorpay.com/card-networks/amex.svg'],
+  ['network', 'MAES', 'Maestro', 'https://cdn.razorpay.com/card-networks/maestro.svg'],
   ['upi', 'gpay', 'Google Pay', 'https://cdn.razorpay.com/app/googlepay.svg'],
   ['upi', 'phonepe', 'PhonePe', 'https://cdn.razorpay.com/app/phonepe.svg'],
   ['upi', 'paytm', 'Paytm', 'https://cdn.razorpay.com/app/paytm.svg'],
@@ -58,6 +76,27 @@ const assets = [
   ['wallet', 'phonepe', 'PhonePe', 'https://cdn.razorpay.com/wallet-sq/phonepe.png'],
   ['wallet', 'mobikwik', 'MobiKwik', 'https://cdn.razorpay.com/wallet-sq/mobikwik.png'],
   ['wallet', 'airtelmoney', 'Airtel Money', 'https://cdn.razorpay.com/wallet-sq/airtelmoney.png'],
-].map(([kind, code, label, url]) => Object.freeze({ kind, code, label, url, source }));
+  ['wallet', 'freecharge', 'Freecharge', 'https://cdn.razorpay.com/wallet-sq/freecharge.png'],
+  ['wallet', 'paytm', 'Paytm', 'https://cdn.razorpay.com/wallet-sq/paytm.png'],
+  ['wallet', 'payzapp', 'PayZapp', 'https://cdn.razorpay.com/wallet-sq/payzapp.png'],
+  ['wallet', 'olamoney', 'Ola Money', 'https://cdn.razorpay.com/wallet-sq/olamoney.png'],
+  ['cardless_emi', 'bajaj', 'Bajaj Finserv', 'https://cdn.razorpay.com/cardless_emi/bajaj.svg'],
+  ['cardless_emi', 'hdfc', 'HDFC Bank', 'https://cdn.razorpay.com/cardless_emi/hdfc.svg'],
+  ['cardless_emi', 'kkbk', 'Kotak Mahindra Bank', 'https://cdn.razorpay.com/cardless_emi/kkbk.svg'],
+  ['cardless_emi', 'earlysalary', 'EarlySalary', 'https://cdn.razorpay.com/cardless_emi/earlysalary.svg'],
+  ['cardless_emi', 'zestmoney', 'ZestMoney', 'https://cdn.razorpay.com/cardless_emi/zestmoney.svg'],
+  ['cardless_emi', 'idfb', 'IDFC FIRST Bank', 'https://cdn.razorpay.com/cardless_emi/idfb.svg'],
+  ['cardless_emi', 'icic', 'ICICI Bank', 'https://cdn.razorpay.com/cardless_emi/icic.svg'],
+  ['cardless_emi', 'walnut369', 'Walnut 369', 'https://cdn.razorpay.com/cardless_emi/walnut369.svg'],
+  ['cardless_emi', 'sezzle', 'Sezzle', 'https://cdn.razorpay.com/cardless_emi/sezzle.svg'],
+  ['cardless_emi', 'instant_emi', 'Instant EMI', 'https://cdn.razorpay.com/cardless_emi/instant_emi.svg'],
+  ['cardless_emi', 'shopse', 'ShopSe', 'https://cdn.razorpay.com/cardless_emi/shopse.png'],
+  ['cardless_emi', 'snapmint', 'Snapmint', 'https://cdn.razorpay.com/cardless_emi/snapmint.svg'],
+  ...providerArtwork,
+  ['paylater', 'amazonpay', 'Amazon Pay', 'https://cdn.razorpay.com/wallet-sq/amazonpay.png'],
+  ['paylater', 'getsimpl', 'Simpl', 'https://cdn.razorpay.com/paylater/getsimpl.svg'],
+  ['paylater', 'lazypay', 'LazyPay', 'https://cdn.razorpay.com/paylater/lazypay.svg'],
+  ['paylater', 'icic', 'ICICI Bank PayLater', 'https://cdn.razorpay.com/paylater/icic.svg'],
+].map(([kind, code, label, url, assetSource]) => Object.freeze({ kind, code, label, url, source: assetSource || url }));
 
 module.exports = Object.freeze(assets);

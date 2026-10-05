@@ -24,19 +24,36 @@ type CheckoutOrder = {
   redirect?: boolean
 }
 
-function BankLogo({ url, label }: { url?: string; label: string }) {
-  const [failedUrl, setFailedUrl] = useState<string>()
-  return <span className={styles.bankLogo} aria-hidden="true">
-    {url && failedUrl !== url
-      ? <img src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailedUrl(url)} />
-      : <span className={styles.bankInitials}>{label.trim().split(/\s+/).filter((part) => /^[A-Za-z0-9]/.test(part)).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span>}
+type BrandArtwork = { label: string; url: string }
+
+const isRazorpayCdnUrl = (value?: string) => {
+  if (!value) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && url.hostname === 'cdn.razorpay.com'
+  } catch { return false }
+}
+
+const isApprovedArtworkUrl = (value?: string) => Boolean(value && (
+  isRazorpayCdnUrl(value)
+  || /^\/payment-provider-logos\/(?:cashe\.png|tvs-credit\.svg|liquiloans\.png)$/.test(value)
+))
+
+function BankLogo({ url, accessibleLabel, width, height, className }: {
+  url?: string
+  accessibleLabel?: string
+  width?: number
+  height?: number
+  className?: string
+}) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  if (!isApprovedArtworkUrl(url) || failedUrl === url) return null
+  return <span className={[styles.bankLogo, className].filter(Boolean).join(' ')}
+    aria-hidden={accessibleLabel ? undefined : true}
+    style={width || height ? { width, height, flexBasis: width } : undefined}>
+    <img src={url} alt={accessibleLabel || ''} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailedUrl(url || null)} />
   </span>
 }
-
-function razorpayBankLogoUrl(code: string) {
-  return /^[A-Za-z0-9_-]+$/.test(code) ? `https://cdn.razorpay.com/bank/${encodeURIComponent(code)}.gif` : undefined
-}
-
 type PaymentError = {
   error?: {
     code?: string
@@ -51,6 +68,10 @@ type PaymentError = {
 const paymentErrorMessage = (response: PaymentError) => typeof response?.error?.description === 'string' && response.error.description
   ? response.error.description
   : 'Payment result unavailable. Check its status before retrying.'
+
+const cardEligibilityErrorMessage = (error: any) => error?.code === 'CUSTOM_IIN_UNAVAILABLE'
+  ? "Razorpay couldn't verify this card's eligibility. No payment has been started. If its network is listed as enabled, you can continue; otherwise retry the check or choose another method."
+  : error?.message || 'Card eligibility could not be verified.'
 
 type CustomInstance = {
   methods?: Record<string, any>
@@ -102,7 +123,7 @@ const enabledCardNetworks = (value: any): string[] => {
 // Exact named networks from Input Restriction and the Methods ready response.
 // Do not map `discover` to Diners; the formatter's AmEx spellings disagree.
 const FORMATTER_NETWORK_CODES: Record<string, string> = {
-  visa: 'VISA', mastercard: 'MC', maestro: 'MAES', maestro16: 'MAES', rupay: 'RUPAY',
+  visa: 'VISA', mastercard: 'MC', maestro: 'MAES', maestro16: 'MAES', rupay: 'RUPAY', amex: 'AMEX',
   'American Express': 'AMEX',
 }
 export default function RazorpayCustomCheckout({
@@ -470,15 +491,48 @@ export default function RazorpayCustomCheckout({
   const downtimeFresh = downtime?.status === 'fresh' && Number.isFinite(Date.parse(downtime.fetchedAt || ''))
     && Number.isFinite(downtime.staleAfterMs) && Number(downtime.staleAfterMs) > 0
     && now < Date.parse(downtime.fetchedAt || '') + Number(downtime.staleAfterMs)
-  const networkAssets = (configuration?.artwork || []).filter((asset) => asset.kind === 'network' && cardNetworks.includes(asset.code))
-  const preferredBankCodes = ['HDFC', 'ICIC', 'SBIN', 'UTIB', 'KKBK', 'YESB']
-  const popularBanks = [...preferredBankCodes.filter((code) => banks.includes(code)), ...banks.filter((code) => !preferredBankCodes.includes(code))].slice(0, 6)
-  const bankArtworkUrl = (code: string) => configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === code)?.url || razorpayBankLogoUrl(code)
+  const artworkFor = (kind: string, code: string): BrandArtwork | undefined => {
+    const configured = configuration?.artwork.find((asset) => asset.kind === kind && asset.code.toLowerCase() === code.toLowerCase())
+    return configured && isApprovedArtworkUrl(configured.url)
+      ? { label: configured.label, url: configured.url }
+      : undefined
+  }
+  const networkLabel = (code: string) => artworkFor('network', code)?.label || code
+  const networkAssets = cardNetworks.flatMap((code) => {
+    const asset = artworkFor('network', code)
+    return asset ? [{ kind: 'network' as const, code, ...asset }] : []
+  })
+  const popularBanks = banks.slice(0, 6)
+  const bankArtwork = (code: string) => artworkFor('bank', code)
   const bankLabel = (code: string) => {
     const returnedLabel = methods?.netbanking?.[code]
     const artworkLabel = configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === code)?.label
     if (typeof returnedLabel === 'string' && returnedLabel.trim() && returnedLabel.toLowerCase() !== code.toLowerCase()) return returnedLabel
     return artworkLabel || (typeof returnedLabel === 'string' && returnedLabel.trim() ? returnedLabel : code)
+  }
+  const emiIssuers = Object.entries(methods?.emi_plans || {}).flatMap(([code, value]) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+    const issuerPlan = (value as Record<string, unknown>).plans
+    if (!issuerPlan || typeof issuerPlan !== 'object' || Array.isArray(issuerPlan) || !Object.keys(issuerPlan).length) return []
+    return [code]
+  })
+  const methodLogoItems = (id: string) => {
+    const makeItem = (kind: string, code: string, label?: string) => ({
+      kind,
+      code,
+      label: label || artworkFor(kind, code)?.label || code,
+      url: artworkFor(kind, code)?.url,
+    })
+    const withArtwork = (items: ReturnType<typeof makeItem>[]) => items.filter((item) => Boolean(item.url))
+    if (id === 'card') return withArtwork(cardNetworks.map((code) => makeItem('network', code, networkLabel(code)))).slice(0, 4)
+    if (id === 'upi') return upiDiscovery === 'ready' ? withArtwork(upiApps.map((code) => makeItem('upi', code, code === 'any' ? 'Other UPI apps' : undefined))).slice(0, 4) : []
+    if (id === 'netbanking') return withArtwork(popularBanks.slice(0, 3).map((code) => makeItem('bank', code, bankLabel(code))))
+    if (id === 'wallet') return withArtwork(wallets.slice(0, 3).map((code) => makeItem('wallet', code, typeof methods?.wallet?.[code] === 'string' ? methods.wallet[code] : undefined)))
+    if (id === 'emi') return withArtwork(emiIssuers.slice(0, 3).map((code) => makeItem('bank', code)))
+    if (id === 'cardless_emi' || id === 'paylater') return withArtwork(optionKeys(methods?.[id])
+      .map((code) => makeItem(id, code, artworkFor(id, code)?.label || (typeof methods?.[id]?.[code] === 'string' ? methods[id][code] : undefined)))).slice(0, 3)
+    if (id === 'cred') return withArtwork([makeItem('upi', 'cred')])
+    return []
   }
   const selectedPlan = plans.find((plan) => String(plan.duration) === emiDuration)
   const installment = selectedPlan && constructorRef.current?.emi?.calculator
@@ -532,7 +586,7 @@ export default function RazorpayCustomCheckout({
       })
       if (sequence === eligibilitySequence.current) setEligibility(result)
     } catch (err: any) {
-      if (sequence === eligibilitySequence.current) setError(err?.message || 'Card eligibility could not be verified.')
+      if (sequence === eligibilitySequence.current) setError(cardEligibilityErrorMessage(err))
     } finally { if (sequence === eligibilitySequence.current) setEligibilityBusy(false) }
   }
 
@@ -710,10 +764,10 @@ export default function RazorpayCustomCheckout({
 
     submittedRef.current = true
     setSubmitting(true)
-    const selectedLabel = method === 'netbanking' ? (typeof methods?.netbanking?.[bank] === 'string' ? methods.netbanking[bank] : bank)
-      : method === 'wallet' ? configuration?.artwork.find((asset) => asset.kind === 'wallet' && asset.code === wallet)?.label || wallet
+    const selectedLabel = method === 'netbanking' ? bankLabel(bank)
+      : method === 'wallet' ? artworkFor('wallet', wallet)?.label || wallet
       : method === 'cardless_emi' || method === 'paylater' ? (typeof methods?.[method]?.[provider] === 'string' ? methods[method][provider] : provider)
-      : method === 'upi' && mobile ? configuration?.artwork.find((asset) => asset.kind === 'upi' && asset.code === upiApp)?.label || upiApp
+      : method === 'upi' && mobile ? artworkFor('upi', upiApp)?.label || upiApp
       : availableMethods.find((item) => item.id === method)?.label || method
     setHandoff({ method, label: selectedLabel, ...(method === 'upi' ? { upiMode: mobile ? 'intent' : 'qr' } : {}), stage: 'opening' })
     onSubmitted?.()
@@ -740,10 +794,10 @@ export default function RazorpayCustomCheckout({
   const upiControls = <div className={styles.upiControls}>
     {mobile && !intentUnavailable && upiDiscovery === 'ready' ? <div className={styles.brandChoices} role="group" aria-label="UPI apps">
       {upiApps.map((app) => {
-        const asset = configuration?.artwork.find((entry) => entry.kind === 'upi' && entry.code === app)
+        const asset = artworkFor('upi', app)
         return <button key={app} type="button" className={styles.brandChoice} aria-pressed={upiApp === app} disabled={submitting} onClick={() => setUpiApp(app)}>
-          {asset && <img src={asset.url} alt="" width={32} height={32} referrerPolicy="no-referrer" />}
-          <span>{asset?.label || (app === 'any' ? 'Other UPI apps' : app)}</span>
+          {asset?.url && <BankLogo url={asset.url} width={32} height={32} />}
+          <span>{app === 'any' ? 'Other UPI apps' : asset?.label || app}</span>
         </button>
       })}
     </div> : <span className={styles.hint} role="status">{mobile === null ? 'Checking device support...' : mobile === false ? 'Scan the QR in the Razorpay payment window using your UPI app.' : intentUnavailable ? 'UPI Intent is disabled for this checkout. Choose another payment method.' : upiDiscovery === 'pending' ? 'Checking supported UPI apps...' : upiDiscovery === 'failed' ? 'Supported UPI apps could not be confirmed.' : 'No supported UPI app option was returned. Choose another payment method.'}</span>}
@@ -792,9 +846,9 @@ export default function RazorpayCustomCheckout({
       {!!availableMethods.length && <>
         {submitting && handoff && !showList && <CheckoutHandoff handoff={handoff} />}
         <fieldset hidden={submitting && !showList} disabled={readOnly || submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        <div className={styles.contactCard}>
+        {(customerName || contact || customerPhone || order.email || collectContact) && <div className={styles.contactCard}>
           <span className={styles.avatar} aria-hidden="true">{customerName?.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('') || <Smartphone size={20} />}</span>
-          <div className={styles.contactInfo}><b>{customerName || 'Customer'}</b><span>{contact || customerPhone}{order.email && <> · {order.email}</>}</span></div>
+          <div className={styles.contactInfo}>{customerName && <b>{customerName}</b>}{(contact || customerPhone || order.email) && <span>{contact || customerPhone}{order.email && <> · {order.email}</>}</span>}</div>
           {(!order.email || collectContact) && <details className={styles.contactEdit}>
           <summary>Edit contact</summary>
           <div className={styles.contactFields}>
@@ -806,7 +860,7 @@ export default function RazorpayCustomCheckout({
           <label>Mobile number with country code<input name="contact" {...fieldProps('contact')} type="tel" autoComplete="tel" value={contact} onChange={(event) => { credSequence.current += 1; setCredBusy(false); setCredEligible(false); setContact(event.target.value) }} readOnly={Boolean(order.testContact)} disabled={submitting} required />{fieldMessage('contact')}</label>
         </div>}
           </div></details>}
-        </div>
+        </div>}
         {methodPage && <nav className={styles.methodBreadcrumb} aria-label="Payment method">
           <button type="button" disabled={submitting} onClick={leaveMethod}><ChevronLeft size={16} aria-hidden="true" />Payment methods</button>
           <span aria-hidden="true">/</span><span aria-current="page">{availableMethods.find((item) => item.id === method)?.label}</span>
@@ -836,15 +890,12 @@ export default function RazorpayCustomCheckout({
                 <span className={styles.methodLabel}>{item.label}</span>
                 <span className={styles.methodSubtitle}>{methodSubtitle(item.id)}</span>
               </span>
-              {item.id === 'card' && networkAssets.length > 0 && <span className={styles.methodAssets} aria-label="Enabled card networks">
-                {networkAssets.map((asset) => <img key={asset.code} src={asset.url} alt={asset.label} width={40} height={25} loading="lazy" referrerPolicy="no-referrer" />)}
-              </span>}
-              {item.id === 'upi' && upiDiscovery === 'ready' && upiApps.length > 0 && <span className={styles.methodAssets} aria-label="Supported UPI apps">
-                {upiApps.slice(0, 4).map((app) => {
-                  const asset = configuration?.artwork.find((entry) => entry.kind === 'upi' && entry.code === app)
-                  return asset ? <img key={app} src={asset.url} alt={asset.label} width={26} height={26} loading="lazy" referrerPolicy="no-referrer" /> : <span key={app}>{app === 'any' ? 'Other' : app}</span>
-                })}
-              </span>}
+              {(() => {
+                const logos = methodLogoItems(item.id)
+                return logos.length > 0 && <span className={styles.methodAssets}>
+                  {logos.map((logo) => <BankLogo key={logo.code} accessibleLabel={logo.label} url={logo.url} className={logo.kind === 'network' ? styles.networkArtwork : undefined} />)}
+                </span>
+              })()}
               <ChevronRight className={styles.methodChevron} size={18} aria-hidden="true" />
             </label>
           ))}
@@ -870,19 +921,19 @@ export default function RazorpayCustomCheckout({
           <label>Card number
             <div className={styles.cardNumber}>
               <input name="card-number" {...fieldProps('card-number')} inputMode="numeric" autoComplete="cc-number" placeholder="Card number" disabled={submitting || !cardFormatterReady} onBlur={() => void checkCardEligibility()} required />
-              {networkAssets.filter((asset) => asset.code === detectedNetwork).map((asset) => <img key={asset.code} src={asset.url} alt={asset.label} width={48} height={30} />)}
+              {networkAssets.filter((asset) => asset.code === detectedNetwork).map((asset) => <BankLogo key={asset.code} accessibleLabel={asset.label} url={asset.url} width={48} height={30} className={styles.networkArtwork} />)}
             </div>
             {fieldMessage('card-number')}
             {cardNetwork && <small aria-live="polite">{cardNetwork}</small>}
             {networkUnavailable && <small role="status">{detectedNetwork ? 'This card network is not enabled for this checkout. Choose another card.' : eligibilityBusy ? 'Checking card network...' : 'Card network must be verified before payment. Check card eligibility or choose another method.'}</small>}
           </label>
-          {cardNetworks.length ? <div className={styles.networks} aria-label="Card networks enabled for this account">
+          {networkAssets.length > 0 && <div className={styles.networks} role="group" aria-label={`Card networks enabled for this account: ${cardNetworks.map(networkLabel).join(', ')}`}>
             <span>Enabled card networks</span>
             <div>{cardNetworks.map((code) => {
               const asset = networkAssets.find((entry) => entry.code === code)
-              return asset ? <img key={code} src={asset.url} alt={asset.label} width={48} height={30} loading="lazy" referrerPolicy="no-referrer" /> : <span key={code} className={styles.network}>{code}</span>
+              return asset ? <BankLogo key={code} accessibleLabel={asset.label} url={asset.url} width={48} height={30} className={styles.networkArtwork} /> : null
             })}</div>
-          </div> : <small>Razorpay will validate this card during payment.</small>}
+          </div>}
           <div className={styles.row}>
             <label>Expiry<input name="card-expiry" {...fieldProps('card-expiry')} inputMode="numeric" autoComplete="cc-exp" placeholder="MM / YY" disabled={submitting} required />{fieldMessage('card-expiry')}</label>
             <label>CVV<input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" disabled={submitting} required />{fieldMessage('card-cvv')}</label>
@@ -898,7 +949,7 @@ export default function RazorpayCustomCheckout({
         {method === 'netbanking' && <div className={styles.fields}>
           <div className={styles.bankGrid} role="group" aria-label="Available banks">
             {popularBanks.map((code) => <button type="button" key={code} className={styles.brandChoice} aria-pressed={bank === code} onClick={() => setBank(code)}>
-              <BankLogo label={bankLabel(code)} url={bankArtworkUrl(code)} /><span>{bankLabel(code)}</span>{bank === code && <Check size={16} aria-label="Selected" />}
+              <BankLogo url={bankArtwork(code)?.url} /><span>{bankLabel(code)}</span>{bank === code && <Check size={16} aria-label="Selected" />}
             </button>)}
           </div>
           <button ref={bankSearchTrigger} type="button" {...fieldProps('bank')} className={styles.bankSearch} onClick={() => {
@@ -907,7 +958,7 @@ export default function RazorpayCustomCheckout({
           }}><Search size={16} aria-hidden="true" />Search all banks</button>
           <input type="hidden" name="bank" value={bank} />
           {bank && !popularBanks.includes(bank) && <div className={styles.selectedBank} role="status">
-            <BankLogo label={bankLabel(bank)} url={bankArtworkUrl(bank)} />
+            <BankLogo url={bankArtwork(bank)?.url} />
             <span>{bankLabel(bank)}</span><Check size={18} aria-label="Selected bank" />
           </div>}
           {fieldMessage('bank')}
@@ -920,7 +971,7 @@ export default function RazorpayCustomCheckout({
             <label>Search banks<input type="search" value={bankQuery} onChange={(event) => setBankQuery(event.target.value)} autoComplete="off" autoFocus /></label>
             <div className={styles.bankResults}>
               {banks.filter((code) => `${code} ${bankLabel(code)}`.toLowerCase().includes(bankQuery.toLowerCase())).map((code) => <button type="button" key={code} onClick={() => { setBank(code); bankDialog.current?.close() }}>
-                <BankLogo label={bankLabel(code)} url={bankArtworkUrl(code)} /><span>{bankLabel(code)}</span>{bank === code && <Check size={18} aria-label="Selected" />}
+                <BankLogo url={bankArtwork(code)?.url} /><span>{bankLabel(code)}</span>{bank === code && <Check size={18} aria-label="Selected" />}
               </button>)}
               {!banks.some((code) => `${code} ${bankLabel(code)}`.toLowerCase().includes(bankQuery.toLowerCase())) && <p role="status">No matching banks</p>}
             </div>
@@ -929,10 +980,10 @@ export default function RazorpayCustomCheckout({
 
         {method === 'wallet' && <fieldset className={styles.optionList}><legend>Select wallet</legend>
           {wallets.map((code) => {
-            const asset = configuration?.artwork.find((entry) => entry.kind === 'wallet' && entry.code === code)
+            const asset = artworkFor('wallet', code)
             return <label key={code} className={styles.optionRow}>
               <input type="radio" name="wallet" {...fieldProps('wallet')} value={code} checked={wallet === code} onChange={(event) => setWallet(event.target.value)} required />
-              <BankLogo label={asset?.label || code} url={asset?.url} /><span>{asset?.label || (typeof methods?.wallet?.[code] === 'string' ? methods.wallet[code] : code)}</span>
+              <BankLogo url={asset?.url} /><span>{typeof methods?.wallet?.[code] === 'string' ? methods.wallet[code] : asset?.label || code}</span>
             </label>
           })}
           {fieldMessage('wallet')}
@@ -941,7 +992,7 @@ export default function RazorpayCustomCheckout({
         {(method === 'cardless_emi' || method === 'paylater') && <fieldset className={styles.optionList}><legend>Select provider</legend>
           {optionKeys(methods?.[method]).map((code) => <label key={code} className={styles.optionRow}>
             <input type="radio" name="provider" {...fieldProps('provider')} value={code} checked={provider === code} onChange={(event) => setProvider(event.target.value)} required />
-            <BankLogo label={typeof methods?.[method]?.[code] === 'string' ? methods[method][code] : code} /><span>{typeof methods?.[method]?.[code] === 'string' ? methods[method][code] : code}</span>
+            <BankLogo url={artworkFor(method, code)?.url} /><span>{artworkFor(method, code)?.label || (typeof methods?.[method]?.[code] === 'string' ? methods[method][code] : code)}</span>
           </label>)}
           {fieldMessage('provider')}
         </fieldset>}

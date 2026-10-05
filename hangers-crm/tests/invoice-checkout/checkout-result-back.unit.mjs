@@ -30,6 +30,7 @@ function fixture(status) {
     if (name === 'next/navigation') return { useRouter() { return { refresh() {}, replace() {} } } }
     if (name === 'next/link') return { __esModule: true, default: ({ children, ...props }) => React.createElement('a', props, children) }
     if (name === './CheckoutNavigation') return { useCheckoutBack(priority, handler) { assert.equal(priority, 2); back = handler } }
+    if (name === './CheckoutMotion') return { __esModule: true, default: ({ fallback }) => fallback }
     if (name === './PaymentReceivedVisual') return { PaymentReceivedMark: () => null, PaidAmount: ({ label }) => React.createElement('strong', null, label) }
     if (name === '../RazorpayCustomCheckout') return { __esModule: true, default: (props) => React.createElement('div', {
       'data-method-list': props.showList, 'data-read-only': props.readOnly,

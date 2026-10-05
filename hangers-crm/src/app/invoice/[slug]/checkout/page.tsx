@@ -11,7 +11,7 @@ import { checkoutAvailability } from './availability'
 
 export const dynamic = 'force-dynamic'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002/api/v1'
 const SERVER_API_BASE_URL = process.env.CRM_SERVER_API_URL || API_BASE_URL
 type CapturedCheckoutSnapshot = {
   status: 'CAPTURED'

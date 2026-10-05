@@ -9,7 +9,7 @@ export type SavedCardSelection = {
   network?: string | null; last4?: string | null; expiresAt?: string; cvvRequired?: boolean
 }
 type Card = { selector: string; network: string | null; last4: string | null; selectable: boolean }
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002/api/v1'
 const BASE = `${API}/customer/payments/razorpay/saved-cards`
 
 export default function SavedCards({ mode, keyId, disabled, onChange, onBusy, onSaveRequested, contextKey, approvedTestContact, presentation = 'card' }: {

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import RazorpayCustomCheckout from './RazorpayCustomCheckout'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002/api/v1'
 type StandardRazorpay = new (options: Record<string, any>) => { open: () => void; on: (event: string, handler: (payload: any) => void) => void }
 const newExperimentId = () => {
   const secureCrypto = typeof window !== 'undefined' ? window.crypto : undefined

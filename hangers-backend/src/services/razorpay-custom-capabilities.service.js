@@ -60,9 +60,9 @@ const approvedArtwork = () => {
       const asset = new URL(entry.url);
       const source = new URL(entry.source);
       if (asset.protocol !== 'https:' || source.protocol !== 'https:' || !/(^|\.)razorpay\.com$/.test(source.hostname)
-        || !/(^|\.)razorpay\.com$/.test(asset.hostname)
+        || asset.hostname !== 'cdn.razorpay.com'
         || asset.username || asset.password || source.username || source.password
-        || !['network', 'upi', 'wallet'].includes(entry.kind) || !/^[A-Za-z0-9 _-]{1,40}$/.test(entry.code)
+        || !['network', 'upi', 'wallet', 'cardless_emi', 'paylater'].includes(entry.kind) || !/^[A-Za-z0-9 _-]{1,40}$/.test(entry.code)
         || typeof entry.label !== 'string' || !entry.label.trim() || entry.label.length > 80) return [];
       return [{ kind: entry.kind, code: entry.code, label: entry.label, url: asset.href, source: source.href }];
     } catch { return []; }

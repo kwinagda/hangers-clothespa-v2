@@ -11,7 +11,11 @@ const installCustomCheckoutMock = async (
   page: import('@playwright/test').Page,
   mobile = true,
   ready = true,
-  bankOptions: { netbanking?: Record<string, unknown>; artwork?: Array<{ kind: string; code: string; label: string; url: string }> } = {},
+  bankOptions: {
+    netbanking?: Record<string, unknown>
+    artwork?: Array<{ kind: string; code: string; label: string; url: string }>
+    methods?: Record<string, unknown>
+  } = {},
 ) => {
   const methods = {
     card: true,
@@ -29,6 +33,7 @@ const installCustomCheckoutMock = async (
     cardless_emi: { hdfc: true, zestmoney: true },
     paylater: { lazypay: true },
   }
+  Object.assign(methods, bankOptions.methods || {})
   await page.addInitScript(({ ready, methods, artwork }) => {
     const testWindow = window as Window & { __customCheckoutNoReady?: boolean; __customCheckoutMethods?: Record<string, any>; __customCheckoutArtwork?: typeof artwork }
     testWindow.__customCheckoutNoReady = !ready
@@ -58,6 +63,11 @@ const mockInvoicePaymentApi = async (page: import('@playwright/test').Page, veri
     if (request.method() === 'POST' && endpoint === 'card-eligibility') {
       const { iin } = request.postDataJSON()
       expect(iin).toMatch(/^\d{6,8}$/)
+      const eligibilityError = await page.evaluate(() => (window as any).__customCardEligibilityError)
+      if (eligibilityError) {
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(eligibilityError) })
+        return
+      }
       // Explicit scenario data; these IIN-to-issuer mappings are not real-account observations.
       const eligibility = await page.evaluate(() => (window as any).__customCardEligibility || {
         network: 'Visa', type: 'credit', issuerCode: 'HDFC', issuerName: 'HDFC Bank', emiAvailable: true,
@@ -608,6 +618,29 @@ test('local custom checkout submits an available card EMI plan', async ({ page }
   expect(payment.data).toMatchObject({ method: 'emi', emi_duration: 3, 'card[number]': '4100280000001007' })
 })
 
+test('AmEx formatter network remains usable when Razorpay IIN lookup is unavailable', async ({ page }) => {
+  await installCustomCheckoutMock(page)
+  await page.addInitScript(() => {
+    const testWindow = window as Window & { __customFormatterNetwork?: string; __customCardEligibilityError?: Record<string, unknown> }
+    testWindow.__customFormatterNetwork = 'amex'
+    testWindow.__customCardEligibilityError = {
+      success: false,
+      code: 'CUSTOM_IIN_UNAVAILABLE',
+      message: 'The requested URL was not found on the server.',
+      details: { provider: { httpStatus: 404 } },
+    }
+  })
+  await mockInvoicePaymentApi(page, [])
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page, false)
+  await page.getByLabel('Card number').fill('378282246310005')
+  await page.getByRole('button', { name: 'Check card eligibility' }).click()
+
+  await expect(page.getByRole('alert')).toContainText("Razorpay couldn't verify this card's eligibility.")
+  await expect(page.getByText('The requested URL was not found on the server.', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Pay .* with Credit or debit card/ })).toBeEnabled()
+})
+
 test('explicitly disabled EMI is hidden even when Razorpay returns plan data', async ({ page }) => {
   await installCustomCheckoutMock(page)
   await page.addInitScript(() => {
@@ -937,6 +970,135 @@ test('redesign navigation returns each enabled method and closes bank search bef
   await expect(card).toBeFocused()
   await expect(page.getByText('Recommended', { exact: true })).not.toBeVisible()
   expect(await page.evaluate(() => window.location.pathname.endsWith('/checkout'))).toBe(true)
+})
+
+test('method rows use approved first-party artwork for Razorpay-returned payment options', async ({ page }) => {
+  const cardlessProviders = {
+    earlysalary: true, zestmoney: true, hdfc: true, kkbk: true, idfb: true, icic: true,
+    cshe: true, tvsc: true, walnut369: true, sezzle: true, liquiloans: true,
+    instant_emi: true, shopse: true, snapmint: true,
+  }
+  const cardlessArtwork = [
+    ['earlysalary', 'EarlySalary', 'svg'], ['zestmoney', 'ZestMoney', 'svg'],
+    ['hdfc', 'HDFC Bank', 'svg'], ['kkbk', 'Kotak Mahindra Bank', 'svg'],
+    ['idfb', 'IDFC FIRST Bank', 'svg'], ['icic', 'ICICI Bank', 'svg'],
+    ['walnut369', 'Walnut 369', 'svg'], ['sezzle', 'Sezzle', 'svg'],
+    ['instant_emi', 'Instant EMI', 'svg'], ['shopse', 'ShopSe', 'png'],
+    ['snapmint', 'Snapmint', 'svg'],
+  ].map(([code, label, extension]) => ({
+    kind: 'cardless_emi', code, label,
+    url: `https://cdn.razorpay.com/cardless_emi/${code}.${extension}`,
+  })).concat([
+    { kind: 'cardless_emi', code: 'cshe', label: 'CASHe', url: '/payment-provider-logos/cashe.png' },
+    { kind: 'cardless_emi', code: 'tvsc', label: 'TVS Credit', url: '/payment-provider-logos/tvs-credit.svg' },
+    { kind: 'cardless_emi', code: 'liquiloans', label: 'LiquiLoans', url: '/payment-provider-logos/liquiloans.png' },
+  ])
+  const artwork = [
+    ...[
+      ['VISA', 'Visa', 'card-networks/visa.svg'], ['MC', 'Mastercard', 'card-networks/mastercard.svg'],
+      ['RUPAY', 'RuPay', 'card-networks/rupay.svg'], ['AMEX', 'American Express', 'card-networks/amex.svg'],
+      ['MAES', 'Maestro', 'card-networks/maestro.svg'],
+    ].map(([code, label, path]) => ({ kind: 'network', code, label, url: `https://cdn.razorpay.com/${path}` })),
+    ...[
+      ['HDFC', 'HDFC Bank'], ['SBIN', 'State Bank of India'],
+    ].map(([code, label]) => ({ kind: 'bank', code, label, url: `https://cdn.razorpay.com/bank/${code}.gif` })),
+    ...[
+      ['amazonpay', 'Amazon Pay'], ['phonepe', 'PhonePe'], ['mobikwik', 'MobiKwik'],
+    ].map(([code, label]) => ({ kind: 'wallet', code, label, url: `https://cdn.razorpay.com/wallet-sq/${code}.png` })),
+    ...[
+      ['amazonpay', 'Amazon Pay', 'wallet-sq/amazonpay.png'], ['icic', 'ICICI Bank PayLater', 'paylater/icic.svg'],
+      ['getsimpl', 'Simpl', 'paylater/getsimpl.svg'],
+    ].map(([code, label, path]) => ({ kind: 'paylater', code, label, url: `https://cdn.razorpay.com/${path}` })),
+    ...cardlessArtwork,
+  ]
+  await page.route('https://cdn.razorpay.com/**', (route) => route.fulfill({
+    status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>',
+  }))
+  await installCustomCheckoutMock(page, false, true, {
+    artwork,
+    methods: {
+      card_networks: { VISA: 1, MC: 1, AMEX: 1, MAES: 1, DICL: 0 },
+      netbanking: { HDFC: 'HDFC Bank', SBIN: 'State Bank of India' },
+      wallet: { amazonpay: true, phonepe: true, mobikwik: true, freecharge: true },
+      emi_plans: { HDFC: { min_amount: 10000, plans: { 3: 12 } } },
+      cardless_emi: cardlessProviders,
+      paylater: { amazonpay: true, icic: 'ICICI Bank PayLater', getsimpl: true, lazypay: true },
+    },
+  })
+  await mockInvoicePaymentApi(page, [])
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page, false)
+
+  const methodRow = (name: string) => page.getByRole('radio', { name, exact: true }).locator('xpath=..')
+  await expect(methodRow('Credit or debit card').locator('.methodAssets img')).toHaveCount(4)
+  await expect(methodRow('Credit or debit card').locator('.methodAssets img').first()).toHaveAttribute('alt', 'Visa')
+  await expect(methodRow('Credit or debit card').locator('.methodAssets img').nth(3)).toHaveAttribute('src', 'https://cdn.razorpay.com/card-networks/maestro.svg')
+  await expect(methodRow('Credit or debit card').locator('.network')).toHaveCount(0)
+  await expect(methodRow('Netbanking').locator('.methodAssets img')).toHaveCount(2)
+  await expect(methodRow('Wallet').locator('.methodAssets img')).toHaveCount(3)
+  await expect(methodRow('Card EMI').locator('.methodAssets img')).toHaveCount(1)
+  await expect(methodRow('Cardless EMI').locator('.methodAssets img')).toHaveCount(3)
+  await expect(methodRow('Cardless EMI').locator('.methodAssets img').first()).toHaveAttribute('src', 'https://cdn.razorpay.com/cardless_emi/earlysalary.svg')
+  await expect(methodRow('Cardless EMI').locator('.methodAssets')).not.toContainText('Cshe')
+  await expect(methodRow('Pay later').locator('.methodAssets img')).toHaveCount(3)
+  await expect(methodRow('Pay later').locator('.methodAssets img').first()).toHaveAttribute('src', 'https://cdn.razorpay.com/wallet-sq/amazonpay.png')
+  await expect(methodRow('Wallet').locator('img').first()).toHaveAttribute('src', 'https://cdn.razorpay.com/wallet-sq/amazonpay.png')
+  const logoHosts = await page.locator('.methodAssets img').evaluateAll((images) => images.map((image) => new URL((image as HTMLImageElement).src).hostname))
+  expect(logoHosts.every((host) => host === 'cdn.razorpay.com' || host === new URL(page.url()).hostname)).toBe(true)
+
+  await page.getByRole('radio', { name: 'Wallet', exact: true }).check()
+  const mobikwik = page.getByRole('radio', { name: 'MobiKwik', exact: true }).locator('xpath=..')
+  await expect(mobikwik.locator('.bankLogo img')).toHaveAttribute('src', 'https://cdn.razorpay.com/wallet-sq/mobikwik.png')
+  await page.getByRole('radio', { name: 'Pay later', exact: true }).check()
+  const simpl = page.getByRole('radio', { name: 'Simpl', exact: true }).locator('xpath=..')
+  await expect(simpl.locator('.bankLogo img')).toHaveAttribute('src', 'https://cdn.razorpay.com/paylater/getsimpl.svg')
+  await page.getByRole('radio', { name: 'Cardless EMI', exact: true }).check()
+  for (const [code, label, extension] of [
+    ['earlysalary', 'EarlySalary', 'svg'], ['zestmoney', 'ZestMoney', 'svg'],
+    ['hdfc', 'HDFC Bank', 'svg'], ['kkbk', 'Kotak Mahindra Bank', 'svg'],
+    ['idfb', 'IDFC FIRST Bank', 'svg'], ['icic', 'ICICI Bank', 'svg'],
+    ['walnut369', 'Walnut 369', 'svg'], ['sezzle', 'Sezzle', 'svg'],
+    ['instant_emi', 'Instant EMI', 'svg'], ['shopse', 'ShopSe', 'png'], ['snapmint', 'Snapmint', 'svg'],
+  ]) {
+    const providerRow = page.getByRole('radio', { name: label, exact: true }).locator('xpath=..')
+    await expect(providerRow.locator('.bankLogo img')).toHaveAttribute('src', `https://cdn.razorpay.com/cardless_emi/${code}.${extension}`)
+  }
+  for (const [code, label, path] of [
+    ['cshe', 'CASHe', '/payment-provider-logos/cashe.png'],
+    ['tvsc', 'TVS Credit', '/payment-provider-logos/tvs-credit.svg'],
+    ['liquiloans', 'LiquiLoans', '/payment-provider-logos/liquiloans.png'],
+  ]) {
+    const providerRow = page.getByRole('radio', { name: label, exact: true }).locator('xpath=..')
+    await expect(providerRow).toBeVisible()
+    await expect(providerRow.locator('.bankLogo img')).toHaveAttribute('src', path)
+    await expect(providerRow.getByText(label, { exact: true })).toBeVisible()
+    const response = await page.request.get(new URL(path, page.url()).href)
+    expect(response.ok()).toBe(true)
+  }
+})
+
+test('unavailable logo images are hidden without third-party or text substitutes', async ({ page }) => {
+  await installCustomCheckoutMock(page, false, true, {
+    artwork: [
+      ['VISA', 'Visa', 'visa'], ['MC', 'Mastercard', 'mastercard'], ['RUPAY', 'RuPay', 'rupay'],
+      ['AMEX', 'American Express', 'amex'],
+    ].map(([code, label, slug]) => ({ kind: 'network', code, label, url: `https://cdn.razorpay.com/card-networks/${slug}.svg` })),
+    methods: { card_networks: { VISA: 1, MC: 1, RUPAY: 1, AMEX: 1, DICL: 0 } },
+  })
+  await page.route('https://cdn.razorpay.com/**', (route) => route.fulfill({
+    status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>',
+  }))
+  await page.route('https://cdn.razorpay.com/card-networks/visa.svg', (route) => route.fulfill({ status: 403, contentType: 'text/plain', body: 'Unavailable' }))
+  await mockInvoicePaymentApi(page, [])
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page, false)
+
+  const cardRow = page.getByRole('radio', { name: 'Credit or debit card', exact: true }).locator('xpath=..')
+  await expect(cardRow.locator('.methodAssets img')).toHaveCount(3)
+  await expect(cardRow.locator('.methodAssets img').first()).toHaveAttribute('src', 'https://cdn.razorpay.com/card-networks/mastercard.svg')
+  await expect(cardRow.locator('.methodAssets .bankLogo')).toHaveCount(3)
+  const hosts = await cardRow.locator('.methodAssets img').evaluateAll((images) => images.map((image) => new URL((image as HTMLImageElement).src).hostname))
+  expect(hosts.every((host) => host === 'cdn.razorpay.com')).toBe(true)
 })
 
 test('bank search filters, preserves focus and exposes the selected bank without losing the method page', async ({ page }) => {

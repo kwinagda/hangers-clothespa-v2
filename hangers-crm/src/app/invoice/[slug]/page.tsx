@@ -4,10 +4,14 @@ import CallbackDiagnostic from './CallbackDiagnostic'
 
 export const dynamic = 'force-dynamic'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002/api/v1'
 const SERVER_API_BASE_URL = process.env.CRM_SERVER_API_URL || API_BASE_URL
 
-const money = (value: any) => `₹${Number(value || 0).toLocaleString('en-IN')}`
+const money = (value: unknown) => {
+  if (value == null || value === '') return 'Unavailable'
+  const amount = Number(value)
+  return Number.isFinite(amount) ? `₹${amount.toLocaleString('en-IN')}` : 'Unavailable'
+}
 
 const dateLabel = (value: any) => {
   if (!value) return '—'
@@ -34,12 +38,6 @@ async function loadInvoice(slug: string) {
   } catch {
     return { kind: 'UNAVAILABLE' as const }
   }
-}
-
-const sourceLabel = (sourceType: string) => {
-  if (sourceType === 'FIELD_SERVICE') return 'Sofa Cleaning'
-  if (sourceType === 'DAILY_IRON') return 'Daily Iron'
-  return 'Order'
 }
 
 const LegalTerms = ({ terms }: { terms: any }) => {
@@ -139,7 +137,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             </div>
             <div className="summary-card">
               <h1 style={{ margin: '0 0 6px', color: '#fff', fontSize: 27 }}>Outstanding Summary</h1>
-              <div style={{ color: '#e8f5ff', fontWeight: 800 }}>{summary.invoiceCount || 0} open bills/orders</div>
+              <div style={{ color: '#e8f5ff', fontWeight: 800 }}>{summary.invoiceCount ?? 'Unavailable'} open bills/orders</div>
               <div style={{ marginTop: 10, fontSize: 24, fontWeight: 900 }}>{money(summary?.totals?.balanceDue)}</div>
             </div>
           </header>
@@ -147,8 +145,8 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           <div className="summary-meta">
             <div className="summary-meta-card">
               <div className="summary-label">Customer</div>
-              <div className="summary-value">{summary.customer?.name || 'Customer'}</div>
-              <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{summary.customer?.phone ? `+91 ${String(summary.customer.phone).replace(/^91/, '')}` : '—'}</div>
+              <div className="summary-value">{summary.customer?.name || 'Unavailable'}</div>
+              <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{summary.customer?.phone || 'Unavailable'}</div>
             </div>
             <div className="summary-meta-card">
               <div className="summary-label">Total Billed</div>
@@ -183,7 +181,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
               <article className="summary-receivable" key={item.invoiceId}>
                 <div className="summary-receivable-main">
                   <div className="summary-receivable-title">{item.sourceNumber || item.invoiceNumber}</div>
-                  <div className="summary-receivable-sub">{sourceLabel(item.sourceType)} · {item.invoiceNumber}</div>
+                  {item.invoiceNumber && <div className="summary-receivable-sub">Invoice {item.invoiceNumber}</div>}
                 </div>
                 <div className="summary-receivable-sub">{dateLabel(item.dueDate)}</div>
                 <div className="summary-receivable-amount" data-label="Total / Paid">{money(item.totalAmount)} <span style={{ color: '#15803d' }}>· {money(item.paidAmount)} paid</span></div>
@@ -191,7 +189,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
                 {!!item.items?.length && <div className="summary-receivable-lines">
                   {item.items.map((line: any, index: number) => (
                     <div className="summary-receivable-line" key={`${item.invoiceId}-line-${index}`}>
-                      <div className="summary-detail-name">{line.serviceName || line.garmentType || 'Service'}</div>
+                      <div className="summary-detail-name">{line.serviceName || line.garmentType || 'Description unavailable'}</div>
                       <div className="summary-detail-service">{line.quantity} × {money(line.unitPrice)} · {money(line.subtotal)}</div>
                     </div>
                   ))}
@@ -209,23 +207,34 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
 
   const invoice = loaded.invoice
 
-  const discountAmount = Number(invoice.discount || 0) + Number(invoice.couponDiscount || 0)
-  const upchargeAmount = Number(invoice.upcharge || 0)
-  const paidAmount = Number(invoice.paidAmount || 0)
+  const discountAmount = [invoice.discount, invoice.couponDiscount].reduce((sum: number, value: unknown) => {
+    if (value == null || value === '') return sum
+    const amount = Number(value)
+    return Number.isFinite(amount) ? sum + amount : sum
+  }, 0)
+  const upchargeAmount = invoice.upcharge == null || invoice.upcharge === '' ? 0 : Number(invoice.upcharge)
+  const paidAmount = invoice.paidAmount == null || invoice.paidAmount === '' ? null : Number(invoice.paidAmount)
   const totalPieces = Number(invoice.totalPieces ?? (invoice.items || []).reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0))
   const rows = [
     ['Subtotal', money(invoice.subtotal)],
     ...(discountAmount > 0 ? [['Discount', `-${money(discountAmount)}`]] : []),
-    ...(upchargeAmount > 0 ? [['Upcharge', money(upchargeAmount)]] : []),
+    ...(Number.isFinite(upchargeAmount) && upchargeAmount > 0 ? [['Upcharge', money(upchargeAmount)]] : []),
+    ...(Number(invoice.taxAmount) > 0 ? [['Tax', money(invoice.taxAmount)]] : []),
     ['Total', money(invoice.totalAmount)],
-    ...(paidAmount > 0 ? [['Paid', money(paidAmount)]] : []),
+    ...(paidAmount !== null && Number.isFinite(paidAmount) && paidAmount > 0 ? [['Paid', money(paidAmount)]] : []),
+    ...(Number(invoice.creditAmount) > 0 ? [['Credit applied', money(invoice.creditAmount)]] : []),
     ['Balance Due', money(invoice.balanceDue)],
   ]
 
+  const itemTitle = (item: any) => item.serviceName || item.garmentType || 'Description unavailable'
   const itemDetail = (item: any) => {
     const variant = invoice.invoiceType === 'IRON_BILL' ? dateLabel(item.variant) : item.variant
-    return `${item.serviceName}${variant && variant !== '—' ? ` · ${variant}` : ''}`
+    const title = itemTitle(item)
+    return `${title}${variant && variant !== '—' ? ` · ${variant}` : ''}`
   }
+  const fulfillment = invoice.deliveryDate
+    ? { label: 'Delivery date', value: dateLabel(invoice.deliveryDate) }
+    : invoice.serviceDate ? { label: 'Service appointment', value: dateLabel(invoice.serviceDate) } : null
 
   return (
     <main className="public-invoice-page" style={{ minHeight: '100vh', background: '#f4f7fb', padding: '28px 16px 48px', fontFamily: 'var(--crm-font-ui)', color: '#1a2332' }}>
@@ -473,13 +482,14 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           <div className="public-invoice-header-summary public-invoice-summary-card" style={{ textAlign: 'right' }}>
             <h1 style={{ margin: '0 0 6px', color: '#fff', fontSize: 28 }}>Invoice</h1>
             <div style={{ fontFamily: 'var(--crm-font-mono)', color: '#e8f5ff', fontWeight: 800 }}>{invoice.orderNumber}</div>
+            <div style={{ color: '#dcecf9', fontSize: 13, marginTop: 4 }}>Invoice {invoice.invoiceNumber || 'Unavailable'}</div>
             <div className="public-invoice-status-pill">{invoice.paymentStatus}</div>
           </div>
         </header>
 
         <div className="public-invoice-highlights">
           <div className="public-invoice-highlight">
-            <div className="public-invoice-highlight-label">Total Clothes</div>
+            <div className="public-invoice-highlight-label">Items / units</div>
             <div className="public-invoice-highlight-value">{totalPieces}</div>
           </div>
           <div className="public-invoice-highlight">
@@ -499,17 +509,17 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
         <div className="public-invoice-meta">
           <div className="public-invoice-meta-card">
             <div className="public-invoice-meta-label">Customer</div>
-            <div className="public-invoice-meta-value">{invoice.customer?.name || 'Customer'}</div>
-            <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{invoice.customer?.phone ? `+91 ${String(invoice.customer.phone).replace(/^91/, '')}` : '—'}</div>
+            <div className="public-invoice-meta-value">{invoice.customer?.name || 'Unavailable'}</div>
+            <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{invoice.customer?.phone || 'Unavailable'}</div>
           </div>
           <div className="public-invoice-meta-card">
-            <div className="public-invoice-meta-label">Order Date</div>
+            <div className="public-invoice-meta-label">Invoice Date</div>
             <div className="public-invoice-meta-value">{dateLabel(invoice.createdAt)}</div>
           </div>
-          <div className="public-invoice-meta-card">
-            <div className="public-invoice-meta-label">Expected Delivery</div>
-            <div className="public-invoice-meta-value">{dateLabel(invoice.deliveryDate)}</div>
-          </div>
+          {fulfillment && <div className="public-invoice-meta-card">
+            <div className="public-invoice-meta-label">{fulfillment.label}</div>
+            <div className="public-invoice-meta-value">{fulfillment.value}</div>
+          </div>}
           <div className="public-invoice-meta-card">
             <div className="public-invoice-meta-label">Status</div>
             <div className="public-invoice-meta-value">{invoice.status}</div>
@@ -531,7 +541,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             <tbody>
               {(invoice.items || []).map((item: any, index: number) => (
                 <tr key={`${item.serviceName}-${item.garmentType}-${index}`} style={{ borderTop: '1px solid #edf3f8' }}>
-                  <td style={{ padding: '14px 18px', fontWeight: 700 }}>{item.garmentType || item.serviceName}</td>
+                  <td style={{ padding: '14px 18px', fontWeight: 700 }}>{itemTitle(item)}</td>
                   <td style={{ padding: '14px 18px', color: '#6b7fa3' }}>{itemDetail(item)}</td>
                   <td style={{ padding: '14px 18px', textAlign: 'right' }}>{item.quantity}</td>
                   <td style={{ padding: '14px 18px', textAlign: 'right' }}>{money(item.unitPrice)}</td>
@@ -545,7 +555,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
         <div className="public-invoice-mobile-items">
           {(invoice.items || []).map((item: any, index: number) => (
             <article className="public-invoice-item-card" key={`${item.serviceName}-${item.garmentType}-mobile-${index}`}>
-              <div className="public-invoice-item-title">{item.garmentType || item.serviceName}</div>
+              <div className="public-invoice-item-title">{itemTitle(item)}</div>
               <div className="public-invoice-item-service">{itemDetail(item)}</div>
               <div className="public-invoice-item-grid">
                 <div className="public-invoice-item-metric">

@@ -1,13 +1,19 @@
 import type { CSSProperties } from 'react'
 import { Check } from 'lucide-react'
+import CheckoutMotion from './CheckoutMotion'
 import styles from '../RazorpayCustomCheckout.module.css'
 
 export function PaymentReceivedMark() {
-  return <span className={styles.successVisual} aria-hidden="true">
-    <span className={styles.successRipple} />
-    {Array.from({ length: 8 }, (_, index) => <span key={index} className={styles.confetti} />)}
-    <span className={styles.successMark}><Check size={38} strokeWidth={3} /></span>
-  </span>
+  return <CheckoutMotion
+    src="/checkout-motion/payment-success.mp4"
+    className={styles.successMotion}
+    videoClassName={styles.stateMotionVideo}
+    fallback={<span className={styles.successVisual}>
+      <span className={styles.successRipple} />
+      {Array.from({ length: 8 }, (_, index) => <span key={index} className={styles.confetti} />)}
+      <span className={styles.successMark}><Check size={38} strokeWidth={3} /></span>
+    </span>}
+  />
 }
 
 export function PaidAmount({ label }: { label: string }) {

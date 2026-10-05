@@ -10,8 +10,11 @@ const require = createRequire(import.meta.url)
 const source = readFileSync(new URL('../../src/app/invoice/[slug]/checkout/PaymentReceivedVisual.tsx', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText
 const module = { exports: {} }
-new Function('require', 'module', 'exports', compiled)((name) => name.endsWith('.module.css')
-  ? { __esModule: true, default: new Proxy({}, { get: (_, key) => key }) } : require(name), module, module.exports)
+new Function('require', 'module', 'exports', compiled)((name) => {
+  if (name === './CheckoutMotion') return { __esModule: true, default: ({ fallback, className }) => React.createElement('span', { className, 'aria-hidden': 'true' }, fallback) }
+  return name.endsWith('.module.css')
+    ? { __esModule: true, default: new Proxy({}, { get: (_, key) => key }) } : require(name)
+}, module, module.exports)
 
 test('amount reveal preserves the exact formatted value for assistive technology', () => {
   const html = renderToStaticMarkup(React.createElement(module.exports.PaidAmount, { label: 'INR 1,234.50' }))
@@ -29,4 +32,19 @@ test('success artwork contains eight decorative dots without a payment transitio
   assert.match(css, /amountCount 900ms ease-out/)
   assert.match(css, /prefers-reduced-motion: reduce/)
   assert.match(css, /\.successRipple, \.confetti \{ display: none; \}/)
+})
+
+test('motion component renders the supplied static state during server rendering', () => {
+  const motionSource = readFileSync(new URL('../../src/app/invoice/[slug]/checkout/CheckoutMotion.tsx', import.meta.url), 'utf8')
+  const motionCompiled = ts.transpileModule(motionSource, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022,
+  } }).outputText
+  const motionModule = { exports: {} }
+  new Function('require', 'module', 'exports', motionCompiled)((name) => require(name), motionModule, motionModule.exports)
+  const html = renderToStaticMarkup(React.createElement(motionModule.exports.default, {
+    src: '/checkout-motion/payment-success.mp4', className: 'motion', videoClassName: 'video',
+    fallback: React.createElement('span', null, 'Static confirmation'),
+  }))
+  assert.match(html, /Static confirmation/)
+  assert.doesNotMatch(html, /<video/)
 })

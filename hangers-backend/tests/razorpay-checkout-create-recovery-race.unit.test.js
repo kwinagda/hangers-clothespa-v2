@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 
 const servicePath = path.resolve(__dirname, '../src/services/razorpay-invoice-checkout.service.js');
 
-const loadService = () => {
+const loadService = ({ planInvoices = null, seededAttempt = null } = {}) => {
   const calls = { audits: [], providerCreates: 0 };
   const invoice = {
     id: 'invoice-home-race-unit',
@@ -21,12 +21,18 @@ const loadService = () => {
     balanceDue: 10,
     voidedAt: null,
   };
-  let attempt = null;
+  const receivables = planInvoices || [invoice];
+  let attempt = seededAttempt;
   const tx = {
-    $queryRaw: async (strings) => strings.join('').includes('FROM "invoices"') ? [{ id: invoice.id }] : [],
+    $queryRaw: async (strings, ...values) => {
+      if (!strings.join('').includes('FROM "invoices"')) return [];
+      return receivables.filter((row) => row.id === values[0]).map(({ id }) => ({ id }));
+    },
     invoice: {
-      findMany: async () => [{ orderId: null, ironBillId: null, serviceAppointmentId: null }],
-      findUnique: async () => invoice,
+      findMany: async ({ where }) => where.customerId
+        ? receivables
+        : receivables.filter((row) => where.id.in.includes(row.id)),
+      findUnique: async ({ where }) => receivables.find((row) => row.id === where.id) || null,
     },
     order: { findUnique: async () => null },
     razorpayCheckoutAttempt: {
@@ -35,7 +41,7 @@ const loadService = () => {
         return attempt?.id === where.id ? attempt : null;
       },
       findFirst: async ({ where }) => {
-        if (!attempt) return null;
+        if (!attempt || (where.customerId && attempt.customerId !== where.customerId)) return null;
         const expected = where.status;
         if (typeof expected === 'string') return attempt.status === expected ? attempt : null;
         if (expected?.in) return expected.in.includes(attempt.status) ? attempt : null;
@@ -84,9 +90,63 @@ const loadService = () => {
     calls,
     getAttempt: () => attempt,
     advanceAttempt: (next) => { attempt = { ...attempt, ...next }; },
-    invoice,
+    invoice: receivables[0],
   };
 };
+
+test('active single-invoice attempt on another invoice for the same customer blocks combined checkout before provider create', async () => {
+  const firstInvoice = {
+    id: 'invoice-home-plan-first-unit',
+    invoiceNumber: 'INV-HOME-PLAN-FIRST-UNIT',
+    customerId: 'home-customer-unit',
+    orderId: null,
+    ironBillId: null,
+    serviceAppointmentId: null,
+    status: 'OPEN',
+    currency: 'INR',
+    balanceDue: 10,
+    voidedAt: null,
+  };
+  const secondInvoice = {
+    ...firstInvoice,
+    id: 'invoice-home-plan-second-unit',
+    invoiceNumber: 'INV-HOME-PLAN-SECOND-UNIT',
+    balanceDue: 20,
+  };
+  const activeSingleAttempt = {
+    id: 'attempt-home-paid-invoice-unit',
+    invoiceId: 'invoice-home-already-paid-unit',
+    customerId: firstInvoice.customerId,
+    status: 'CREATED',
+    mode: 'TEST',
+    amountPaise: 35000n,
+    currency: 'INR',
+    razorpayOrderId: 'order-home-existing-single-unit',
+    razorpayPaymentId: null,
+    allocationPlan: null,
+  };
+  const harness = loadService({ planInvoices: [firstInvoice, secondInvoice], seededAttempt: activeSingleAttempt });
+  const provider = { orders: { create: async () => { harness.calls.providerCreates += 1; } } };
+
+  await assert.rejects(
+    harness.service.createInvoiceCheckout({
+      invoice: firstInvoice,
+      allocationPlan: [
+        { invoiceId: firstInvoice.id, amount: 10 },
+        { invoiceId: secondInvoice.id, amount: 20 },
+      ],
+      shareId: 'share-home-plan-unit',
+      idempotencyKey: 'home-plan-unit',
+      customCheckout: true,
+      provider,
+    }),
+    (error) => error.code === 'CHECKOUT_ALREADY_IN_PROGRESS'
+      && error.details?.checkoutAttemptId === activeSingleAttempt.id,
+  );
+
+  assert.equal(harness.calls.providerCreates, 0, 'the active prior Order must prevent a combined provider Order');
+  assert.equal(harness.getAttempt().razorpayOrderId, activeSingleAttempt.razorpayOrderId);
+});
 
 const makeProvider = (harness, nextState) => ({
   orders: {

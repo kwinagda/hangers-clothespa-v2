@@ -1,8 +1,8 @@
 # Custom Checkout Build Findings
 
-**Current goal status (4 October 2026):** 24/24 A-items have explicit status: 16 accepted (A01-A08, A13-A17, A20-A21, A23), 1 N/A (A12), 7 deferred (A09-A11, A18-A19, A22, A24), and 0 active. A18's prior combined-provider capture claim was not substantiated by the approved local ledger (A18-a); A19's processed outbox event has no corresponding accepted/skipped/sent stage (A19-a); A22 operational policy/runtime evidence is scoped as A22-a. A24's PR is still Draft and open; no merge/release occurred. A14's delayed create/recovery repair passed 13/13 focused local mocked tests and exact-SHA CI run [37156470392](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37156470392) at SHA `0a8b091521210c800c7d05dba9e22e414daaa8a9`. Deferred does not mean accepted or fully implemented. Use the master plan's current register and do not rerun passing checks absent a concrete gap or relevant change.
+**Current goal status (4 October 2026):** 24/24 A-items have explicit status: 17 accepted (A01-A08, A13-A17, A19-A21, A23), 1 N/A (A12), 6 deferred (A09-A11, A18, A22, A24), and 0 active. A18's prior combined-provider capture claim was not substantiated by the approved local ledger; the current Home balance is also held by eight existing single-invoice Orders, documented in A18-a/A18-b. A19's finite current-path success/skip acceptance is complete; one older processed event with no correlated terminal stage remains a deferred historical finding (A19-a). A22 operational policy/runtime evidence is scoped as A22-a. A24's PR is still Draft and open; no merge/release occurred. A14's delayed create/recovery repair passed 13/13 focused local mocked tests and exact-SHA CI run [37156470392](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37156470392) at SHA `0a8b091521210c800c7d05dba9e22e414daaa8a9`. Deferred does not mean accepted or fully implemented. Use the master plan's current register and do not rerun passing checks absent a concrete gap or relevant change.
 
-**Current testing authorization:** The Test-only authorization and environment boundaries are defined in the plan's [Testing Authorization and Environment Rules](razorpay-custom-checkout.md#testing-authorization-and-environment-rules-3-october-2026). Current count (4 October 2026): 16/24 accepted, A12 N/A, 7/24 deferred, and 0 active. PR #10 remains OPEN/Draft and production release was not performed. Older detailed wording below is historical unless repeated in the current status or register.
+**Current testing authorization:** The Test-only authorization and environment boundaries are defined in the plan's [Testing Authorization and Environment Rules](razorpay-custom-checkout.md#testing-authorization-and-environment-rules-3-october-2026). Current count (4 October 2026): 17/24 accepted, A12 N/A, 6/24 deferred, and 0 active. PR #10 remains OPEN/Draft and production release was not performed. Older detailed wording below is historical unless repeated in the current status or register.
 
 ## Current Findings Disposition - 4 October 2026
 
@@ -29,9 +29,9 @@ This is a chronological evidence register; the bullets below are the current dis
 
 **Finite findings-pass rule:** when A01-A24 reaches a final disposition, freeze the findings present at that point as the complete scope of the later findings pass. Number/count that frozen list, then handle each finding once against its recorded bounded acceptance and test budget. Do not append newly discovered issues to that active pass, reopen closed A-items, or rerun passing checks without a relevant change or contradictory evidence. A new issue found after the freeze is a recommendation for a separately approved, finite follow-up plan. External dependencies receive one bounded verification when evidence arrives; if still unavailable, keep the specific deferral and finish the current finite pass rather than retrying indefinitely.
 
-**Current disposition (4 October 2026):** A01-A08, A13-A17, A20-A21 and A23 are accepted (16/24); A12 is N/A; A09-A11, A18-A19, A22 and A24 are deferred (7/24); no A-item is active. A18-a records the unverified combined capture in the approved local ledger; A19-a records a processed outbox with only a pending notification stage; A22-a records that operational retention/access and deployed-runtime guarantees are unspecified. A20/A21/A23 have exact-HEAD CI evidence from run `37136624270`; no refund, downtime or provider event was sent. A24's open Draft PR at the exact tested SHA has successful CI but requires a separate approved release workflow. A14's compare-and-set repair and focused mocked regression passed locally 13/13; exact-SHA CI run [37156470392](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37156470392) passed both jobs. No additional payment, IIN request or WhatsApp send was made.
+**Current disposition (4 October 2026):** A01-A08, A13-A17, A19-A21 and A23 are accepted (17/24); A12 is N/A; A09-A11, A18, A22 and A24 are deferred (6/24); no A-item is active. A18-a records the unverified combined capture; A18-b records eight active Home Test Orders, four covering the current ₹142 balance and four tied to already-paid invoices, with no documented cancel/expire operation established. A19-a records a distinct historical outbox row with no terminal stage, while A19's representative current-path provider-accepted and skip outcomes are verified; A22-a records that operational retention/access and deployed-runtime guarantees are unspecified. A20/A21/A23 have exact-HEAD CI evidence from run `37136624270`; no refund, downtime or provider event was sent. A24's open Draft PR at the exact tested SHA has successful CI but requires a separate approved release workflow. A14's compare-and-set repair and focused mocked regression passed locally 13/13; exact-SHA CI run [37156470392](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37156470392) passed both jobs. No new payment, refund, database write, notification, IIN request or WhatsApp send was made in this turn.
 
-**Per-A hard cap and current status:** Previously passing items were not rerun without a gap. A14/F29 is complete within its bounded recovery acceptance: focused mocked regression passed 13/13 locally, and exact-SHA CI run `37156470392` passed both jobs. Current count is 16 accepted, A12 N/A, 7 deferred and 0 active. Deferred dependencies remain in the master register and findings A18-a/A19-a/A22-a; A24 needs separately authorized PR approval/production release gates.
+**Per-A hard cap and current status:** Previously passing items were not rerun without a gap. A14/F29 is complete within its bounded recovery acceptance: focused mocked regression passed 13/13 locally, and exact-SHA CI run `37156470392` passed both jobs. Current count is 17 accepted, A12 N/A, 6 deferred and 0 active. Deferred dependencies remain in the master register and findings A18-a/A19-a/A22-a; A24 needs separately authorized PR approval/production release gates.
 
 | Finding(s) | Current disposition | What remains |
 | --- | --- | --- |
@@ -46,8 +46,9 @@ This is a chronological evidence register; the bullets below are the current dis
 | F47, F50-F51, F53-F56, F61-F62 | Resolved for the specific defect/contract scope described in their dated entries. | Broader A17/A22/A23 acceptance is not closed by these scoped repairs. |
 | F60 | Partially resolved release-control gap. | A24 still needs green exact-SHA CI, review/approval and separately authorized release/migration/post-check gates. |
 | F66 | Resolved at source/test SHA `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30`; both exact-SHA CI jobs passed in run [37009102219](https://github.com/kwinagda/hangers-clothespa-v2/actions/runs/37009102219). | Broader live account readiness/runtime acceptance remains under A04; this scoped CI regression is closed. |
-| A18-a | The plan's prior note claimed a matching combined Test provider capture, but it cannot be found in the approved existing local ledger. | Deferred: read-only query verified `localhost` / `hangers_db` and found 0 matching allocations among 21 ₹30 payment records. No provider request, payment or database write was made. Keep A18 unaccepted; do not create a replacement payment under the current read-only session rules. |
-| A19-a | Existing capture/receipt/audit/outbox are present, but the processed outbox event has no corresponding terminal notification result in the order-stage record. | Deferred: local read-only evidence shows the outbox is `PROCESSED` while the linked stage remains `WHATSAPP_PENDING`; no send/replay was attempted. Do not infer Whatomate acceptance or handset delivery. |
+| A18-a | The plan's prior note claimed a matching combined Test provider capture, but it cannot be found in the approved existing local ledger. | Deferred: read-only query verified `localhost` / `hangers_db` and found 0 matching allocations among 21 ₹30 payment records. Its original `created` payment remains unresolved. No replacement combined payment was created. |
+| A18-b | Eight Home Test Orders are still active locally; four correspond to the current ₹142 open balance and four to invoices now marked paid. | Deferred pending authoritative order invalidation/recovery guidance: one read-only provider pass found four Orders with attempts and nonterminal `created` payments, plus four `created` Orders with zero attempts. The combined-checkout reservation intentionally blocks rather than risk a second payable order. |
+| A19-a | One older processed payment-notification event has no correlated terminal notification result; it is distinct from the later verified current-path event. | Deferred historical-data finding: the old outbox row is `PROCESSED` with zero attempts and only a matching `WHATSAPP_PENDING` stage. A separate current-path capture has a correlated `WHATSAPP_SENT` stage and proves provider acceptance, not handset delivery. No replay or synthetic stage was used. |
 | A22-a | Journey logging and redaction have CI evidence, and the local migration is applied, but there is no approved operational retention/access policy or deployed-runtime proof. | Deferred without broadening the finite checkout pass: retain source/CI/local evidence; no retention duration, production access model or logger-failure guarantee is invented. |
 
 ## Acceptance-Linked Findings
@@ -559,35 +560,101 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [Deferred] Verify one provider eligibility/error/return path for each distinct method (`cardless_emi`, `paylater`); current saved Test credentials return HTTP 401. No payment was submitted.
 - **Dependency/disposition:** Requires a Test key pair accepted by Razorpay. The available credential pairs have been checked once and rejected; no further retry is planned until credentials are refreshed. Documented payload mocks remain valid source acceptance. Official references: https://razorpay.com/docs/payments/payment-gateway/web-integration/custom/payment-methods and https://razorpay.com/docs/payments/payment-methods/pay-later/custom-integration.
 
+### A11 Findings
+
+#### A11-a - Saved-card source guards and negative-auth boundary
+
+- **Status:** Complete for source/unit and negative-auth coverage; this does not accept the positive provider token lifecycle.
+- **Evidence:** The saved-card unit suite passed 12/12. Existing-local HTTP denial tests passed 24/24 across six operations for absent, malformed, wrong staff-type and expired customer credentials. Runtime capability remains disabled.
+- **Impact:** These checks show unauthorized requests are rejected; they do not prove a customer can safely save and use a real provider token.
+- **Acceptance subtasks:**
+  - [x] Preserve the bounded saved-card unit suite result (12/12).
+  - [x] Preserve the bounded negative-auth API result (24/24).
+
+#### A11-b - Exact Test-mode saved-card activation is not attested
+
+- **Status:** Deferred; saved cards remain disabled.
+- **Evidence:** Existing local configuration reports `RAZORPAY_SAVED_CARDS_ENABLED=false`; no activation attestation is recorded for the exact Test account/key.
+- **Impact:** Enabling the feature without confirming the exact provider account and mode could expose a non-working or incorrectly scoped save-card flow.
+- **Acceptance subtasks:**
+  - [Deferred] Record authoritative Test activation for the exact account/key before enabling the capability.
+
+#### A11-c - Authenticated consent and owner-bound token creation lack positive acceptance
+
+- **Status:** Deferred; no customer token was created.
+- **Evidence:** The checkout has source/unit and unauthorized-request coverage, but no positive authenticated Home consent-and-token-creation run is recorded.
+- **Impact:** Without this check, we cannot show that consent is recorded and the provider token is attached only to the correct customer.
+- **Acceptance subtasks:**
+  - [Deferred] With exact Test activation, verify authenticated Home consent and create one Test token bound to that customer; do not persist PAN or CVV.
+
+#### A11-d - Saved-token list, reuse, deletion and CVV-less lifecycle lack provider acceptance
+
+- **Status:** Deferred until A11-b/A11-c are accepted.
+- **Evidence:** No positive Test token lifecycle or provider-backed CVV-less reuse is recorded.
+- **Impact:** A token that cannot be listed, reused or deleted as expected could confuse the customer or leave a saved payment method active after removal was requested.
+- **Acceptance subtasks:**
+  - [Deferred] Verify the same authenticated customer can list, reuse and delete the token, including the documented CVV-less path only if Razorpay supports it for this account.
+
+#### A11-e - Customer and Test/Live token isolation lack positive lifecycle acceptance
+
+- **Status:** Deferred until a Test token exists; no cross-customer or cross-mode token test is claimed.
+- **Impact:** Without this boundary check, one customer's saved payment method could be exposed to another customer or mixed between Test and Live.
+- **Acceptance subtasks:**
+  - [Deferred] Verify the token is unavailable to a different customer and cannot cross Test/Live mode boundaries.
+- **Dependency/disposition:** A11 remains deferred. Do not create/select provider tokens until exact Test activation and the bounded authenticated lifecycle can be exercised.
+
 **F65 current-status correction:** the following dated F65 paragraph's reference to SHA `8b768dd` and red CRM CI is historical. The current source/test SHA and all-green CI are `4c9374b1c9c7dcf4f75b9405b5d94b084f8efd30` / run `37009102219`; the observability limitations listed there remain open.
 
 ### A18 Findings
 
 #### A18-a - Recorded combined Test capture is not present in the approved local ledger
 
-- **Status:** Deferred; do not repeat payment under current read-only session rules.
+- **Status:** Deferred; one existing Test payment remains `created`, so a new combined order/payment was not started.
 - **Symptom and exact evidence:** The master plan recorded a Test capture split as ₹10 `ORDER` + ₹20 `FIELD_SERVICE`, with provider fee/tax and zero-balance reconciliation. A targeted read-only query explicitly verified the configured existing database host is loopback and database is `hangers_db`; among 21 local ₹30 payment records, zero allocations matched that source split. The local ledger therefore cannot substantiate the earlier combined-provider claim. No credentials or customer values were exposed.
+- **Subsequent bounded attempt (4 October; not acceptance):** A browser attempt was run against a disposable local database rather than the required existing `hangers_db`, using two ₹10 Home dry-cleaning invoices. It created Test Razorpay order `order_TjbIktlCpGOSJn`; Netbanking did not complete, and the server status remained CREATED/resumable with no payment ID. No capture or settlement occurred. The disposable database was removed after confirming it had no connections. This did not test the required ₹10 `ORDER` + ₹20 `FIELD_SERVICE` split and does not change A18's deferred status.
+- **Current-provider reconciliation (4 October; read-only):** Using a Test-key-only guard, one Razorpay Orders/Payments API fetch for `order_TiaTeUmJH7cAXm` returned order status `attempted`, amount 1000 paise, amount paid 0, amount due 1000, and two attempts. Its associated payments are `pay_TiaUIouvF2u0GD` (`failed`, not captured) and `pay_TiaVzcF9d1UMPF` (`created`, not captured). The matching local `hangers_db` checkout attempt is `PENDING` and bound to the `created` payment; the other existing Home attempts are `CREATED` with no payment IDs, and no local ledger payment is bound to these three orders. Razorpay's [Order API](https://razorpay.com/docs/api/orders/fetch-with-id/) documents that an `attempted` order remains in that state until a payment is captured; its [Payment API](https://razorpay.com/docs/api/payments/fetch-with-id/) lists `created` separately from `failed` and `captured`. This single read confirms no capture but does not establish a safe retry while the created payment remains unresolved.
 - **Impact and scope:** A18's actual combined provider capture/reconciliation acceptance is unproven. Existing disposable-CI evidence for immutable split, atomicity, stale/overlap/foreign rejection and duplicate protection remains valid, but is not real provider acceptance. This does not alter C03: dry-cleaning eligibility is a merchant/business-level rule, not a requirement that each fixture or source order be dry cleaning.
-- **Bounded remedy:** Keep A18 deferred and advance to A19 under the finite rule. Reconcile the original provider order/payment references against the existing local ledger only if that exact record becomes available. Do not create another invoice, payment, database or provider request to replace missing evidence in this read-only session.
+- **Bounded remedy:** Keep A18 deferred and advance to A19 under the finite rule. Do not create a second order or payment while the existing `created` payment is unresolved; do not poll the provider repeatedly. Revisit only if a new authoritative event/status becomes available, then reconcile the same order before considering any retry.
 - **Acceptance subtasks:**
   - [x] Verify the database target is the approved local `hangers_db`.
   - [x] Search existing ₹30 payment allocations for the recorded ₹10 `ORDER` + ₹20 `FIELD_SERVICE` split.
-  - [Deferred] Match original provider references to the existing ledger if authoritative matching data becomes available; otherwise retain the deferral without retrying payment.
+-  - [x] Reconcile the existing Home provider order/payments once in Test mode and match their IDs/status to the local checkout attempt; confirm zero provider amount paid and no local ledger payment.
+-  - [Deferred] Complete a combined Test capture only after the existing `created` payment reaches an authoritative terminal state; retain this limitation without creating another payment.
 - **Dependency/disposition:** Existing record/reference mismatch; no source defect was established, so no code change is justified.
+
+#### A18-b - Existing single-invoice Orders prevent a safe combined replacement
+
+- **Status:** Deferred; no attempt/order was changed and no replacement combined Order was created.
+- **Symptom and exact local evidence (4 October):** A read-only query guarded to `localhost/hangers_db` found eight active `TEST` attempts for the Home customer. Four belong to currently open invoices totaling ₹142 (₹120 `ORDER`, ₹22 `DAILY_IRON`): `CUSTOM-CARD-20261001-ONE` is `PENDING` for ₹10; `INV-001295` is `CREATED` for ₹22; `QA-CHECKOUT-46753DDC9F` is `CREATED` for ₹10; and `INV-001645` is `CREATED` for ₹100. Four other active attempts refer to invoices whose local status is already `PAID` (₹350, ₹180, ₹100, ₹100). Thus this is not one stale payment ID; prior single-invoice Orders cover the whole open balance and several older paid invoices.
+- **One bounded Test API pass:** Five previously unqueried Order IDs were fetched once, read-only, under a `rzp_test_` key guard. Combined with the three previously recorded one-time lookups in A18-a, the eight provider Orders are: `order_TgZ7zLrFteBLHM` (`attempted`, one `created` ₹350 payment); `order_TgbgvPlRPCIhxh` (`created`, zero attempts, ₹180); `order_Thf8bEW5mI6QNt` (`attempted`, one `created` ₹100 payment); `order_Thp3XNWFhxpEvp` (`attempted`, two `failed` plus one `created` ₹100 payment); `order_TiaTeUmJH7cAXm` (`attempted`, one `failed` plus one `created` ₹10 payment); `order_Timwn6m9HH1e4b` (`created`, zero attempts, ₹22); `order_TipQL42KJcTTvL` (`created`, zero attempts, ₹10); and `order_TjFIAfx304Nc12` (`created`, zero attempts, ₹100). Every payment amount-paid value is zero; none is captured. No further lookup is planned absent a provider event or new authoritative evidence.
+- **Source and contract evidence:** Combined checkout currently searches active attempts by `customerId` and blocks if any `CREATING`, `CREATED`, `AUTHORIZED`, `PENDING`, or `REVIEW` attempt exists (`hangers-backend/src/services/razorpay-invoice-checkout.service.js`, `createInvoiceCheckout`). The paid-invoice attempts contribute to that broad customer-level block; even if those were separated, the four unpaid invoices already have individual Orders, so issuing a combined replacement without invalidating them could leave two payable Orders against the same balances. Razorpay's Order API documents only `created`, `attempted`, and `paid`; `attempted` persists until capture. Its official Orders collection lists create/fetch/fetch-payments/update, and the published Update example changes only `notes`; no cancel/expire operation is documented in the checked Order API. Sources: [Fetch an Order With ID](https://razorpay.com/docs/api/orders/fetch-with-id/), [Razorpay Orders APIs](https://www.postman.com/razorpaydev/razorpay-public-workspace/folder/rcegvs2/orders-apis), [Update an Order](https://www.postman.com/razorpaydev/razorpay-public-workspace/request/c1mxvsh/update-an-order).
+- **Finite regression (4 October):** `node --test tests/razorpay-checkout-create-recovery-race.unit.test.js` passed 6/6. The added isolated mocked case seeds an active single-invoice attempt on a different invoice for the same customer, requests combined checkout, and verifies `CHECKOUT_ALREADY_IN_PROGRESS`, the matching attempt reference, preservation of its existing Razorpay Order ID, and zero provider `orders.create` calls. This proves the duplicate-order guard without changing local records or contacting Razorpay; it is not provider capture acceptance.
+- **Impact:** Silently ignoring these attempts could allow an old single-invoice checkout and a new customer-total checkout to both collect. A captured late payment against an already-paid invoice fails the CRM ledger-balance rule and goes to Finance review; that does not prevent the customer from being charged upstream. Do not weaken the block, mark an attempt failed locally, or treat a provider `created`/`attempted` Order as expired.
+- **Bounded remedy:** Ask Razorpay once whether a merchant can cancel/expire an unpaid Order (both `created` with zero attempts and `attempted` with nonterminal/failed payments), how that affects already-open Custom Checkout sessions, and what documented endpoint/dashboard action guarantees it can no longer accept a payment. If the provider confirms a supported mechanism, implement and test only that method before creating the single combined Test capture. If not, retain A18 as deferred and do not manufacture a success by clearing local attempts.
+- **Acceptance subtasks:**
+  - [x] Enumerate Home's active attempts and current invoice balances from the existing `localhost/hangers_db`, without exposing customer contact data.
+  - [x] Fetch the five previously unqueried Razorpay Test Orders once and combine their status with the three earlier order lookups; no capture/payment was submitted.
+  - [x] Trace the customer-level active-attempt guard and confirm why it blocks combined checkout.
+  - [x] Regression-test that an active single-invoice attempt on another invoice for the same customer blocks combined checkout before provider create; focused mocked recovery-race suite passes 6/6.
+  - [x] Check Razorpay's published Order states and update operation; no cancel/expire action was found in the reviewed Order API references.
+  - [Deferred] Obtain one authoritative Razorpay answer on invalidating unpaid Orders and existing Checkout sessions; do not issue a combined Order before a documented safe path exists.
+- **Dependency/disposition:** Provider lifecycle behavior for canceling an unpaid Order is not documented in the reviewed public API reference; this is a bounded provider clarification, not permission to weaken duplicate-payment protection.
 
 ### A19 Findings
 
-#### A19-a - Processed payment notification has no terminal outcome record
+#### A19-a - Processed historical payment notification has no correlated terminal outcome
 
-- **Status:** Deferred; no resend or outbox replay was performed.
-- **Symptom and exact evidence:** In the approved loopback `hangers_db`, the existing ₹10 Test payment is CAPTURED and has one posted ₹10 `ORDER` allocation, an invoice balance of zero, an issued receipt with one allocation, and a successful `RAZORPAY_PAYMENT_CAPTURE_POSTED` audit. One linked `PAYMENT_RECEIVED` outbox row is `PROCESSED`, with no recorded error, but the linked order stage is only `WHATSAPP_PENDING`. No provider-accepted, skipped, failed, or sent terminal notification stage was found.
+- **Status:** Deferred historical-data finding; parent A19 is complete under finite current-path acceptance. No resend or outbox replay was performed.
+- **Symptom and exact evidence:** In the approved local `hangers_db`, outbox event `cmup9ljgp0015gj56cdd7stjj` is a `PAYMENT_RECEIVED` row for the captured ₹10 Test payment; it is `PROCESSED`, has zero attempts and no stored error. The matching `WHATSAPP_PENDING` stage points to that event, but there is no terminal stage for the same event ID. A later `WHATSAPP_SENT` stage on the same order points to the separate `ORDER_UPDATED` event `cmupbqmle0001m2e722uk2a1t`, so it cannot establish the payment-message outcome.
+- **Current-path verification (4 October):** The separate captured Test invoice `CUSTOM-CARD-20261001-FINAL` reconciles to one ₹10 captured ledger payment, one posted allocation, PAID invoice, issued receipt `REC-002756`, successful `RAZORPAY_PAYMENT_CAPTURE_POSTED` audit, and exactly one `PAYMENT_RECEIVED` outbox row (`PROCESSED`, attempts=1, no error). Its `WHATSAPP_SENT` stage references the same outbox event ID, establishing provider acceptance for this representative current path, not handset delivery. Exact-HEAD CI run `37157076612` also verifies the Test capture queue/skip path (`QUEUED` then `SKIPPED`, zero Whatomate calls) and idempotent outbox contract. Together these satisfy A19's finite success/skip state acceptance without resolving the separate older event.
 - **Impact and scope:** The ledger, receipt and capture audit reconcile; the notification outcome does not. `PROCESSED` alone does not prove Whatomate accepted the message or that it reached the customer's handset. This finding does not authorize contacting the customer or replaying the event.
-- **Bounded remedy:** Keep A19 deferred. Reconcile the existing outbox/event and its stage using already available local evidence/logs only. Do not change payment state or resend a WhatsApp message to resolve missing historical evidence.
+- **Bounded remedy:** Keep this one historical event deferred and preserve its evidence. Do not change payment state, synthesize a terminal stage, or resend a WhatsApp message to infer what happened. The parent A19 remains complete because a distinct representative success path and the CI skip path meet the finite acceptance.
 - **Acceptance subtasks:**
   - [x] Verify the existing capture, posted allocation, zero balance and issued receipt.
   - [x] Verify the successful capture audit and linked outbox state.
   - [x] Compare the linked notification stage with the outbox terminal state; identify that only `WHATSAPP_PENDING` exists.
-  - [Deferred] Establish provider acceptance from an existing authoritative record if one is available; otherwise retain the limitation and do not replay.
+  - [x] Verify a separate current-path capture has a terminal stage correlated to its own processed payment outbox event; provider acceptance is not handset delivery.
+  - [Deferred] Recover the terminal outcome of this specific historical outbox event from an existing authoritative record, if available; otherwise retain the limitation. Do not replay it or synthesize a terminal stage.
 - **Dependency/disposition:** Missing terminal outcome evidence for this historical event; no current source defect or handset delivery is established.
 
 ### A22 Findings
@@ -603,6 +670,51 @@ Keep findings grouped under the A-item that exposed them. These Axx-letter entri
   - [x] Read local migration status without applying a migration; all 80 migrations are applied.
   - [Deferred] Establish retention/access policy, logger/persistence failure behavior and deployed-runtime telemetry under a separately bounded operational scope.
 - **Dependency/disposition:** Requires an approved organizational retention/access policy and deployed-runtime evidence; no guessed duration or access model is written.
+
+### A24 Findings
+
+#### A24-a - Exact-revision CI evidence is recorded
+
+- **Status:** Complete for the CI evidence recorded in the current task register; confirm the reviewed PR head again before release.
+- **Evidence:** The current register records both Backend and CRM CI jobs passing for PR #10's tested revision.
+- **Acceptance subtasks:**
+  - [x] Record passing exact-SHA Backend and CRM CI evidence.
+
+#### A24-b - PR review, approval and merge are outstanding
+
+- **Status:** Deferred; PR #10 is OPEN/Draft.
+- **Impact:** Shipping a draft or unreviewed revision could put unapproved code into the live payment path.
+- **Acceptance subtasks:**
+  - [Deferred] Obtain review/approval and merge only the revision whose CI was reviewed.
+
+#### A24-c - Production backup and guarded schema change are outstanding
+
+- **Status:** Deferred; no production backup or migration was performed.
+- **Impact:** A schema change without a verified recovery point could make payment records unavailable if deployment fails.
+- **Acceptance subtasks:**
+  - [Deferred] Verify the production backup and apply only the approved, guarded migration if the reviewed release requires it.
+
+#### A24-d - Production configuration and explicit activation are unverified
+
+- **Status:** Deferred; no production configuration or application activation was performed in this acceptance record.
+- **Impact:** Correct code can still fail or use the wrong mode if Live keys, webhook destination, or feature flags are misconfigured.
+- **Acceptance subtasks:**
+  - [Deferred] Verify the approved Live configuration, webhook endpoint settings and explicit feature activation without exposing credentials.
+
+#### A24-e - Approved revision has not been deployed
+
+- **Status:** Deferred; no production deployment was performed.
+- **Impact:** Passing CI does not change the running website; customers continue using the currently deployed version until a controlled release occurs.
+- **Acceptance subtasks:**
+  - [Deferred] Deploy the reviewed and approved revision through the documented release process.
+
+#### A24-f - Post-deployment checks and recovery readiness remain outstanding
+
+- **Status:** Deferred; no post-deployment health/reconciliation check was performed.
+- **Impact:** A deployment could appear successful while payment status, webhook delivery or invoice reconciliation is broken; without a recovery plan, restoring service takes longer.
+- **Acceptance subtasks:**
+  - [Deferred] Run the bounded post-deployment health and payment-reconciliation checks and confirm the documented recovery/rollback procedure.
+- **Dependency/disposition:** A24 remains deferred until the review and release gates above are completed. These child labels make existing gates explicit and do not add A-items to the finite plan.
 
 ## Acceptance Findings - 1 October 2026
 
@@ -680,11 +792,11 @@ Repair tracking: all ten scoped repair workers have returned their work and were
 
 The earlier note that logo sourcing and visual work were deferred to a separate UI phase is superseded by the user's later logo-inclusive checkout-design request. C05/C06/C10 visual implementation and acceptance are active work in the master plan, not deferred.
 
-The user supplied support reply #21192410, confirmed IIN activation and authorized public Razorpay-hosted artwork. F02's source/approval gate is resolved for the observed catalogue: four card networks, six UPI app brands and four wallet brands are recorded in `hangers-backend/src/services/razorpay-brand-assets.js`, and the checkout renders them by exact enabled/discovered identifiers. This is not provider acceptance or exhaustive artwork coverage; unknown identifiers stay visible as text and C10 remains partial until the active checkout is visually verified. F11 EMI fee interpretation and F35 listener-detachment contract remain the two Razorpay-response dependencies.
+The user supplied support reply #21192410, confirmed IIN activation and authorized public Razorpay-hosted artwork. The supplied design README prefers Razorpay CDN assets; the user's later explicit instruction approved first-party provider artwork for the three cardless providers unavailable on Razorpay's CDN. The backend catalogue now maps all 45 returned banks, five enabled networks, six wallets, two Pay Later providers and all 14 observed Cardless EMI identifiers. The 15 previously uncatalogued enabled bank codes returned image/gif at their exact Razorpay CDN paths; PayZapp and Ola Money returned image/png. CASHe, TVS Credit and LiquiLoans are copied unchanged from their official sites into CRM public assets, and each source file URL is recorded with its catalogue entry. No third-party aggregator or generated mark is used. The UI has no duplicate frontend logo catalogue, generated bank URL, alternate image retry, initials tile, or text-as-logo substitute; an absent or failed image is simply hidden. Source and regression assertions cover all 14 provider rows. C10 remains partial only for active Home-checkout visual acceptance. No payment, invoice/order or database write occurred for this artwork repair. F11 EMI fee interpretation and F35 listener-detachment contract remain unrelated Razorpay-response dependencies.
 
 New report-only finding: the current IIN documentation's supported-length table permits 6-8 digits for ordinary cards, but path guidance and `invalid_iin_length` examples describe six. Ticket #21192410 recommends eight; the user's subsequent instruction selects the documented 6-8 digit range. Frontend and backend now accept that range, with the browser prefix capped at eight and no guessed fallback. Later acceptance must verify the activated account's behavior and obtain clarification if it returns the documented length error. No live IIN request or test was run.
 
-Artwork coverage gap: discovery may return app identifiers for which the observed catalogue has no logo (for example BHIM or super_money). Preserve those supported choices as labelled controls; do not guess asset paths, hide supported apps or invent artwork. The active UI acceptance must verify current rendering and responsive design; the public dummy preview alone is not evidence that the production checkout is complete.
+The prior artwork coverage gap for `cshe`, `tvsc`, and `liquiloans` is resolved with first-party provider logos under the user's explicit approval. Keep the returned methods selectable; if an image fails, hide the image without a substitute. Focused method-row source assertions cover all 14 observed providers, but active browser acceptance has not run against an approved Home checkout URL. Do not bypass the Home-only guard.
 
 The user deferred EMI processing-fee interpretation (F11) pending Razorpay clarification and separately requires the SDK listener-detachment contract (F35) to be clarified. Logo asset sourcing is authorized and implemented for the observed catalogue, not pending a provider reply. These two remaining provider dependencies must not stop unrelated acceptance work. Current Orders API documentation describes multiple successful/failed attempts against one unpaid order and disallows further payments once paid. The previously claimed fresh-order warning could not be reproduced on re-read; F01's documentation-conflict rationale is withdrawn. Same-bound-unpaid-order retry is now written with authoritative evidence gates and retained historical payment references. Source review is not runtime acceptance or proof against every late-authorization race.
 
@@ -697,7 +809,7 @@ Official evidence for these repairs: [Customer fetch](https://razorpay.com/docs/
 | ID | Finding / dependency | Build treatment | Later follow-up |
 | --- | --- | --- | --- |
 | F01 | Earlier retry-conflict claim withdrawn after current Orders API re-read. | Same-bound unpaid-order retry implemented; no replacement order or timer-based proof. | Run the planned late-authorization/concurrency and complete-list evidence cases in the acceptance phase. |
-| F02 | Historical discovery-stage gap: approved network/app artwork source and identifier mapping were not yet established. | Resolved for the user-authorized observed Razorpay-hosted catalogue; the active C10 visual-coverage check remains partial. | Verify active checkout rendering and preserve labels for supported identifiers without a mapped asset. |
+| F02 | Historical discovery-stage gap: logo sourcing and identifier mapping were not connected to the revised UI. | Resolved in source: the backend catalogue maps all 14 observed Cardless EMI providers; the three Razorpay-CDN gaps use unchanged official CASHe, TVS Credit and LiquiLoans assets stored in CRM public assets with exact source URLs recorded. Source tests and mocked UI assertions cover all 14. C10 remains partial for active Home-checkout visual acceptance only. | No further logo-source task. Keep Home-only runtime acceptance separate; do not use a non-Home invoice to bypass the guard. |
 | F03 | IIN, tokenisation and bank-transfer activation are not established by ordinary method flags. | Build documented adapters and authenticated boundaries; distinguish unverified activation and provider outage. | Verify account prerequisites and execute the planned method cases. |
 | F04 | Actual UPI Intent/QR handoff and public webhook delivery cannot be established through mocked localhost checks. | Build the documented flows and consumers; retain mode/HTTPS gates. | Authorized supported-mode/device and public-delivery acceptance. |
 | F05 | Customer Fee Bearer configuration and method-specific fee accounting are not yet verified. | Do not fabricate fees or alter commercial settings. Keep explicit configuration/evidence boundary. | Resolve CFB/Intent compatibility and principal-versus-charge accounting before enabling CFB. |

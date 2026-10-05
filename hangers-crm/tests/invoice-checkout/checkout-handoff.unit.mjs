@@ -12,8 +12,10 @@ const compiled = ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022,
 } }).outputText
 const module = { exports: {} }
-new Function('require', 'module', 'exports', compiled)((name) => name.endsWith('.module.css')
-  ? { __esModule: true, default: {} } : require(name), module, module.exports)
+new Function('require', 'module', 'exports', compiled)((name) => {
+  if (name === './CheckoutMotion') return { __esModule: true, default: ({ fallback }) => fallback }
+  return name.endsWith('.module.css') ? { __esModule: true, default: {} } : require(name)
+}, module, module.exports)
 const render = (handoff) => renderToStaticMarkup(React.createElement(module.exports.default, { handoff }))
 
 test('UPI waits without an invented QR, countdown, app link or successful status', () => {

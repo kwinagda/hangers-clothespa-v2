@@ -1,6 +1,7 @@
 'use client'
 
 import { Banknote, Check, Landmark, LoaderCircle, Smartphone } from 'lucide-react'
+import CheckoutMotion from './CheckoutMotion'
 import styles from '../RazorpayCustomCheckout.module.css'
 
 export type Handoff = { method: string; label: string; upiMode?: 'qr' | 'intent'; stage: 'opening' | 'waiting' }
@@ -17,8 +18,14 @@ export default function CheckoutHandoff({ handoff }: { handoff: Handoff }) {
     : ['Payment submitted to Razorpay', 'Complete verification on the bank or provider page', 'Wait for your invoice to update after confirmation']
   return <section className={styles.handoff} aria-label="Payment in progress" aria-live="polite">
     <div className={styles.handoffHeader}>
-      {upi ? <span className={styles.waitRing} aria-hidden="true"><Smartphone size={30} /></span>
-        : <div className={styles.processingJourney} aria-hidden="true"><Banknote size={30} /><span /><Landmark size={30} /></div>}
+      <CheckoutMotion
+        src={upi && handoff.stage === 'waiting' ? '/checkout-motion/upi-waiting.mp4' : '/checkout-motion/payment-processing.mp4'}
+        className={styles.handoffMotion}
+        videoClassName={styles.handoffMotionVideo}
+        fallback={upi
+          ? <span className={styles.waitRing}><Smartphone size={30} /></span>
+          : <div className={styles.processingJourney}><Banknote size={30} /><span /><Landmark size={30} /></div>}
+      />
       <div><span className={styles.handoffBadge}>Awaiting confirmation</span><h2>{title}</h2></div>
     </div>
     <ol className={styles.handoffSteps}>{steps.map((step, index) => <li key={step}>

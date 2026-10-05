@@ -176,11 +176,14 @@
   align-items: center;
   justify-content: flex-end;
   gap: 5px;
-  max-width: 150px;
+  flex: 0 1 132px;
+  max-width: 132px;
+  overflow: hidden;
   color: #526b80;
   font-size: 11px;
 }
 
+.methodAssets .bankLogo { width: 28px; height: 23px; flex: 0 0 28px !important; }
 .methodAssets img {
   width: auto;
   max-width: 40px;
@@ -193,6 +196,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .methodAssets { flex-basis: 82px; max-width: 82px; gap: 3px; }
+  .methodAssets .bankLogo { width: 24px; height: 21px; flex-basis: 24px !important; }
 }
 
 .methodRadio {
@@ -331,6 +339,10 @@ label.fields {
 .successHeader { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .successHeader h2 { margin: 0; font-size: 26px; font-weight: 600; }
 .successHeader p { margin: 0; color: #6b7fa3; font-size: 13px; }
+.successMotion { display: grid; width: 128px; height: 128px; place-items: center; }
+.failureMotion { display: grid; flex: 0 0 88px; width: 88px; height: 88px; place-items: center; }
+.handoffMotion { display: grid; flex: 0 0 112px; width: 112px; height: 112px; place-items: center; overflow: hidden; border-radius: 16px; background: #fff; }
+.stateMotionVideo, .handoffMotionVideo { display: block; width: 100%; height: 100%; object-fit: contain; }
 .successVisual { position: relative; display: grid; width: 80px; height: 80px; place-items: center; }
 .successMark { position: relative; display: grid; width: 80px; height: 80px; place-items: center; border-radius: 50%; background: #0d7a4e; color: #fff; animation: successPop 450ms cubic-bezier(.2, 1.6, .4, 1) both; }
 .successMark svg path { stroke-dasharray: 24; animation: successTick 500ms ease-out 250ms both; }
@@ -384,6 +396,7 @@ label.fields {
 .processingJourney { display: flex; align-items: center; gap: 8px; color: #023c62; }
 .processingJourney span { position: relative; width: 48px; height: 2px; background: #dce8f0; }
 .processingJourney span::after { content: ''; position: absolute; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #035a8f; animation: paymentJourney 1.5s ease-in-out infinite; }
+.handoffMotion .waitRing { flex: 0 0 104px; }
 .handoffSteps { margin: 0; padding: 0; list-style: none; border: 1px solid #dce8f0; border-radius: 16px; overflow: hidden; }
 .handoffSteps li { display: flex; align-items: center; gap: 12px; padding: 16px; color: #1a2332; font-size: 14px; line-height: 1.5; }
 .handoffSteps li + li { border-top: 1px solid #dce8f0; }
@@ -481,6 +494,7 @@ label.fields {
   gap: 7px;
 }
 
+
 .brandChoices {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
@@ -524,7 +538,6 @@ label.fields {
 .bankLogo img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .selectedBank { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid #035a8f; border-radius: 12px; background: #e8f0f7; color: #023c62; }
 .selectedBank > span:nth-child(2) { flex: 1; }
-.bankInitials { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: #e8f0f7; color: #023c62; font-size: 12px; font-weight: 700; }
 .optionList { display: grid; gap: 8px; min-width: 0; margin: 16px 0; padding: 0; border: 0; }
 .optionList legend { margin-bottom: 8px; color: #3d5470; font-weight: 600; }
 .optionList .optionRow { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 16px; border: 1px solid #dce8f0; border-radius: 12px; cursor: pointer; background: #fff; }
@@ -541,15 +554,6 @@ label.fields {
 .bankResults button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 4px; border: 0; border-bottom: 1px solid #eef4f9; background: #fff; color: #023c62; cursor: pointer; text-align: left; }
 .bankResults button span { flex: 1; }
 
-.network {
-  padding: 4px 8px;
-  border: 1px solid #dce8f0;
-  border-radius: 6px;
-  background: #fff;
-  color: #23445c;
-  font-size: 11px;
-  font-weight: 700;
-}
 
 .actions {
   display: flex;
