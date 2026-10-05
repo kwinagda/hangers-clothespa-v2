@@ -650,6 +650,9 @@ test('rapid duplicate custom-checkout submits invoke the SDK payment method once
   await expect(page.getByRole('heading', { name: 'Complete your payment' })).toBeVisible()
   await page.getByRole('radio', { name: 'Netbanking' }).click()
   await expect(page.locator('input[name="bank"]')).toHaveValue('HDFC')
+  await page.getByRole('button', { name: 'Payment methods', exact: true }).click()
+  await page.getByRole('radio', { name: 'Netbanking' }).click()
+  await expect(page.locator('input[name="bank"]')).toHaveValue('HDFC')
   await expect(page.getByRole('button', { name: 'Pay ₹1' })).toBeEnabled()
   await page.locator('form').evaluate((form) => {
     const event = new Event('submit', { bubbles: true, cancelable: true })

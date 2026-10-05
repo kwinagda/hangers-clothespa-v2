@@ -856,6 +856,9 @@ test('custom checkout fits narrow mobile viewport without horizontal overflow', 
 })
 
 test('redesigned checkout keeps the summary and associated Pay control in the supplied responsive layout', async ({ page }) => {
+  await page.addInitScript(() => {
+    try { window.sessionStorage.setItem('hangers-checkout-intro', 'seen') } catch {}
+  })
   await installCustomCheckoutMock(page, false)
   await mockInvoicePaymentApi(page, [])
   await openLocalTestCheckout(page)
