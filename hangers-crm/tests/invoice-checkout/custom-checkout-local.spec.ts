@@ -983,7 +983,7 @@ test('bank search uses configured Razorpay artwork label for code-only returned 
   const trigger = page.getByRole('button', { name: 'Search all banks', exact: true })
   await trigger.click()
   const dialog = page.getByRole('dialog', { name: 'Choose your bank' })
-  const axisBank = dialog.getByRole('button', { name: 'Axis Bank', exact: true })
+  const axisBank = dialog.getByRole('button', { name: /^Axis Bank(?: Selected bank)?$/ })
   await expect(axisBank.locator('img')).toHaveAttribute('src', 'https://cdn.razorpay.com/bank/UTIB.gif')
   await expect(axisBank).toBeVisible()
 })
