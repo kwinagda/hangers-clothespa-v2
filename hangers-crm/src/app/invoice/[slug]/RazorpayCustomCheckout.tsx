@@ -817,7 +817,7 @@ export default function RazorpayCustomCheckout({
           <div className={styles.methodGroup}>
           {group.map((item) => (
             <label key={item.id} className={method === item.id ? `${styles.method} ${styles.methodSelected}` : styles.method}>
-              <input type="radio" aria-label={item.label} name="payment-method" value={item.id} checked={method === item.id} onClick={() => setMethodPage(item.id !== 'upi')} onChange={() => { setMethod(item.id); setError('') }} />
+              <input type="radio" aria-label={item.label} name="payment-method" value={item.id} checked={method === item.id} onChange={() => { setMethod(item.id); setMethodPage(item.id !== 'upi'); setError('') }} />
               {(() => { const Icon = methodIcon(item.id); return <span className={styles.methodIcon} aria-hidden="true"><Icon size={20} strokeWidth={1.8} /></span> })()}
               <span className={styles.methodCopy}>
                 <span className={styles.methodLabel}>{item.label}</span>

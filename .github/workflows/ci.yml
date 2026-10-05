@@ -161,10 +161,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: npx playwright test --config=playwright.combined-ci.config.ts custom-checkout-local.spec.ts --grep 'submits a Razorpay-enabled wallet|disabled numeric and null provider flags|submits an available card EMI plan|documented emi_plans response shape|submits cardless EMI only|redesigned checkout keeps the summary|redesign navigation returns|bank search filters'
 
-      - name: Verify bounded redesigned result screens
-        if: ${{ !cancelled() }}
-        run: npx playwright test --config=playwright.combined-ci.config.ts custom-checkout-local.spec.ts --grep 'redesign result screen'
-
       - name: Upload checkout visual QA captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -173,3 +169,7 @@ jobs:
           path: hangers-crm/test-results/checkout-redesign-*.png
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Verify bounded redesigned result screens
+        if: ${{ !cancelled() }}
+        run: npx playwright test --config=playwright.combined-ci.config.ts custom-checkout-local.spec.ts --grep 'redesign result screen'
