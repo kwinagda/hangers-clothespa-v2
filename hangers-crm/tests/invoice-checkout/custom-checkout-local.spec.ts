@@ -899,7 +899,9 @@ test('redesigned checkout keeps the summary and associated Pay control in the su
   await page.addInitScript(() => {
     try { window.sessionStorage.setItem('hangers-checkout-intro', 'seen') } catch {}
   })
-  await installCustomCheckoutMock(page, false)
+  await installCustomCheckoutMock(page, false, true, {
+    artwork: [{ kind: 'bank', code: 'SBIN', label: 'State Bank of India', url: 'https://cdn.razorpay.com/bank/SBIN.gif' }],
+  })
   await mockInvoicePaymentApi(page, [])
   await openLocalTestCheckout(page)
   await beginLocalCustomCheckout(page)
