@@ -232,6 +232,7 @@ export default function PickupRequestForm({ services, pickupTimeSlots }: { servi
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload?.message || 'Unable to submit pickup request.')
+      setConfirmed({ pieces: totalPieces, date: dateLabel, slot: slotLabel })
       form.reset()
       setCounts({}); setPhone(''); setOtpDigits(Array(6).fill('')); setOtpPhone(''); setVerificationToken(''); setVerificationExpiresAt(''); setOtpStatus('idle'); setCooldown(0); setStatus('success')
       window.sessionStorage.removeItem(PICKUP_VERIFICATION_KEY)
@@ -272,6 +273,7 @@ export default function PickupRequestForm({ services, pickupTimeSlots }: { servi
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [shake, setShake] = useState(false)
   const [formSuccess, setFormSuccess] = useState(false)
+  const [confirmed, setConfirmed] = useState<{ pieces: number; date: string; slot: string } | null>(null)
   const dateLabel = pickedDate ? new Date(pickedDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
   const slotLabel = pickedSlot ? (pickupTimeSlots.find((slot) => slot.value === pickedSlot)?.label || pickedSlot) : ''
 
@@ -357,8 +359,8 @@ export default function PickupRequestForm({ services, pickupTimeSlots }: { servi
       <style>{styles}</style>
       <VideoSlot clip="otpok" caption={false} />
       <h2>Pickup confirmed</h2>
-      <p>{totalPieces} items · {dateLabel} · {slotLabel}. We will confirm the collection window on WhatsApp.</p>
-      {message && <p className="form-message success">{message}</p>}
+      <p>{confirmed?.pieces ?? totalPieces} items · {confirmed?.date ?? dateLabel} · {confirmed?.slot ?? slotLabel}. We will confirm the collection window on WhatsApp.</p>
+      {message && <p className="booking-success-note">{message}</p>}
     </div>
   }
 
@@ -576,6 +578,7 @@ const styles = `
 .booking-success{display:grid;gap:18px;max-width:560px;margin:0 auto;text-align:center;color:#0b2536}
 .booking-success h2{margin:0;color:#023c62;font-size:clamp(28px,4vw,40px);letter-spacing:-.03em}
 .booking-success p{margin:0;color:#3d5668;font-size:17px;line-height:1.55}
+.booking-success-note{color:#3d5668 !important;font-size:16px !important}
 @media(max-width:900px){.booking{grid-template-columns:1fr;gap:28px}.booking-summary{position:static}}
 @media(max-width:600px){.booking-fields{grid-template-columns:1fr}.slot-toggles button{min-height:52px;font-size:14px;padding:0 6px}}
 @media(prefers-reduced-motion:reduce){.otp-boxes.shake,.picker-scrim,.picker{animation:none}}
