@@ -210,7 +210,7 @@ export default function PickupRequestForm({ services, pickupTimeSlots }: { servi
       setVerificationExpiresAt('')
       setOtpStatus('error')
       window.sessionStorage.removeItem(PICKUP_VERIFICATION_KEY)
-      setMessage(error instanceof Error ? error.message : 'The verification code could not be confirmed.')
+      setMessage('That code did not match. Try again.')
       otpInputs.current[0]?.focus()
       return null
     }
@@ -371,6 +371,7 @@ export default function PickupRequestForm({ services, pickupTimeSlots }: { servi
       </div>}
       <section id="step-items" className={`booking-step${sectionError('items') ? ' has-error' : ''}`}>
         <StepTitle number="01" title="What are we collecting?" required />
+        <p className="step-copy">Add approximate quantities so the team can prepare for collection. The final order is created only after intake.</p>
         {errors.items && <p className="field-error">{errors.items}</p>}
         <div className="service-counts">
           {services.map((service) => <div className="service-count" key={service.key}>
@@ -424,7 +425,7 @@ export default function PickupRequestForm({ services, pickupTimeSlots }: { servi
         {slotLabel && <div className="summary-line"><span>Time</span><strong>{slotLabel}</strong></div>}
       </> : <p className="summary-empty">Choose at least one item to see your request here.</p>}
       {status !== 'success' && <div className={`confirmation-flow ${verificationToken ? 'verified' : ''}`}>
-        <div className="confirmation-copy"><span><strong>Confirm your pickup</strong><small>{verificationToken ? `Mobile number +91 ${phone} is verified.` : otpPhone && otpPhone === phone ? `Enter the 6-digit OTP sent to +91 ${phone} on WhatsApp.` : 'We send a 6-digit code on WhatsApp to confirm your number.'}</small></span></div>
+        <div className="confirmation-copy"><span><strong>Confirm your pickup</strong><small>{verificationToken ? `Mobile number +91 ${phone} is verified.` : otpPhone && otpPhone === phone ? `Enter the 6-digit OTP sent to +91 ${phone} on WhatsApp.` : 'Confirm your pickup by verifying your mobile number. We’ll send a 6-digit OTP on WhatsApp.'}</small></span></div>
         {Boolean(otpPhone) && otpPhone === phone && !verificationToken && <div className="otp-entry">
           <span className="otp-label">6-digit OTP <b className="required-mark">*</b></span>
           <div className={`otp-boxes${shake ? ' shake' : ''}`} onPaste={pasteOtp}>
@@ -498,6 +499,7 @@ const styles = `
 .booking-step{padding-bottom:32px;border-bottom:1px solid #d6e2ec;border-radius:0}
 .booking-step:last-child{border:0}
 .booking-step.has-error{outline:2px solid #b3261e;outline-offset:10px;border-radius:12px}
+.step-copy{margin:-8px 0 18px;color:#3d5668;font-size:16px;line-height:1.55}
 .booking-step-title{display:flex;gap:13px;align-items:center;margin-bottom:20px}
 .booking-step-title span{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:#E8F0F7;color:#023c62;font-weight:700}
 .booking-step-title h2{margin:0;color:#023c62;font-size:clamp(22px,3vw,30px);letter-spacing:-.03em}

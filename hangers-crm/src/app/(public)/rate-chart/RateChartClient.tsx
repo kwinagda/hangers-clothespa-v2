@@ -138,7 +138,7 @@ export default function RateChartClient({ categories }: { categories: RateCatego
       </div>
     </div>
 
-    <p className="rate-result">{total ? `${shownFrom}–${shownTo} of ${total}` : '0 matching rates'}</p>
+    <p className="rate-result">{total ? `Showing ${shownFrom}–${shownTo} of ${total} matching ${view === 'garment' ? 'garments' : 'rates'}` : 'Showing 0 matching rates'}</p>
 
     {!filtered.length && <section className="rate-empty">No rates matched your search.</section>}
 
@@ -157,10 +157,10 @@ export default function RateChartClient({ categories }: { categories: RateCatego
 
     {filtered.length > 0 && <div className="rate-pager">
       <button className="rate-page-btn" type="button" disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
-      <div className="rate-page-count">{shownFrom}–{shownTo} of {total}</div>
+      <div className="rate-page-count">Page {safePage} / {totalPages}</div>
       <button className="rate-page-btn" type="button" disabled={safePage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
     </div>}
 
-    <p className="rate-note">Rates are subject to item and fabric inspection.</p>
+    <p className="rate-note">Final billing may vary for custom work, special handling, stain treatment, garment condition, or size.</p>
   </div>
 }
