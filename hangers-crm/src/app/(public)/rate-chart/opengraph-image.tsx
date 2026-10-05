@@ -1,7 +1,6 @@
-import { ImageResponse } from 'next/og'
+import { ogImage } from '@/lib/ogImage'
 import { SITE_URL } from '@/lib/seo'
 
-export const runtime = 'edge'
 export const alt = 'Hangers Clothes Spa Rate Chart'
 export const size = {
   width: 1200,
@@ -10,9 +9,9 @@ export const size = {
 export const contentType = 'image/png'
 
 export default function Image() {
-  const logoUrl = new URL('/brand/hangers-logo-blue.webp', SITE_URL).toString()
+  const logoUrl = new URL('/brand/hangers-logo-blue.png', SITE_URL).toString()
 
-  return new ImageResponse(
+  return ogImage(
     (
       <div
         style={{
