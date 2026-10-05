@@ -474,6 +474,12 @@ export default function RazorpayCustomCheckout({
   const preferredBankCodes = ['HDFC', 'ICIC', 'SBIN', 'UTIB', 'KKBK', 'YESB']
   const popularBanks = [...preferredBankCodes.filter((code) => banks.includes(code)), ...banks.filter((code) => !preferredBankCodes.includes(code))].slice(0, 6)
   const bankArtworkUrl = (code: string) => configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === code)?.url || razorpayBankLogoUrl(code)
+  const bankLabel = (code: string) => {
+    const returnedLabel = methods?.netbanking?.[code]
+    const artworkLabel = configuration?.artwork.find((asset) => asset.kind === 'bank' && asset.code === code)?.label
+    if (typeof returnedLabel === 'string' && returnedLabel.trim() && returnedLabel.toLowerCase() !== code.toLowerCase()) return returnedLabel
+    return artworkLabel || (typeof returnedLabel === 'string' && returnedLabel.trim() ? returnedLabel : code)
+  }
   const selectedPlan = plans.find((plan) => String(plan.duration) === emiDuration)
   const installment = selectedPlan && constructorRef.current?.emi?.calculator
     ? constructorRef.current.emi.calculator(order.amount, selectedPlan.duration, selectedPlan.rate) : null
@@ -892,7 +898,7 @@ export default function RazorpayCustomCheckout({
         {method === 'netbanking' && <div className={styles.fields}>
           <div className={styles.bankGrid} role="group" aria-label="Available banks">
             {popularBanks.map((code) => <button type="button" key={code} className={styles.brandChoice} aria-pressed={bank === code} onClick={() => setBank(code)}>
-              <BankLogo label={typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code} url={bankArtworkUrl(code)} /><span>{typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code}</span>{bank === code && <Check size={16} aria-label="Selected" />}
+              <BankLogo label={bankLabel(code)} url={bankArtworkUrl(code)} /><span>{bankLabel(code)}</span>{bank === code && <Check size={16} aria-label="Selected" />}
             </button>)}
           </div>
           <button ref={bankSearchTrigger} type="button" {...fieldProps('bank')} className={styles.bankSearch} onClick={() => {
@@ -901,8 +907,8 @@ export default function RazorpayCustomCheckout({
           }}><Search size={16} aria-hidden="true" />Search all banks</button>
           <input type="hidden" name="bank" value={bank} />
           {bank && !popularBanks.includes(bank) && <div className={styles.selectedBank} role="status">
-            <BankLogo label={typeof methods?.netbanking?.[bank] === 'string' ? methods.netbanking[bank] : bank} url={bankArtworkUrl(bank)} />
-            <span>{typeof methods?.netbanking?.[bank] === 'string' ? methods.netbanking[bank] : bank}</span><Check size={18} aria-label="Selected bank" />
+            <BankLogo label={bankLabel(bank)} url={bankArtworkUrl(bank)} />
+            <span>{bankLabel(bank)}</span><Check size={18} aria-label="Selected bank" />
           </div>}
           {fieldMessage('bank')}
           <dialog ref={bankDialog} className={styles.bankDialog} aria-labelledby={`${fieldErrorId}-bank-title`} onClose={() => bankSearchTrigger.current?.focus()} onClick={(event) => {
@@ -913,10 +919,10 @@ export default function RazorpayCustomCheckout({
             <div className={styles.bankDialogHeader}><h3 id={`${fieldErrorId}-bank-title`}>Choose your bank</h3><button type="button" aria-label="Close bank search" onClick={() => bankDialog.current?.close()}><X size={20} /></button></div>
             <label>Search banks<input type="search" value={bankQuery} onChange={(event) => setBankQuery(event.target.value)} autoComplete="off" autoFocus /></label>
             <div className={styles.bankResults}>
-              {banks.filter((code) => `${code} ${methods?.netbanking?.[code] || ''}`.toLowerCase().includes(bankQuery.toLowerCase())).map((code) => <button type="button" key={code} onClick={() => { setBank(code); bankDialog.current?.close() }}>
-                <BankLogo label={typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code} url={bankArtworkUrl(code)} /><span>{typeof methods?.netbanking?.[code] === 'string' ? methods.netbanking[code] : code}</span>{bank === code && <Check size={18} aria-label="Selected" />}
+              {banks.filter((code) => `${code} ${bankLabel(code)}`.toLowerCase().includes(bankQuery.toLowerCase())).map((code) => <button type="button" key={code} onClick={() => { setBank(code); bankDialog.current?.close() }}>
+                <BankLogo label={bankLabel(code)} url={bankArtworkUrl(code)} /><span>{bankLabel(code)}</span>{bank === code && <Check size={18} aria-label="Selected" />}
               </button>)}
-              {!banks.some((code) => `${code} ${methods?.netbanking?.[code] || ''}`.toLowerCase().includes(bankQuery.toLowerCase())) && <p role="status">No matching banks</p>}
+              {!banks.some((code) => `${code} ${bankLabel(code)}`.toLowerCase().includes(bankQuery.toLowerCase())) && <p role="status">No matching banks</p>}
             </div>
           </dialog>
         </div>}

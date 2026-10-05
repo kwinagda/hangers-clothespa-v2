@@ -159,7 +159,7 @@ jobs:
 
       - name: Verify bounded redesigned method controls
         if: ${{ !cancelled() }}
-        run: npx playwright test --config=playwright.combined-ci.config.ts custom-checkout-local.spec.ts --grep 'submits a Razorpay-enabled wallet|disabled numeric and null provider flags|submits an available card EMI plan|documented emi_plans response shape|submits cardless EMI only|redesigned checkout keeps the summary|redesign navigation returns|bank search filters'
+        run: npx playwright test --config=playwright.combined-ci.config.ts custom-checkout-local.spec.ts --grep 'submits a Razorpay-enabled wallet|disabled numeric and null provider flags|submits an available card EMI plan|documented emi_plans response shape|submits cardless EMI only|redesigned checkout keeps the summary|redesign navigation returns|bank search filters|bank search uses configured Razorpay artwork label'
 
       - name: Upload checkout visual QA captures
         if: always()

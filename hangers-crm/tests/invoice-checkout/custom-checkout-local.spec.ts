@@ -7,7 +7,12 @@ const orderNumber = process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_ORDER_NUMBER || ''
 const qaAmountPaise = Number(process.env.RAZORPAY_CUSTOM_CHECKOUT_QA_AMOUNT_PAISE || '18000')
 
 // All SDK/API responses below are contract mocks, not merchant activation or payment evidence.
-const installCustomCheckoutMock = async (page: import('@playwright/test').Page, mobile = true, ready = true) => {
+const installCustomCheckoutMock = async (
+  page: import('@playwright/test').Page,
+  mobile = true,
+  ready = true,
+  bankOptions: { netbanking?: Record<string, unknown>; artwork?: Array<{ kind: string; code: string; label: string; url: string }> } = {},
+) => {
   const methods = {
     card: true,
     card_networks: { VISA: 1, AMEX: 1, DICL: 0, MC: 1 },
@@ -15,7 +20,7 @@ const installCustomCheckoutMock = async (page: import('@playwright/test').Page, 
     upi_intent: true,
     emi: true,
     emi_subvention: 'customer',
-    netbanking: { HDFC: 'HDFC Bank', SBIN: 'State Bank of India' },
+    netbanking: bankOptions.netbanking || { HDFC: 'HDFC Bank', SBIN: 'State Bank of India' },
     wallet: { payzapp: true },
     emi_plans: {
       HDFC: { min_amount: 10000, plans: { 3: 12, 6: 12 } },
@@ -24,11 +29,12 @@ const installCustomCheckoutMock = async (page: import('@playwright/test').Page, 
     cardless_emi: { hdfc: true, zestmoney: true },
     paylater: { lazypay: true },
   }
-  await page.addInitScript(({ ready, methods }) => {
-    const testWindow = window as Window & { __customCheckoutNoReady?: boolean; __customCheckoutMethods?: Record<string, any> }
+  await page.addInitScript(({ ready, methods, artwork }) => {
+    const testWindow = window as Window & { __customCheckoutNoReady?: boolean; __customCheckoutMethods?: Record<string, any>; __customCheckoutArtwork?: typeof artwork }
     testWindow.__customCheckoutNoReady = !ready
     testWindow.__customCheckoutMethods = methods
-  }, { ready, methods })
+    testWindow.__customCheckoutArtwork = artwork
+  }, { ready, methods, artwork: bankOptions.artwork || [] })
   if (mobile) await page.addInitScript(() => {
     Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36' })
   })
@@ -42,9 +48,10 @@ const mockInvoicePaymentApi = async (page: import('@playwright/test').Page, veri
     const endpoint = path.split('/').pop()
     if (request.method() === 'GET' && endpoint === 'capabilities') {
       const methods = await page.evaluate(() => (window as any).__customCheckoutRestMethodsUnavailable ? null : (window as any).__customCheckoutMethods)
+      const artwork = await page.evaluate(() => (window as any).__customCheckoutArtwork || [])
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: {
         key: 'rzp_test_local_custom', mode: 'TEST', methods,
-        configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork: [], excludedCardNetworks: ['DICL'] },
+        configuration: { feeBearer: 'MERCHANT', savedCards: false, bankTransfer: false, artwork, excludedCardNetworks: ['DICL'] },
       } }) })
       return
     }
@@ -956,4 +963,27 @@ test('bank search filters, preserves focus and exposes the selected bank without
   await expect(dialog).not.toBeVisible()
   await expect(trigger).toBeFocused()
   await expect(page.getByRole('button', { name: /^Pay .* with Netbanking$/ })).toBeEnabled()
+})
+
+test('bank search uses configured Razorpay artwork label for code-only returned bank options', async ({ page }) => {
+  await installCustomCheckoutMock(page, false, true, {
+    netbanking: { UTIB: true },
+    artwork: [{ kind: 'bank', code: 'UTIB', label: 'Axis Bank', url: 'https://cdn.razorpay.com/bank/UTIB.gif' }],
+  })
+  await page.route('https://cdn.razorpay.com/bank/UTIB.gif', (route) => route.fulfill({
+    status: 200,
+    contentType: 'image/gif',
+    body: Buffer.from('R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', 'base64'),
+  }))
+  await mockInvoicePaymentApi(page, [])
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page)
+  await page.getByRole('radio', { name: 'Netbanking', exact: true }).check()
+
+  const trigger = page.getByRole('button', { name: 'Search all banks', exact: true })
+  await trigger.click()
+  const dialog = page.getByRole('dialog', { name: 'Choose your bank' })
+  const axisBank = dialog.getByRole('button', { name: 'Axis Bank', exact: true })
+  await expect(axisBank.locator('img')).toHaveAttribute('src', 'https://cdn.razorpay.com/bank/UTIB.gif')
+  await expect(axisBank).toBeVisible()
 })
