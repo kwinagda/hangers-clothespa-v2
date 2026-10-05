@@ -13,6 +13,17 @@ const money = (value: unknown) => {
   return Number.isFinite(amount) ? `₹${amount.toLocaleString('en-IN')}` : 'Unavailable'
 }
 
+const customerPhoneLabel = (value: unknown) => {
+  if (typeof value !== 'string' && typeof value !== 'number') return 'Unavailable'
+  const display = String(value).trim()
+  if (!display) return 'Unavailable'
+  if (display.startsWith('+91')) return display
+  const digits = display.replace(/\D/g, '')
+  if (digits.length === 10) return `+91 ${digits}`
+  if (digits.length === 12 && digits.startsWith('91')) return `+91 ${digits.slice(2)}`
+  return display
+}
+
 const dateLabel = (value: any) => {
   if (!value) return '—'
   const d = new Date(value)
@@ -146,7 +157,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             <div className="summary-meta-card">
               <div className="summary-label">Customer</div>
               <div className="summary-value">{summary.customer?.name || 'Unavailable'}</div>
-              <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{summary.customer?.phone || 'Unavailable'}</div>
+              <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{customerPhoneLabel(summary.customer?.phone)}</div>
             </div>
             <div className="summary-meta-card">
               <div className="summary-label">Total Billed</div>
@@ -510,7 +521,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           <div className="public-invoice-meta-card">
             <div className="public-invoice-meta-label">Customer</div>
             <div className="public-invoice-meta-value">{invoice.customer?.name || 'Unavailable'}</div>
-            <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{invoice.customer?.phone || 'Unavailable'}</div>
+            <div style={{ color: '#6b7fa3', fontSize: 13, marginTop: 3 }}>{customerPhoneLabel(invoice.customer?.phone)}</div>
           </div>
           <div className="public-invoice-meta-card">
             <div className="public-invoice-meta-label">Invoice Date</div>

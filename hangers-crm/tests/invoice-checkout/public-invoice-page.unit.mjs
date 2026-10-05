@@ -35,10 +35,11 @@ test('public service invoice shows source-backed service, appointment and moneta
     status: 'OPEN', paymentStatus: 'UNPAID', createdAt: '2026-09-01T00:00:00.000Z',
     subtotal: 1000, discount: 0, taxAmount: 0, totalAmount: 1000, paidAmount: 0, creditAmount: 0, balanceDue: 1000,
     serviceDate: '2026-10-01T00:00:00.000Z',
-    customer: { name: 'Home', phone: '+919930367267' },
+    customer: { name: 'Home', phone: '9930367267' },
     items: [{ serviceName: 'Curtain steam cleaning', garmentType: 'SERVICE', quantity: 1, unitPrice: 1000, subtotal: 1000 }],
   })
   assert.match(html, /Curtain steam cleaning/)
+  assert.match(html, /\+91 9930367267/)
   assert.match(html, /Service appointment/)
   assert.match(html, /INV-FS-1/)
   assert.doesNotMatch(html, /Sofa Cleaning|Total Clothes|Expected Delivery|Coupon Discount|Upcharge/)
@@ -51,4 +52,13 @@ test('unknown invoice amounts are not displayed as zero', async () => {
   })
   assert.match(html, /Unavailable/)
   assert.doesNotMatch(html, /₹0/)
+})
+
+test('an already international customer number is not prefixed with India twice', async () => {
+  const html = await render({
+    id: 'invoice-international', invoiceNumber: 'INV-INT', invoiceType: 'ORDER', orderNumber: 'HCS-INT',
+    status: 'OPEN', paymentStatus: 'UNPAID', customer: { name: 'Customer', phone: '+91 99303 67267' }, items: [],
+  })
+  assert.match(html, /\+91 99303 67267/)
+  assert.doesNotMatch(html, /\+91 \+91/)
 })
