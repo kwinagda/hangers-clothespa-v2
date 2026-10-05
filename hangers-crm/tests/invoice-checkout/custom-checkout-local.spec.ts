@@ -865,7 +865,8 @@ test('redesigned checkout keeps the summary and associated Pay control in the su
   await beginLocalCustomCheckout(page)
   for (const width of [1366, 390]) {
     await page.setViewportSize({ width, height: 900 })
-    await page.screenshot({ path: `test-results/checkout-redesign-methods-${width}.png`, fullPage: true })
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.screenshot({ path: `test-results/checkout-redesign-methods-${width}.png`, fullPage: width >= 900 })
   }
   await page.getByRole('radio', { name: 'Credit or debit card', exact: true }).check()
   await expect(page.getByRole('navigation', { name: 'Payment method', exact: true })).toContainText('Credit or debit card')
@@ -874,6 +875,7 @@ test('redesigned checkout keeps the summary and associated Pay control in the su
   await page.getByLabel('CVV', { exact: true }).fill('123')
   for (const width of [360, 390, 820, 1366, 1920]) {
     await page.setViewportSize({ width, height: 900 })
+    await page.evaluate(() => window.scrollTo(0, 0))
     const summary = page.getByRole('complementary', { name: 'Payment summary' })
     const pay = page.getByRole('button', { name: /^Pay / })
     await expect(pay).toBeEnabled()
@@ -886,13 +888,14 @@ test('redesigned checkout keeps the summary and associated Pay control in the su
     if (width >= 900) expect(summaryBox!.x).toBeGreaterThan(formBox!.x + formBox!.width)
     else expect(summaryBox!.y + summaryBox!.height).toBeLessThan(formBox!.y)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    await page.screenshot({ path: `test-results/checkout-redesign-${width}.png`, fullPage: true })
+    await page.screenshot({ path: `test-results/checkout-redesign-${width}.png`, fullPage: width >= 900 })
   }
   await page.getByRole('button', { name: 'Payment methods', exact: true }).click()
   await page.getByRole('radio', { name: 'Netbanking', exact: true }).check()
   await page.getByRole('button', { name: 'Search all banks' }).click()
   const dialog = page.getByRole('dialog', { name: 'Choose your bank' })
   await dialog.getByRole('searchbox', { name: 'Search banks' }).fill('State Bank')
+  await expect(dialog.locator('img')).toHaveAttribute('src', 'https://cdn.razorpay.com/bank/SBIN.gif')
   await dialog.getByRole('button', { name: 'State Bank of India' }).click()
   await expect(dialog).not.toBeVisible()
   await expect(page.locator('input[name="bank"]')).toHaveValue('SBIN')
