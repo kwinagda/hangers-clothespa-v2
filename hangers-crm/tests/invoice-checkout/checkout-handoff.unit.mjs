@@ -31,7 +31,7 @@ test('desktop QR guidance points to the provider payment window, not synthetic i
 })
 
 test('bank handoff uses the selected returned label and never collects bank credentials', () => {
-  assert.match(render({ method: 'netbanking', label: 'Returned Bank', stage: 'opening' }), /Connecting to Returned Bank/)
+  assert.match(render({ method: 'netbanking', label: 'Returned Bank', stage: 'opening' }), /Redirecting to Returned Bank/)
   const html = render({ method: 'netbanking', label: 'Returned Bank', stage: 'waiting' })
   assert.match(html, /Waiting for Returned Bank to confirm/)
   assert.match(html, /Complete bank authentication outside Hangers/)

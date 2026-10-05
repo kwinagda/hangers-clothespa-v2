@@ -93,7 +93,7 @@ Paths below are relative to `hangers-crm/src/app/invoice/[slug]`.
 - [x] Phase 0: inspect supplied inputs/current contracts; record screen ownership, conflicts, data sources and risks here.
 - [x] All phases authorized; proceed sequentially without further approval pauses. Contact action omitted pending number.
 - [x] Phase 1: shared shell/tokens; 360/390/820/1366/1920 layout test passes, TypeScript passes, checkout-scoped ESLint passes, invoice units 29/29 pass. Support action omitted. No payment/provider write.
-- [x] Phase 2: six returned non-UPI method pages/breadcrumbs, keyboard selection and modal-first Back pass. Result Back uses priority 2 and preserves server resume gates (3/3 state-render tests); authenticated-only Recommended presentation passes 3/3. These mocks do not prove provider-token activation/lifecycle.
+- [ ] Phase 2 (Partial): six returned non-UPI method pages/breadcrumbs and modal-first Back passed in the initial bounded run. Current CI `37231069849` contradicts keyboard completion: Space did not expose the expected card form, and the retained ArrowDown case still fails. Result Back and authenticated-only Recommended unit fixtures pass. Finite repair cap is exhausted; retain the exact keyboard gap rather than claim full acceptance or restart the bundle. Provider-token lifecycle is not proven by these mocks.
 - [x] Phase 3: real method controls, bank modal/artwork and ready-to-pay validation. Bounded redesign CI passes 8/8 at `9a9a629`; actual Test formatter/card readiness was observed in Kevin Chrome. Existing provider limitations are unchanged.
 - [ ] Phase 4: server-truthful handoff, status and result presentation.
 - [ ] Phase 5: specified CSS motion/reduced-motion without fake state transitions.
@@ -129,6 +129,10 @@ Closure update: exact-SHA CI run `37230448565` passes all eight bounded redesign
 - Countdown remains unimplemented: there is no verified provider expiry in the current UI contract. The legacy desktop SDK payload's timeout is not interpreted as an authoritative deadline or proof of failure. A decorative waiting ring must not pretend to count down. Inline QR/app reopen beyond the existing SDK focus operation remains unproven, not guessed.
 - Check-payment-status now says "Checking with Razorpay..." while the existing server read is in progress. Existing server observations/received timestamps stay visible in IST.
 - Required final result-screen comparison, not-completed retry presentation, genuine timeout evidence and Phase 4 browser fixtures remain open. This is not Phase 4 completion or a release claim.
+
+Continuation: failed/not-completed screens now hide payable controls while viewing the result. Retry and Choose another method first recover current server status and unlock only the same confirmed resumable order, or server-confirmed absence of any provider order/payment. A captured or unavailable lookup never unlocks retry. Cancellation alone is not a failed result: Not completed requires CREATE_FAILED or a server-confirmed resumable CREATED order without payment ID after local cancellation. Received-payment receipt rows use actual customer/invoice/order/payment references and omit invalid or missing capture timestamps. Technical provider details remain collapsed, including initial server-provided diagnostics. Focused result/handoff unit fixtures pass 9/9; three bounded CI result-screen cases are prepared, not yet accepted.
+
+CI `37231069849` (`79c73ef`) completed: backend and checkout type/lint/build/unit checks passed; retained browsers 25/26; redesign browsers 7/8. The new wallet handoff assertion passed. Phase 2 keyboard acceptance is now explicitly Partial. This is contradictory evidence, not a new task, token-budget reset or a reason for endless repair. Full CI remains red and Phase 6 cannot be closed from these runs.
 
 ## Phase 1 Evidence
 

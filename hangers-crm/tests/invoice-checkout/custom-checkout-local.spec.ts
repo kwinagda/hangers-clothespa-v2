@@ -523,6 +523,44 @@ test('local custom checkout submits a Razorpay-enabled wallet', async ({ page })
   await expect(page.getByRole('button', { name: 'Confirming payment...', exact: true })).toBeDisabled()
 })
 
+for (const result of ['CAPTURED', 'FAILED', 'CREATED'] as const) {
+test(`redesign result screen ${result} follows server status and checks before retry`, async ({ page }) => {
+  await installCustomCheckoutMock(page)
+  await mockInvoicePaymentApi(page, [])
+  let statusReads = 0
+  let resultEnabled = false
+  await page.route('**/payment/status?**', async (route) => {
+    statusReads += 1
+    const data = !resultEnabled ? { status: 'NONE' } : {
+      status: result, attemptId: 'attempt_custom_local_test', razorpayOrderId: 'order_custom_local_test',
+      canResumeCheckout: result !== 'CAPTURED',
+      ...(result === 'CAPTURED' ? { razorpayPaymentId: 'pay_custom_local_test', capturedAmountPaise: qaAmountPaise, currency: 'INR', capturedAt: '2026-10-05T00:00:00Z' } : {}),
+      ...(result === 'FAILED' ? { providerError: { code: 'BAD_REQUEST_ERROR', description: 'Returned test provider failure' } } : {}),
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data }) })
+  })
+  await openLocalTestCheckout(page)
+  await beginLocalCustomCheckout(page)
+  await expect(page.getByRole('button', { name: /^(Pay|Show QR for) / })).toBeEnabled()
+  resultEnabled = true
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  const title = result === 'CAPTURED' ? 'Payment received' : result === 'FAILED' ? 'Payment failed' : 'Payment not completed'
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^(Pay|Show QR for) / })).toHaveCount(0)
+  if (result === 'CAPTURED') {
+    await expect(page.getByRole('link', { name: 'View invoice and receipt details' })).toBeVisible()
+    await expect(page.locator('dl').filter({ hasText: 'Payment reference' })).toContainText('pay_custom_local_test')
+    await expect(page.getByRole('button', { name: /Retry|try again/ })).toHaveCount(0)
+  } else {
+    const before = statusReads
+    await page.getByRole('button', { name: result === 'FAILED' ? /^Retry / : 'Check status and try again' }).click()
+    await expect.poll(() => statusReads).toBeGreaterThan(before)
+    await expect(page.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible()
+    expect(await page.evaluate(() => (window as any).__customPayment)).toBeUndefined()
+  }
+})
+}
+
 test('disabled numeric and null provider flags are excluded from checkout options', async ({ page }) => {
   await installCustomCheckoutMock(page)
   await page.addInitScript(() => {

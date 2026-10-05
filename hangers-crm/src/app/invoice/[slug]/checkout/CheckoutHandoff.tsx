@@ -9,7 +9,9 @@ export default function CheckoutHandoff({ handoff }: { handoff: Handoff }) {
   const upi = handoff.method === 'upi'
   const title = upi
     ? handoff.upiMode === 'qr' ? 'Approve your UPI payment' : `Complete your payment in ${handoff.label}`
-    : handoff.stage === 'opening' ? `Connecting to ${handoff.label}` : `Waiting for ${handoff.label} to confirm`
+    : handoff.method === 'card' || handoff.method === 'emi'
+      ? handoff.stage === 'opening' ? 'Opening bank verification' : 'Waiting for your bank to confirm'
+      : handoff.stage === 'opening' ? `Redirecting to ${handoff.label}` : `Waiting for ${handoff.label} to confirm`
   const steps = upi
     ? [handoff.upiMode === 'qr' ? 'Scan the QR in the Razorpay payment window' : `Open ${handoff.label}`, 'Approve using your UPI PIN in the app', 'Return here for payment confirmation']
     : ['Payment submitted to Razorpay', 'Complete verification on the bank or provider page', 'Wait for your invoice to update after confirmation']

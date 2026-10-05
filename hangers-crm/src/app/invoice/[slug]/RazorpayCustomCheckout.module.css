@@ -334,6 +334,15 @@ label.fields {
 .successMark { display: grid; width: 80px; height: 80px; place-items: center; border-radius: 50%; background: #0d7a4e; color: #fff; animation: successPop 450ms ease-out both; }
 .paidAmount { color: #023c62; font-size: 40px; font-weight: 700; line-height: 1.1; }
 .result > a { display: flex; align-items: center; justify-content: center; min-height: 48px; margin-top: 20px; padding: 12px 16px; border-radius: 12px; background: #023c62; color: #fff; text-decoration: none; font-size: 14px; font-weight: 600; }
+.receiptRows { margin: 24px 0 0; padding: 4px 16px; border: 1px solid #dce8f0; border-radius: 16px; }
+.receiptRows > div { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 12px 0; font-size: 14px; }
+.receiptRows > div + div { border-top: 1px solid #dce8f0; }
+.receiptRows dt { color: #3d5470; }
+.receiptRows dd { margin: 0; min-width: 0; text-align: right; color: #1a2332; overflow-wrap: anywhere; }
+.terminalResult { display: flex; flex-direction: column; gap: 24px; padding: 24px; border: 1px solid #dce8f0; border-radius: 20px; background: #fff; animation: stateEnter 400ms ease-out both; }
+.terminalResult > .failureState { padding: 0; border: 0; border-radius: 0; animation: none; }
+.resultActions { display: flex; flex-wrap: wrap; gap: 12px; }
+.reviewState a { display: inline-flex; align-items: center; min-height: 44px; color: #023c62; font-weight: 600; }
 .reviewState, .failureState { display: flex; align-items: flex-start; gap: 16px; padding: 20px; border: 1px solid #dce8f0; border-radius: 20px; background: #fff; animation: stateEnter 400ms ease-out both; }
 .reviewState > svg, .failureState > svg { flex: 0 0 32px; color: #b35a00; }
 .failureState > svg { color: #c0392b; }

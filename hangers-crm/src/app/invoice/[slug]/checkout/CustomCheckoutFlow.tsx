@@ -10,6 +10,7 @@ import { checkoutRequestMessage, isInvoiceNotFound } from './checkout-errors'
 import { useCheckoutBack } from './CheckoutNavigation'
 import { CheckoutOrder, Configuration, Methods, ProviderError, checkoutRequest, money, providerError } from './razorpay-sdk'
 import { SITE_URL } from '@/lib/seo'
+import { Button } from '@/components/ui/Button'
 import styles from '../RazorpayCustomCheckout.module.css'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
@@ -57,6 +58,7 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
   const [invoiceUnavailable, setInvoiceUnavailable] = useState(false)
   const [checkedAt, setCheckedAt] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [cancelRequested, setCancelRequested] = useState(false)
   const [browseMethods, setBrowseMethods] = useState(false)
   const [offline, setOffline] = useState(false)
   const [retryAt, setRetryAt] = useState(0)
@@ -320,11 +322,27 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
   }
 
   const canPrepare = Boolean(!invoiceUnavailable && paymentAllowed && status && status.status !== 'CAPTURED' && !status.providerLookupUnavailable && (['NONE', 'CREATE_FAILED'].includes(status.status) || status.canResumeCheckout))
+  const notCompleted = Boolean(status && (status.status === 'CREATE_FAILED'
+    || (cancelRequested && status.status === 'CREATED' && status.canResumeCheckout && !status.razorpayPaymentId && !status.providerLookupUnavailable)))
+  const terminalResult = status?.status === 'FAILED' || notCompleted
+  const methodsVisible = !terminalResult || browseMethods
+  const visibleDiagnostic = diagnostic || status?.providerError
   const showForm = Boolean(capabilities && (canPrepare || order))
   const showPaymentReview = Boolean(!invoiceUnavailable && paymentAllowed && !loading && status?.attemptId && !status.canResumeCheckout
     && (status.providerLookupUnavailable || ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'].includes(status.status)))
   const provisional: CheckoutOrder | null = capabilities ? { key: capabilities.key, amount: amountPaise, currency: 'INR', razorpayOrderId: '' } : null
-  const resultVisible = status?.status === 'CAPTURED' || status?.status === 'FAILED' || showPaymentReview || submitted
+  const resultVisible = status?.status === 'CAPTURED' || terminalResult || showPaymentReview || submitted
+  const resumeMethods = async () => {
+    const latest = await recover(true)
+    if (!latest || latest.status === 'CAPTURED' || latest.providerLookupUnavailable) return
+    const sameOrder = Boolean(latest.canResumeCheckout && latest.razorpayOrderId && latest.razorpayOrderId === status?.razorpayOrderId)
+    const noOrder = ['NONE', 'CREATE_FAILED'].includes(latest.status) && !latest.razorpayOrderId && !latest.razorpayPaymentId
+    if (!sameOrder && !noOrder) return
+    setSubmitted(false)
+    setCancelRequested(false)
+    setMessage('')
+    setBrowseMethods(true)
+  }
   useCheckoutBack(2, () => {
     if (!resultVisible || browseMethods) return false
     setBrowseMethods(true)
@@ -338,15 +356,20 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
     if (submitted && showPaymentReview) reviewHeading.current?.focus()
   }, [submitted, showPaymentReview])
 
-  if (status?.status === 'CAPTURED' && !browseMethods) return <section className={styles.result} role="status">
+  if (status?.status === 'CAPTURED' && !browseMethods) return <section className={styles.result} role="status" aria-live="polite">
     <div className={styles.successHeader}>
     <span className={styles.successMark} aria-hidden="true"><CircleCheck size={46} strokeWidth={2} /></span>
     <h2 ref={receiptHeading} tabIndex={-1}>Payment received</h2>
     {status.capturedAmountPaise != null && Number.isSafeInteger(Number(status.capturedAmountPaise)) && status.currency
       ? <strong className={styles.paidAmount}>{money(Number(status.capturedAmountPaise), status.currency)}</strong> : <p>Your payment has been confirmed by Hangers.</p>}
-    {invoiceNumber && <p>Invoice {invoiceNumber}</p>}
-    {status.capturedAt && <p>{new Date(status.capturedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</p>}
+    {status.capturedAt && observationTime(status.capturedAt) && <p>Captured {observationTime(status.capturedAt)}</p>}
     </div>
+    <dl className={styles.receiptRows}>
+      {customerName && <div><dt>Customer</dt><dd>{customerName}</dd></div>}
+      {invoiceNumber && <div><dt>Invoice</dt><dd>{invoiceNumber}</dd></div>}
+      {orderNumber && <div><dt>Order</dt><dd>{orderNumber}</dd></div>}
+      {status.razorpayPaymentId && <div><dt>Payment reference</dt><dd>{status.razorpayPaymentId}</dd></div>}
+    </dl>
     {!!status.allocations?.length && <details className={styles.details}><summary>Paid invoice split</summary><ul>
       {status.allocations.map((item) => <li key={item.invoiceId}>{item.invoiceNumber}: {money(Number(item.amountPaise), status.currency || 'INR')}</li>)}
     </ul></details>}
@@ -374,28 +397,34 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
         ? <button type="button" className={styles.retry} disabled={busy || offline || retryAt > 0} onClick={() => { reloadMethods(); void recover() }}>Retry checking payment status</button>
         : <button type="button" className={styles.retry} disabled={offline || retryAt > 0} onClick={reloadMethods}>Reload payment methods</button>}
     </div>}
-    {status?.status === 'FAILED' && status.canResumeCheckout && !status.providerLookupUnavailable && <div className={styles.failureState} role="status">
-      <CircleX size={32} aria-hidden="true" /><div><h2>Payment failed</h2>
-      <p>{status.providerError?.description || 'Razorpay reports the previous attempt failed.'}</p>
-      <p>You can retry using the same checkout order.</p></div>
+    {terminalResult && !browseMethods && <div className={styles.terminalResult} role="status" aria-live="polite">
+      <div className={styles.failureState}>
+        <CircleX size={32} aria-hidden="true" /><div><h2>{notCompleted ? 'Payment not completed' : 'Payment failed'}</h2>
+        <p>{status?.providerError?.description || (notCompleted ? 'The checkout did not complete. Check the existing payment before trying again.' : 'Razorpay reports the previous attempt failed.')}</p></div>
+      </div>
+      {canPrepare ? <div className={styles.resultActions}>
+        <Button type="button" disabled={busy || offline || retryAt > 0} onClick={() => void resumeMethods()}>{busy ? 'Checking with Razorpay...' : notCompleted ? 'Check status and try again' : `Retry ${money(amountPaise)}`}</Button>
+        <Button type="button" variant="secondary" disabled={busy || offline || retryAt > 0} onClick={() => void resumeMethods()}>Choose another method</Button>
+      </div> : <p>Check payment status before trying again.</p>}
+      <p className={styles.handoffHint}>If your account shows a debit, keep the payment reference and contact Hangers before paying again.</p>
     </div>}
-    {(showForm || (browseMethods && capabilities)) && provisional && <RazorpayCustomCheckout order={order || provisional} invoiceNumber={invoiceNumber} orderNumber={orderNumber}
+    {(showForm || (browseMethods && capabilities)) && provisional && <div hidden={!methodsVisible}><RazorpayCustomCheckout order={order || provisional} invoiceNumber={invoiceNumber} orderNumber={orderNumber}
       customerName={customerName} customerPhone={customerPhone} apiBase={base} invoiceId={invoiceId}
-      configuration={capabilities!.configuration} onPrepare={canPrepare ? prepare : undefined}
-      readOnly={browseMethods && !canPrepare}
+      configuration={capabilities!.configuration} onPrepare={canPrepare && methodsVisible ? prepare : undefined}
+      readOnly={!methodsVisible || (browseMethods && !canPrepare)}
       showList={browseMethods}
-      onSubmitted={() => { setBrowseMethods(false); setSubmitted(true); setMessage('Complete the payment in your selected app or bank window.') }}
+      onSubmitted={() => { setCancelRequested(false); setBrowseMethods(false); setSubmitted(true); setMessage('') }}
       recoveryRequired={Boolean(offline || retryAt > 0 || methodsError || loadError || status?.providerLookupUnavailable || (status && !['NONE', 'CREATE_FAILED'].includes(status.status) && !status.canResumeCheckout))}
       onSuccess={(value) => void verify(value)} onError={(value) => {
         setDiagnostic(providerError(value)); setOrder(null); setSubmitted(true)
         setStatus((prior) => ({ ...prior, status: 'PENDING' }))
         setMessage(value?.error?.description || 'The payment result is unconfirmed. Check its status before retrying.')
         lastCheck.current = 0; void recover()
-      }} onCheckStatus={() => void recover()} onCancel={() => { setOrder(null); setSubmitted(true); void recover() }} />}
+      }} onCheckStatus={() => void recover()} onCancel={() => { setCancelRequested(true); setOrder(null); setSubmitted(true); void recover() }} /></div>}
     {showPaymentReview && !(submitted && order && !browseMethods) && <div className={styles.reviewState} role="status" aria-live="polite">
-      <Clock3 size={32} aria-hidden="true" /><div><h2 ref={reviewHeading} tabIndex={-1}>Payment status under review</h2><p>We are checking the existing payment. Do not pay again until its status is confirmed.</p></div>
+      <Clock3 size={32} aria-hidden="true" /><div><h2 ref={reviewHeading} tabIndex={-1}>Payment status under review</h2><p>We are checking the existing payment. Do not pay again until its status is confirmed.</p><Link href={`/invoice/${encodeURIComponent(slug)}`}>Back to invoice</Link></div>
     </div>}
-    {message && <p role="status" aria-live="polite">{message}</p>}
+    {message && !terminalResult && <p role="status" aria-live="polite">{message}</p>}
     {!!successReferences.length && <details className={styles.details}><summary>Unverified SDK success references</summary>
       <p>Received from the payment window, not proof of capture. Check payment status before paying again.</p>
       {successReferences.map((item, index) => <div key={index}>
@@ -407,10 +436,10 @@ export default function CustomCheckoutFlow({ slug, invoiceId, invoiceNumber, ord
       {status.razorpayOrderId && <p>Razorpay order: {status.razorpayOrderId}</p>}
       {status.razorpayPaymentId && <p>Razorpay payment: {status.razorpayPaymentId}</p>}
     </details>}
-    {diagnostic && <details className={styles.details}><summary>Razorpay response details</summary><dl>
-      {Object.entries(diagnostic).filter(([key]) => key !== 'metadata').map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}
-      {diagnostic.metadata?.order_id && <div><dt>Razorpay order</dt><dd>{diagnostic.metadata.order_id}</dd></div>}
-      {diagnostic.metadata?.payment_id && <div><dt>Razorpay payment</dt><dd>{diagnostic.metadata.payment_id}</dd></div>}
+    {visibleDiagnostic && <details className={styles.details}><summary>Razorpay response details</summary><dl>
+      {Object.entries(visibleDiagnostic).filter(([key]) => key !== 'metadata').map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}
+      {visibleDiagnostic.metadata?.order_id && <div><dt>Razorpay order</dt><dd>{visibleDiagnostic.metadata.order_id}</dd></div>}
+      {visibleDiagnostic.metadata?.payment_id && <div><dt>Razorpay payment</dt><dd>{visibleDiagnostic.metadata.payment_id}</dd></div>}
     </dl></details>}
     {retryAt > 0 && <p role="status">Payment requests are temporarily limited. Check again after {new Date(retryAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST.</p>}
     {checkedAt && <details className={styles.details}><summary>Last checked {checkedAt}</summary><p><small>{observationTime(status?.observedAt)
