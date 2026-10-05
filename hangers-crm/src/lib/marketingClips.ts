@@ -26,7 +26,7 @@ export const MARKETING_CLIPS: Record<MarketingClipId, MarketingClip> = {
   plans: { page: 'Monthly plans', slot: 'Below plan cards', title: 'How a monthly plan works', file: 'plans', ratio: '16/10', ready: true },
   zones: { page: 'Pickup zones', slot: 'Below marquee', title: 'Central Line route map', file: 'zones', ratio: '16/10', fileM: 'zones-m', ratioM: '4/5', ready: true },
   book: { page: 'Book a pickup', slot: 'Beside form (desktop) / top (mobile)', title: 'Book in about two minutes', file: 'book', ratio: '9/16', ready: true },
-  contact: { page: 'Contact', slot: 'Registered, not used (page uses CSS panel)', title: 'Find the shop', file: 'contact-v4', ratio: '16/10', ready: false },
+  contact: { page: 'Contact', slot: 'Below hero', title: 'Find the shop', file: 'contact-v4', ratio: '16/10', ready: true },
   about: { page: 'About', slot: 'Below intro', title: 'The Hangers approach', file: 'about', ratio: '16/10', ready: true },
   corporate: { page: 'Corporate accounts', slot: 'Below intro', title: 'Business plans and onboarding', file: 'corporate', ratio: '16/10', ready: true },
   faq: { page: 'FAQ', slot: 'Below intro', title: 'Quick answers', file: 'faq-v3', ratio: '16/9', ready: true },
