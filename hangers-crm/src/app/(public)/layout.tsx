@@ -1,10 +1,8 @@
 import '../public.css'
-import '@fontsource/space-grotesk/300.css'
-import '@fontsource/space-grotesk/400.css'
-import '@fontsource/space-grotesk/500.css'
-import '@fontsource/space-grotesk/600.css'
-import '@fontsource/space-grotesk/700.css'
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
-  return children
+  return <>
+    <link rel="preload" href="/fonts/space-grotesk-400.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+    {children}
+  </>
 }
