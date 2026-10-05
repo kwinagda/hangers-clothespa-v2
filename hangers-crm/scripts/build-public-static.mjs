@@ -129,7 +129,7 @@ const writeRoute = async (route, filePath, required = true) => {
 const writeAsset = async (assetPath) => {
   const response = await fetch(`${origin}${assetPath}`);
   if (!response.ok) throw new Error(`${assetPath} returned ${response.status}`);
-  const target = path.join(outDir, assetPath.replace(/^\//, ''));
+  const target = path.join(outDir, decodeURIComponent(assetPath).replace(/^\//, ''));
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const buffer = Buffer.from(await response.arrayBuffer());
   fs.writeFileSync(target, buffer);
