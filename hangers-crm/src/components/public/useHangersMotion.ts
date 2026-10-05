@@ -156,75 +156,96 @@ export function useHangersMotion(rootRef: RefObject<HTMLElement | null>, enabled
     let stop = false
     let last = performance.now(), marqueeOffset = 0
     let lastY = window.scrollY, vel = 0
+    let dirty = true
+    const markDirty = () => { dirty = true }
+    window.addEventListener('scroll', markDirty, { passive: true })
+    window.addEventListener('resize', markDirty)
+    cleanups.push(() => window.removeEventListener('scroll', markDirty))
+    cleanups.push(() => window.removeEventListener('resize', markDirty))
+    const parEls = $$<HTMLElement>('[data-par]')
+    const marqEls = $$<HTMLElement>('[data-marq]')
+    const scrubEls = $$<HTMLElement>('[data-scrub]').map((el) => ({ el, words: Array.from(el.querySelectorAll<HTMLElement>('span')) }))
+    const spinEls = $$<HTMLElement>('[data-spin]')
+    const fillEls = $$<HTMLElement>('[data-fill]')
+    const heroEl = root.querySelector<HTMLElement>('[data-hero]')
+    const lineEls = $$<HTMLElement>('[data-line]')
+    const hangerEl = root.querySelector<SVGGElement>('[data-hanger]')
+    const hangerPaths = hangerEl ? Array.from(hangerEl.querySelectorAll<SVGPathElement>('path')).map((path) => ({ path, len: path.getTotalLength() })) : []
+    const pinEl = root.querySelector<HTMLElement>('[data-pin]')
+    const stepEls = $$<HTMLElement>('[data-step]')
+    const railEls = $$<HTMLElement>('[data-rail]')
+    const railFill = root.querySelector<HTMLElement>('[data-railfill]')
+    const marqHalf = new Map<HTMLElement, number>()
+    const measureMarquee = () => marqEls.forEach((m) => marqHalf.set(m, m.scrollWidth / 2))
+    measureMarquee()
+    document.fonts?.ready.then(measureMarquee)
+    window.addEventListener('resize', measureMarquee)
+    cleanups.push(() => window.removeEventListener('resize', measureMarquee))
     const loop = (t: number) => {
       if (stop) return
       const dt = t - last; last = t
       const vh = window.innerHeight, y = window.scrollY
-      vel += ((y - lastY) - vel) * 0.1; lastY = y
+      vel += ((y - lastY) - vel) * 0.1
+      if (Math.abs(vel) > 0.01) dirty = true
+      lastY = y
       if (useCursor && ring && dot) {
-        rx += (mx - rx) * 0.18; ry += (my - ry) * 0.18
+        const cx = rx + (mx - rx) * 0.18, cy = ry + (my - ry) * 0.18
+        if (Math.abs(cx - rx) > 0.05 || Math.abs(cy - ry) > 0.05) dirty = true
+        rx = cx; ry = cy
         ring.style.transform = `translate(${rx}px,${ry}px)`
         dot.style.transform = `translate(${mx}px,${my}px)`
       }
-      if (!reduce) {
-        $$<HTMLElement>('[data-par]').forEach((el) => {
+      if (!reduce && marqEls.length) {
+        marqueeOffset += dt * 0.06 + Math.abs(vel) * 0.5
+        marqEls.forEach((m) => {
+          const half = marqHalf.get(m) ?? 0
+          if (half > 0) m.style.transform = `translateX(${-(marqueeOffset % half)}px)`
+        })
+      }
+      if (dirty && !reduce) {
+        dirty = false
+        parEls.forEach((el) => {
           const r = el.getBoundingClientRect()
           if (r.bottom < -200 || r.top > vh + 200) return
           el.style.transform = `translateY(${(r.top + r.height / 2 - vh / 2) * -parseFloat(el.dataset.par || '0')}px)`
         })
-        marqueeOffset += dt * 0.06 + Math.abs(vel) * 0.5
-        $$<HTMLElement>('[data-marq]').forEach((m) => {
-          const half = m.scrollWidth / 2
-          if (half > 0) m.style.transform = `translateX(${-(marqueeOffset % half)}px)`
-        })
-      }
-      if (!reduce) {
-        $$<HTMLElement>('[data-scrub]').forEach((el) => {
-          const words = el.querySelectorAll<HTMLElement>('span')
+        scrubEls.forEach(({ el, words }) => {
           const r = el.getBoundingClientRect()
           if (r.bottom < 0 || r.top > vh) return
           const p = clamp((vh * 0.85 - r.top) / (r.height + vh * 0.35))
           const n = Math.round(p * words.length)
           words.forEach((w, i) => { w.style.opacity = i < n ? '1' : '.16' })
         })
-        $$<HTMLElement>('[data-spin]').forEach((el) => { el.style.transform = `rotate(${y * +(el.dataset.spin || 0)}deg)` })
-        $$<HTMLElement>('[data-fill]').forEach((el) => {
+        spinEls.forEach((el) => { el.style.transform = `rotate(${y * +(el.dataset.spin || 0)}deg)` })
+        fillEls.forEach((el) => {
           const r = el.getBoundingClientRect()
           el.style.transform = `scaleX(${clamp((vh * 0.9 - r.top) / (vh * 0.6))})`
         })
-      }
-      if (!reduce) {
-        const hero = root.querySelector<HTMLElement>('[data-hero]')
-        if (hero) {
-          const r = hero.getBoundingClientRect()
+        if (heroEl) {
+          const r = heroEl.getBoundingClientRect()
           const p = clamp(-r.top / (r.height - vh))
-          $$<HTMLElement>('[data-line]').forEach((line) => {
+          lineEls.forEach((line) => {
             const i = +(line.dataset.line || 0)
             const k = clamp(1.3 - Math.abs(p * 3 - (i + 0.5)))
             line.style.opacity = String(0.16 + 0.84 * k)
             line.style.transform = `translateX(${(1 - k) * 12}px)`
           })
-          const hanger = root.querySelector<SVGGElement>('[data-hanger]')
-          const paths = hanger ? Array.from(hanger.querySelectorAll<SVGPathElement>('path')) : []
-          paths.forEach((path) => {
-            const len = path.getTotalLength()
+          hangerPaths.forEach(({ path, len }) => {
             path.style.strokeDasharray = String(len)
             path.style.strokeDashoffset = String(len * (1 - clamp(p * 1.8)))
           })
         }
-        const pin = root.querySelector<HTMLElement>('[data-pin]')
-        if (pin) {
-          const r = pin.getBoundingClientRect()
+        if (pinEl) {
+          const r = pinEl.getBoundingClientRect()
           const p = clamp(-r.top / (r.height - vh))
           const idx = Math.min(3, Math.floor(p * 4))
-          $$<HTMLElement>('[data-step]').forEach((s) => {
+          stepEls.forEach((s) => {
             const n = +(s.dataset.step || 0), on = n === idx
             s.style.opacity = on ? '1' : '0'
             s.style.transform = on ? 'none' : n < idx ? 'translateY(-40px)' : 'translateY(40px)'
           })
-          $$<HTMLElement>('[data-rail]').forEach((s) => { s.style.opacity = +(s.dataset.rail || 0) <= idx ? '1' : '.35' })
-          const fill = root.querySelector<HTMLElement>('[data-railfill]')
-          if (fill) fill.style.height = `${p * 100}%`
+          railEls.forEach((s) => { s.style.opacity = +(s.dataset.rail || 0) <= idx ? '1' : '.35' })
+          if (railFill) railFill.style.height = `${p * 100}%`
         }
       }
       requestAnimationFrame(loop)

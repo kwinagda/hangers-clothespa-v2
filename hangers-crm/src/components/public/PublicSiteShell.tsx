@@ -45,16 +45,19 @@ export default function PublicSiteShell({ profile, children }: { profile: Public
   const toggleRef = useRef<HTMLButtonElement>(null)
   useEffect(() => { setMenuOpen(false) }, [pathname])
   useEffect(() => {
-    const onScroll = () => {
+    let frame = 0
+    const update = () => {
+      frame = 0
       const y = window.scrollY
       const max = document.documentElement.scrollHeight - window.innerHeight
       setScrollY(y)
       setProgress(max > 0 ? Math.min(1, Math.max(0, y / max)) : 0)
     }
-    onScroll()
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(update) }
+    update()
     window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('resize', onScroll)
-    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll) }
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll) }
   }, [])
   useEffect(() => {
     if (stripRef.current) setStripHeight(stripRef.current.offsetHeight)
