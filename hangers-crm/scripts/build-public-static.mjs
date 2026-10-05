@@ -103,8 +103,26 @@ const fileRoutes = [
 const staticAssetUrls = new Set();
 const ASSET_ATTR_RE = /(?:src|href)="(\/_next\/static\/[^"]+)"/g;
 
+const hashedOgRoute = (route) => {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.resolve('.next/app-path-routes-manifest.json'), 'utf8'));
+    for (const key of Object.keys(manifest)) {
+      const normalized = key.replace(/^\/\(public\)/, '').replace(/\/route$/, '');
+      const match = normalized.match(/^(.*\/opengraph-image)-([a-z0-9]+)$/);
+      if (!match) continue;
+      const pattern = new RegExp('^' + match[1].split(/\[[^\]]+\]/).map((part) => part.replace(/[.*+?^${}()|\\]/g, '\\$&')).join('[^/]+') + '$');
+      if (pattern.test(route)) return `${route}-${match[2]}`;
+    }
+  } catch {}
+  return null;
+};
+
 const writeRoute = async (route, filePath, required = true) => {
-  const response = await fetch(`${origin}${route}`);
+  let response = await fetch(`${origin}${route}`);
+  if (!response.ok && route.endsWith('/opengraph-image')) {
+    const hashed = hashedOgRoute(route);
+    if (hashed) response = await fetch(`${origin}${hashed}`);
+  }
   if (!response.ok) {
     if (required) throw new Error(`${route} returned ${response.status}`);
     console.warn(`Skipping optional ${route}: ${response.status}`);
