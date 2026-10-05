@@ -152,6 +152,7 @@ export default function RazorpayCustomCheckout({
   const [bankQuery, setBankQuery] = useState('')
   const bankDialog = useRef<HTMLDialogElement>(null)
   const bankSearchTrigger = useRef<HTMLButtonElement>(null)
+  const methodDetailsHeading = useRef<HTMLHeadingElement>(null)
   const [wallet, setWallet] = useState('')
   const [provider, setProvider] = useState('')
   const [upiApp, setUpiApp] = useState('')
@@ -219,6 +220,11 @@ export default function RazorpayCustomCheckout({
     requestAnimationFrame(() => formRef.current?.querySelector<HTMLInputElement>(`input[name="payment-method"][value="${method}"]`)?.focus())
   }
   useEffect(() => { if (readOnly || showList) setMethodPage(false) }, [readOnly, showList])
+  useEffect(() => {
+    if (!methodPage) return
+    const frame = requestAnimationFrame(() => methodDetailsHeading.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [methodPage, method])
   useCheckoutBack(3, () => {
     if (!bankDialog.current?.open) return false
     bankDialog.current.close()
@@ -833,7 +839,7 @@ export default function RazorpayCustomCheckout({
         </fieldset>
 
         {method && methodPage && <section className={styles.methodDetails} aria-labelledby={`${fieldErrorId}-selected-method`}>
-        <h4 className={styles.methodDetailsHeading} id={`${fieldErrorId}-selected-method`}>{availableMethods.find((item) => item.id === method)?.label || 'Selected payment'} details</h4>
+        <h4 ref={methodDetailsHeading} tabIndex={-1} className={styles.methodDetailsHeading} id={`${fieldErrorId}-selected-method`}>{availableMethods.find((item) => item.id === method)?.label || 'Selected payment'} details</h4>
         {(method === 'card' || method === 'emi') && <div className={styles.fields}>
           {method === 'card' && savedCard?.sdk.token ? <>
             <p>{savedCard.network || 'Card'} ending {savedCard.last4}</p>
