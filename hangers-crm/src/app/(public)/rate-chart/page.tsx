@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     type: 'website',
     images: [
       {
-        url: '/rate-chart/opengraph-image',
+        url: '/rate-chart/opengraph-image?v=2',
         width: 1200,
         height: 630,
         alt: 'Hangers Clothes Spa Rate Chart',
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Hangers Clothes Spa Rate Chart',
     description: 'Search garment care prices by garment or service category.',
-    images: ['/rate-chart/opengraph-image'],
+    images: ['/rate-chart/opengraph-image?v=2'],
   },
 }
 
