@@ -1,6 +1,8 @@
 'use client'
 
 import MarketingPage from './MarketingPage'
+import VideoSlot from './VideoSlot'
+import type { MarketingClipId } from '@/lib/marketingClips'
 import type { PublicSiteProfile } from '@/lib/publicSite'
 import type { Crumb } from '@/lib/schema'
 
@@ -42,11 +44,12 @@ const CONTENT_CSS = `
 @media(max-width:560px){.dp-facts{grid-template-columns:1fr}.dp-map{min-height:320px}}
 `
 
-export function PublicContentPage({ profile, crumbs, title, intro, heroActions, children }: { profile: PublicSiteProfile; crumbs: Crumb[]; title: string; intro: string; dark?: boolean; heroActions?: React.ReactNode; children: React.ReactNode }) {
+export function PublicContentPage({ profile, crumbs, title, intro, heroActions, clip, children }: { profile: PublicSiteProfile; crumbs: Crumb[]; title: string; intro: string; dark?: boolean; heroActions?: React.ReactNode; clip?: MarketingClipId; children: React.ReactNode }) {
   return <MarketingPage profile={profile} crumbs={crumbs} title={title} intro={intro}>
     <style>{CONTENT_CSS}</style>
     <div className="dp-body">
       {heroActions && <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>{heroActions}</div>}
+      {clip && <section style={{ paddingBottom: 24 }}><VideoSlot clip={clip} /></section>}
       {children}
     </div>
   </MarketingPage>

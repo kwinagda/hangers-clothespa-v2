@@ -32,7 +32,7 @@ export default async function SuburbPage({ params }: { params: Promise<{ suburb:
     })),
   } : null
 
-  return <PublicContentPage profile={profile} crumbs={[{label:'Home',href:'/'},{label:'Pickup zones',href:'/pickup-zones'},{label:page.suburbName}]} title={page.title} intro={page.intro}>
+  return <PublicContentPage profile={profile} clip="zones" crumbs={[{label:'Home',href:'/'},{label:'Pickup zones',href:'/pickup-zones'},{label:page.suburbName}]} title={page.title} intro={page.intro}>
     {faqSchema && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema).replace(/</g, '\\u003c') }} />}
     <section className="dp-split">
       <div>
