@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next'
-import './globals.css'
 import QueryProvider from '@/providers/QueryProvider'
 import TextInputCapitalizer from '@/components/TextInputCapitalizer'
 import { DEFAULT_DESCRIPTION, SITE_NAME, SITE_URL } from '@/lib/seo'
