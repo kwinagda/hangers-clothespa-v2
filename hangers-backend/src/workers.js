@@ -66,7 +66,7 @@ const drainRazorpayPaymentReconciliation = async () => {
   try {
     await processQueuedRazorpayPaymentReconciliation();
   } catch (err) {
-    console.error('[workers] queued Razorpay reconciliation failed:', err?.code || 'PROVIDER_ERROR');
+    console.error('[workers] queued Razorpay reconciliation failed:', err?.code || '[no error code]');
   } finally {
     razorpayPaymentReconciliationRunning = false;
   }
@@ -85,10 +85,10 @@ const reconciliationTimer = setInterval(() => runScheduledFinancialReconciliatio
   console.error('[workers] scheduled reconciliation failed:', err?.message || err);
 }), 60 * 60 * 1000);
 const razorpayPaymentReconciliationTimer = setInterval(() => runScheduledRazorpayPaymentReconciliation().catch((err) => {
-  console.error('[workers] scheduled Razorpay reconciliation failed:', err?.code || 'PROVIDER_ERROR');
+  console.error('[workers] scheduled Razorpay reconciliation failed:', err?.code || '[no error code]');
 }), 60 * 60 * 1000);
 const razorpaySettlementReconciliationTimer = setInterval(() => enqueueScheduledRazorpaySettlementReconciliation().catch((err) => {
-  console.error('[workers] scheduled Razorpay settlement reconciliation failed:', err?.code || 'PROVIDER_ERROR');
+  console.error('[workers] scheduled Razorpay settlement reconciliation failed:', err?.code || '[no error code]');
 }), 15 * 60 * 1000);
 drainOutbox();
 drainRazorpayWebhooks();
@@ -97,10 +97,10 @@ runScheduledFinancialReconciliation().catch((err) => {
   console.error('[workers] initial reconciliation failed:', err?.message || err);
 });
 runScheduledRazorpayPaymentReconciliation().catch((err) => {
-  console.error('[workers] initial Razorpay reconciliation failed:', err?.code || 'PROVIDER_ERROR');
+  console.error('[workers] initial Razorpay reconciliation failed:', err?.code || '[no error code]');
 });
 enqueueScheduledRazorpaySettlementReconciliation().catch((err) => {
-  console.error('[workers] initial Razorpay settlement reconciliation failed:', err?.code || 'PROVIDER_ERROR');
+  console.error('[workers] initial Razorpay settlement reconciliation failed:', err?.code || '[no error code]');
 });
 
 const shutdown = async (signal) => {

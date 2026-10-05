@@ -102,7 +102,6 @@ const verifyRazorpayPayment = async (req, res) => {
     razorpayOrderId,
     razorpayPaymentId,
     razorpaySignature,
-    amount,
   } = req.body;
   const customerId = req.customer.id;
 
@@ -125,23 +124,16 @@ const verifyRazorpayPayment = async (req, res) => {
 
     const existingPayment = await prisma.payment.findFirst({
       where: { razorpayPaymentId },
-      select: { id: true, orderId: true },
+      select: { id: true, orderId: true, razorpayOrderId: true, amount: true, status: true },
     });
-    if (existingPayment) {
-      if (existingPayment.orderId === orderId) {
-        return success(res, {
-          paymentId: existingPayment.id,
-          orderNumber: order.orderNumber,
-          amount: balanceDue,
-          method: 'RAZORPAY',
-          status: 'CAPTURED',
-        }, 'Payment already recorded');
-      }
+    if (existingPayment && existingPayment.orderId !== orderId) {
       return badRequest(res, 'This Razorpay payment ID is already linked to a different order');
     }
 
-    let verifiedAmount = balanceDue;
-    if (!isDevMode()) {
+    // A simulator response cannot provide authoritative capture evidence.
+    if (isDevMode()) return badRequest(res, 'Configured Razorpay capture verification is required');
+    let verifiedAmount;
+    {
       const body = `${razorpayOrderId}|${razorpayPaymentId}`;
       const expected = crypto
         .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
@@ -157,12 +149,24 @@ const verifyRazorpayPayment = async (req, res) => {
       // Never trust the amount from the browser. Confirm the captured payment
       // belongs to the server-created Razorpay order before recording it.
       const razorpay = getRazorpay();
+      const providerOrder = await razorpay.orders.fetch(razorpayOrderId);
+      if (providerOrder.id !== razorpayOrderId
+        || providerOrder.notes?.orderId !== order.id
+        || providerOrder.notes?.customerId !== customerId
+        || providerOrder.receipt !== order.orderNumber) {
+        return badRequest(res, 'Razorpay order does not belong to this customer order');
+      }
       const paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
-      if (paymentDetails.order_id !== razorpayOrderId) {
+      if (paymentDetails.id !== razorpayPaymentId || paymentDetails.order_id !== providerOrder.id) {
         return badRequest(res, 'Payment does not belong to this Razorpay order');
       }
-      if (!['captured', 'authorized'].includes(String(paymentDetails.status).toLowerCase())) {
+      if (paymentDetails.status !== 'captured' || paymentDetails.captured !== true) {
         return badRequest(res, 'Razorpay payment has not been captured');
+      }
+      if (paymentDetails.currency !== 'INR' || providerOrder.currency !== 'INR'
+        || !Number.isSafeInteger(paymentDetails.amount) || !Number.isSafeInteger(providerOrder.amount)
+        || paymentDetails.amount !== providerOrder.amount) {
+        return badRequest(res, 'Razorpay payment amount or currency does not match the created order');
       }
       const paymentAmount = Number(paymentDetails.amount) / 100;
       if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
@@ -172,6 +176,20 @@ const verifyRazorpayPayment = async (req, res) => {
         return badRequest(res, 'Razorpay payment exceeds the outstanding balance');
       }
       verifiedAmount = Number(paymentAmount.toFixed(2));
+    }
+
+    if (existingPayment) {
+      if (existingPayment.status !== 'CAPTURED' || existingPayment.razorpayOrderId !== razorpayOrderId
+        || Number(existingPayment.amount) !== verifiedAmount) {
+        return badRequest(res, 'Recorded payment does not match the verified Razorpay capture');
+      }
+      return success(res, {
+        paymentId: existingPayment.id,
+        orderNumber: order.orderNumber,
+        amount: existingPayment.amount,
+        method: 'RAZORPAY',
+        status: existingPayment.status,
+      }, 'Payment already recorded');
     }
 
     const appliedAmount = verifiedAmount;

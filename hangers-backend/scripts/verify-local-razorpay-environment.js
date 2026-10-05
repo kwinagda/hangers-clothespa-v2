@@ -21,9 +21,10 @@ function assertLocalConfiguration() {
     databaseUrl: process.env.DATABASE_URL,
     razorpayKeyId: process.env.RAZORPAY_KEY_ID,
     outboxWorker: process.env.DEV_OUTBOX_WORKER,
+    outboxHomeOnly: process.env.DEV_OUTBOX_HOME_ONLY,
     skipStartupSync: process.env.LOCAL_SKIP_STARTUP_SYNC,
   })) {
-    throw new Error('Configuration must use postgres@localhost:5432/hangers_db, a Razorpay Test key, DEV_OUTBOX_WORKER=false, and LOCAL_SKIP_STARTUP_SYNC=true');
+    throw new Error('Configuration must use postgres@localhost:5432/hangers_db, a Razorpay Test key, a disabled or explicitly Home-only outbox worker, and LOCAL_SKIP_STARTUP_SYNC=true');
   }
 }
 

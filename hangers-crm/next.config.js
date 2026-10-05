@@ -32,6 +32,12 @@ const nextConfig = {
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
         ],
       },
+      {
+        source: '/api/v1/customer/payments/razorpay/saved-cards/:path*',
+        headers: [
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+        ],
+      },
     ]
   },
   async rewrites() {

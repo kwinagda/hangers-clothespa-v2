@@ -30,6 +30,7 @@ test('production environment rejects localhost and missing Redis', () => {
     process.env.NODE_ENV = 'production';
     process.env.DATABASE_URL = 'postgresql://example';
     process.env.JWT_SECRET = 'x'.repeat(64);
+    process.env.MSG91_AUTH_KEY = 'msg91_valid_test_key';
     process.env.CRM_URL = 'http://localhost:5002';
     process.env.PUBLIC_API_URL = 'http://localhost:5001';
     delete process.env.ALLOWED_ORIGINS;
@@ -50,6 +51,7 @@ test('production environment accepts explicit HTTPS origins and Redis', () => {
     process.env.NODE_ENV = 'production';
     process.env.DATABASE_URL = 'postgresql://example';
     process.env.JWT_SECRET = 'x'.repeat(64);
+    process.env.MSG91_AUTH_KEY = 'msg91_valid_test_key';
     process.env.ALLOWED_ORIGINS = 'https://crm.example.com';
     process.env.PUBLIC_API_URL = 'https://api.example.com';
     delete process.env.CRM_URL;
@@ -70,6 +72,7 @@ test('production environment requires a public HTTPS API origin', () => {
     process.env.NODE_ENV = 'production';
     process.env.DATABASE_URL = 'postgresql://example';
     process.env.JWT_SECRET = 'x'.repeat(64);
+    process.env.MSG91_AUTH_KEY = 'msg91_valid_test_key';
     process.env.ALLOWED_ORIGINS = 'https://crm.example.com';
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.DEV_MODE = 'false';
@@ -79,6 +82,25 @@ test('production environment requires a public HTTPS API origin', () => {
       () => validateEnvironment(),
       /PUBLIC_API_URL is required in production/
     );
+  } finally {
+    restoreEnv(env);
+  }
+});
+
+test('production rejects development delivery OTP and missing MSG91 credentials', () => {
+  const env = snapshotEnv();
+  try {
+    process.env.NODE_ENV = 'production';
+    process.env.DATABASE_URL = 'postgresql://example';
+    process.env.JWT_SECRET = 'x'.repeat(64);
+    process.env.ALLOWED_ORIGINS = 'https://crm.example.com';
+    process.env.PUBLIC_API_URL = 'https://api.example.com';
+    process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.DEV_MODE = 'false';
+    process.env.WA_DELIVERY_OTP_DEV = 'true';
+    delete process.env.MSG91_AUTH_KEY;
+
+    assert.throws(() => validateEnvironment(), /WA_DELIVERY_OTP_DEV cannot be true.*MSG91_AUTH_KEY is required/);
   } finally {
     restoreEnv(env);
   }

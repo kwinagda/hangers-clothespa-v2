@@ -11,12 +11,16 @@ const {
   sendPaymentReceivedMessage,
   sendPickupRequestAlert,
   sendPickupRequestCustomerConfirmation,
+  normalizePhone,
+  isEnabled,
 } = require('./whatomate.service');
 const { getOrderStatuses } = require('./masterData.service');
 const { formatDailyIronLogItems } = require('../utils/daily-iron-summary');
 const { writeAuditEvent } = require('./activity.service');
 const { classifyOutboxFailure } = require('../utils/outbox-retry');
-const { isRazorpayTestPayment } = require('../utils/razorpay-test-notification');
+const { shouldSuppressRazorpayTestNotification } = require('../utils/razorpay-test-notification');
+const { homeOutboxScope } = require('../utils/local-outbox-scope');
+const { recordPaymentJourneyEvent } = require('./razorpay-payment-journey-logger');
 
 const CAPTURED_PAYMENT_STATUSES = new Set(['CAPTURED', 'SUCCESS', 'PAID']);
 
@@ -24,6 +28,32 @@ const outboxDataError = (code, message) => Object.assign(new Error(message), {
   code,
   retryable: false,
 });
+
+const recordPaymentNotificationJourney = async (tx, event, { action, outcome, providerOutcome, errorCode = null, retryReason = null }) => {
+  const attemptId = event?.payload?.checkoutAttemptId;
+  if (typeof attemptId !== 'string' || !attemptId) return;
+  const attempt = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attemptId } });
+  if (!attempt || attempt.paymentJourneyId !== event.payload.paymentJourneyId
+    || attempt.id !== event.payload.checkoutAttemptId) {
+    throw new Error('Payment notification journey does not match its checkout attempt');
+  }
+  await recordPaymentJourneyEvent(tx, {
+    attempt,
+    action,
+    status: outcome === 'FAILURE' ? 'FAILURE' : 'SUCCESS',
+    metadata: {
+      nextState: attempt.status,
+      crmPaymentId: event.payload.paymentId,
+      sourceOutboxEventId: event.id,
+      sourceOutboxEventType: event.eventType,
+      sourceOutboxAttempt: Number(event.attempts || 1),
+      notificationProviderOutcome: providerOutcome,
+      errorCode,
+      retryReason,
+      journeyOutcome: outcome,
+    },
+  });
+};
 
 const OUTBOX_EVENT = Object.freeze({
   ORDER_STATUS: 'ORDER_STATUS',
@@ -171,6 +201,11 @@ const enqueueOutboxEvent = async (tx, {
   }
   if (!event) throw new Error(`Failed to enqueue or load outbox event for dedupe key ${resolvedDedupeKey}`);
   if (!created) return event;
+  if ([OUTBOX_EVENT.PAYMENT_RECEIVED, OUTBOX_EVENT.INVOICE_PAYMENT_RECEIVED].includes(eventType)) {
+    await recordPaymentNotificationJourney(tx, event, {
+      action: 'RAZORPAY_NOTIFICATION_QUEUED', outcome: 'SUCCESS', providerOutcome: 'QUEUED',
+    });
+  }
   if (aggregateType === 'order') {
     await logOrderWhatsAppPending(tx, {
       orderId: aggregateId,
@@ -330,17 +365,17 @@ const handleOutboxEvent = async (event) => {
       ]);
       if (!order) throw outboxDataError('PAYMENT_NOTIFICATION_ORDER_NOT_FOUND', 'Payment notification references a missing order');
       if (!payment) throw outboxDataError('PAYMENT_NOTIFICATION_PAYMENT_NOT_FOUND', 'Payment notification references a missing payment');
-      if (isRazorpayTestPayment(payment)) {
+      if (shouldSuppressRazorpayTestNotification(payment, normalizePhone(order.customer?.phone), isEnabled(order.customer?.phone))) {
         await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: 'Razorpay Test-mode notification suppressed', outboxEventId: event.id });
-        return;
+        return { notificationOutcome: 'SKIPPED' };
       }
       if (order.customer?.notifWhatsApp === false) {
         await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: 'customer WhatsApp disabled', outboxEventId: event.id });
-        return;
+        return { notificationOutcome: 'SKIPPED' };
       }
       if (payment.kind !== 'RECEIPT' || !CAPTURED_PAYMENT_STATUSES.has(payment.status)) {
         await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SKIPPED', error: `payment is ${payment.kind}/${payment.status}`, outboxEventId: event.id });
-        return;
+        return { notificationOutcome: 'SKIPPED' };
       }
       let templateName = null;
       const sent = await sendPaymentReceivedMessage(order, payment.amount, payment.method, {
@@ -351,7 +386,7 @@ const handleOutboxEvent = async (event) => {
       });
       if (!sent) throw new Error('Payment provider did not accept the message');
       await logOrderWhatsAppStage({ order, eventType: event.eventType, payload, outcome: 'SENT', templateName, outboxEventId: event.id });
-      return;
+      return { notificationOutcome: 'PROVIDER_ACCEPTED' };
     }
     case OUTBOX_EVENT.INVOICE_PAYMENT_RECEIVED: {
       if (!payload.paymentId || typeof payload.paymentId !== 'string') {
@@ -374,17 +409,17 @@ const handleOutboxEvent = async (event) => {
         description: `Invoice payment WhatsApp ${outcome.toLowerCase()}${error ? `: ${String(error).slice(0, 180)}` : ''}`,
         metadata: { channel: 'WHATSAPP', provider: 'WHATOMATE', outcome, templateName, invoiceNumber: invoice.invoiceNumber, paymentId: payment.id, outboxEventId: event.id, error: error ? String(error).slice(0, 500) : null },
       }));
-      if (isRazorpayTestPayment(payment)) {
+      if (shouldSuppressRazorpayTestNotification(payment, normalizePhone(invoice.customer?.phone), isEnabled(invoice.customer?.phone))) {
         await audit('SKIPPED', 'Razorpay Test-mode notification suppressed');
-        return;
+        return { notificationOutcome: 'SKIPPED' };
       }
       if (invoice.customer?.notifWhatsApp === false) {
         await audit('SKIPPED', 'customer WhatsApp disabled');
-        return;
+        return { notificationOutcome: 'SKIPPED' };
       }
       if (payment.kind !== 'RECEIPT' || !CAPTURED_PAYMENT_STATUSES.has(payment.status)) {
         await audit('SKIPPED', `payment is ${payment.kind}/${payment.status}`);
-        return;
+        return { notificationOutcome: 'SKIPPED' };
       }
       const combined = payment.allocations.length > 1;
       const resource = {
@@ -405,7 +440,7 @@ const handleOutboxEvent = async (event) => {
       });
       if (!sent) throw new Error('Payment provider did not accept the invoice confirmation');
       await audit('SENT', null, templateName);
-      return;
+      return { notificationOutcome: 'PROVIDER_ACCEPTED' };
     }
     case OUTBOX_EVENT.REFERRAL_QUALIFY:
       await processReferralQualification(event.aggregateId);
@@ -531,7 +566,22 @@ const handleOutboxEvent = async (event) => {
   }
 };
 
-const claimOutboxBatch = async (limit = 25, onlyEventId = null) => prisma.$transaction(async (tx) => {
+const claimOutboxBatch = async (limit = 25, onlyEventId = null, homeOnly = false) => prisma.$transaction(async (tx) => {
+  let scopedIds = null;
+  if (homeOnly) {
+    // Select recipients before claiming so unrelated events retain their queue state.
+    const scope = await homeOutboxScope(tx);
+    const candidates = await tx.outboxEvent.findMany({
+      where: {
+        AND: [scope, { OR: [{ lockedAt: null }, { lockedAt: { lt: new Date(Date.now() - 300_000) } }] }],
+        status: { in: ['PENDING', 'FAILED'] }, nextAttemptAt: { lte: new Date() },
+        ...(onlyEventId ? { id: onlyEventId } : {}),
+      },
+      select: { id: true }, orderBy: { createdAt: 'asc' }, take: limit,
+    });
+    if (!candidates.length) return [];
+    scopedIds = candidates.map((event) => event.id);
+  }
   const rows = await tx.$queryRaw`
     SELECT "id"
     FROM "outbox_events"
@@ -539,6 +589,7 @@ const claimOutboxBatch = async (limit = 25, onlyEventId = null) => prisma.$trans
       AND "nextAttemptAt" <= NOW()
       AND ("lockedAt" IS NULL OR "lockedAt" < NOW() - INTERVAL '5 minutes')
       AND (${onlyEventId}::text IS NULL OR "id" = ${onlyEventId})
+      AND (${scopedIds}::text[] IS NULL OR "id" = ANY(${scopedIds}::text[]))
     ORDER BY "createdAt"
     FOR UPDATE SKIP LOCKED
     LIMIT ${limit}
@@ -552,17 +603,30 @@ const claimOutboxBatch = async (limit = 25, onlyEventId = null) => prisma.$trans
   return tx.outboxEvent.findMany({ where: { id: { in: ids } }, orderBy: { createdAt: 'asc' } });
 });
 
-const processOutboxBatch = async ({ limit = 25, onlyEventId = null } = {}) => {
+const processOutboxBatch = async ({ limit = 25, onlyEventId = null, homeOnly = false } = {}) => {
   if (onlyEventId !== null && (typeof onlyEventId !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(onlyEventId))) {
     throw new TypeError('A valid outbox event ID is required for targeted processing');
   }
-  const events = await claimOutboxBatch(limit, onlyEventId);
+  if (homeOnly && (process.env.NODE_ENV === 'production' || !String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_'))) {
+    throw new Error('Home-only dispatch requires a non-production Razorpay Test runtime');
+  }
+  const events = await claimOutboxBatch(limit, onlyEventId, homeOnly);
   for (const event of events) {
     try {
-      await handleOutboxEvent(event);
-      await prisma.outboxEvent.update({
-        where: { id: event.id },
-        data: { status: 'PROCESSED', processedAt: new Date(), lockedAt: null, lastError: null },
+      const result = await handleOutboxEvent(event);
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.outboxEvent.updateMany({
+          where: { id: event.id, status: 'PROCESSING' },
+          data: { status: 'PROCESSED', processedAt: new Date(), lockedAt: null, lastError: null },
+        });
+        if (updated.count && [OUTBOX_EVENT.PAYMENT_RECEIVED, OUTBOX_EVENT.INVOICE_PAYMENT_RECEIVED].includes(event.eventType)) {
+          const skipped = result?.notificationOutcome === 'SKIPPED';
+          await recordPaymentNotificationJourney(tx, event, {
+            action: skipped ? 'RAZORPAY_NOTIFICATION_SKIPPED' : 'RAZORPAY_NOTIFICATION_PROVIDER_ACCEPTED',
+            outcome: skipped ? 'IGNORED' : 'SUCCESS',
+            providerOutcome: skipped ? 'SKIPPED' : 'PROVIDER_ACCEPTED',
+          });
+        }
       });
     } catch (error) {
       if ([OUTBOX_EVENT.ORDER_STATUS, OUTBOX_EVENT.ORDER_UPDATED, OUTBOX_EVENT.PAYMENT_RECEIVED].includes(event.eventType)) {
@@ -613,14 +677,25 @@ const processOutboxBatch = async ({ limit = 25, onlyEventId = null } = {}) => {
       }
       const attempts = Number(event.attempts || 1);
       const { dead, delayMs } = classifyOutboxFailure({ error, attempts });
-      await prisma.outboxEvent.update({
-        where: { id: event.id },
-        data: {
-          status: dead ? 'DEAD' : 'FAILED',
-          nextAttemptAt: new Date(Date.now() + delayMs),
-          lockedAt: null,
-          lastError: `${error?.code ? `${error.code}: ` : ''}${String(error?.message || error)}`.slice(0, 1000),
-        },
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.outboxEvent.updateMany({
+          where: { id: event.id, status: 'PROCESSING' },
+          data: {
+            status: dead ? 'DEAD' : 'FAILED',
+            nextAttemptAt: new Date(Date.now() + delayMs),
+            lockedAt: null,
+            lastError: `${error?.code ? `${error.code}: ` : ''}${String(error?.message || error)}`.slice(0, 1000),
+          },
+        });
+        if (updated.count && [OUTBOX_EVENT.PAYMENT_RECEIVED, OUTBOX_EVENT.INVOICE_PAYMENT_RECEIVED].includes(event.eventType)) {
+          await recordPaymentNotificationJourney(tx, event, {
+            action: dead ? 'RAZORPAY_NOTIFICATION_DEAD_LETTER' : 'RAZORPAY_NOTIFICATION_RETRY_SCHEDULED',
+            outcome: dead ? 'FAILURE' : 'RETRY',
+            providerOutcome: dead ? 'DEAD_LETTER' : 'RETRY_SCHEDULED',
+            errorCode: error?.code,
+            retryReason: dead ? 'RETRY_EXHAUSTED' : 'TRANSIENT_NOTIFICATION_FAILURE',
+          });
+        }
       });
     }
   }

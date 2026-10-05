@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { reconcilePublicRazorpayCheckout } = require('../src/controllers/public.controller');
 const publicRouter = require('../src/routes/public.routes');
+process.env.RAZORPAY_KEY_ID = 'rzp_test_reconcile_unit';
 
 const response = () => ({
   statusCode: 200,
@@ -10,8 +11,9 @@ const response = () => ({
 });
 
 test('public checkout reconciliation is bound to the invoice in the share link', async () => {
-  const attempt = {
+  let attempt = {
     id: 'attempt_123', invoiceId: 'invoice_123', customerId: 'customer_123',
+    publicShareId: 'share_123', mode: 'TEST', currency: 'INR', amountPaise: 10000n,
     status: 'REVIEW', allocationPlan: null,
   };
   const res = response();
@@ -25,12 +27,24 @@ test('public checkout reconciliation is bound to the invoice in the share link',
     getPublicInvoiceForPayment: async (slug, options) => {
       assert.equal(slug, 'public-link');
       assert.deepEqual(options, { invoiceId: attempt.invoiceId });
-      return { invoice: { id: attempt.invoiceId, customerId: attempt.customerId } };
+      return { share: { id: attempt.publicShareId, resourceType: 'INVOICE' }, invoice: { id: attempt.invoiceId, customerId: attempt.customerId } };
     },
-    prisma: { razorpayCheckoutAttempt: { findUnique: async () => attempt } },
+    prisma: {
+      razorpayCheckoutAttempt: { findUnique: async () => attempt, findFirst: async () => attempt },
+      invoice: { findUnique: async () => ({ invoiceNumber: 'INV-123', status: 'OPEN', balanceDue: 100, paidAmount: 0 }) },
+    },
+    getRazorpay: () => ({ orders: {
+      fetchPayments: async () => ({ items: [] }),
+      fetch: async () => ({
+        id: 'order_123', status: 'created', attempts: 0, amount: 10000, amount_due: 10000, amount_paid: 0, currency: 'INR',
+        notes: { crm_attempt_id: attempt.id, invoice_id: attempt.invoiceId, share_id: attempt.publicShareId },
+      }),
+    } }),
+    logRazorpayAction: async () => {},
     reconcileCheckoutAttempt: async (args) => {
       reconcileArgs = args;
-      return { attempt: { ...attempt, status: 'CREATED', razorpayOrderId: 'order_123' }, order: { id: 'order_123' }, reused: true };
+      attempt = { ...attempt, status: 'CREATED', razorpayOrderId: 'order_123' };
+      return { attempt, order: { id: 'order_123' }, reused: true };
     },
   });
 
@@ -66,6 +80,37 @@ test('public checkout reconciliation requires an attempt reference', async () =>
   await reconcilePublicRazorpayCheckout({ params: { slug: 'public-link' }, body: {}, id: 'request_789' }, res);
   assert.equal(res.statusCode, 400);
   assert.equal(res.body.code, 'CHECKOUT_ATTEMPT_INVALID');
+});
+
+test('public recovery rejects foreign customer/share, combined scope and mode before provider access', async () => {
+  for (const [patch, statusCode, code] of [
+    [{ customerId: 'foreign-customer' }, 404, 'CHECKOUT_ATTEMPT_NOT_FOUND'],
+    [{ publicShareId: 'foreign-share' }, 404, 'CHECKOUT_ATTEMPT_NOT_FOUND'],
+    [{ allocationPlan: [{ invoiceId: 'invoice_123', amount: 100 }] }, 404, 'CHECKOUT_ATTEMPT_NOT_FOUND'],
+    [{ mode: 'LIVE' }, 409, 'RAZORPAY_MODE_MISMATCH'],
+  ]) {
+    const res = response();
+    let providerCalls = 0;
+    const forbidden = async () => { providerCalls += 1; throw new Error('Unexpected provider access'); };
+    await reconcilePublicRazorpayCheckout({
+      params: { slug: 'public-link' }, body: { attemptId: 'attempt_123', invoiceId: 'invoice_123' }, id: 'scope-negative',
+    }, res, undefined, {
+      getPublicInvoiceForPayment: async () => ({
+        invoice: { id: 'invoice_123', customerId: 'customer_123' },
+        share: { id: 'share_123', resourceType: 'INVOICE' },
+      }),
+      prisma: { razorpayCheckoutAttempt: { findUnique: async () => ({
+        id: 'attempt_123', invoiceId: 'invoice_123', customerId: 'customer_123',
+        publicShareId: 'share_123', mode: 'TEST', status: 'REVIEW', allocationPlan: null, ...patch,
+      }) } },
+      reconcileCheckoutAttempt: forbidden,
+      getRazorpay: forbidden,
+    });
+    assert.equal(res.statusCode, statusCode);
+    assert.equal(res.body.code, code);
+    assert.equal(providerCalls, 0);
+    assert.equal(res.body.data, undefined);
+  }
 });
 
 test('the invoice recovery URL used by the customer UI is registered', () => {

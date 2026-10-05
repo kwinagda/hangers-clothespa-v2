@@ -3,4 +3,9 @@ const isRazorpayTestPayment = (payment) => (
   && String(payment?.mode || '').toUpperCase() === 'TEST'
 );
 
-module.exports = { isRazorpayTestPayment };
+const shouldSuppressRazorpayTestNotification = (payment, normalizedPhone, recipientEnabled) => (
+  isRazorpayTestPayment(payment)
+  && !(normalizedPhone === '919930367267' && recipientEnabled === true)
+);
+
+module.exports = { isRazorpayTestPayment, shouldSuppressRazorpayTestNotification };

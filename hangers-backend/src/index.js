@@ -7,6 +7,7 @@ const path      = require('path');
 
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const { randomUUID } = require('crypto');
+const { createTraceContext, runWithTraceContext } = require('./utils/trace-context');
 const prisma = require('./config/database');
 const { closeConnection } = require('./queues/connection');
 const { getAllowedOrigins, validateEnvironment } = require('./config/env');
@@ -18,6 +19,7 @@ const paymentsRoutes      = require('./routes/payments.routes');
 const customerOrderRoutes = require('./routes/customer-orders.routes');
 const addressesRoutes     = require('./routes/addresses.routes');
 const razorpayRoutes      = require('./routes/razorpay.routes');
+const razorpaySavedCardRoutes = require('./routes/razorpay-saved-cards.routes');
 const plantRoutes         = require('./routes/plant.routes');
 const deliveryRoutes      = require('./routes/delivery.routes');
 const servicesRoutes      = require('./routes/services.routes');
@@ -55,6 +57,7 @@ const { syncMasterDataSettings } = require('./services/masterData.service');
 const { processOutboxBatch } = require('./services/outbox.service');
 const { globalApiLimiter } = require('./middleware/rateLimit');
 const { matchesLocalQaConfiguration, matchesLocalQaProfile } = require('./utils/local-qa-profile');
+const { shouldRunDevOutbox } = require('./utils/dev-outbox');
 const app  = express();
 const PORT = process.env.PORT || 5001;
 const environment = validateEnvironment();
@@ -84,6 +87,7 @@ const databaseMatchesLocalQaProfile = (database) => matchesLocalQaProfile({
   databasePort: Number(database?.port),
   razorpayKeyId: process.env.RAZORPAY_KEY_ID,
   outboxWorker: process.env.DEV_OUTBOX_WORKER,
+  outboxHomeOnly: process.env.DEV_OUTBOX_HOME_ONLY,
   skipStartupSync: process.env.LOCAL_SKIP_STARTUP_SYNC,
 });
 
@@ -105,16 +109,22 @@ app.use(cors({
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
+  exposedHeaders: ['Retry-After', 'X-Request-Id', 'X-Trace-Id'],
 }));
 
 // Stamp the request before body parsers so malformed or oversized requests also
 // receive a traceable response ID.
 app.use((req, res, next) => {
   const id = req.headers['x-request-id'] || randomUUID();
+  const trace = createTraceContext(req.headers.traceparent);
+  trace.requestId = id;
   req.headers['x-request-id'] = id;
   req.id = id;
+  req.traceId = trace.traceId;
+  req.spanId = trace.spanId;
   res.setHeader('x-request-id', id);
-  next();
+  res.setHeader('x-trace-id', trace.traceId);
+  runWithTraceContext(trace, next);
 });
 
 // Razorpay signs the exact raw JSON bytes. Preserve them only for the webhook
@@ -189,6 +199,7 @@ app.use('/api/v1/security',                    securityRoutes);
 app.use('/api/v1/checkout',                    checkoutRoutes);
 // Customer app
 app.use('/api/v1/customer/orders',    customerOrderRoutes);
+app.use('/api/v1/customer/payments/razorpay/saved-cards', razorpaySavedCardRoutes);
 app.use('/api/v1/customer/payments',  razorpayRoutes);
 app.use('/api/v1/addresses',          addressesRoutes);
 // Phase 4 — Plant & Delivery apps
@@ -241,6 +252,7 @@ const runStartupChecks = async () => {
         databaseUrl: process.env.DATABASE_URL,
         razorpayKeyId: process.env.RAZORPAY_KEY_ID,
         outboxWorker: process.env.DEV_OUTBOX_WORKER,
+        outboxHomeOnly: process.env.DEV_OUTBOX_HOME_ONLY,
         skipStartupSync: process.env.LOCAL_SKIP_STARTUP_SYNC,
       });
       if (environment.isProduction || !configurationMatches) {
@@ -277,14 +289,15 @@ let devOutboxTimer = null;
 let devOutboxRunning = false;
 
 const startDevOutboxPoller = () => {
-  if (environment.isProduction || process.env.DEV_OUTBOX_WORKER === 'false' || devOutboxTimer) return;
+  if (!localQaReadOnlyRequested || !shouldRunDevOutbox({ isProduction: environment.isProduction, workerEnabled: process.env.DEV_OUTBOX_WORKER,
+    homeOnly: process.env.DEV_OUTBOX_HOME_ONLY, razorpayKeyId: process.env.RAZORPAY_KEY_ID }) || devOutboxTimer) return;
   const drainOutbox = async () => {
     if (devOutboxRunning) return;
     devOutboxRunning = true;
     try {
       let processed;
       do {
-        processed = await processOutboxBatch({ limit: 25 });
+        processed = await processOutboxBatch({ limit: 25, homeOnly: true });
       } while (processed === 25);
     } catch (err) {
       console.error('[api-dev-outbox] drain failed:', err?.message || err);
@@ -294,7 +307,7 @@ const startDevOutboxPoller = () => {
   };
   devOutboxTimer = setInterval(drainOutbox, 2_000);
   drainOutbox();
-  console.info('[api-dev-outbox] local outbox processor active');
+  console.info('[api-dev-outbox] Home-only Test outbox processor active');
 };
 
 const startServer = async () => {
