@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { PublicContentPage, PublicUnavailable } from '@/components/public/PublicContentPage'
+import { ContentTemplate } from '@/components/public/ContentTemplate'
+import { PublicUnavailable } from '@/components/public/PublicContentPage'
 import { getPublicSiteProfile } from '@/lib/publicSite'
 import { getPublicSuburbPage, getPublicServicePages } from '@/lib/publicContent'
 import { buildPublicMetadata } from '@/lib/seo'
@@ -32,60 +33,22 @@ export default async function SuburbPage({ params }: { params: Promise<{ suburb:
     })),
   } : null
 
-  return <PublicContentPage profile={profile} clip="zones" crumbs={[{label:'Home',href:'/'},{label:'Pickup zones',href:'/pickup-zones'},{label:page.suburbName}]} title={page.title} intro={page.intro}>
+  const lists = servicesHere.length ? [{ h: `Services in ${page.suburbName}`, items: servicesHere.map((sp) => ({ t: sp.title, s: sp.intro, href: `/services/${sp.serviceSlug}/${sp.suburbSlug}` })) }] : []
+  const minimum = `Rs. ${profile.pickupMinimumOrder}`
+  return <>
     {faqSchema && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema).replace(/</g, '\\u003c') }} />}
-    <section className="dp-split">
-      <div>
-        <div className="dp-facts">
-          <div className="dp-fact"><strong>{profile.turnaround.dryCleaning}</strong><span>Dry cleaning turnaround</span></div>
-          <div className="dp-fact"><strong>{profile.turnaround.curtains}</strong><span>Curtain care turnaround</span></div>
-          <div className="dp-fact"><strong>Rs. {profile.pickupMinimumOrder}</strong><span>Pickup minimum order</span></div>
-          <div className="dp-fact"><strong>Free</strong><span>Curtain removal &amp; reinstallation</span></div>
-        </div>
-        {page.pickupNotes && <p className="dp-copy" style={{ marginTop: 24 }}>{page.pickupNotes}</p>}
-        {page.landmarks?.length ? (
-          <div style={{ marginTop: 34 }}>
-            <h2 className="dp-title">Serving {page.suburbName} near</h2>
-            <div className="dp-list">
-              {page.landmarks.map((landmark) => <div key={landmark}>{landmark}</div>)}
-            </div>
-          </div>
-        ) : null}
-      </div>
-      <div>
-        <iframe className="dp-map" src={map} title="Hangers Clothes Spa location" loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
-        <div className="dp-band" style={{ marginTop: 20 }}>
-          <h2 style={{ margin: '0 0 8px', color: '#023c62', fontSize: 18 }}>Book a pickup in {page.suburbName}</h2>
-          <p className="dp-copy" style={{ fontSize: 14.5, marginBottom: 16 }}>Confirm your address and the next available collection window.</p>
-          <a className="dp-btn secondary" href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer">Ask on WhatsApp</a>
-        </div>
-      </div>
-    </section>
-    {servicesHere.length ? (
-      <section className="dp-section">
-        <h2 className="dp-title">Services in {page.suburbName}</h2>
-        <div className="dp-grid two">
-          {servicesHere.map((sp) => (
-            <Link className="dp-card" key={sp.serviceSlug} href={`/services/${sp.serviceSlug}/${sp.suburbSlug}`} style={{ color: 'inherit' }}>
-              <h3>{sp.title}</h3>
-              <p>{sp.intro}</p>
-            </Link>
-          ))}
-        </div>
-      </section>
-    ) : null}
-    {page.faqs?.length ? (
-      <section className="dp-section">
-        <h2 className="dp-title">Frequently asked</h2>
-        <div className="dp-faq">
-          {page.faqs.map((faq) => (
-            <details key={faq.question}>
-              <summary>{faq.question}</summary>
-              <p>{faq.answer}</p>
-            </details>
-          ))}
-        </div>
-      </section>
-    ) : null}
-  </PublicContentPage>
+    <ContentTemplate profile={profile} data={{
+      crumbs: [['Home', '/'], ['Pickup zones', '/pickup-zones'], [page.suburbName]],
+      title: page.title,
+      intro: page.intro,
+      clip: 'zones',
+      stats: [[profile.turnaround.dryCleaning, 'Dry cleaning turnaround'], [profile.turnaround.curtains, 'Curtain care turnaround'], [minimum, 'Pickup minimum order'], ['Free', 'Curtain removal & reinstallation']],
+      body: page.pickupNotes || undefined,
+      blocks: page.landmarks?.length ? [{ h: `Serving ${page.suburbName} near`, cards: page.landmarks.map((l: string) => ({ t: l, s: '' })) }] : undefined,
+      lists,
+      faq: page.faqs?.map((faq) => [faq.question, faq.answer] as [string, string]),
+      note: { h: `Book a pickup in ${page.suburbName}`, p: 'Confirm your address and the next available collection window.', cta: ['Ask on WhatsApp', `https://wa.me/${phone}`] },
+      map,
+    }} />
+  </>
 }

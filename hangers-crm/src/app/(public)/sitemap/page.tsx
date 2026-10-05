@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { PublicContentPage, PublicUnavailable } from '@/components/public/PublicContentPage'
+import { ContentTemplate } from '@/components/public/ContentTemplate'
+import { PublicUnavailable } from '@/components/public/PublicContentPage'
 import { getPublicSiteProfile } from '@/lib/publicSite'
 import { getPublicBlogPosts, getPublicSuburbPages, getPublicServicePages } from '@/lib/publicContent'
 import { buildPublicMetadata } from '@/lib/seo'
@@ -22,61 +23,23 @@ export default async function SitemapPage() {
     else byService.set(page.serviceSlug, { serviceName: page.serviceName, pages: [page] })
   }
 
-  return <PublicContentPage profile={profile} crumbs={[{ label: 'Home', href: '/' }, { label: 'Sitemap' }]} title="Every Hangers page, in one place." intro="A complete, human-readable map of the site: services by area, every pickup zone and every article in the care journal. For crawlers, the machine-readable version is at /sitemap.xml.">
-    <section className="dp-section">
-      <h2 className="dp-title">By service</h2>
-      <div className="dp-grid two">
-        {Array.from(byService.entries()).map(([serviceSlug, group]) => (
-          <div className="dp-card" key={serviceSlug}>
-            <h3><Link href={`/services/${serviceSlug}`}>{group.serviceName}</Link></h3>
-            <ul style={{ margin: '10px 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
-              {group.pages.map((sp) => (
-                <li key={sp.suburbSlug}><Link href={`/services/${sp.serviceSlug}/${sp.suburbSlug}`}>{sp.suburbName}</Link></li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </section>
-    <section className="dp-section">
-      <h2 className="dp-title">By area</h2>
-      <div className="dp-grid">
-        {suburbPages.map((sp) => (
-          <Link className="dp-card" key={sp.slug} href={`/pickup-zones/${sp.slug}`} style={{ color: 'inherit' }}>
-            <h3>{sp.suburbName}</h3>
-            <p>{sp.intro}</p>
-          </Link>
-        ))}
-      </div>
-    </section>
-    <section className="dp-section">
-      <h2 className="dp-title">Care journal</h2>
-      <div className="dp-grid">
-        {blogPosts.map((post) => (
-          <Link className="dp-card" key={post.slug} href={`/blog/${post.slug}`} style={{ color: 'inherit' }}>
-            <div className="dp-kicker" style={{ margin: 0 }}>{post.kicker}</div>
-            <h3>{post.title}</h3>
-          </Link>
-        ))}
-      </div>
-    </section>
-    <section className="dp-section">
-      <h2 className="dp-title">Other pages</h2>
-      <div className="dp-grid two">
-        <div className="dp-card"><Link href="/services">Services</Link></div>
-        <div className="dp-card"><Link href="/rate-chart">Rate chart</Link></div>
-        <div className="dp-card"><Link href="/book-pickup">Book a pickup</Link></div>
-        <div className="dp-card"><Link href="/pickup-zones">Pickup zones</Link></div>
-        <div className="dp-card"><Link href="/monthly-plans">Monthly plans</Link></div>
-        <div className="dp-card"><Link href="/corporate-accounts">Corporate accounts</Link></div>
-        <div className="dp-card"><Link href="/about">About Hangers</Link></div>
-        <div className="dp-card"><Link href="/faq">FAQ</Link></div>
-        <div className="dp-card"><Link href="/contact">Contact</Link></div>
-        <div className="dp-card"><Link href="/terms-and-conditions">Terms and Conditions</Link></div>
-        <div className="dp-card"><Link href="/privacy-policy">Privacy Policy</Link></div>
-        <div className="dp-card"><Link href="/cancellation-refund">Cancellation and Refund</Link></div>
-        <div className="dp-card"><Link href="/shipping-exchange">Shipping and Exchange</Link></div>
-      </div>
-    </section>
-  </PublicContentPage>
+  const serviceLists = Array.from(byService.entries()).map(([serviceSlug, group]) => ({
+    h: group.serviceName,
+    items: group.pages.map((sp) => ({ t: sp.suburbName, s: '', href: `/services/${sp.serviceSlug}/${sp.suburbSlug}` })),
+  }))
+  return <ContentTemplate profile={profile} data={{
+    crumbs: [['Home', '/'], ['Sitemap']],
+    title: 'Every Hangers page, in one place.',
+    intro: 'A complete, human-readable map of the site: services by area, every pickup zone and every article in the care journal. For crawlers, the machine-readable version is at /sitemap.xml.',
+    lists: [
+      ...serviceLists,
+      { h: 'By area', items: suburbPages.map((sp) => ({ t: sp.suburbName, s: sp.intro, href: `/pickup-zones/${sp.slug}` })) },
+      { h: 'Care journal', items: blogPosts.map((post) => ({ k: post.kicker, t: post.title, s: '', href: `/blog/${post.slug}` })) },
+      { h: 'Other pages', items: [
+        { t: 'Services', s: '', href: '/services' }, { t: 'Rate chart', s: '', href: '/rate-chart' }, { t: 'Book a pickup', s: '', href: '/book-pickup' },
+        { t: 'Pickup zones', s: '', href: '/pickup-zones' }, { t: 'Monthly plans', s: '', href: '/monthly-plans' }, { t: 'Corporate accounts', s: '', href: '/corporate-accounts' },
+        { t: 'About Hangers', s: '', href: '/about' },
+      ] },
+    ],
+  }} />
 }

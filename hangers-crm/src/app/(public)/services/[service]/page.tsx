@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { PublicContentPage, PublicUnavailable } from '@/components/public/PublicContentPage'
+import { ContentTemplate } from '@/components/public/ContentTemplate'
+import { PublicUnavailable } from '@/components/public/PublicContentPage'
 import { getPublicSiteProfile } from '@/lib/publicSite'
 import { getPublicServicePages } from '@/lib/publicContent'
 import { buildPublicMetadata, SITE_URL } from '@/lib/seo'
@@ -33,30 +34,15 @@ export default async function ServiceHubPage({ params }: { params: Promise<{ ser
     url: `${SITE_URL}/services/${service}`,
   }
 
-  return <PublicContentPage profile={profile} crumbs={[{ label: 'Home', href: '/' }, { label: 'Services', href: '/services' }, { label: serviceName }]} title={`${serviceName}, wherever Hangers picks up.`} intro={`${serviceName} is available in every area Hangers serves. Pick your neighbourhood below for local turnaround times and pickup details.`} heroActions={
-    <>
-      <a className="dp-btn" href="/book-pickup">Book a pickup</a>
-      <a className="dp-btn secondary" href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer">Ask on WhatsApp</a>
-    </>
-  }>
+  return <>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(serviceSchema).replace(/</g, '\\u003c') }} />
-    <section className="dp-section">
-      <h2 className="dp-title">{serviceName} by area</h2>
-      <div className="dp-grid two">
-        {pages.map((sp) => (
-          <Link className="dp-card" key={sp.suburbSlug} href={`/services/${sp.serviceSlug}/${sp.suburbSlug}`} style={{ color: 'inherit' }}>
-            <h3>{sp.suburbName}</h3>
-            <p>{sp.intro}</p>
-          </Link>
-        ))}
-      </div>
-    </section>
-    <section className="dp-band" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap' }}>
-      <div>
-        <h2 className="dp-title">Not sure {serviceName.toLowerCase()} is the right process?</h2>
-        <p className="dp-copy">Send a photo of the item and its care label — we'll confirm the right process before booking.</p>
-      </div>
-      <a className="dp-btn secondary" href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer">Ask Hangers on WhatsApp</a>
-    </section>
-  </PublicContentPage>
+    <ContentTemplate profile={profile} data={{
+      crumbs: [['Home', '/'], ['Services', '/services'], [serviceName]],
+      title: `${serviceName}, wherever Hangers picks up.`,
+      intro: `${serviceName} is available in every area Hangers serves. Pick your neighbourhood below for local turnaround times and pickup details.`,
+      ctas: [['Book a pickup', '/book-pickup', 1], ['Ask on WhatsApp', `https://wa.me/${phone}`, 0]],
+      lists: [{ h: `${serviceName} by area`, items: pages.map((sp) => ({ t: sp.suburbName, s: sp.intro, href: `/services/${sp.serviceSlug}/${sp.suburbSlug}` })) }],
+      note: { h: `Not sure ${serviceName.toLowerCase()} is the right process?`, p: "Send a photo of the item and its care label — we'll confirm the right process before booking.", cta: ['Ask Hangers on WhatsApp', `https://wa.me/${phone}`] },
+    }} />
+  </>
 }

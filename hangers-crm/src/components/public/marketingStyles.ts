@@ -24,4 +24,11 @@ export const MARKETING_PAGE_CSS = `
 .hg-grid-auto{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:16px}
 .hg-divider{max-width:1320px;margin:0 auto;border-top:1px solid #d6e2ec}
 @media(max-width:760px){.hg-home{width:min(100% - 36px,1320px)}.hg-body{padding:0 18px}}
+.hg-faq{border-top:1px solid #d6e2ec}
+.hg-faq details{border-bottom:1px solid #d6e2ec}
+.hg-faq summary{display:flex;justify-content:space-between;gap:20px;padding:22px 4px;color:#023c62;font-size:19px;font-weight:600;cursor:pointer;list-style:none}
+.hg-faq summary::-webkit-details-marker{display:none}
+.hg-faq summary:after{content:'+';color:#5b7486;font-size:24px;line-height:1}
+.hg-faq details[open] summary:after{content:'−'}
+.hg-faq p{max-width:72ch;margin:-4px 0 0;padding:0 4px 24px;color:#3d5668;font-size:17px;line-height:1.6}
 `

@@ -23,6 +23,7 @@ export type ContentData = {
   lists?: ContentList[]
   faq?: [string, string][]
   note?: { h: string; p: string; cta: [string, string] }
+  map?: string
 }
 
 export function ContentTemplate({ profile, data }: { profile: PublicSiteProfile; data: ContentData }) {
@@ -43,6 +44,7 @@ export function ContentTemplate({ profile, data }: { profile: PublicSiteProfile;
           <div><h2 className="hg-h2-sm" style={{ marginBottom: 8, fontSize: 'clamp(20px,3.2vw,30px)' }}>{h}</h2><p style={{ margin: 0, lineHeight: 1.6, color: '#3d5668', fontSize: 17 }}>{p}</p></div>
         </div>)}
       </div>}
+      {data.map && <div style={{ marginBottom: 48 }}><iframe src={data.map} title="Hangers Clothes Spa location" loading="lazy" referrerPolicy="no-referrer-when-downgrade" style={{ width: '100%', minHeight: 420, border: 0, borderRadius: 24, background: '#E8F0F7' }} /></div>}
       {data.clip && <div style={{ marginBottom: 48 }}><VideoSlot clip={data.clip as MarketingClipId} /></div>}
       {data.blocks && data.blocks.map((b) => <section key={b.h} style={{ marginBottom: 56 }}>
         <h2 className="hg-h2-sm" data-words style={{ marginBottom: 10 }}>{b.h}</h2>
@@ -67,7 +69,7 @@ export function ContentTemplate({ profile, data }: { profile: PublicSiteProfile;
       </section>)}
       {data.faq && <section style={{ marginBottom: 56 }}>
         <h2 className="hg-h2-sm" data-words style={{ marginBottom: 18 }}>Frequently asked</h2>
-        <div className="dp-faq">
+        <div className="hg-faq">
           {data.faq.map(([q, a]) => <details key={q} data-rv><summary>{q}</summary><p>{a}</p></details>)}
         </div>
       </section>}

@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { PublicContentPage, PublicUnavailable } from '@/components/public/PublicContentPage'
+import { ContentTemplate } from '@/components/public/ContentTemplate'
+import { PublicUnavailable } from '@/components/public/PublicContentPage'
 import { getPublicSiteProfile } from '@/lib/publicSite'
 import { getPublicBlogPost, getPublicBlogPosts } from '@/lib/publicContent'
 import { buildPublicMetadata, SITE_URL } from '@/lib/seo'
@@ -60,49 +61,21 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
 
   const relatedServiceLabel = relatedServiceSlug?.split('-').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')
 
-  return <PublicContentPage profile={profile} crumbs={[{label:'Home',href:'/'},{label:'Journal',href:'/blog'},{label:post.title}]} title={post.title} intro={post.excerpt}>
+  const related = [
+    relatedServiceSlug ? { t: relatedServiceLabel as string, s: `See ${relatedServiceLabel?.toLowerCase()} coverage and pricing across every area Hangers serves.`, href: `/services/${relatedServiceSlug}` } : null,
+    ...relatedPosts.map((p) => ({ t: p.title, s: p.excerpt, href: `/blog/${p.slug}` })),
+  ].filter(Boolean) as { t: string; s: string; href: string }[]
+  return <>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema).replace(/</g, '\\u003c') }} />
     {faqSchema && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema).replace(/</g, '\\u003c') }} />}
-    <section className="dp-section">
-      <img className="dp-media" src={post.heroImage} alt={post.heroImageAlt} width={1280} height={853} loading="lazy" />
-    </section>
-    {post.sections.map((section) => (
-      <section className="dp-section" key={section.heading}>
-        <h2 className="dp-title">{section.heading}</h2>
-        <p className="dp-copy">{section.body}</p>
-      </section>
-    ))}
-    {post.faqs?.length ? (
-      <section className="dp-section">
-        <h2 className="dp-title">Frequently asked</h2>
-        <div className="dp-faq">
-          {post.faqs.map((faq) => (
-            <details key={faq.question}>
-              <summary>{faq.question}</summary>
-              <p>{faq.answer}</p>
-            </details>
-          ))}
-        </div>
-      </section>
-    ) : null}
-    {(relatedServiceSlug || relatedPosts.length) ? (
-      <section className="dp-section">
-        <h2 className="dp-title">Related</h2>
-        <div className="dp-grid two">
-          {relatedServiceSlug && (
-            <Link className="dp-card" href={`/services/${relatedServiceSlug}`} style={{ color: 'inherit' }}>
-              <h3>{relatedServiceLabel}</h3>
-              <p>See {relatedServiceLabel?.toLowerCase()} coverage and pricing across every area Hangers serves.</p>
-            </Link>
-          )}
-          {relatedPosts.map((p) => (
-            <Link className="dp-card" key={p.slug} href={`/blog/${p.slug}`} style={{ color: 'inherit' }}>
-              <h3>{p.title}</h3>
-              <p>{p.excerpt}</p>
-            </Link>
-          ))}
-        </div>
-      </section>
-    ) : null}
-  </PublicContentPage>
+    <ContentTemplate profile={profile} data={{
+      crumbs: [['Home', '/'], ['Journal', '/blog'], [post.title]],
+      title: post.title,
+      intro: post.excerpt,
+      image: { src: post.heroImage, alt: post.heroImageAlt },
+      sections: post.sections.map((section) => [section.heading, section.body] as [string, string]),
+      faq: post.faqs?.map((faq) => [faq.question, faq.answer] as [string, string]),
+      lists: related.length ? [{ h: 'Related', items: related.map((r) => ({ t: r.t, s: r.s, href: r.href })) }] : undefined,
+    }} />
+  </>
 }

@@ -100,7 +100,7 @@ export default function PublicSiteShell({ profile, children }: { profile: Public
     <style>{MARKETING_TOKENS_CSS}</style>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, '\\u003c') }} />
     <style>{`
-      .dw-root{min-height:100vh;background:#F7F9FC;color:var(--hg-ink);-webkit-font-smoothing:antialiased}
+      .dw-root{min-height:100vh;background:#F7F9FC;color:var(--hg-ink);-webkit-font-smoothing:antialiased;overflow-x:clip}
       .dw-root *{box-sizing:border-box}
       .dw-container{width:min(100% - 48px,var(--hg-container));margin-inline:auto}
       .dw-strip{background:var(--hg-navy);color:#fff;font-size:13px;position:relative;z-index:121}

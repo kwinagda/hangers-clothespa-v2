@@ -27,9 +27,9 @@ export default async function ServicesPage() {
     <section style={{ maxWidth: 1320, margin: '0 auto', padding: '24px clamp(16px,4vw,28px)', display: 'grid', gap: 14 }}>
       {SERVICES.map(([title, body, slug], i) => {
         const dark = i % 2 === 1
-        return <Link key={slug} href={`/services/${slug}`} data-rv={i % 2 ? 'right' : 'left'} data-ripple data-hover style={{ background: dark ? '#023c62' : '#E8F0F7', color: dark ? '#fff' : '#023c62', borderRadius: 28, padding: 'clamp(24px,5vw,44px)', display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', gap: 'clamp(14px,3vw,36px)', alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
-          <div style={{ fontSize: 'clamp(44px,10vw,110px)', fontWeight: 300, letterSpacing: '-.06em', opacity: 0.45, lineHeight: 1 }}>{String(i + 1).padStart(2, '0')}</div>
-          <div><div style={{ fontSize: 'clamp(24px,5vw,52px)', fontWeight: 700, letterSpacing: '-.04em', lineHeight: 1.02 }}>{title}</div><div style={{ marginTop: 8, lineHeight: 1.45, opacity: 0.85, fontSize: 'clamp(15px,2vw,19px)' }}>{body}</div></div>
+        return <Link key={slug} href={`/services/${slug}`} data-rv={i % 2 ? 'right' : 'left'} data-ripple data-hover style={{ background: dark ? '#023c62' : '#E8F0F7', color: dark ? '#fff' : '#023c62', borderRadius: 28, padding: 'clamp(18px,5vw,44px)', display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', gap: 'clamp(10px,3vw,36px)', minWidth: 0, alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ fontSize: 'clamp(32px,10vw,110px)', fontWeight: 300, letterSpacing: '-.06em', opacity: 0.45, lineHeight: 1 }}>{String(i + 1).padStart(2, '0')}</div>
+          <div><div style={{ fontSize: 'clamp(22px,5vw,52px)', fontWeight: 700, letterSpacing: '-.04em', lineHeight: 1.02, overflowWrap: 'anywhere' }}>{title}</div><div style={{ marginTop: 8, lineHeight: 1.45, opacity: 0.85, fontSize: 'clamp(15px,2vw,19px)' }}>{body}</div></div>
           <div style={{ fontSize: 'clamp(28px,5vw,48px)' }}>→</div>
         </Link>
       })}
