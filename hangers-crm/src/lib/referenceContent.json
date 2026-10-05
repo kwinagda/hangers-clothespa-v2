@@ -1,0 +1,782 @@
+{
+ "faq": {
+  "clip": "faq",
+  "nav": "faq",
+  "crumbs": [
+   [
+    "Home",
+    "https://hangers-cs.com/"
+   ],
+   [
+    "FAQ"
+   ]
+  ],
+  "title": "Questions we get asked at the counter.",
+  "intro": "Turnaround, pickup, curtains, rates, tracking and what to expect before handing over your items.",
+  "faq": [
+   [
+    "Is pickup and delivery free?",
+    "Yes, for eligible orders above Rs. 499 within Mulund, Bhandup, Thane, Nahur, Vikhroli, Kanjurmarg, Powai, Ghatkopar. The team confirms address coverage and timing before collection."
+   ],
+   [
+    "How long does a standard order take?",
+    "Typical dry-cleaning turnaround is 4-5 days. Curtains generally take 6-7 days. Exact timing depends on the item and service."
+   ],
+   [
+    "Do you remove and reinstall curtains?",
+    "Yes. Curtain removal and reinstallation are included with curtain cleaning, subject to access and site conditions."
+   ],
+   [
+    "What if a stain does not come out?",
+    "Stain removal is not guaranteed. Fabric, stain age and prior treatment affect the result. The team explains visible concerns and works on a best-effort basis."
+   ],
+   [
+    "Are the rates on the rate chart current?",
+    "The public rate chart is loaded from the active Hangers pricing catalog. Final suitability and any approved adjustment depend on inspection of the actual item."
+   ],
+   [
+    "How are garments tracked?",
+    "Regular orders use order records and barcode-based garment tracking. Customers can receive relevant WhatsApp status updates."
+   ],
+   [
+    "Can I drop garments at the shop?",
+    "Yes. You can visit the Mulund West shop during the opening hours listed on the Contact page."
+   ],
+   [
+    "Do you handle business requirements?",
+    "Yes. Hangers discusses recurring garment or linen requirements with offices, clinics, salons, restaurants and hospitality businesses before preparing a proposal."
+   ],
+   [
+    "How do I pay?",
+    "Payment methods and the amount due are shown through the order and invoice flow. Contact the team if you need confirmation before collection or delivery."
+   ]
+  ],
+  "note": {
+   "h": "Still unsure about an item?",
+   "p": "Send a photo of the fabric, care label or stain before you book.",
+   "cta": [
+    "WhatsApp +917977417014",
+    "https://wa.me/917977417014"
+   ]
+  }
+ },
+ "about": {
+  "clip": "about",
+  "nav": "about",
+  "crumbs": [
+   [
+    "Home",
+    "https://hangers-cs.com/"
+   ],
+   [
+    "About"
+   ]
+  ],
+  "title": "A neighbourhood garment-care shop built around clear service.",
+  "intro": "Hangers Clothes Spa | Dry Cleaning & Curtain Care has served Mulund West since 2018. We combine hands-on item inspection with barcode tracking, live pricing and WhatsApp order updates.",
+  "image": {
+   "src": "https://hangers-cs.com/brand/garment-care-hero.webp",
+   "alt": "Hangers garment-care professional inspecting a shirt"
+  },
+  "body": "Hangers Clothes Spa works with garments, ironing, curtains, footwear and household furnishings from its Mulund West shop. The service begins with the item itself: its fabric, construction, care label and condition. The right process and expected timing are confirmed before the order proceeds. Technology supports that work rather than replacing it. Barcode tracking and WhatsApp status updates help customers follow regular orders clearly.",
+  "stats": [
+   [
+    "2018",
+    "Serving the neighbourhood since"
+   ],
+   [
+    "4.7 / 5",
+    "Google rating from 21 reviews"
+   ],
+   [
+    "8",
+    "Primary pickup areas"
+   ],
+   [
+    "4-5 days",
+    "Typical dry-cleaning turnaround"
+   ]
+  ],
+  "blocks": [
+   {
+    "h": "The Hangers approach, briefly",
+    "cards": [
+     {
+      "t": "Inspect",
+      "s": "Review the item, service requirement and visible concerns at intake.",
+      "n": "01"
+     },
+     {
+      "t": "Track",
+      "s": "Use order and barcode records to keep garments linked to the correct customer.",
+      "n": "02"
+     },
+     {
+      "t": "Update",
+      "s": "Send relevant WhatsApp status messages as regular orders progress.",
+      "n": "03"
+     }
+    ]
+   }
+  ],
+  "sections": [
+   [
+    "Curtain care at home",
+    "Curtain cleaning includes free removal and reinstallation. Typical curtain turnaround is 6-7 days, subject to fabric and site access."
+   ],
+   [
+    "Where to find us",
+    "Shop No. 8A, Roop Pooja Building, Jain Mandir Marg, opposite Shivas Salon, Gavani Pada, Sarvodaya Nagar, Mulund West, Mumbai 400080"
+   ]
+  ],
+  "note": {
+   "h": "Contact and directions",
+   "p": "Visit the Mulund West shop or reach the team by call or WhatsApp.",
+   "cta": [
+    "Contact and directions",
+    "https://hangers-cs.com/contact"
+   ]
+  }
+ },
+ "corporate-accounts": {
+  "clip": "corporate",
+  "nav": "corporate-accounts",
+  "crumbs": [
+   [
+    "Home",
+    "https://hangers-cs.com/"
+   ],
+   [
+    "Corporate accounts"
+   ]
+  ],
+  "title": "Garment and linen care for businesses across Mumbai.",
+  "intro": "For hotels, restaurants, clinics, salons and offices, Hangers builds a service plan around the real item mix, volume and schedule. Every proposal is discussed and approved before service begins.",
+  "ctas": [
+   [
+    "Request a contract quote",
+    "mailto:info@hangers-cs.com",
+    1
+   ],
+   [
+    "Speak with our team",
+    "https://wa.me/917977417014",
+    0
+   ]
+  ],
+  "stats": [
+   [
+    "Since 2018",
+    "Local garment-care experience"
+   ],
+   [
+    "8 areas",
+    "Mulund, Bhandup, Thane, Nahur, Vikhroli, Kanjurmarg, Powai, Ghatkopar"
+   ],
+   [
+    "Tracked",
+    "Barcode-based garment handling"
+   ],
+   [
+    "Itemised",
+    "Clear account records and billing"
+   ]
+  ],
+  "blocks": [
+   {
+    "h": "What a business plan can cover",
+    "cards": [
+     {
+      "t": "Hotels & serviced apartments",
+      "s": "Room linen, staff uniforms and guest laundry can be organised by property, department and collection schedule."
+     },
+     {
+      "t": "Restaurants & cafes",
+      "s": "Aprons, table linen, napkins and chef wear with a recurring collection plan suited to your operating hours."
+     },
+     {
+      "t": "Clinics & salons",
+      "s": "Coats, towels, drapes and workwear handled under an agreed service scope and recurring schedule."
+     },
+     {
+      "t": "Offices & co-working",
+      "s": "Employee garment care or reception collection points with item-level order tracking and clear account records."
+     }
+    ]
+   },
+   {
+    "h": "Commercial terms",
+    "p": "Rates are never invented from a generic package. We quote after understanding your actual items, volume and operating needs.",
+    "cards": [
+     {
+      "t": "Minimum volume",
+      "s": "Confirmed after requirement review"
+     },
+     {
+      "t": "Route frequency",
+      "s": "Scheduled around actual volume"
+     },
+     {
+      "t": "Invoicing",
+      "s": "Itemised and account-specific"
+     },
+     {
+      "t": "Payment",
+      "s": "Agreed before service starts"
+     },
+     {
+      "t": "Trial service",
+      "s": "Available after site discussion"
+     },
+     {
+      "t": "Pricing",
+      "s": "Quoted for the approved scope"
+     }
+    ]
+   },
+   {
+    "h": "How onboarding runs",
+    "p": "The process keeps responsibilities, pricing and collection timing clear before the first business order is accepted.",
+    "cards": [
+     {
+      "t": "Requirement call",
+      "s": "Tell us the item mix, typical volume, location and collection frequency.",
+      "n": "01"
+     },
+     {
+      "t": "Site review",
+      "s": "We confirm handling needs, access, collection timing and account contacts.",
+      "n": "02"
+     },
+     {
+      "t": "Written proposal",
+      "s": "You receive a clear scope, schedule and pricing for approval.",
+      "n": "03"
+     },
+     {
+      "t": "Service starts",
+      "s": "Collections begin only after the commercial terms and operating flow are agreed.",
+      "n": "04"
+     }
+    ]
+   }
+  ]
+ },
+ "blog": {
+  "clip": "journal",
+  "nav": "blog",
+  "crumbs": [
+   [
+    "Home",
+    "https://hangers-cs.com/"
+   ],
+   [
+    "Journal"
+   ]
+  ],
+  "title": "Garment Care Journal",
+  "intro": "Practical guidance from the Hangers counter: stains, storage, curtains, footwear and the small decisions that can prevent permanent damage.",
+  "lists": [
+   {
+    "h": "Latest",
+    "items": [
+     {
+      "k": "Curtain care",
+      "t": "What to check before curtains come down",
+      "s": "Photograph the original fall, inspect weak stitching and note the lining. Fabric, sun exposure and prior shrinkage all affect the appropriate cleaning process. Hangers offers free curtain removal and reinstallation, with a typical turnaround of 6-7 days.",
+      "href": "https://hangers-cs.com/blog/what-to-check-before-curtains-come-down"
+     },
+     {
+      "k": "Bridal wear",
+      "t": "Storing Embellished Garments",
+      "s": "Heavy work needs breathable storage, supported folds and protection from humidity. Avoid direct contact with plastic for long periods, and address stains before storage.",
+      "href": "https://hangers-cs.com/blog/storing-embellished-bridal-wear"
+     },
+     {
+      "k": "Care labels",
+      "t": "Why the Care Label Matters",
+      "s": "The label helps identify fibre content and the manufacturer's intended process, but construction and embellishment still need inspection. Service decisions are made item by item.",
+      "href": "https://hangers-cs.com/blog/why-the-care-label-matters"
+     },
+     {
+      "k": "Footwear",
+      "t": "Drying Shoes Without Causing Damage",
+      "s": "Direct sun can yellow some materials and distort adhesives. Use shade and airflow, and avoid aggressive brushing on delicate finishes. Material determines the safe cleaning method.",
+      "href": "https://hangers-cs.com/blog/drying-shoes-without-causing-damage"
+     },
+     {
+      "k": "Seasonal care",
+      "t": "Putting Woollens Away Properly",
+      "s": "Clean before storing, dry fully, fold without compressing, and use a breathable storage cover away from damp walls. Residue and moisture cause more storage damage than wear.",
+      "href": "https://hangers-cs.com/blog/putting-woollens-away-properly"
+     },
+     {
+      "k": "Stains",
+      "t": "What to Do Before a Stain Reaches the Counter",
+      "s": "Blot rather than rub, avoid heat, and tell the team what caused the stain. Home treatment can set some stains permanently — the safest first step is often to stop and ask.",
+      "href": "https://hangers-cs.com/blog/what-to-do-before-a-stain-reaches-the-counter"
+     }
+    ]
+   }
+  ],
+  "note": {
+   "h": "Have an item you are not sure about?",
+   "p": "Send a clear photo of the fabric, label or stain before attempting a home treatment.",
+   "cta": [
+    "Ask Hangers on WhatsApp",
+    "https://wa.me/917977417014"
+   ]
+  }
+ },
+ "privacy-policy": {
+  "nav": "",
+  "crumbs": [
+   [
+    "Home",
+    "https://hangers-cs.com/"
+   ],
+   [
+    "Privacy Policy"
+   ]
+  ],
+  "title": "Privacy Policy",
+  "intro": "A plain-language explanation of the customer and order information Hangers uses to provide dry cleaning, local pickup and delivery, payment reconciliation and support. Last updated: 29 September 2026",
+  "sections": [
+   [
+    "Our approach",
+    "Hangers Clothes Spa uses information entrusted to us to arrange and perform garment-care services, communicate about orders and payments, and operate this website. This notice describes the information used in those activities and the choices available to you. Razorpay processes online payment details under its own terms and privacy notice."
+   ],
+   [
+    "Information you provide",
+    "When you contact us, request a pickup, or place an order, we may receive your name, mobile number, email address, pickup or delivery address, requested services, preferred collection time, item and care details, order history, messages and support queries. We use payment references and transaction status to match a payment to an invoice; online payment credentials are entered into Razorpay’s checkout, not requested in our pickup form."
+   ],
+   [
+    "How we use it",
+    "Confirm service-area coverage and contact you about pickup scheduling. Identify items and orders, record inspection and service progress, and arrange return delivery. Issue invoices and receipts, reconcile payments, and investigate payment or service questions. Send relevant service and order updates through the contact channel used for your order. Protect the website and our records, prevent misuse, maintain operational accounts, and meet applicable record-keeping obligations. Understand public website usage and improve pages using Google Analytics and Google Tag Manager."
+   ],
+   [
+    "When information is shared",
+    "We share only information needed for the relevant task with service providers that support our operations. These may include Razorpay for payment processing, website and cloud hosting providers, and communication providers used to send customer updates. A provider may process information under its own privacy terms. We do not publish customer order details as public website content. We may also disclose records where required by law or to investigate fraud, security incidents or a customer dispute."
+   ],
+   [
+    "Website measurement and device information",
+    "The public website loads Google Analytics and Google Tag Manager on its marketing domain. Those services may receive technical and page-usage information such as pages viewed, browser/device signals and approximate network-derived information according to Google’s settings and policies. Your browser also stores limited session data when you use features such as pickup verification. You can use browser controls to limit cookies or storage; some site functions may then not work as intended."
+   ],
+   [
+    "Retention and security",
+    "We keep order, service, payment and customer-contact records for as long as they are needed to provide services, answer questions, reconcile accounts, address disputes, meet legal/accounting duties, and protect the business. Retention can therefore depend on the record and the reason it was created. We use access controls and operational safeguards, but no internet transmission or storage method can be promised to be completely risk-free."
+   ],
+   [
+    "Your requests and contact",
+    "You may contact us to ask what customer information relates to your order, correct inaccurate contact details, or raise a privacy concern. We may need to verify that you are the customer before changing or disclosing an order record. Some transaction records may need to be retained for accounting, legal or dispute-resolution purposes."
+   ],
+   [
+    "Updates to this notice",
+    "We may revise this notice when our website, service providers or practices change. The update date at the top of the page indicates the current published version."
+   ]
+  ],
+  "note": {
+   "h": "Questions about this policy?",
+   "p": "Contact Hangers Clothes Spa at info@hangers-cs.com or +917977417014. You can also visit the Contact Us page.",
+   "cta": [
+    "Contact Us",
+    "https://hangers-cs.com/contact"
+   ]
+  }
+ },
+ "blog:why-the-care-label-matters": {
+  "nav": "blog",
+  "crumbs": [
+   [
+    "Home",
+    "https://hangers-cs.com/"
+   ],
+   [
+    "Journal",
+    "https://hangers-cs.com/blog"
+   ],
+   [
+    "Why the Care Label Matters"
+   ]
+  ],
+  "title": "Why the Care Label Matters",
+  "intro": "The label helps identify fibre content and the manufacturer's intended process, but construction and embellishment still need inspection. Service decisions are made item by item.",
+  "image": {
+   "src": "https://hangers-cs.com/brand/landing-garment-care.webp",
+   "alt": "Checking a garment care label before cleaning"
+  },
+  "sections": [
+   [
+    "What the label tells you",
+    "A care label states the fibre content and the manufacturer's recommended cleaning method — a genuinely useful starting point for how a garment should be handled."
+   ],
+   [
+    "Common symbols, plainly explained",
+    "A circle usually means dry clean, a crossed-out circle means do not dry clean, a tub means machine or hand wash, and dots inside a triangle or iron symbol indicate heat limits. These symbols exist precisely because fibre content alone does not tell the whole story of how a garment should be treated."
+   ],
+   [
+    "What the label does not tell you",
+    "A label cannot account for embellishment, lining, structural interfacing, or how a garment has already worn and been cared for. Two items with an identical label can still need different handling once construction and condition are inspected."
+   ],
+   [
+    "When labels are missing or faded",
+    "Older garments, altered items or pieces bought secondhand sometimes arrive without a readable label. In that case, fibre and construction are assessed directly — checking weave, weight, trims and any visible wear — rather than guessing from appearance alone."
+   ],
+   [
+    "Service decisions are made item by item",
+    "This is why every item is assessed individually before cleaning begins, rather than sorted purely by label. If a concern comes up — a delicate trim, a loose button, a prior repair — it is confirmed with you before work starts."
+   ]
+  ],
+  "faq": [
+   [
+    "What does a crossed-out dry clean symbol mean?",
+    "It means the garment should not be dry cleaned, usually because a trim, coating or fibre would react badly to dry-cleaning solvents. It is treated as a genuine warning, not a suggestion."
+   ],
+   [
+    "What happens if a garment has no care label?",
+    "The fabric, construction and condition are inspected directly to decide on a safe process, and any uncertainty is confirmed with you before cleaning begins."
+   ]
+  ]
+ },
+ "service:dry-cleaning": {
+  "nav": "services",
+  "crumbs": [
+   [
+    "Home",
+    "https://hangers-cs.com/"
+   ],
+   [
+    "Services",
+    "https://hangers-cs.com/services"
+   ],
+   [
+    "Dry Cleaning"
+   ]
+  ],
+  "title": "Dry Cleaning, wherever Hangers picks up.",
+  "intro": "Dry Cleaning is available in every area Hangers serves. Pick your neighbourhood below for local turnaround times and pickup details.",
+  "ctas": [
+   [
+    "Book a pickup",
+    "https://hangers-cs.com/book-pickup",
+    1
+   ],
+   [
+    "Ask on WhatsApp",
+    "https://wa.me/917977417014",
+    0
+   ]
+  ],
+  "lists": [
+   {
+    "h": "Dry Cleaning by area",
+    "items": [
+     {
+      "t": "Bhandup",
+      "s": "Bhandup sits one stop south of Mulund on the Central Line — close enough that it falls naturally within the regular collection route from the Mulund West facility. Dry cleaning collected from Bhandup goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/bhandup"
+     },
+     {
+      "t": "Ghatkopar",
+      "s": "Ghatkopar is a major junction further down the Central Line, well connected by rail and Metro — one of the areas served from the Mulund West facility. Dry cleaning collected from Ghatkopar goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/ghatkopar"
+     },
+     {
+      "t": "Kanjurmarg",
+      "s": "Kanjurmarg sits on the Central Line between Bhandup and Vikhroli, one of the areas regularly served from the Mulund West facility. Dry cleaning collected from Kanjurmarg goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/kanjurmarg"
+     },
+     {
+      "t": "Mulund",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Dry cleaning collected from Mulund goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/mulund"
+     },
+     {
+      "t": "Nahur",
+      "s": "Nahur is the small station sitting directly between Mulund and Bhandup — near enough to the Mulund West facility that it sits comfortably within standard coverage. Dry cleaning collected from Nahur goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/nahur"
+     },
+     {
+      "t": "Powai",
+      "s": "Powai's mix of residential complexes and office campuses means demand comes from both households and workplaces — individual orders and recurring society or corporate arrangements are both handled the same way. Dry cleaning collected from Powai goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/powai"
+     },
+     {
+      "t": "Thane",
+      "s": "Thane is a larger catchment north of Mulund, and coverage there depends on the exact address — confirmed directly when you submit a pickup request rather than assumed from the area name alone. Dry cleaning collected from Thane goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/thane"
+     },
+     {
+      "t": "Vikhroli",
+      "s": "Vikhroli is further down the Central Line from Mulund. The distance is longer than for the closer suburbs, but the process and turnaround promise stay identical. Dry cleaning collected from Vikhroli goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/vikhroli"
+     }
+    ]
+   }
+  ],
+  "note": {
+   "h": "Not sure dry cleaning is the right process?",
+   "p": "Send a photo of the item and its care label — we'll confirm the right process before booking.",
+   "cta": [
+    "Ask Hangers on WhatsApp",
+    "https://wa.me/917977417014"
+   ]
+  }
+ },
+ "area:dry-cleaning/mulund": {
+  "nav": "services",
+  "crumbs": [
+   [
+    "Home",
+    "https://hangers-cs.com/"
+   ],
+   [
+    "Services",
+    "https://hangers-cs.com/services"
+   ],
+   [
+    "Dry Cleaning",
+    "https://hangers-cs.com/services/dry-cleaning"
+   ],
+   [
+    "Mulund"
+   ]
+  ],
+  "title": "Dry Cleaning in Mulund | Hangers Clothes Spa",
+  "intro": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Dry cleaning collected from Mulund goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+  "ctas": [
+   [
+    "Book a pickup",
+    "https://hangers-cs.com/book-pickup",
+    1
+   ],
+   [
+    "Ask on WhatsApp",
+    "https://wa.me/917977417014",
+    0
+   ]
+  ],
+  "image": {
+   "src": "https://hangers-cs.com/brand/garment-care-hero.webp",
+   "alt": "Professional dry cleaning process at Hangers Clothes Spa"
+  },
+  "sections": [
+   [
+    "What dry cleaning actually is",
+    "Dry cleaning uses a liquid solvent instead of water to lift oils, body fats and embedded grime out of fabric. Because the solvent contains no water, fibres do not swell or change shape during the cycle, which is exactly why it suits garments that a normal wash would distort."
+   ],
+   [
+    "Why the process is gentler than it sounds",
+    "Professional machines move garments through the solvent with controlled agitation rather than the harsher mechanical action of a standard wash cycle. The goal is even saturation without abrasion, so fabric integrity holds up over repeated cleans rather than degrading with each one."
+   ],
+   [
+    "Inspection comes before cleaning",
+    "Every item is checked for its fibre content, construction and any existing damage before it goes anywhere near a machine. A loose button, a delicate trim or a prior repair is flagged and, where it matters, confirmed with you before work starts, rather than discovered after the fact."
+   ],
+   [
+    "The solvent itself is filtered and reused",
+    "Professional dry-cleaning solvent is distilled and filtered between cycles so each batch is cleaned in genuinely purified solvent, not contaminated with residue from the last load. This is part of why the process stays consistent order after order."
+   ],
+   [
+    "Collected from Mulund, processed at Mulund West",
+    "Every dry-cleaning order — regardless of which served area it's collected from — is brought to the same Mulund West facility and goes through the same process and quality checks. Standard turnaround is 4-5 days."
+   ],
+   [
+    "What is not sent for standard dry cleaning",
+    "Some fabrics or embellishments need a different approach entirely, which is why every item is assessed individually rather than processed on assumption. If something needs a different treatment, that is confirmed with you rather than pushed through the standard process anyway."
+   ]
+  ],
+  "faq": [
+   [
+    "How long does dry cleaning take?",
+    "Standard turnaround is 4-5 days from collection to delivery."
+   ],
+   [
+    "Is dry cleaning safe for all fabrics?",
+    "Most fabrics suited to dry cleaning benefit from the solvent-based process, but every item is inspected individually first — construction and condition, not just fabric type, determine the right approach."
+   ],
+   [
+    "Why book from Mulund specifically?",
+    "Because the facility is local, pickup and delivery windows for Mulund addresses are generally the most straightforward to confirm quickly."
+   ]
+  ],
+  "lists": [
+   {
+    "h": "Other services in Mulund",
+    "items": [
+     {
+      "t": "Curtain Cleaning in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Curtain cleaning from Mulund includes free removal at your home and reinstallation after cleaning, with a typical turnaround of 6-7 days.",
+      "href": "https://hangers-cs.com/services/curtain-cleaning/mulund"
+     },
+     {
+      "t": "Household Textile Cleaning in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Household textiles from Mulund — bedspreads, cushion covers, large soft furnishings — are cleaned with the heat and handling a home wash usually cannot manage for bulky items.",
+      "href": "https://hangers-cs.com/services/household-textile-care/mulund"
+     },
+     {
+      "t": "Ironing Service in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Ironing collected from Mulund is pressed with heat and technique matched to the specific fabric, not one generic setting for everything.",
+      "href": "https://hangers-cs.com/services/ironing/mulund"
+     },
+     {
+      "t": "Shoe Cleaning & Care in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Shoe cleaning from Mulund is assessed material by material — leather, suede, canvas and synthetic uppers each need a genuinely different approach.",
+      "href": "https://hangers-cs.com/services/shoe-care/mulund"
+     },
+     {
+      "t": "Sofa & Upholstery Cleaning in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Sofa and upholstery cleaning from Mulund starts with the right process for the material — fabric and leather are never treated the same way.",
+      "href": "https://hangers-cs.com/services/sofa-upholstery-cleaning/mulund"
+     }
+    ]
+   },
+   {
+    "h": "Dry Cleaning in other areas",
+    "items": [
+     {
+      "t": "Bhandup",
+      "s": "Bhandup sits one stop south of Mulund on the Central Line — close enough that it falls naturally within the regular collection route from the Mulund West facility. Dry cleaning collected from Bhandup goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/bhandup"
+     },
+     {
+      "t": "Ghatkopar",
+      "s": "Ghatkopar is a major junction further down the Central Line, well connected by rail and Metro — one of the areas served from the Mulund West facility. Dry cleaning collected from Ghatkopar goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/ghatkopar"
+     },
+     {
+      "t": "Kanjurmarg",
+      "s": "Kanjurmarg sits on the Central Line between Bhandup and Vikhroli, one of the areas regularly served from the Mulund West facility. Dry cleaning collected from Kanjurmarg goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/kanjurmarg"
+     },
+     {
+      "t": "Nahur",
+      "s": "Nahur is the small station sitting directly between Mulund and Bhandup — near enough to the Mulund West facility that it sits comfortably within standard coverage. Dry cleaning collected from Nahur goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/nahur"
+     },
+     {
+      "t": "Powai",
+      "s": "Powai's mix of residential complexes and office campuses means demand comes from both households and workplaces — individual orders and recurring society or corporate arrangements are both handled the same way. Dry cleaning collected from Powai goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/powai"
+     },
+     {
+      "t": "Thane",
+      "s": "Thane is a larger catchment north of Mulund, and coverage there depends on the exact address — confirmed directly when you submit a pickup request rather than assumed from the area name alone. Dry cleaning collected from Thane goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/thane"
+     },
+     {
+      "t": "Vikhroli",
+      "s": "Vikhroli is further down the Central Line from Mulund. The distance is longer than for the closer suburbs, but the process and turnaround promise stay identical. Dry cleaning collected from Vikhroli goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/vikhroli"
+     }
+    ]
+   }
+  ],
+  "note": {
+   "h": "More about pickup in Mulund",
+   "p": "Coverage, turnaround and every other service available in this area.",
+   "cta": [
+    "View Mulund pickup zone →",
+    "https://hangers-cs.com/pickup-zones/mulund"
+   ]
+  }
+ },
+ "zone:mulund": {
+  "clip": "zones",
+  "nav": "pickup-zones",
+  "crumbs": [
+   [
+    "Home",
+    "https://hangers-cs.com/"
+   ],
+   [
+    "Pickup zones",
+    "https://hangers-cs.com/pickup-zones"
+   ],
+   [
+    "Mulund"
+   ]
+  ],
+  "title": "Dry Cleaning & Laundry Pickup in Mulund",
+  "intro": "Every Hangers Clothes Spa order is processed at our own facility in Mulund West, on Jain Mandir Marg. If you live in Mulund, you are closest to the source — nothing is transported across the city before it reaches us.",
+  "stats": [
+   [
+    "4-5 days",
+    "Dry cleaning turnaround"
+   ],
+   [
+    "6-7 days",
+    "Curtain care turnaround"
+   ],
+   [
+    "Rs. 499",
+    "Pickup minimum order"
+   ],
+   [
+    "Free",
+    "Curtain removal & reinstallation"
+   ]
+  ],
+  "body": "Because the facility is local, pickup requests from Mulund are usually the fastest to confirm a collection window for. Submit a request with your address and preferred date; the team confirms the exact slot before a rider is assigned — no fixed daily schedule is promised online, since it depends on real-time rider availability.",
+  "map": true,
+  "note": {
+   "h": "Book a pickup in Mulund",
+   "p": "Confirm your address and the next available collection window.",
+   "cta": [
+    "Ask on WhatsApp",
+    "https://wa.me/917977417014"
+   ]
+  },
+  "lists": [
+   {
+    "h": "Services in Mulund",
+    "items": [
+     {
+      "t": "Curtain Cleaning in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Curtain cleaning from Mulund includes free removal at your home and reinstallation after cleaning, with a typical turnaround of 6-7 days.",
+      "href": "https://hangers-cs.com/services/curtain-cleaning/mulund"
+     },
+     {
+      "t": "Dry Cleaning in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Dry cleaning collected from Mulund goes through the same solvent-based process and 4-5 day turnaround as every Hangers order.",
+      "href": "https://hangers-cs.com/services/dry-cleaning/mulund"
+     },
+     {
+      "t": "Household Textile Cleaning in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Household textiles from Mulund — bedspreads, cushion covers, large soft furnishings — are cleaned with the heat and handling a home wash usually cannot manage for bulky items.",
+      "href": "https://hangers-cs.com/services/household-textile-care/mulund"
+     },
+     {
+      "t": "Ironing Service in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Ironing collected from Mulund is pressed with heat and technique matched to the specific fabric, not one generic setting for everything.",
+      "href": "https://hangers-cs.com/services/ironing/mulund"
+     },
+     {
+      "t": "Shoe Cleaning & Care in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Shoe cleaning from Mulund is assessed material by material — leather, suede, canvas and synthetic uppers each need a genuinely different approach.",
+      "href": "https://hangers-cs.com/services/shoe-care/mulund"
+     },
+     {
+      "t": "Sofa & Upholstery Cleaning in Mulund | Hangers Clothes Spa",
+      "s": "Mulund West is where the Hangers facility itself is based, on Jain Mandir Marg — nothing travels further than the local pickup route before processing begins. Sofa and upholstery cleaning from Mulund starts with the right process for the material — fabric and leather are never treated the same way.",
+      "href": "https://hangers-cs.com/services/sofa-upholstery-cleaning/mulund"
+     }
+    ]
+   }
+  ],
+  "faq": [
+   [
+    "How long does dry cleaning take in Mulund?",
+    "Standard dry cleaning turnaround is 4-5 days. Curtains, given the extra handling for removal and reinstallation, typically take 6-7 days."
+   ],
+   [
+    "Is curtain removal and reinstallation really free?",
+    "Yes — for curtain cleaning orders, the team removes the curtains at your home and reinstalls them after cleaning, at no extra charge."
+   ],
+   [
+    "What services can I book from Mulund?",
+    "Dry cleaning, ironing, curtain care, sofa and upholstery cleaning, shoe care, and household textile services are all available. See the rate chart for current pricing on every item."
+   ]
+  ]
+ }
+}
