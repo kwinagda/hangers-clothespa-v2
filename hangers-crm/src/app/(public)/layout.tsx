@@ -1,4 +1,4 @@
-import '../globals.css'
+import '../public.css'
 import '@fontsource/space-grotesk/300.css'
 import '@fontsource/space-grotesk/400.css'
 import '@fontsource/space-grotesk/500.css'
