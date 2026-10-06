@@ -206,6 +206,7 @@ const createQuotation = async (req, res) => {
           subtotal: payload.subtotal,
           discount: payload.discount,
           totalAmount: payload.totalAmount,
+          pricingSnapshot: { quotation: true, discountInput: payload.pricing.discountInput },
           paidAmount: 0,
           paymentStatus: 'UNPAID',
           notes: payload.notes,
@@ -288,6 +289,7 @@ const updateQuotation = async (req, res) => {
           subtotal: payload.subtotal,
           discount: payload.discount,
           totalAmount: payload.totalAmount,
+          pricingSnapshot: { quotation: true, discountInput: payload.pricing.discountInput },
           notes: payload.notes,
           version: { increment: 1 },
           items: {
