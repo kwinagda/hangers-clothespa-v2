@@ -176,6 +176,7 @@ export default function QuotationsPage() {
             <tbody>
               {quotations.map((quotation: any) => {
                 const style = statusStyles[quotation.quotationStatus || 'DRAFT'] || { bg: '#f4f7fb', color: '#023c62' }
+                const isFieldServiceQuote = (quotation.items || []).some((item: any) => item.garmentType === 'SOFA CLEANING')
                 return (
                   <tr key={quotation.id}>
                     <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8' }}>
@@ -218,7 +219,12 @@ export default function QuotationsPage() {
                           <Share2 size={14} />
                           Share
                         </button>
-                        {quotation.quotationStatus === 'APPROVED' && (
+                        {quotation.quotationStatus === 'APPROVED' && isFieldServiceQuote && (
+                          <Link href="/dashboard/service-appointments" style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: '#023c62', color: '#fff', fontWeight: 700, textDecoration: 'none' }}>
+                            Schedule field service
+                          </Link>
+                        )}
+                        {quotation.quotationStatus === 'APPROVED' && !isFieldServiceQuote && (
                           <button
                             onClick={() => convertQuotation(quotation.id)}
                             disabled={busyId === quotation.id}

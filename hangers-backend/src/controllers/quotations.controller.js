@@ -470,6 +470,9 @@ const convertQuotation = async (req, res) => {
       if (!hydratedQuotation.items.length) {
         throw Object.assign(new Error('Quotation must have at least one item before conversion'), { code: 'EMPTY_QUOTATION' });
       }
+      if (hydratedQuotation.items.some((item) => item.garmentType === 'SOFA CLEANING')) {
+        throw Object.assign(new Error('Sofa and chair cleaning quotations must be scheduled through Sofa / Field Service, not converted to garment orders'), { code: 'FIELD_SERVICE_QUOTATION' });
+      }
       const orderNumber = await generateOrderNumber({ documentType: 'ORDER', client: tx });
       const order = await tx.order.create({
         data: {
@@ -575,7 +578,7 @@ const convertQuotation = async (req, res) => {
   } catch (err) {
     console.error('convertQuotation error:', err);
     if (err.code === 'QUOTATION_NOT_FOUND') return notFound(res, err.message);
-    if (['ALREADY_CONVERTED', 'NOT_APPROVED', 'EXPIRED_QUOTATION', 'EMPTY_QUOTATION'].includes(err.code)) return badRequest(res, err.message);
+    if (['ALREADY_CONVERTED', 'NOT_APPROVED', 'EXPIRED_QUOTATION', 'EMPTY_QUOTATION', 'FIELD_SERVICE_QUOTATION'].includes(err.code)) return badRequest(res, err.message);
     if (err.code === 'CONVERSION_CONFLICT' || err.code === 'P2034') return res.status(409).json({ success: false, message: 'Quotation conversion conflicted with another request; retry with the same idempotency key' });
     return error(res, 'Failed to convert quotation');
   }
