@@ -1,5 +1,7 @@
 const fs = require('fs/promises');
 const path = require('path');
+const { htmlToPDF } = require('./pdf-render.service');
+const { normalizeOrderItem } = require('../utils/line-pricing');
 
 const fmt = (n) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const roundMoney = (value) => Number((Number.isFinite(value) ? value : 0).toFixed(2));
@@ -606,6 +608,38 @@ const generateQuotationHTML = async (quotation) => {
   </html>`;
 };
 
+const hydrateQuotationPricing = (quotation) => {
+  if (!quotation) return quotation;
+  const items = Array.isArray(quotation.items)
+    ? quotation.items.map((item) => ({
+        ...item,
+        ...normalizeOrderItem(item, { defaultServiceName: item.serviceName || 'Service' }),
+      }))
+    : [];
+  const subtotal = roundMoney(items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0));
+  const discount = Math.max(0, Number.parseFloat(String(quotation.discount ?? 0)) || 0);
+  const totalAmount = roundMoney(Math.max(0, subtotal - discount));
+  return { ...quotation, items, subtotal, discount, totalAmount };
+};
+
+const generateQuotationPDF = async (quotation) => {
+  const hydratedQuotation = hydrateQuotationPricing(quotation);
+  const html = await generateQuotationHTML(hydratedQuotation);
+  const itemCount = Array.isArray(hydratedQuotation?.items) ? hydratedQuotation.items.length : 0;
+  const noteLength = String(hydratedQuotation?.notes || '').trim().length;
+  const scale = itemCount > 8 || noteLength > 220
+    ? 0.92
+    : itemCount > 5 || noteLength > 120
+      ? 0.96
+      : 1;
+  return htmlToPDF(html, {
+    margin: { top: '3mm', bottom: '3mm', left: '3mm', right: '3mm' },
+    scale,
+  });
+};
+
 module.exports = {
   generateQuotationHTML,
+  hydrateQuotationPricing,
+  generateQuotationPDF,
 };

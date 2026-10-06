@@ -3,8 +3,7 @@ const { success, badRequest, error, notFound } = require('../utils/response');
 const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const { generateOrderNumber } = require('../utils/order-number');
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
-const { generateQuotationHTML } = require('../services/quotation.pdf.service');
-const { htmlToPDF } = require('../services/pdf-render.service');
+const { generateQuotationPDF, hydrateQuotationPricing } = require('../services/quotation.pdf.service');
 const { createPublicShareToken } = require('../services/publicShare.service');
 const { ensureOrderInvoice } = require('../services/billing.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
@@ -68,34 +67,11 @@ const includeQuotation = {
   assignedTo: { select: { id: true, name: true, role: true } },
 };
 
-const hydrateQuotationPricing = (quotation) => {
-  if (!quotation) return quotation;
-
-  const items = Array.isArray(quotation.items)
-    ? quotation.items.map((item) => ({
-        ...item,
-        ...normalizeOrderItem(item, { defaultServiceName: item.serviceName || 'Service' }),
-      }))
-    : [];
-
-  const subtotal = roundMoney(items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0));
-  const discount = Math.max(0, Number.parseFloat(String(quotation.discount ?? 0)) || 0);
-  const totalAmount = roundMoney(Math.max(0, subtotal - discount));
-
-  return {
-    ...quotation,
-    items,
-    subtotal,
-    discount,
-    totalAmount,
-  };
-};
-
 const buildPublicQuotationUrl = (req, slug) => {
   const configuredBase = process.env.CRM_URL || process.env.CUSTOMER_APP_URL;
   const requestBase = req.get?.('origin');
   const base = String(configuredBase || requestBase || '').replace(/\/+$/, '');
-  return base ? `${base}/quotation/${slug}` : `/quotation/${slug}`;
+  return base ? `${base}/quotation/${slug}?format=pdf` : `/quotation/${slug}?format=pdf`;
 };
 
 const logQuotationWhatsAppStage = async ({ quotation, outcome, error: sendError, staff }) => {
@@ -595,18 +571,7 @@ const getQuotationPDF = async (req, res) => {
     if (!quotation) return notFound(res, 'Quotation not found');
 
     const hydratedQuotation = hydrateQuotationPricing(quotation);
-    const html = await generateQuotationHTML(hydratedQuotation);
-    const itemCount = Array.isArray(hydratedQuotation.items) ? hydratedQuotation.items.length : 0;
-    const noteLength = String(hydratedQuotation.notes || '').trim().length;
-    const scale = itemCount > 8 || noteLength > 220
-      ? 0.92
-      : itemCount > 5 || noteLength > 120
-        ? 0.96
-        : 1;
-    const pdf = await htmlToPDF(html, {
-      margin: { top: '3mm', bottom: '3mm', left: '3mm', right: '3mm' },
-      scale,
-    });
+    const pdf = await generateQuotationPDF(hydratedQuotation);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${quotation.orderNumber}.pdf"`);
     res.send(pdf);
@@ -629,6 +594,7 @@ const createQuotationShare = async (req, res) => {
       resourceId: quotation.id,
       purpose: 'QUOTATION_VIEW',
       ttlDays: 30,
+      stable: true,
     });
     if (!slug) return error(res, 'Failed to create quotation share link');
 
