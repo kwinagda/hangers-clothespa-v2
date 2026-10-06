@@ -105,6 +105,15 @@ const buildServiceDescriptionRows = (items) => items
   `)
   .join('');
 
+const getBillDiscountLabel = (quotation, billDiscount) => {
+  if (billDiscount <= 0) return '';
+  const input = quotation?.pricingSnapshot?.discountInput;
+  if (String(input?.type || '').toUpperCase() === 'PERCENT' && Number(input?.value) > 0) {
+    return `Bill Discount (${Number(input.value)}%)`;
+  }
+  return 'Bill Discount';
+};
+
 const generateQuotationHTML = async (quotation) => {
   const { blueLogo, whiteLogo } = await getBrandAssets();
   const items = Array.isArray(quotation?.items) ? quotation.items : [];
@@ -112,13 +121,14 @@ const generateQuotationHTML = async (quotation) => {
   const serviceDescriptionMarkup = buildServiceDescriptionRows(items);
   const compactLayout = items.length > 5 || noteText.length > 140;
 
-  const serviceDiscount = items.reduce((sum, item) => sum + Number(item.lineDiscountAmount || 0), 0);
+  const serviceDiscount = roundMoney(items.reduce((sum, item) => sum + getDiscountMath(item).totalDiscount, 0));
   const grossServiceValue = roundMoney(items.reduce((sum, item) => {
     const { grossAmount } = getDiscountMath(item);
     return sum + grossAmount;
   }, 0));
   const adjustedSubtotal = Number(quotation.subtotal || 0);
   const billDiscount = Number(quotation.discount || 0);
+  const billDiscountLabel = getBillDiscountLabel(quotation, billDiscount);
   const finalTotal = Number(quotation.totalAmount || 0);
   const totalPieces = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
 
@@ -518,7 +528,7 @@ const generateQuotationHTML = async (quotation) => {
               <div class="customer-phone">${escapeHtml(quotation.customer?.phone || '—')}</div>
               <div class="chip-row">
                 <div class="chip chip-blue">${totalPieces} item${totalPieces === 1 ? '' : 's'}</div>
-                <div class="chip chip-green">Service Discount ${serviceDiscount ? fmt(serviceDiscount) : '—'}</div>
+                ${serviceDiscount > 0 ? `<div class="chip chip-green">Service Savings ${fmt(serviceDiscount)}</div>` : ''}
               </div>
             </div>
             <div class="panel">
@@ -563,9 +573,9 @@ const generateQuotationHTML = async (quotation) => {
               <div class="summary-top">Estimate Summary</div>
               <div class="summary-body">
                 <div class="summary-row"><span>Gross Service Value</span><span class="summary-value">${fmt(grossServiceValue)}</span></div>
-                <div class="summary-row"><span>Included Service Discount</span><span class="summary-value ${serviceDiscount ? 'negative' : ''}">${serviceDiscount ? `-${fmt(serviceDiscount)}` : '—'}</span></div>
-                <div class="summary-row"><span>Net After Service Discount</span><span class="summary-value">${fmt(adjustedSubtotal)}</span></div>
-                <div class="summary-row"><span>Bill-Level Discount</span><span class="summary-value ${billDiscount ? 'negative' : ''}">${billDiscount ? `-${fmt(billDiscount)}` : '—'}</span></div>
+                ${serviceDiscount > 0 ? `<div class="summary-row"><span>Service Discounts</span><span class="summary-value negative">-${fmt(serviceDiscount)}</span></div>` : ''}
+                <div class="summary-row"><span>${serviceDiscount > 0 ? 'Subtotal After Service Discounts' : 'Subtotal'}</span><span class="summary-value">${fmt(adjustedSubtotal)}</span></div>
+                ${billDiscount > 0 ? `<div class="summary-row"><span>${escapeHtml(billDiscountLabel)}</span><span class="summary-value negative">-${fmt(billDiscount)}</span></div>` : ''}
                 <div class="summary-total"><span>Final Quoted Total</span><span>${fmt(finalTotal)}</span></div>
               </div>
           </div>

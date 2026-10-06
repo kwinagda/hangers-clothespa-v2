@@ -482,13 +482,17 @@ function NewOrderPageContent() {
         setCustomer(quotation.customer || null)
         setShowCustomerModal(false)
         setNotes(quotation.notes || '')
-        setDiscountType('flat')
-        setDiscountValue(String(quotation.discount || ''))
+        const savedDiscount = quotation.pricingSnapshot?.discountInput
+        const savedDiscountType = String(savedDiscount?.type || '').toLowerCase() === 'percent' ? 'percent' : 'flat'
+        setDiscountType(savedDiscountType)
+        setDiscountValue(String(savedDiscount?.value ?? quotation.discount ?? ''))
         setValidUntil(quotation.validUntil ? String(quotation.validUntil).slice(0, 10) : validUntil)
         setQuotationStatus(quotation.quotationStatus || 'DRAFT')
         setCart((quotation.items || []).map((item: any) => normalizeCartItem({
           lineId: item.id || createCartLineId(),
-          serviceId: item.serviceId || item.id,
+          // Custom quotation lines have no catalog service. The item id is the
+          // OrderItem id and must never be sent back as a service id.
+          serviceId: item.serviceId || '',
           name: item.serviceName,
           unitPrice: item.unitPrice,
           baseUnitPrice: item.baseUnitPrice ?? item.unitPrice,
