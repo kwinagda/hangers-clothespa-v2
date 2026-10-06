@@ -10,6 +10,7 @@ const { writeAuditEvent, getRequestMeta, log: logActivity } = require('../servic
 const { normalizeCustomerName, normalizeCustomerPhone, normalizeNullableText } = require('../utils/customer-normalization');
 const { createAuthChallenge, verifyAuthChallengeAndIssueToken, consumeAuthChallengeToken, AUTH_CHALLENGE_PURPOSE } = require('../services/authChallenge.service');
 const { sendPickupRequestOtp } = require('../services/whatomate.service');
+const { generateQuotationPDF, hydrateQuotationPricing } = require('../services/quotation.pdf.service');
 const { pickupOtpSendSchema, pickupOtpVerifySchema, publicPickupRequestSchema, queuedPickupRequestSchema } = require('../validation/public.schemas');
 const { randomInt } = require('crypto');
 const { RazorpayCheckoutError, canResumeUnattemptedCheckout, createInvoiceCheckout, getRazorpay, markAttemptFailed, markAttemptPending, reconcileAmbiguousOrderCreation, safeProviderCode, safeProviderMessage, settleCapturedPayment } = require('../services/razorpay-invoice-checkout.service');
@@ -1133,6 +1134,32 @@ const getPublicQuotation = async (req, res) => {
   }
 };
 
+const getPublicQuotationPDF = async (req, res) => {
+  try {
+    const slug = String(req.params.slug || '').trim();
+    if (!slug) return notFound(res, 'Quotation not found');
+    const share = await resolvePublicShareToken({ token: slug, purpose: 'QUOTATION_VIEW' });
+    if (!share || share.resourceType !== 'QUOTATION') return notFound(res, 'Quotation not found');
+
+    const quotation = await prisma.order.findFirst({
+      where: { id: share.resourceId, documentType: 'QUOTATION' },
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        items: true,
+      },
+    });
+    if (!quotation) return notFound(res, 'Quotation not found');
+
+    const pdf = await generateQuotationPDF(hydrateQuotationPricing(quotation));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${quotation.orderNumber}.pdf"`);
+    return res.send(pdf);
+  } catch (err) {
+    console.error('getPublicQuotationPDF error:', err);
+    return error(res, 'Failed to generate quotation PDF');
+  }
+};
+
 const getPublicRateChart = async (_req, res) => {
   try {
     const [services, categoryUi] = await Promise.all([
@@ -1312,6 +1339,7 @@ module.exports = {
   getPublicInvoice,
   getPublicDailyIronLogs,
   getPublicQuotation,
+  getPublicQuotationPDF,
   getPublicRateChart,
   getPublicBlogPosts,
   getPublicBlogPost,

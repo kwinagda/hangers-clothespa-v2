@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getPublicInvoice, getPublicDailyIronLogs, getPublicQuotation, getPublicRateChart, getPublicSiteProfile, getPublicBlogPosts, getPublicBlogPost, getPublicSuburbPages, getPublicSuburbPage, getPublicServicePages, getPublicServicePage, createPublicPickupRequest, ingestQueuedPickupRequest, sendPublicPickupOtp, verifyPublicPickupOtp, createPublicRazorpayOrder, verifyPublicRazorpayPayment, getPublicRazorpayCheckoutStatus, reconcilePublicRazorpayCheckout, assignPublicRazorpayCheckoutExperiment, recordPublicRazorpayCheckoutExperimentEvent } = require('../controllers/public.controller');
+const { getPublicInvoice, getPublicDailyIronLogs, getPublicQuotation, getPublicQuotationPDF, getPublicRateChart, getPublicSiteProfile, getPublicBlogPosts, getPublicBlogPost, getPublicSuburbPages, getPublicSuburbPage, getPublicServicePages, getPublicServicePage, createPublicPickupRequest, ingestQueuedPickupRequest, sendPublicPickupOtp, verifyPublicPickupOtp, createPublicRazorpayOrder, verifyPublicRazorpayPayment, getPublicRazorpayCheckoutStatus, reconcilePublicRazorpayCheckout, assignPublicRazorpayCheckoutExperiment, recordPublicRazorpayCheckoutExperimentEvent } = require('../controllers/public.controller');
 const { publicShareLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimit');
 
 // publicShareLimiter guards guessable share-token lookups (invoice/daily-iron/quotation
@@ -19,6 +19,7 @@ router.get('/invoices/:slug/payment/status', publicShareLimiter, getPublicRazorp
 router.post('/invoices/:slug/payment/reconcile', publicShareLimiter, reconcilePublicRazorpayCheckout);
 router.get('/daily-iron/:slug', publicShareLimiter, getPublicDailyIronLogs);
 router.get('/quotations/:slug', publicShareLimiter, getPublicQuotation);
+router.get('/quotations/:slug/pdf', publicShareLimiter, getPublicQuotationPDF);
 router.get('/rate-chart', getPublicRateChart);
 router.get('/site-profile', getPublicSiteProfile);
 router.get('/blog-posts', getPublicBlogPosts);

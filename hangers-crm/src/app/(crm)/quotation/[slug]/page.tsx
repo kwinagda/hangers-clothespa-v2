@@ -1,4 +1,5 @@
 import { LOGO_BLUE_URL } from '@/lib/branding'
+import { redirect } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,8 +41,14 @@ async function loadQuotation(slug: string) {
   return payload?.data?.quotation || payload?.quotation || null
 }
 
-export default async function PublicQuotationPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function PublicQuotationPage({ params, searchParams }: { params: Promise<{ slug: string }>, searchParams: Promise<{ format?: string }> }) {
   const { slug } = await params
+  const query = await searchParams
+  // Keep old WhatsApp links working: links sent before the PDF rollout did not
+  // carry a query parameter, so PDF is now the default quotation representation.
+  if (query?.format !== 'html') {
+    redirect(`${API_BASE_URL}/public/quotations/${encodeURIComponent(slug)}/pdf`)
+  }
   const quotation = await loadQuotation(slug)
 
   if (!quotation) {
