@@ -6,6 +6,7 @@ import { FileDown, FileText, Plus, RefreshCw, Share2 } from 'lucide-react'
 import { metadataAPI, quotationsAPI } from '@/lib/api'
 import { PageHeader, Button, Badge } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import { QuotationShareDialog } from '@/components/quotations/QuotationShareDialog'
 
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 
@@ -20,6 +21,7 @@ export default function QuotationsPage() {
   const [pageSize, setPageSize] = useState(20)
   const [total, setTotal] = useState(0)
   const [busyId, setBusyId] = useState('')
+  const [shareTarget, setShareTarget] = useState<any>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -90,43 +92,6 @@ export default function QuotationsPage() {
     } catch (e: any) {
       win?.close()
       toast.error(e.message || 'Failed to open quotation PDF')
-    } finally {
-      setBusyId('')
-    }
-  }
-
-  const shareQuotation = async (quotation: any) => {
-    setBusyId(`share:${quotation.id}`)
-    const validUntil = quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString('en-IN') : 'Open'
-
-    try {
-      const response = await quotationsAPI.share(quotation.id)
-      const quoteUrl = response?.data?.shareUrl || response?.shareUrl
-      if (!quoteUrl) throw new Error('Failed to create quotation share link')
-      const shareText = [
-        `Quotation ${quotation.orderNumber}`,
-        `Customer: ${quotation.customer?.name || quotation.customer?.phone || 'Customer'}`,
-        `Amount: ${fmt(quotation.totalAmount || 0)}`,
-        `Valid Until: ${validUntil}`,
-        quoteUrl,
-      ].join('\n')
-
-      if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({
-          title: `Quotation ${quotation.orderNumber}`,
-          text: shareText,
-          url: quoteUrl,
-        })
-      } else if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareText)
-        toast.success('Quotation share text copied')
-        return
-      } else {
-        throw new Error('Share is not available in this browser')
-      }
-    } catch (e: any) {
-      if (e?.name === 'AbortError') return
-      toast.error(e.message || 'Failed to share quotation')
     } finally {
       setBusyId('')
     }
@@ -217,7 +182,8 @@ export default function QuotationsPage() {
                           {busyId === `pdf:${quotation.id}` ? 'Opening...' : 'PDF'}
                         </button>
                         <button
-                          onClick={() => shareQuotation(quotation)}
+                          onClick={() => setShareTarget(quotation)}
+                          aria-haspopup="dialog"
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8, border: '1px solid #dce8f0', background: '#fff', color: '#023c62', fontWeight: 600, cursor: 'pointer' }}
                         >
                           <Share2 size={14} />
@@ -257,6 +223,7 @@ export default function QuotationsPage() {
           onPageSizeChange={(next) => { setPageSize(next); setPage(1) }}
         />
       </div>
+      {shareTarget && <QuotationShareDialog quotation={shareTarget} onClose={() => setShareTarget(null)} />}
     </div>
   )
 }

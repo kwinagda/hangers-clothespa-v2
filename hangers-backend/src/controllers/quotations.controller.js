@@ -74,7 +74,7 @@ const buildPublicQuotationUrl = (req, slug) => {
   return base ? `${base}/quotation/${slug}?format=pdf` : `/quotation/${slug}?format=pdf`;
 };
 
-const logQuotationWhatsAppStage = async ({ quotation, outcome, error: sendError, staff }) => {
+const logQuotationWhatsAppStage = async ({ quotation, outcome, error: sendError, staff, label = 'Quotation sent' }) => {
   if (!quotation?.id) return;
   const failed = outcome === 'FAILED';
   const skipped = outcome === 'SKIPPED';
@@ -85,10 +85,10 @@ const logQuotationWhatsAppStage = async ({ quotation, outcome, error: sendError,
       eventType: 'NOTIFICATION',
       reasonCode: `WHATSAPP_${outcome}`,
       notes: failed
-        ? `WhatsApp failed: Quotation sent - ${String(sendError || 'Provider did not accept message').slice(0, 180)}`
+        ? `WhatsApp failed: ${label} - ${String(sendError || 'Provider did not accept message').slice(0, 180)}`
         : skipped
-          ? `WhatsApp skipped: Quotation sent${sendError ? ` - ${String(sendError).slice(0, 180)}` : ''}`
-          : 'WhatsApp sent: Quotation sent',
+          ? `WhatsApp skipped: ${label}${sendError ? ` - ${String(sendError).slice(0, 180)}` : ''}`
+          : `WhatsApp sent: ${label}`,
       metadata: {
         channel: 'WHATSAPP',
         provider: 'WHATOMATE',
@@ -102,6 +102,51 @@ const logQuotationWhatsAppStage = async ({ quotation, outcome, error: sendError,
       changedById: staff?.id || null,
     },
   });
+};
+
+const resendQuotationWhatsApp = async (req, res) => {
+  let quotation;
+  try {
+    quotation = await prisma.order.findFirst({
+      where: { id: req.params.id, ...QUOTATION_WHERE },
+      include: includeQuotation,
+    });
+    if (!quotation) return notFound(res, 'Quotation not found');
+    if (!['SENT', 'APPROVED'].includes(quotation.quotationStatus)) {
+      return badRequest(res, 'Only sent or approved quotations can be resent on WhatsApp');
+    }
+    if (quotation.customer?.notifWhatsApp === false) {
+      await logQuotationWhatsAppStage({
+        quotation,
+        outcome: 'SKIPPED',
+        error: 'customer WhatsApp notifications disabled',
+        staff: req.staff,
+        label: 'Quotation resent',
+      });
+      return badRequest(res, 'WhatsApp notifications are disabled for this customer');
+    }
+
+    await sendQuotationSentMessage(quotation, {
+      throwOnFailure: true,
+      idempotencyKey: `quotation-resend:${quotation.id}:${req.idempotencyKey}`,
+    });
+    await logQuotationWhatsAppStage({ quotation, outcome: 'SENT', staff: req.staff, label: 'Quotation resent' })
+      .catch((logError) => console.error('Failed to log quotation WhatsApp resend:', logError));
+    return success(res, { quotationId: quotation.id }, 'Quotation resent on WhatsApp');
+  } catch (err) {
+    console.error('resendQuotationWhatsApp error:', err);
+    if (quotation) {
+      await logQuotationWhatsAppStage({
+        quotation,
+        outcome: 'FAILED',
+        error: err?.message || 'Failed to resend quotation on WhatsApp',
+        staff: req.staff,
+        label: 'Quotation resent',
+      }).catch((logError) => console.error('Failed to log quotation WhatsApp resend:', logError));
+    }
+    if (err.code === 'QUOTATION_NOT_FOUND') return notFound(res, err.message);
+    return error(res, err?.message || 'Failed to resend quotation on WhatsApp');
+  }
 };
 
 const listQuotations = async (req, res) => {
@@ -616,6 +661,7 @@ module.exports = {
   getQuotation,
   getQuotationPDF,
   createQuotationShare,
+  resendQuotationWhatsApp,
   createQuotation,
   updateQuotation,
   updateQuotationStatus,

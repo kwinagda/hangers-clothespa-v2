@@ -383,16 +383,17 @@ const generateQuotationHTML = async (quotation) => {
         .negative { color: #166534; font-weight: 700; }
         .final-line { color: #023c62; font-weight: 800; }
         .summary-wrap {
-          display: grid;
-          grid-template-columns: 1fr 304px;
-          gap: 10px;
+          display: flex;
+          justify-content: flex-end;
           margin-top: 10px;
-          align-items: start;
         }
         .summary-card {
+          width: 304px;
+          max-width: 100%;
           border-radius: 16px;
           overflow: hidden;
-          box-shadow: 0 10px 26px rgba(2, 60, 98, 0.08);
+          background: #fff;
+          border: 1px solid #dce8f0;
         }
         .summary-top {
           background: linear-gradient(135deg, #023c62 0%, #0d537e 100%);
@@ -494,7 +495,10 @@ const generateQuotationHTML = async (quotation) => {
           max-width: 390px;
         }
         .layout-compact .summary-wrap {
-          grid-template-columns: 1fr 292px;
+          justify-content: flex-end;
+        }
+        .layout-compact .summary-card {
+          width: 292px;
         }
         @page {
           size: A4;
@@ -578,7 +582,6 @@ const generateQuotationHTML = async (quotation) => {
           </table>
 
           <div class="summary-wrap">
-            <div></div>
             <div class="summary-card">
               <div class="summary-top">Estimate Summary</div>
               <div class="summary-body">
