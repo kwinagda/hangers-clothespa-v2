@@ -143,17 +143,21 @@ function QuotationPrintPageContent() {
 
   const openPdf = useCallback(async () => {
     if (!quotation) return
+    const win = window.open('about:blank', '_blank')
+    if (!win) {
+      toast.error('Popup blocked. Allow popups to open the quotation PDF.')
+      return
+    }
+    win.opener = null
     setDownloadingPdf(true)
-    const win = window.open('about:blank', '_blank', 'noopener,noreferrer')
     try {
       const response = await quotationsAPI.share(quotation.id)
       const url = response?.data?.shareUrl || response?.shareUrl
       if (!url) throw new Error('Failed to create quotation PDF link')
-      if (!win) throw new Error('Popup blocked. Allow popups to open the quotation PDF.')
-      win.location.href = url
+      win.location.replace(url)
       toast.success('Quotation PDF opened')
     } catch (e: any) {
-      win?.close()
+      win.close()
       toast.error(e.message || 'Failed to open quotation PDF')
     } finally {
       setDownloadingPdf(false)
