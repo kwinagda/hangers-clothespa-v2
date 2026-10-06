@@ -105,11 +105,19 @@ const buildServiceDescriptionRows = (items) => items
   `)
   .join('');
 
-const getBillDiscountLabel = (quotation, billDiscount) => {
+const getBillDiscountLabel = (quotation, billDiscount, subtotal) => {
   if (billDiscount <= 0) return '';
   const input = quotation?.pricingSnapshot?.discountInput;
   if (String(input?.type || '').toUpperCase() === 'PERCENT' && Number(input?.value) > 0) {
     return `Bill Discount (${Number(input.value)}%)`;
+  }
+  // Older quotations stored only the final discount amount. Recover the
+  // percentage when the amount maps exactly to a whole or two-decimal rate.
+  if (subtotal > 0) {
+    const calculatedPercent = roundMoney((billDiscount / subtotal) * 100);
+    if (calculatedPercent > 0 && roundMoney((subtotal * calculatedPercent) / 100) === roundMoney(billDiscount)) {
+      return `Bill Discount (${calculatedPercent}%)`;
+    }
   }
   return 'Bill Discount';
 };
@@ -128,7 +136,7 @@ const generateQuotationHTML = async (quotation) => {
   }, 0));
   const adjustedSubtotal = Number(quotation.subtotal || 0);
   const billDiscount = Number(quotation.discount || 0);
-  const billDiscountLabel = getBillDiscountLabel(quotation, billDiscount);
+  const billDiscountLabel = getBillDiscountLabel(quotation, billDiscount, adjustedSubtotal);
   const finalTotal = Number(quotation.totalAmount || 0);
   const totalPieces = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
 
