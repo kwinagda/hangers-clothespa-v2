@@ -551,7 +551,7 @@ function NewOrderPageContent() {
       const map: Record<string, Item[]> = {}
       items.forEach((item: Item) => {
         if (isQuotationMode && item.category === 'DAILY_IRON') return
-        if (item.category === 'SOFA CLEANING') return
+        if (!isQuotationMode && item.category === 'SOFA CLEANING') return
         if (!map[item.category]) map[item.category] = []
         if (item.basePrice > 0 || item.category === 'DAILY_IRON') map[item.category].push(item)
       })
@@ -1658,7 +1658,7 @@ function NewOrderPageContent() {
                     const map: Record<string, Item[]> = {}
                     items.forEach((item: Item) => {
                       if (isQuotationMode && item.category === 'DAILY_IRON') return
-                      if (item.category === 'SOFA CLEANING') return
+                      if (!isQuotationMode && item.category === 'SOFA CLEANING') return
                       if (!map[item.category]) map[item.category] = []
                       if (item.basePrice > 0 || item.category === 'DAILY_IRON') map[item.category].push(item)
                     })
