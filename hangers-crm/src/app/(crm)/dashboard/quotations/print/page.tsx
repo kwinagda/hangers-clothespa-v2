@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { ArrowLeft, FileDown, Share2 } from 'lucide-react'
 import { quotationsAPI } from '@/lib/api'
 import { LOGO_BLUE_URL, LOGO_WHITE_URL } from '@/lib/branding'
+import { QuotationShareDialog } from '@/components/quotations/QuotationShareDialog'
 
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
 const roundCurrency = (value: number) => Number((Number.isFinite(value) ? value : 0).toFixed(2))
@@ -93,6 +94,7 @@ function QuotationPrintPageContent() {
   const [loading, setLoading] = useState(true)
   const [printing, setPrinting] = useState(false)
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const [brandBlueLogo, setBrandBlueLogo] = useState(LOGO_BLUE_URL)
   const [brandWhiteLogo, setBrandWhiteLogo] = useState(LOGO_WHITE_URL)
   const autoPrintDoneRef = useRef(false)
@@ -155,39 +157,6 @@ function QuotationPrintPageContent() {
       toast.error(e.message || 'Failed to open quotation PDF')
     } finally {
       setDownloadingPdf(false)
-    }
-  }, [quotation])
-
-  const shareQuotation = useCallback(async () => {
-    if (!quotation) return
-
-    try {
-      const response = await quotationsAPI.share(quotation.id)
-      const shareUrl = response?.data?.shareUrl || response?.shareUrl
-      if (!shareUrl) throw new Error('Failed to create quotation share link')
-      const shareText = [
-        `Quotation ${quotation.orderNumber}`,
-        `Customer: ${quotation.customer?.name || quotation.customer?.phone || 'Customer'}`,
-        `Amount: ${fmt(quotation.totalAmount || 0)}`,
-        `Valid Until: ${formatDate(quotation.validUntil)}`,
-        shareUrl,
-      ].join('\n')
-
-      if (navigator.share) {
-        await navigator.share({
-          title: `Quotation ${quotation.orderNumber}`,
-          text: shareText,
-          url: shareUrl,
-        })
-      } else if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareText)
-        toast.success('Quotation share text copied')
-      } else {
-        throw new Error('Share is not available in this browser')
-      }
-    } catch (e: any) {
-      if (e?.name === 'AbortError') return
-      toast.error(e.message || 'Failed to share quotation')
     }
   }, [quotation])
 
@@ -272,7 +241,8 @@ function QuotationPrintPageContent() {
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button
-            onClick={shareQuotation}
+            onClick={() => setShareOpen(true)}
+            aria-haspopup="dialog"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, border: '1px solid #dce8f0', background: '#fff', color: '#023c62', fontWeight: 700, cursor: 'pointer' }}
           >
             <Share2 size={15} />
@@ -296,6 +266,8 @@ function QuotationPrintPageContent() {
           </button>
         </div>
       </div>
+
+      {shareOpen && <QuotationShareDialog quotation={quotation} onClose={() => setShareOpen(false)} />}
 
       <div className="quotation-print-card" style={{ background: '#fff', borderRadius: 24, border: '1px solid #d7e4ee', boxShadow: '0 18px 40px rgba(2,60,98,0.08)', overflow: 'hidden' }}>
         <div style={{ background: 'linear-gradient(135deg, #022d4d 0%, #023c62 56%, #245f87 100%)', padding: '28px 28px 24px', position: 'relative' }}>
