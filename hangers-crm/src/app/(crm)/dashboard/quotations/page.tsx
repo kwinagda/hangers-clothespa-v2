@@ -77,14 +77,18 @@ export default function QuotationsPage() {
 
   const openQuotationPdf = async (quotation: any) => {
     setBusyId(`pdf:${quotation.id}`)
+    const win = window.open('about:blank', '_blank', 'noopener,noreferrer')
     try {
-      const url = quotationsAPI.pdfUrl(quotation.id)
-      const win = window.open(url, '_blank', 'noopener,noreferrer')
+      const response = await quotationsAPI.share(quotation.id)
+      const url = response?.data?.shareUrl || response?.shareUrl
+      if (!url) throw new Error('Failed to create quotation PDF link')
       if (!win) {
         throw new Error('Popup blocked. Allow popups to open the quotation PDF.')
       }
+      win.location.href = url
       toast.success('Quotation PDF opened')
     } catch (e: any) {
+      win?.close()
       toast.error(e.message || 'Failed to open quotation PDF')
     } finally {
       setBusyId('')
