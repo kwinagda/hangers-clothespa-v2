@@ -65,7 +65,10 @@ test('public checkout reconciliation does not expose or reconcile an attempt for
     body: { attemptId: 'other_attempt', invoiceId: 'invoice_123' },
     id: 'request_456',
   }, res, undefined, {
-    getPublicInvoiceForPayment: async () => ({ invoice: { id: 'invoice_123', customerId: 'customer_123' } }),
+    getPublicInvoiceForPayment: async () => ({
+      share: { id: 'share_123', resourceType: 'INVOICE' },
+      invoice: { id: 'invoice_123', customerId: 'customer_123' },
+    }),
     prisma: { razorpayCheckoutAttempt: { findUnique: async () => ({ id: 'other_attempt', invoiceId: 'invoice_other', customerId: 'customer_other', status: 'REVIEW' }) } },
     reconcileCheckoutAttempt: async () => { reconciled = true; },
   });

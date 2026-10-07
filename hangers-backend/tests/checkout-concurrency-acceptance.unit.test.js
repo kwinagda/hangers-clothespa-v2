@@ -25,6 +25,7 @@ const loadReservationHarness = (error) => {
     './outbox.service': {},
     './activity.service': {},
     './receivables.service': { openInvoiceWhere: {} },
+    './razorpay-refund.service': { reserveAutomaticSurplusRefund: forbidden },
     './razorpay-payment-journey-logger': { recordPaymentJourneyEvent: async () => {} },
     '../utils/redact': {},
     '../utils/razorpay-payment-method': {},
