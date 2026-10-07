@@ -4,7 +4,7 @@ const { getPublicInvoice, getPublicDailyIronLogs, getPublicQuotation, getPublicR
 const { publicShareLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimit');
 const { privateNoStore } = require('../middleware/privateCache');
 const { handlePublicRazorpayCallback } = require('../controllers/public.controller');
-const { getPublicCustomCapabilities, getPublicCustomCardEligibility, getPublicCustomDowntime, preparePublicCustomBankTransfer } = require('../controllers/public.controller');
+const { getPublicCustomCapabilities, getPublicCustomCardEligibility, observePublicCustomCardIin, getPublicCustomDowntime, preparePublicCustomBankTransfer } = require('../controllers/public.controller');
 
 // publicShareLimiter guards guessable share-token lookups (invoice/daily-iron/quotation
 // slugs) and the payment flows behind them, where brute-force enumeration is a real risk.
@@ -22,6 +22,7 @@ router.post('/invoices/:slug/payment/callback', privateNoStore, publicShareLimit
 router.get('/invoices/:slug/payment/status', privateNoStore, publicShareLimiter, getPublicRazorpayCheckoutStatus);
 router.get('/invoices/:slug/payment/custom/capabilities', privateNoStore, publicShareLimiter, getPublicCustomCapabilities);
 router.post('/invoices/:slug/payment/custom/card-eligibility', privateNoStore, publicShareLimiter, getPublicCustomCardEligibility);
+router.post('/invoices/:slug/payment/custom/card-observation', privateNoStore, publicShareLimiter, observePublicCustomCardIin);
 router.get('/invoices/:slug/payment/custom/downtime', privateNoStore, publicShareLimiter, getPublicCustomDowntime);
 router.post('/invoices/:slug/payment/custom/bank-transfer', privateNoStore, publicShareLimiter, preparePublicCustomBankTransfer);
 router.post('/invoices/:slug/payment/reconcile', privateNoStore, publicShareLimiter, reconcilePublicRazorpayCheckout);

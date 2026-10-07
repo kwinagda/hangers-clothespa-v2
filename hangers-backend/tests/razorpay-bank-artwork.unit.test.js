@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const artwork = require('../src/services/razorpay-brand-assets');
 
-test('supplied bank artwork has explicit Razorpay-hosted mappings, not activation rules', () => {
+test('bank artwork has explicit Razorpay mappings and approved first-party FINO artwork', () => {
   const banks = artwork.filter((asset) => asset.kind === 'bank');
   assert.deepEqual(banks.map((asset) => asset.code), [
     'HDFC', 'ICIC', 'SBIN', 'UTIB', 'KKBK', 'YESB',
@@ -12,22 +12,26 @@ test('supplied bank artwork has explicit Razorpay-hosted mappings, not activatio
     'UJVN', 'JAKA', 'CIUB', 'DCBL', 'SVCB', 'COSB', 'SRCB', 'ABPB',
     'AIRP', 'IPOS', 'PYTM', 'BARB_R', 'VIJB', 'BKID_C', 'DEUT', 'FSFB',
     'IBKL', 'ALLA', 'JSFB', 'LAVB_R', 'NSPB', 'ORBC', 'UTBI', 'PUNB_R',
-    'SCBL', 'CORP',
+    'SCBL', 'CORP', 'FINO',
   ]);
-  assert.equal(banks.some((asset) => asset.code === 'FINO'), false);
-  for (const asset of banks) {
+  for (const asset of banks.filter((asset) => asset.code !== 'FINO')) {
     assert.equal(asset.url, `https://cdn.razorpay.com/bank/${asset.code}.gif`);
     assert.ok(asset.label);
     assert.equal(Object.hasOwn(asset, 'enabled'), false);
     assert.equal(Object.isFrozen(asset), true);
   }
+  assert.deepEqual(
+    (({ label, url, source }) => ({ label, url, source }))(banks.find((asset) => asset.code === 'FINO')),
+    { label: 'Fino Payments Bank', url: '/payment-provider-logos/fino.svg', source: 'https://www.fino.bank.in/images/fino-logo.svg' },
+  );
+  assert.equal(Object.isFrozen(banks.find((asset) => asset.code === 'FINO')), true);
 });
 
 test('checkout artwork uses Razorpay CDN or explicitly sourced first-party provider artwork', () => {
   for (const asset of artwork) {
     if (asset.url.startsWith('/payment-provider-logos/')) {
-      assert.match(asset.url, /^\/payment-provider-logos\/(cashe\.png|tvs-credit\.svg|liquiloans\.png)$/);
-      assert.match(asset.source, /^https:\/\/(www\.cashe\.co\.in|www\.tvscredit\.com|www\.liquiloans\.com)\//);
+      assert.match(asset.url, /^\/payment-provider-logos\/(cashe\.png|tvs-credit\.svg|liquiloans\.png|fino\.svg)$/);
+      assert.match(asset.source, /^https:\/\/(www\.cashe\.co\.in|www\.tvscredit\.com|www\.liquiloans\.com|www\.fino\.bank\.in)\//);
     } else {
       const url = new URL(asset.url);
       assert.equal(url.protocol, 'https:');

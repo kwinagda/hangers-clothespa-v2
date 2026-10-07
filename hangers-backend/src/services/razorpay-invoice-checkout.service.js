@@ -5,6 +5,7 @@ const { PaymentRuleError, getLedgerState, recordInvoiceAllocationsSettlement, re
 const { enqueueOutboxEvent, OUTBOX_EVENT } = require('./outbox.service');
 const { writeAuditEvent } = require('./activity.service');
 const { recordPaymentJourneyEvent } = require('./razorpay-payment-journey-logger');
+const { reserveAutomaticSurplusRefund } = require('./razorpay-refund.service');
 const { safeText } = require('../utils/redact');
 const { getSafeRazorpayPaymentMethod, getSafeRazorpayPaymentDiagnostics } = require('../utils/razorpay-payment-method');
 const { openInvoiceWhere } = require('./receivables.service');
@@ -63,7 +64,7 @@ const updateCreatingAttempt = async (tx, attempt, data) => {
 const attachKnownOrderToReview = async (tx, attempt, orderId) => {
   if (orderId) {
     await tx.razorpayCheckoutAttempt.updateMany({
-      where: { id: attempt.id, mode: attempt.mode, status: 'REVIEW', razorpayOrderId: null },
+      where: { id: attempt.id, mode: attempt.mode, status: { in: ['REVIEW', 'SUPERSEDED'] }, razorpayOrderId: null },
       data: { razorpayOrderId: orderId },
     });
   }
@@ -197,7 +198,7 @@ const recordExperimentCapture = async (tx, attempt) => {
   });
 };
 
-const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, requestId, experiment, allocationPlan: requestedPlan = null, customCheckout = false, provider: injectedProvider }) => {
+const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, requestId, experiment, allocationPlan: requestedPlan = null, expectedAmountPaise, supersedeAttemptId = null, customCheckout = false, provider: injectedProvider }) => {
   if (!invoice?.id || !invoice.customerId) throw new RazorpayCheckoutError('INVOICE_NOT_PAYABLE', 'Online payment is not available for this invoice', 404);
   if (!idempotencyKey || String(idempotencyKey).length > 200) throw new RazorpayCheckoutError('IDEMPOTENCY_KEY_REQUIRED', 'A valid checkout request key is required', 400);
   if (experiment && (getMode() !== 'TEST' || experiment.id !== 'invoice_checkout_presentation_v1' || !['A', 'B'].includes(experiment.variant) || !/^[a-f0-9]{64}$/.test(experiment.visitorHash || ''))) {
@@ -257,7 +258,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
     await assertSourcePayable(current);
     let currentPlan = null;
     if (plan) {
-      const receivables = await tx.invoice.findMany({ where: { customerId: current.customerId, ...openInvoiceWhere }, select: { id: true, invoiceNumber: true, customerId: true, orderId: true, ironBillId: true, serviceAppointmentId: true, currency: true, balanceDue: true, status: true, voidedAt: true }, orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }, { id: 'asc' }] });
+      const receivables = await tx.invoice.findMany({ where: { id: { in: lockIds }, customerId: current.customerId, ...openInvoiceWhere }, select: { id: true, invoiceNumber: true, customerId: true, orderId: true, ironBillId: true, serviceAppointmentId: true, currency: true, balanceDue: true, status: true, voidedAt: true }, orderBy: [{ dueDate: 'asc' }, { issueDate: 'asc' }, { id: 'asc' }] });
       if (receivables.length !== plan.length || receivables.some((row, index) => row.id !== plan[index].invoiceId
         || Math.round(Number(row.balanceDue) * 100) !== Math.round(plan[index].amount * 100)
         || row.customerId !== current.customerId || String(row.currency || 'INR') !== String(current.currency || 'INR') || row.voidedAt)) {
@@ -270,19 +271,23 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
       ? currentPlan.reduce((sum, item) => sum + BigInt(Math.round(item.amount * 100)), 0n)
       : BigInt(Math.round(Number(current.balanceDue || 0) * 100));
     if (amountPaise < 100n) throw new RazorpayCheckoutError('INVALID_AMOUNT', 'The invoice has no payable balance');
+    if (expectedAmountPaise !== undefined && (!Number.isSafeInteger(expectedAmountPaise)
+      || expectedAmountPaise <= 0 || BigInt(expectedAmountPaise) !== amountPaise)) {
+      throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_STALE', 'The outstanding amount changed. Review the updated invoice before paying.', 409);
+    }
+
+    // Reserve invoice intersections, not the entire customer. The same query
+    // protects both single-invoice and combined checkouts under the row locks.
+    const overlapWhere = {
+      customerId: current.customerId,
+      mode: getMode(),
+      OR: [
+        { invoiceId: { in: lockIds } },
+        ...lockIds.map((invoiceId) => ({ allocationPlan: { array_contains: [{ invoiceId }] } })),
+      ],
+    };
 
     const reuseProviderOrder = async (prior) => {
-      if (customCheckout) {
-        const overlapping = await tx.razorpayCheckoutAttempt.findFirst({
-          where: {
-            id: { not: prior.id },
-            ...(currentPlan ? { customerId: current.customerId } : { OR: [{ invoiceId: current.id }, { allocationPlan: { array_contains: [{ invoiceId: current.id }] } }] }),
-            status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] },
-          },
-          select: { id: true },
-        });
-        if (overlapping) throw new RazorpayCheckoutError('CHECKOUT_ALREADY_IN_PROGRESS', 'Another checkout is active or needs review. Check its status before continuing.', 409, { checkoutAttemptId: overlapping.id });
-      }
       if (customCheckout && (prior.invoiceId !== current.id || prior.customerId !== current.customerId)) {
         throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_BINDING_MISMATCH', 'The existing checkout belongs to a different invoice scope. Check its status before continuing.', 409, { checkoutAttemptId: prior.id });
       }
@@ -316,29 +321,49 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
       throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_UNRESOLVED', 'This checkout request is still being created or needs review. Do not start another payment yet.', 409, { checkoutAttemptId: keyed.id });
     }
 
-    const active = await tx.razorpayCheckoutAttempt.findFirst({
-      where: { ...(plan ? { customerId: current.customerId } : { OR: [{ invoiceId: current.id }, { allocationPlan: { array_contains: [{ invoiceId: current.id }] } }] }), status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] } },
+    const activeAttempts = await tx.razorpayCheckoutAttempt.findMany({
+      where: { ...overlapWhere, status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] } },
       orderBy: { createdAt: 'desc' },
     });
-    if (active) {
-      if (active.invoiceId === current.id && active.status === 'CREATED' && active.razorpayOrderId) return reuseProviderOrder(active);
-      throw new RazorpayCheckoutError('CHECKOUT_ALREADY_IN_PROGRESS', 'A payment attempt is already active or needs finance review. Do not start another payment.', 409, { checkoutAttemptId: active.id });
+    let supersededAttempts = [];
+    if (activeAttempts.length) {
+      if (!supersedeAttemptId) {
+        const resumableOrder = activeAttempts.length === 1 ? activeAttempts[0] : null;
+        if (customCheckout && resumableOrder?.invoiceId === current.id
+          && resumableOrder.customerId === current.customerId
+          && resumableOrder.status === 'CREATED' && resumableOrder.razorpayOrderId) {
+          return reuseProviderOrder(resumableOrder);
+        }
+        throw new RazorpayCheckoutError('CHECKOUT_ALREADY_IN_PROGRESS', 'A payment attempt may still complete. Check its status or explicitly start a new payment attempt.', 409, { checkoutAttemptId: activeAttempts[0].id });
+      }
+      if (!activeAttempts.some((item) => item.id === supersedeAttemptId)) {
+        throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_SUPERSEDE_CONFLICT', 'The payment attempt changed while starting a new payment. Check the latest payment status before continuing.', 409, { checkoutAttemptId: supersedeAttemptId });
+      }
+      const superseded = await tx.razorpayCheckoutAttempt.updateMany({
+        where: { id: { in: activeAttempts.map((item) => item.id) }, mode: getMode(), status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] } },
+        data: { status: 'SUPERSEDED' },
+      });
+      if (superseded.count !== activeAttempts.length) {
+        throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_SUPERSEDE_CONFLICT', 'Payment status changed while starting a new attempt. Check the latest payment status.', 409, { checkoutAttemptIds: activeAttempts.map((item) => item.id) });
+      }
+      supersededAttempts = activeAttempts;
     }
 
     const priorFailed = await tx.razorpayCheckoutAttempt.findFirst({
-      where: { ...(customCheckout && plan ? { customerId: current.customerId } : { OR: [{ invoiceId: current.id }, { allocationPlan: { array_contains: [{ invoiceId: current.id }] } }] }), status: 'FAILED', razorpayOrderId: { not: null } },
+      where: { ...overlapWhere, status: 'FAILED', razorpayOrderId: { not: null } },
       orderBy: { createdAt: 'desc' },
     });
-    if (customCheckout && priorFailed) {
-      return reuseProviderOrder(priorFailed);
-    }
-
-    const continuesPaymentJourney = Boolean(priorFailed
+    const priorFailedMatchesSnapshot = priorFailed
       && priorFailed.amountPaise === amountPaise
       && priorFailed.mode === getMode()
       && priorFailed.currency === (current.currency || 'INR')
       && JSON.stringify(priorFailed.allocationPlan?.map(({ invoiceId, amount }) => ({ invoiceId, amount })) || null)
-        === JSON.stringify(currentPlan?.map(({ invoiceId, amount }) => ({ invoiceId, amount })) || null));
+        === JSON.stringify(currentPlan?.map(({ invoiceId, amount }) => ({ invoiceId, amount })) || null);
+    if (customCheckout && priorFailedMatchesSnapshot && !supersedeAttemptId) {
+      return reuseProviderOrder(priorFailed);
+    }
+
+    const continuesPaymentJourney = Boolean(priorFailedMatchesSnapshot);
     const paymentJourneyId = continuesPaymentJourney && priorFailed.paymentJourneyId
       ? priorFailed.paymentJourneyId
       : `pj_${crypto.randomUUID()}`;
@@ -360,6 +385,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
         publicShareId: shareId || null,
         amountPaise,
         ...(currentPlan ? { allocationPlan: currentPlan } : {}),
+        ...(supersedeAttemptId ? { supersedesAttemptId: supersedeAttemptId } : {}),
         currency: current.currency || 'INR',
         mode: getMode(),
         status: 'CREATING',
@@ -369,10 +395,21 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
         experimentVisitorHash: experiment?.visitorHash || null,
       },
     });
+    for (const prior of supersededAttempts) {
+      await auditAttemptTransition(tx, { ...prior, status: 'SUPERSEDED' }, 'RAZORPAY_CHECKOUT_ATTEMPT_SUPERSEDED', 'Customer explicitly started a new payment attempt; the previous Razorpay order remains monitored for late capture', {
+        requestId: requestId || null,
+        supersededByRequest: true,
+        supersededByAttemptId: attempt.id,
+        priorState: prior.status,
+        nextState: 'SUPERSEDED',
+      });
+    }
     await auditAttemptTransition(tx, attempt, 'RAZORPAY_CHECKOUT_ATTEMPT_RESERVED', 'A Razorpay checkout attempt was reserved for the current invoice balance', {
       requestId: requestId || null,
       publicShareId: shareId || null,
-      ...(continuesPaymentJourney ? { supersedesAttemptId: priorFailed.id, retryReason: 'PROVIDER_CONFIRMED_FAILURE' } : {}),
+      ...(supersededAttempts.length ? { supersededAttemptIds: supersededAttempts.map((item) => item.id) } : {}),
+      ...(supersedeAttemptId ? { supersedesAttemptId: supersedeAttemptId, retryReason: 'CUSTOMER_EXPLICIT_NEW_ATTEMPT' }
+        : continuesPaymentJourney ? { supersedesAttemptId: priorFailed.id, retryReason: 'PROVIDER_CONFIRMED_FAILURE' } : {}),
       nextState: 'CREATING',
     });
     return { attempt, current, reused: false };
@@ -449,7 +486,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
       const result = await updateCreatingAttempt(tx, attempt, { status: 'CREATED', razorpayOrderId: order.id });
       if (!result.transitioned) {
         let current = result.attempt;
-        if (current?.status === 'REVIEW' && !current.razorpayOrderId) {
+        if (['REVIEW', 'SUPERSEDED'].includes(current?.status) && !current.razorpayOrderId) {
           current = await attachKnownOrderToReview(tx, attempt, order.id);
         }
         if (current) await auditAttemptTransition(tx, current,
@@ -548,7 +585,7 @@ const createInvoiceCheckout = async ({ invoice, shareId, idempotencyKey, request
       });
       let updated = result.attempt;
       if (!result.transitioned) {
-        if (updated?.status === 'REVIEW' && !updated.razorpayOrderId && createdOrder?.id) {
+        if (['REVIEW', 'SUPERSEDED'].includes(updated?.status) && !updated.razorpayOrderId && createdOrder?.id) {
           updated = await attachKnownOrderToReview(tx, attempt, createdOrder.id);
         }
         if (updated) await auditAttemptTransition(tx, updated, 'RAZORPAY_ORDER_CREATE_OUTCOME_AFTER_RECOVERY',
@@ -591,7 +628,7 @@ const reconcileAmbiguousOrderCreation = async ({ attemptId, actor, provider: inj
   const attempt = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: attemptId } });
   if (!attempt) throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_NOT_FOUND', 'Checkout attempt was not found.', 404);
   if (attempt.mode !== getMode()) throw new RazorpayCheckoutError('RAZORPAY_MODE_MISMATCH', 'Attempt belongs to a different Razorpay mode; no provider lookup was performed.', 409);
-  if (attempt.status !== 'REVIEW' || attempt.failureCode === 'OVERPAYMENT_NOT_ALLOWED') {
+  if (!['REVIEW', 'SUPERSEDED'].includes(attempt.status) || attempt.failureCode === 'OVERPAYMENT_NOT_ALLOWED') {
     throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_NOT_RECONCILABLE', 'This checkout attempt is not an ambiguous order-creation attempt.', 409);
   }
 
@@ -645,14 +682,25 @@ const reconcileAmbiguousOrderCreation = async ({ attemptId, actor, provider: inj
       return { attempt: failed, order: providerOrder, reused: false, failed: true };
     }
     if (payments.length === 0 && canResumeUnattemptedCheckout({ attempt: { ...attempt, status: 'CREATED' }, providerOrder, providerPayments })) {
+      if (attempt.status === 'SUPERSEDED') {
+        await prisma.$transaction(async (tx) => {
+          const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
+          if (!current || current.status !== 'SUPERSEDED') return;
+          const linked = await tx.razorpayCheckoutAttempt.update({ where: { id: current.id }, data: { razorpayOrderId: providerOrder.id } });
+          await auditAttemptTransition(tx, linked, 'RAZORPAY_SUPERSEDED_ORDER_LINKED', 'The prior provider order was verified and linked without restoring it as the current checkout', {
+            razorpayOrderId: providerOrder.id, providerAttempts: 0, priorState: 'SUPERSEDED', nextState: 'SUPERSEDED',
+          });
+        });
+        return { attempt: await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } }), order: providerOrder, reused: false };
+      }
       const resumed = await prisma.$transaction(async (tx) => {
         const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
-        if (!current || current.status !== 'REVIEW' || current.razorpayOrderId !== attempt.razorpayOrderId) {
+        if (!current || !['REVIEW', 'SUPERSEDED'].includes(current.status) || current.razorpayOrderId !== attempt.razorpayOrderId) {
           throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_CHANGED', 'Checkout attempt changed during reconciliation. Refresh its status before continuing.', 409, { checkoutAttemptId: attempt.id });
         }
-        const updated = await tx.razorpayCheckoutAttempt.update({ where: { id: current.id }, data: { status: 'CREATED', ...clearProviderFailure } });
+        const updated = await tx.razorpayCheckoutAttempt.update({ where: { id: current.id }, data: current.status === 'SUPERSEDED' ? clearProviderFailure : { status: 'CREATED', ...clearProviderFailure } });
         await auditAttemptTransition(tx, updated, 'RAZORPAY_ORDER_CREATE_RECONCILED', 'Razorpay confirmed the saved order is an exact, unattempted match; the existing checkout can resume', {
-          actorId: actor?.id || null, razorpayOrderId: providerOrder.id, providerAttempts: 0, priorState: 'REVIEW', nextState: 'CREATED',
+          actorId: actor?.id || null, razorpayOrderId: providerOrder.id, providerAttempts: 0, priorState: current.status, nextState: updated.status,
         });
         return updated;
       });
@@ -704,7 +752,7 @@ const reconcileAmbiguousOrderCreation = async ({ attemptId, actor, provider: inj
   if (!lookupComplete || matches.length !== 1) {
     await prisma.$transaction(async (tx) => {
       const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
-      if (!current || current.status !== 'REVIEW' || current.razorpayOrderId) return;
+      if (!current || !['REVIEW', 'SUPERSEDED'].includes(current.status) || current.razorpayOrderId) return;
       await auditAttemptTransition(tx, current, 'RAZORPAY_ORDER_CREATE_RECONCILIATION_NO_UNIQUE_MATCH', 'Receipt lookup did not return exactly one matching Razorpay order; attempt remains blocked', {
         requestId: actor?.requestId || null,
         providerReceipt: receipt,
@@ -739,12 +787,12 @@ const reconcileAmbiguousOrderCreation = async ({ attemptId, actor, provider: inj
     // order before reconciling its payments; never create a replacement.
     await prisma.$transaction(async (tx) => {
       const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
-      if (!current || current.status !== 'REVIEW' || current.razorpayOrderId) {
+      if (!current || !['REVIEW', 'SUPERSEDED'].includes(current.status) || current.razorpayOrderId) {
         throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_CHANGED', 'Checkout changed during reconciliation. Refresh its status.', 409, { checkoutAttemptId: attempt.id });
       }
       const linked = await tx.razorpayCheckoutAttempt.update({ where: { id: current.id }, data: { razorpayOrderId: order.id } });
       await auditAttemptTransition(tx, linked, 'RAZORPAY_ORDER_CREATE_RECONCILED', 'Receipt lookup bound the existing provider order; payment reconciliation remains required', {
-        razorpayOrderId: order.id, providerReceipt: receipt, priorState: 'REVIEW', nextState: 'REVIEW',
+        razorpayOrderId: order.id, providerReceipt: receipt, priorState: current.status, nextState: current.status,
       });
     });
     return reconcileAmbiguousOrderCreation({ attemptId, actor, provider: razorpay, customCheckout: true });
@@ -753,7 +801,7 @@ const reconcileAmbiguousOrderCreation = async ({ attemptId, actor, provider: inj
   if (!safelyResumable) {
     await prisma.$transaction(async (tx) => {
       const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
-      if (!current || current.status !== 'REVIEW' || current.razorpayOrderId) return;
+      if (!current || !['REVIEW', 'SUPERSEDED'].includes(current.status) || current.razorpayOrderId) return;
       const linked = await tx.razorpayCheckoutAttempt.update({
         where: { id: current.id },
         data: { razorpayOrderId: order.id || null },
@@ -771,12 +819,14 @@ const reconcileAmbiguousOrderCreation = async ({ attemptId, actor, provider: inj
 
   const resumed = await prisma.$transaction(async (tx) => {
     const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
-    if (!current || current.status !== 'REVIEW' || current.razorpayOrderId) {
+    if (!current || !['REVIEW', 'SUPERSEDED'].includes(current.status) || current.razorpayOrderId) {
       throw new RazorpayCheckoutError('CHECKOUT_ATTEMPT_CHANGED', 'Checkout attempt changed during reconciliation. Refresh its status before continuing.', 409, { checkoutAttemptId: attempt.id });
     }
     const updated = await tx.razorpayCheckoutAttempt.update({
       where: { id: current.id },
-      data: { status: 'CREATED', razorpayOrderId: order.id, ...clearProviderFailure },
+      data: current.status === 'SUPERSEDED'
+        ? { razorpayOrderId: order.id, ...clearProviderFailure }
+        : { status: 'CREATED', razorpayOrderId: order.id, ...clearProviderFailure },
     });
     await auditAttemptTransition(tx, updated, 'RAZORPAY_ORDER_CREATE_RECONCILED', 'Unique Razorpay receipt lookup verified an unattempted order and restored checkout availability', {
       actorId: actor?.id || null,
@@ -784,8 +834,8 @@ const reconcileAmbiguousOrderCreation = async ({ attemptId, actor, provider: inj
       razorpayOrderId: order.id,
       providerStatus: order.status,
       providerAttempts: 0,
-      priorState: 'REVIEW',
-      nextState: 'CREATED',
+      priorState: current.status,
+      nextState: updated.status,
     });
     return updated;
   });
@@ -839,10 +889,11 @@ const markAttemptPending = async ({ attemptId, paymentId, providerPayment, sourc
   const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attemptId } });
   if (!current || ['CAPTURED', 'REVIEW', 'CREATE_FAILED'].includes(current.status)) return current;
   const providerDiagnostics = getCheckoutPaymentDiagnostics(providerPayment);
+  const nextStatus = current.status === 'SUPERSEDED' ? 'SUPERSEDED' : 'PENDING';
   const updated = await tx.razorpayCheckoutAttempt.update({
     where: { id: current.id },
     data: {
-      status: 'PENDING',
+      status: nextStatus,
       ...(paymentId ? { razorpayPaymentId: paymentId } : {}),
       failureCode: null,
       failureMessage: null,
@@ -855,7 +906,7 @@ const markAttemptPending = async ({ attemptId, paymentId, providerPayment, sourc
     razorpayPaymentId: paymentId,
     source,
     priorState: current.status,
-    nextState: 'PENDING',
+    nextState,
     providerDiagnostics,
   });
   return updated;
@@ -873,10 +924,10 @@ const assertExistingSettlementBinding = (payment, attempt) => {
     || payment.razorpayOrderId !== attempt.razorpayOrderId
     || payment.mode !== attempt.mode
     || paise(payment.amount) !== Number(attempt.amountPaise)
-    || payment.allocations.length !== expected.length
     || new Set(payment.allocations.map((item) => item.invoiceId)).size !== payment.allocations.length
-    || expected.some((item) => !payment.allocations.some((allocation) => allocation.invoiceId === item.invoiceId
-      && paise(allocation.amount) === paise(item.amount)))) {
+    || payment.allocations.some((allocation) => !expected.some((item) => item.invoiceId === allocation.invoiceId
+      && paise(allocation.amount) > 0 && paise(allocation.amount) <= paise(item.amount)))
+    || payment.allocations.reduce((sum, allocation) => sum + paise(allocation.amount), 0) + paise(payment.unallocatedAmount || 0) !== paise(payment.amount)) {
     throw new RazorpayCheckoutError('PAYMENT_ALREADY_LINKED', 'The saved payment binding and allocations do not match this checkout', 409);
   }
 };
@@ -955,24 +1006,24 @@ const settleCapturedPayment = async ({ paymentId, providerOrderId, signature = n
   }
   const state = String(providerPayment.status || '').toLowerCase();
   if (state !== 'captured') {
-    const nextStatus = state === 'failed' ? 'FAILED' : 'PENDING';
     const providerDiagnostics = getCheckoutPaymentDiagnostics(providerPayment);
     const updated = await prisma.$transaction(async (tx) => {
       const current = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: attempt.id } });
       if (current.status === 'CAPTURED' || current.status === 'REVIEW') return current;
+      const currentNextStatus = state === 'failed' ? 'FAILED' : current.status === 'SUPERSEDED' ? 'SUPERSEDED' : 'PENDING';
       const next = await tx.razorpayCheckoutAttempt.update({
         where: { id: attempt.id },
         data: {
-          status: nextStatus,
+          status: currentNextStatus,
           razorpayPaymentId: paymentId,
           failureCode: state === 'failed' ? 'PAYMENT_FAILED' : null,
           ...providerDiagnostics,
         },
       });
-      await auditAttemptTransition(tx, next, nextStatus === 'FAILED' ? 'RAZORPAY_PAYMENT_PROVIDER_FAILED' : 'RAZORPAY_PAYMENT_PROVIDER_PENDING', `Razorpay payment state verified as ${state}`, {
-        razorpayOrderId: attempt.razorpayOrderId, razorpayPaymentId: paymentId, providerStatus: state, source, nextState: nextStatus,
+      await auditAttemptTransition(tx, next, currentNextStatus === 'FAILED' ? 'RAZORPAY_PAYMENT_PROVIDER_FAILED' : 'RAZORPAY_PAYMENT_PROVIDER_PENDING', `Razorpay payment state verified as ${state}`, {
+        razorpayOrderId: attempt.razorpayOrderId, razorpayPaymentId: paymentId, providerStatus: state, source, nextState: currentNextStatus,
         priorState: current.status, providerDiagnostics,
-      }, nextStatus === 'FAILED' ? 'FAILURE' : 'SUCCESS');
+      }, currentNextStatus === 'FAILED' ? 'FAILURE' : 'SUCCESS');
       return next;
     });
     return { attempt: updated, pending: updated.status !== 'FAILED' && updated.status !== 'CAPTURED', failed: updated.status === 'FAILED', providerStatus: state };
@@ -1019,6 +1070,8 @@ const settleCapturedPayment = async ({ paymentId, providerOrderId, signature = n
           where: { id: attempt.id },
           data: {
             status: 'CAPTURED', razorpayPaymentId: paymentId, completedAt: new Date(),
+            allocatedAmountPaise: BigInt(duplicate.allocations.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0)),
+            unallocatedAmountPaise: BigInt(Math.round(Number(duplicate.unallocatedAmount || 0) * 100)),
             ...clearProviderFailure, ...getSafeRazorpayPaymentMethod(providerPayment),
           },
         });
@@ -1042,24 +1095,42 @@ const settleCapturedPayment = async ({ paymentId, providerOrderId, signature = n
         mode: attempt.mode,
         providerCaptureVerified: true,
       };
-      const settlement = attempt.allocationPlan
-        ? await recordInvoiceAllocationsSettlement(tx, { ...settlementArgs, allocations: attempt.allocationPlan, expectedCustomerId: attempt.customerId, expectedCurrency: attempt.currency })
-        : await recordInvoiceSettlement(tx, { ...settlementArgs, invoiceId: attempt.invoiceId });
+      const frozenPlan = attempt.allocationPlan || [{ invoiceId: attempt.invoiceId, amount: Number(attempt.amountPaise) / 100 }];
+      const settlement = await recordInvoiceAllocationsSettlement(tx, {
+        ...settlementArgs,
+        allocations: frozenPlan,
+        snapshotInvoiceIds: frozenPlan.map((item) => item.invoiceId),
+        expectedCustomerId: attempt.customerId,
+        expectedCurrency: attempt.currency,
+      });
+      const refundAttempt = settlement.unallocatedAmountPaise > 0n
+        ? await reserveAutomaticSurplusRefund(tx, {
+          sourcePayment: settlement.payment,
+          amountPaise: settlement.unallocatedAmountPaise,
+          checkoutAttempt: attempt,
+          requestId: attempt.requestId,
+        })
+        : null;
 
       const completedAttempt = await tx.razorpayCheckoutAttempt.update({
         where: { id: attempt.id },
         data: {
           status: 'CAPTURED', razorpayPaymentId: paymentId, completedAt: new Date(),
+          allocatedAmountPaise: settlement.allocatedAmountPaise,
+          unallocatedAmountPaise: settlement.unallocatedAmountPaise,
           ...clearProviderFailure, ...getSafeRazorpayPaymentMethod(providerPayment),
         },
       });
       await auditAttemptTransition(tx, completedAttempt, 'RAZORPAY_PAYMENT_CAPTURE_POSTED', 'Captured Razorpay payment posted to the canonical CRM invoice ledger', {
         razorpayOrderId: attempt.razorpayOrderId, razorpayPaymentId: paymentId,
         crmPaymentId: settlement.payment?.id || null, source, nextState: 'CAPTURED',
+        allocatedAmountPaise: String(settlement.allocatedAmountPaise),
+        unallocatedAmountPaise: String(settlement.unallocatedAmountPaise),
+        automaticRefundAttemptId: refundAttempt?.id || null,
         priorState: attempt.status,
       });
       await recordExperimentCapture(tx, completedAttempt);
-      if (settlement.payment && settlement.order) {
+      if (settlement.payment && settlement.order && settlement.allocatedAmountPaise > 0n) {
         await enqueueOutboxEvent(tx, {
           eventType: OUTBOX_EVENT.PAYMENT_RECEIVED,
           aggregateType: 'order',
@@ -1072,7 +1143,7 @@ const settleCapturedPayment = async ({ paymentId, providerOrderId, signature = n
           },
           dedupeKey: `payment-received:${settlement.payment.id}`,
         });
-      } else if (settlement.payment) {
+      } else if (settlement.payment && settlement.allocatedAmountPaise > 0n && settlement.invoice) {
         await enqueueOutboxEvent(tx, {
           eventType: OUTBOX_EVENT.INVOICE_PAYMENT_RECEIVED,
           aggregateType: 'invoice',

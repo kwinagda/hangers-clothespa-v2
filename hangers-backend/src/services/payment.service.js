@@ -135,6 +135,7 @@ const createCapturedPayment = async (tx, {
   mode,
   razorpaySignature,
   allocations,
+  unallocatedAmount = 0,
 }) => {
   const normalizedAmount = roundMoney(Number(amount || 0));
   if (!(normalizedAmount > 0)) return null;
@@ -147,6 +148,7 @@ const createCapturedPayment = async (tx, {
         orderId: order?.id || orderId || null,
         customerId: order?.customerId || customerId,
         amount: normalizedAmount,
+        unallocatedAmount: roundMoney(Number(unallocatedAmount || 0)),
         kind: 'RECEIPT',
         method: normalizedMethod,
         status: 'CAPTURED',
@@ -173,9 +175,10 @@ const createCapturedPayment = async (tx, {
       reason: allocations ? 'Captured payment allocated across customer invoices' : 'Captured payment applied to invoice balance',
       createdAt: effectiveAt || undefined,
     }));
-    if (allocations) await tx.paymentAllocation.createMany({ data: allocationRows });
-    else await tx.paymentAllocation.create({ data: allocationRows[0] });
-    await issueReceipt(tx, { payment, invoiceId, staffId });
+    if (allocations) {
+      if (allocationRows.length) await tx.paymentAllocation.createMany({ data: allocationRows });
+    } else await tx.paymentAllocation.create({ data: allocationRows[0] });
+    if (allocationRows.length) await issueReceipt(tx, { payment, invoiceId: invoiceId || allocationRows[0].invoiceId, staffId });
     return payment;
   } catch (error) {
     if (error?.code === 'P2002' && referenceFingerprint && error?.meta?.target?.includes('referenceFingerprint')) {
@@ -206,17 +209,23 @@ const recordInvoiceAllocationsSettlement = async (tx, {
   providerMethodDetail,
   mode,
   providerCaptureVerified = false,
+  snapshotInvoiceIds = null,
 }) => {
   assertSettlementMethodAllowed(method, { providerCaptureVerified });
   if (!Array.isArray(allocations) || allocations.length < 1) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'At least one invoice allocation is required');
-  const normalized = allocations.map((item) => ({ invoiceId: String(item.invoiceId), amount: roundMoney(Number(item.amount)) }));
-  if (new Set(normalized.map((item) => item.invoiceId)).size !== normalized.length || normalized.some((item) => !Number.isFinite(item.amount) || item.amount <= 0)) {
+  const plan = allocations.map((item) => ({ invoiceId: String(item.invoiceId), amount: roundMoney(Number(item.amount)) }));
+  if (new Set(plan.map((item) => item.invoiceId)).size !== plan.length || plan.some((item) => !Number.isFinite(item.amount) || item.amount <= 0)) {
     throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'The invoice allocation plan is invalid');
   }
-  const expectedTotal = roundMoney(normalized.reduce((sum, item) => sum + item.amount, 0));
-  if (expectedTotal !== roundMoney(Number(amount))) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Allocation total does not match the captured payment');
+  const grossPaiseNumber = Math.round(Number(amount) * 100);
+  if (!Number.isSafeInteger(grossPaiseNumber) || grossPaiseNumber <= 0) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Captured amount is invalid');
+  const grossPaise = BigInt(grossPaiseNumber);
+  if (!providerCaptureVerified) {
+    const expectedTotal = roundMoney(plan.reduce((sum, item) => sum + item.amount, 0));
+    if (expectedTotal !== roundMoney(Number(amount))) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Allocation total does not match the captured payment');
+  }
 
-  const ids = normalized.map((item) => item.invoiceId).sort();
+  const ids = [...new Set([...(snapshotInvoiceIds || []), ...plan.map((item) => item.invoiceId)].map(String))].sort();
   const initialRows = await tx.invoice.findMany({ where: { id: { in: ids } }, select: { id: true, orderId: true } });
   const initialOrderIds = [...new Set(initialRows.map((invoice) => invoice.orderId).filter(Boolean))].sort();
   for (const orderId of initialOrderIds) {
@@ -225,44 +234,81 @@ const recordInvoiceAllocationsSettlement = async (tx, {
   }
   for (const id of ids) {
     const locked = await tx.$queryRaw`SELECT "id" FROM "invoices" WHERE "id" = ${id} FOR UPDATE`;
-    if (!locked.length) throw new PaymentRuleError('INVOICE_NOT_FOUND', 'An invoice in this payment could not be found', 404);
+    if (!locked.length && !providerCaptureVerified) throw new PaymentRuleError('INVOICE_NOT_FOUND', 'An invoice in this payment could not be found', 404);
   }
   const invoices = await tx.invoice.findMany({ where: { id: { in: ids } } });
   const byId = new Map(invoices.map((invoice) => [invoice.id, invoice]));
-  const customerId = invoices[0]?.customerId;
-  const currency = String(invoices[0]?.currency || 'INR').toUpperCase();
+  const customerId = expectedCustomerId || invoices[0]?.customerId;
+  const currency = String(expectedCurrency || invoices[0]?.currency || 'INR').toUpperCase();
   if (!expectedCustomerId || customerId !== expectedCustomerId || currency !== String(expectedCurrency || '').toUpperCase()) {
     throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Invoice ownership or currency does not match the checkout attempt', 409);
   }
+  if (invoices.some((invoice) => invoice.customerId !== customerId || String(invoice.currency || 'INR').toUpperCase() !== currency)) {
+    throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Invoice ownership or currency does not match the checkout attempt', 409);
+  }
   const orderIds = new Set();
-  for (const allocation of normalized) {
-    const invoice = byId.get(allocation.invoiceId);
-    if (!invoice || invoice.customerId !== customerId || String(invoice.currency || 'INR').toUpperCase() !== currency
-      || invoice.voidedAt || invoice.status === 'VOID'
-      || (allowPartial
-        ? allocation.amount > roundMoney(Number(invoice.balanceDue || 0))
-        : roundMoney(Number(invoice.balanceDue || 0)) !== allocation.amount)) {
+  const normalized = [];
+  for (const planned of plan) {
+    const invoice = byId.get(planned.invoiceId);
+    if (!invoice) {
+      if (providerCaptureVerified) continue;
+      throw new PaymentRuleError('INVOICE_NOT_FOUND', 'An invoice in this payment could not be found', 404);
+    }
+    const allocation = planned;
+    if (invoice.voidedAt || invoice.status === 'VOID' || (providerCaptureVerified && invoice.status === 'PAID')) {
+      if (providerCaptureVerified) continue;
       throw new PaymentRuleError('ALLOCATION_BALANCE_CHANGED', 'An invoice balance changed while payment was being completed. Finance review is required.', 409);
+    }
+    const duePaiseNumber = Math.max(0, Math.round(Number(invoice.balanceDue || 0) * 100));
+    const plannedPaiseNumber = Math.round(allocation.amount * 100);
+    if (!Number.isSafeInteger(duePaiseNumber) || !Number.isSafeInteger(plannedPaiseNumber)) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Invoice allocation amount is invalid');
+    const cappedPaise = providerCaptureVerified
+      ? Math.min(duePaiseNumber, plannedPaiseNumber)
+      : plannedPaiseNumber;
+    if (!providerCaptureVerified && (allowPartial
+      ? allocation.amount > roundMoney(Number(invoice.balanceDue || 0))
+      : roundMoney(Number(invoice.balanceDue || 0)) !== allocation.amount)) {
+      throw new PaymentRuleError('ALLOCATION_BALANCE_CHANGED', 'An invoice balance changed while payment was being completed. Finance review is required.', 409);
+    }
+    if (cappedPaise <= 0) {
+      if (providerCaptureVerified) continue;
+      throw new PaymentRuleError('ALLOCATION_BALANCE_CHANGED', 'An invoice has no remaining balance for this payment', 409);
     }
     if (invoice.orderId) {
       const order = await tx.order.findUnique({ where: { id: invoice.orderId }, select: { status: true } });
-      if (!order || ['CANCELLED', 'RETURNED'].includes(order.status)) throw new PaymentRuleError('ORDER_CANCELLED', 'A cancelled or returned order cannot accept a new payment', 409);
+      if (!order || ['CANCELLED', 'RETURNED'].includes(order.status)) {
+        if (providerCaptureVerified) continue;
+        throw new PaymentRuleError('ORDER_CANCELLED', 'A cancelled or returned order cannot accept a new payment', 409);
+      }
       orderIds.add(invoice.orderId);
     } else if (invoice.ironBillId) {
       const bill = await tx.ironBill.findUnique({ where: { id: invoice.ironBillId }, select: { status: true } });
-      if (!bill || bill.status === 'VOID') throw new PaymentRuleError('BILL_VOID', 'A voided bill cannot accept payment', 409);
+      if (!bill || bill.status === 'VOID') {
+        if (providerCaptureVerified) continue;
+        throw new PaymentRuleError('BILL_VOID', 'A voided bill cannot accept payment', 409);
+      }
     } else if (invoice.serviceAppointmentId) {
       const appointment = await tx.serviceAppointment.findUnique({ where: { id: invoice.serviceAppointmentId }, select: { status: true } });
-      if (!appointment || appointment.status === 'CANCELLED') throw new PaymentRuleError('APPOINTMENT_CANCELLED', 'A cancelled appointment cannot accept payment', 409);
+      if (!appointment || appointment.status === 'CANCELLED') {
+        if (providerCaptureVerified) continue;
+        throw new PaymentRuleError('APPOINTMENT_CANCELLED', 'A cancelled appointment cannot accept payment', 409);
+      }
     }
+    normalized.push({ invoiceId: planned.invoiceId, amount: cappedPaise / 100 });
   }
+
+  const allocatedPaise = normalized.reduce((sum, allocation) => sum + BigInt(Math.round(allocation.amount * 100)), 0n);
+  if (allocatedPaise > grossPaise) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Invoice allocations exceed the captured amount');
+  const unallocatedPaise = grossPaise - allocatedPaise;
+  if (!providerCaptureVerified && unallocatedPaise !== 0n) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Allocation total does not match the captured payment');
 
   const payment = await createCapturedPayment(tx, {
     customerId,
     staffId: staff?.id,
     effectiveAt,
-    invoiceId: normalized[0].invoiceId,
-    amount: expectedTotal,
+    invoiceId: normalized[0]?.invoiceId || null,
+    amount: grossPaiseNumber / 100,
+    unallocatedAmount: Number(unallocatedPaise) / 100,
     method,
     reference,
     notes,
@@ -283,7 +329,15 @@ const recordInvoiceAllocationsSettlement = async (tx, {
     const invoice = byId.get(allocation.invoiceId);
     if (!invoice.orderId) syncedInvoices.push(await syncInvoiceBalance(tx, invoice.id));
   }
-  return { payment, invoice: syncedInvoices.find((invoice) => invoice.id === normalized[0].invoiceId) || await tx.invoice.findUnique({ where: { id: normalized[0].invoiceId } }), invoices: syncedInvoices };
+  return {
+    payment,
+    invoice: normalized.length
+      ? syncedInvoices.find((invoice) => invoice.id === normalized[0].invoiceId) || await tx.invoice.findUnique({ where: { id: normalized[0].invoiceId } })
+      : null,
+    invoices: syncedInvoices,
+    allocatedAmountPaise: allocatedPaise,
+    unallocatedAmountPaise: unallocatedPaise,
+  };
 };
 
 const recordOrderSettlement = async (tx, {

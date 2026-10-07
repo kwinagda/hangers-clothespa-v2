@@ -89,6 +89,9 @@ jobs:
       - name: Verify combined invoice checkout against disposable database
         run: RUN_COMBINED_CHECKOUT_INTEGRATION=1 node --test tests/combined-checkout.integration.test.js
 
+      - name: Verify combined-capture surplus refund lifecycle
+        run: node --test tests/combined-checkout-settlement.unit.test.js tests/razorpay-automatic-refund.unit.test.js
+
       - name: Verify invoice allocation ownership boundaries
         run: node --test tests/receivables-workflow.test.js
 

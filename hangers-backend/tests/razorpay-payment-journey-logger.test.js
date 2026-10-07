@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildJourneyEvent, recordPaymentJourneyEvent } = require('../src/services/razorpay-payment-journey-logger');
+const { buildJourneyEvent, recordPaymentJourneyEvent, recordPaymentJourneyEventOnce, claimPaymentJourneyEventOnce } = require('../src/services/razorpay-payment-journey-logger');
 
 const attempt = {
   id: 'attempt_fixture_1',
@@ -172,4 +172,84 @@ test('journey logging requires both persistence models instead of silently dropp
     recordPaymentJourneyEvent({}, { attempt, action: 'RAZORPAY_PAYMENT_CAPTURE_POSTED', status: 'SUCCESS' }),
     /persistence is unavailable/,
   );
+});
+
+test('best-effort IIN diagnostics are recorded once per attempt without retaining card data', async () => {
+  const rows = new Map();
+  const tx = {
+    razorpayCheckoutAttempt: {
+      async updateMany() { return { count: 0 }; },
+      async findUnique() { return attempt; },
+    },
+    razorpayPaymentJourneyEvent: {
+      async upsert({ where, create }) {
+        if (!rows.has(where.id)) rows.set(where.id, create);
+        return rows.get(where.id);
+      },
+    },
+  };
+  const event = {
+    attempt,
+    action: 'RAZORPAY_IIN_LOOKUP_UNAVAILABLE',
+    status: 'FAILURE',
+    metadata: {
+      journeyOutcome: 'IGNORED',
+      errorCode: 'CUSTOM_IIN_UNAVAILABLE',
+      providerStatus: 404,
+      source: 'RAZORPAY_IIN_API',
+      iin: '37828224',
+      cardNumber: '378282246310005',
+    },
+  };
+
+  await recordPaymentJourneyEventOnce(tx, event);
+  await recordPaymentJourneyEventOnce(tx, event);
+
+  assert.equal(rows.size, 1);
+  const [row] = rows.values();
+  assert.equal(row.outcome, 'IGNORED');
+  assert.deepEqual(row.diagnostics, {
+    errorCode: 'CUSTOM_IIN_UNAVAILABLE',
+    providerStatus: 404,
+    source: 'RAZORPAY_IIN_API',
+  });
+  const serialized = JSON.stringify(row, (_, value) => typeof value === 'bigint' ? value.toString() : value);
+  assert.doesNotMatch(serialized, /37828224|378282246310005|"cardNumber"/i);
+});
+
+test('card IIN observation claim is atomic and prevents a second provider lookup', async () => {
+  const rows = new Map();
+  const tx = {
+    razorpayCheckoutAttempt: {
+      async updateMany() { return { count: 0 }; },
+      async findUnique() { return attempt; },
+    },
+    razorpayPaymentJourneyEvent: {
+      async createMany({ data }) {
+        const row = data[0];
+        if (rows.has(row.id)) return { count: 0 };
+        rows.set(row.id, row);
+        return { count: 1 };
+      },
+    },
+  };
+
+  const first = await claimPaymentJourneyEventOnce(tx, {
+    attempt,
+    action: 'RAZORPAY_CARD_IIN_OBSERVATION_STARTED',
+    metadata: { source: 'RAZORPAY_IIN_API' },
+  });
+  const second = await claimPaymentJourneyEventOnce(tx, {
+    attempt,
+    action: 'RAZORPAY_CARD_IIN_OBSERVATION_STARTED',
+    metadata: { source: 'RAZORPAY_IIN_API' },
+  });
+
+  assert.equal(first, true);
+  assert.equal(second, false);
+  assert.equal(rows.size, 1);
+  const [row] = rows.values();
+  assert.equal(row.outcome, 'REVIEW');
+  assert.deepEqual(row.diagnostics, { source: 'RAZORPAY_IIN_API' });
+  assert.doesNotMatch(JSON.stringify(row, (_, value) => typeof value === 'bigint' ? value.toString() : value), /37828224|cardNumber|cvv/i);
 });

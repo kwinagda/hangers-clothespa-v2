@@ -102,4 +102,75 @@ const recordPaymentJourneyEvent = async (tx, { attempt, action, status, metadata
   await tx.razorpayPaymentJourneyEvent.create({ data });
 };
 
-module.exports = { buildJourneyEvent, recordPaymentJourneyEvent };
+const recordPaymentJourneyEventOnce = async (tx, { attempt, action, status, metadata }) => {
+  if (!tx?.razorpayPaymentJourneyEvent?.upsert || !tx?.razorpayCheckoutAttempt?.updateMany
+    || !tx?.razorpayCheckoutAttempt?.findUnique) {
+    throw new Error('Payment journey event persistence is unavailable');
+  }
+  let currentAttempt = attempt;
+  if (!currentAttempt.paymentJourneyId) {
+    await tx.razorpayCheckoutAttempt.updateMany({
+      where: { id: currentAttempt.id, paymentJourneyId: null },
+      data: { paymentJourneyId: `pj_${crypto.randomUUID()}` },
+    });
+    currentAttempt = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: currentAttempt.id } });
+  }
+  if (!currentAttempt?.paymentJourneyId) throw new Error('Payment journey could not be assigned to the checkout attempt');
+  const operationTrace = getTraceContext() || createTraceContext(null);
+  const data = buildJourneyEvent({
+    attempt: currentAttempt,
+    action,
+    status,
+    metadata: {
+      ...metadata,
+      requestId: metadata?.requestId || operationTrace.requestId,
+      traceId: metadata?.traceId || operationTrace.traceId,
+      spanId: metadata?.spanId || operationTrace.spanId,
+    },
+  });
+  if (!data) throw new Error('Payment journey event is invalid');
+  const id = `evt_${crypto.createHash('sha256').update(`${currentAttempt.id}:${action}`).digest('hex').slice(0, 32)}`;
+  await tx.razorpayPaymentJourneyEvent.upsert({
+    where: { id },
+    create: { id, ...data },
+    update: {},
+  });
+};
+
+const claimPaymentJourneyEventOnce = async (tx, { attempt, action, metadata }) => {
+  if (!tx?.razorpayPaymentJourneyEvent?.createMany || !tx?.razorpayCheckoutAttempt?.updateMany
+    || !tx?.razorpayCheckoutAttempt?.findUnique) {
+    throw new Error('Payment journey event persistence is unavailable');
+  }
+  let currentAttempt = attempt;
+  if (!currentAttempt.paymentJourneyId) {
+    await tx.razorpayCheckoutAttempt.updateMany({
+      where: { id: currentAttempt.id, paymentJourneyId: null },
+      data: { paymentJourneyId: `pj_${crypto.randomUUID()}` },
+    });
+    currentAttempt = await tx.razorpayCheckoutAttempt.findUnique({ where: { id: currentAttempt.id } });
+  }
+  if (!currentAttempt?.paymentJourneyId) throw new Error('Payment journey could not be assigned to the checkout attempt');
+  const operationTrace = getTraceContext() || createTraceContext(null);
+  const data = buildJourneyEvent({
+    attempt: currentAttempt,
+    action,
+    status: 'SUCCESS',
+    metadata: {
+      ...metadata,
+      journeyOutcome: 'REVIEW',
+      requestId: metadata?.requestId || operationTrace.requestId,
+      traceId: metadata?.traceId || operationTrace.traceId,
+      spanId: metadata?.spanId || operationTrace.spanId,
+    },
+  });
+  if (!data) throw new Error('Payment journey event is invalid');
+  const id = `evt_${crypto.createHash('sha256').update(`${currentAttempt.id}:${action}`).digest('hex').slice(0, 32)}`;
+  const result = await tx.razorpayPaymentJourneyEvent.createMany({
+    data: [{ id, ...data }],
+    skipDuplicates: true,
+  });
+  return result.count === 1;
+};
+
+module.exports = { buildJourneyEvent, recordPaymentJourneyEvent, recordPaymentJourneyEventOnce, claimPaymentJourneyEventOnce };

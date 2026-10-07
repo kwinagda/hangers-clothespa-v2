@@ -375,6 +375,7 @@ model PublicShareToken {
   resourceType String
   resourceId   String
   purpose      String
+  invoiceIds   Json?
   expiresAt    DateTime
   revokedAt    DateTime?
   accessCount  Int       @default(0)
@@ -660,6 +661,7 @@ model Payment {
   id                                String                  @id @default(cuid())
   orderId                           String?
   amount                            Decimal                 @db.Decimal(18, 2)
+  unallocatedAmount                 Decimal                 @default(0) @db.Decimal(18, 2)
   kind                              String                  @default("RECEIPT")
   method                            String
   reference                         String?
@@ -1257,10 +1259,11 @@ model RazorpayRefundAttempt {
   providerIdempotencyKey String    @unique
   requestHash            String
   sourcePaymentId        String
-  orderId                String
-  invoiceId              String
+  checkoutAttemptId      String?
+  orderId                String?
+  invoiceId              String?
   customerId             String
-  createdById            String
+  createdById            String?
   amountPaise            BigInt
   currency               String    @default("INR")
   mode                   String
@@ -1273,26 +1276,32 @@ model RazorpayRefundAttempt {
   reason                 String
   requestId              String?
   failureCode            String?
+  automatic              Boolean   @default(false)
+  attemptCount           Int       @default(0)
+  nextAttemptAt          DateTime  @default(now())
+  lockedAt               DateTime?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
   completedAt            DateTime?
   sourcePayment          Payment   @relation("RazorpayRefundSourcePayment", fields: [sourcePaymentId], references: [id], onDelete: Restrict)
   localRefundPayment     Payment?  @relation("RazorpayRefundLedgerPayment", fields: [localRefundPaymentId], references: [id], onDelete: Restrict)
-  order                  Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  invoice                Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  order                  Order?    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  invoice                Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
   customer               Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  createdBy              Staff     @relation("RazorpayRefundCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdBy              Staff?    @relation("RazorpayRefundCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
   @@index([sourcePaymentId, status, createdAt])
   @@index([invoiceId, status, createdAt])
   @@index([orderId, createdAt])
   @@index([status, updatedAt])
+  @@index([automatic, status, nextAttemptAt])
   @@map("razorpay_refund_attempts")
 }
 
 model RazorpayCheckoutAttempt {
   id                    String    @id @default(cuid())
   paymentJourneyId      String?
+  supersedesAttemptId   String?
   idempotencyKey        String    @unique
   invoiceId             String
   invoiceNumber         String
@@ -1300,6 +1309,8 @@ model RazorpayCheckoutAttempt {
   customerId            String
   publicShareId         String?
   amountPaise           BigInt
+  allocatedAmountPaise  BigInt?
+  unallocatedAmountPaise BigInt?
   allocationPlan        Json?
   currency              String    @default("INR")
   mode                  String

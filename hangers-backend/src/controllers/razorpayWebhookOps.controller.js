@@ -8,7 +8,7 @@ const { getRazorpay, reconcileAmbiguousOrderCreation } = require('../services/ra
 const { syncRazorpayDisputePage } = require('../services/razorpay-dispute.service');
 
 const REPLAYABLE_STATUSES = ['REVIEW', 'RETRY', 'FAILED', 'RETRYABLE'];
-const CHECKOUT_ATTEMPT_STATUSES = ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'FAILED', 'CREATE_FAILED', 'REVIEW', 'CAPTURED'];
+const CHECKOUT_ATTEMPT_STATUSES = ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'FAILED', 'CREATE_FAILED', 'REVIEW', 'SUPERSEDED', 'CAPTURED'];
 const redactOperatorReason = (value) => String(value || '')
   .replace(/[\r\n\t]+/g, ' ')
   .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
@@ -143,6 +143,7 @@ const listRazorpayCheckoutAttempts = async (req, res) => {
         take: limit,
         select: {
           id: true, invoiceNumber: true, amountPaise: true, currency: true, mode: true, status: true,
+          allocatedAmountPaise: true, unallocatedAmountPaise: true,
           razorpayOrderId: true, razorpayPaymentId: true, requestId: true, failureCode: true,
           providerMethod: true, providerMethodDetail: true, providerErrorCode: true,
           providerErrorSource: true, providerErrorStep: true, providerErrorReason: true,
@@ -151,10 +152,38 @@ const listRazorpayCheckoutAttempts = async (req, res) => {
       }),
       prisma.razorpayCheckoutAttempt.count({ where }),
     ]);
+    const paymentIds = [...new Set(attempts.map((attempt) => attempt.razorpayPaymentId).filter(Boolean))];
+    const payments = paymentIds.length && typeof prisma.payment?.findMany === 'function'
+      ? await prisma.payment.findMany({
+        where: { razorpayPaymentId: { in: paymentIds }, kind: 'RECEIPT', status: 'CAPTURED' },
+        select: {
+          razorpayPaymentId: true,
+          unallocatedAmount: true,
+          razorpayRefundAttemptsFromPayment: {
+            where: { automatic: true }, orderBy: { createdAt: 'desc' }, take: 1,
+            select: { status: true, amountPaise: true, failureCode: true, razorpayRefundId: true },
+          },
+        },
+      })
+      : [];
+    const paymentsByProviderId = new Map(payments.map((payment) => [payment.razorpayPaymentId, payment]));
     return success(res, {
       attempts: attempts.map((attempt) => ({
         ...attempt,
         amountPaise: String(attempt.amountPaise),
+        allocatedAmountPaise: attempt.allocatedAmountPaise == null ? null : String(attempt.allocatedAmountPaise),
+        unallocatedAmountPaise: String(paymentsByProviderId.get(attempt.razorpayPaymentId)?.unallocatedAmount != null
+          ? Math.round(Number(paymentsByProviderId.get(attempt.razorpayPaymentId).unallocatedAmount) * 100)
+          : attempt.unallocatedAmountPaise || 0),
+        automaticRefund: (() => {
+          const refund = paymentsByProviderId.get(attempt.razorpayPaymentId)?.razorpayRefundAttemptsFromPayment?.[0];
+          return refund ? {
+            status: refund.status,
+            amountPaise: String(refund.amountPaise),
+            failureCode: refund.failureCode,
+            razorpayRefundId: refund.razorpayRefundId,
+          } : null;
+        })(),
         providerErrorClassification: classifyRazorpayPaymentError(attempt),
       })),
       pagination: { page, limit, total },

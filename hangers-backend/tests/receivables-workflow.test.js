@@ -72,8 +72,8 @@ test('multi-invoice settlement rejects a newly cancelled order before creating p
 test('verified Razorpay allocation refuses foreign customer and currency before any ledger write', async () => {
   for (const scenario of [
     { expectedCustomerId: 'foreign-customer', secondCustomer: 'customer-1', secondCurrency: 'INR', code: 'INVALID_ALLOCATION_PLAN' },
-    { expectedCustomerId: 'customer-1', secondCustomer: 'foreign-customer', secondCurrency: 'INR', code: 'ALLOCATION_BALANCE_CHANGED' },
-    { expectedCustomerId: 'customer-1', secondCustomer: 'customer-1', secondCurrency: 'USD', code: 'ALLOCATION_BALANCE_CHANGED' },
+    { expectedCustomerId: 'customer-1', secondCustomer: 'foreign-customer', secondCurrency: 'INR', code: 'INVALID_ALLOCATION_PLAN' },
+    { expectedCustomerId: 'customer-1', secondCustomer: 'customer-1', secondCurrency: 'USD', code: 'INVALID_ALLOCATION_PLAN' },
   ]) {
     const invoices = [
       { id: 'invoice-1', orderId: null, customerId: 'customer-1', currency: 'INR', status: 'OPEN', balanceDue: 80 },

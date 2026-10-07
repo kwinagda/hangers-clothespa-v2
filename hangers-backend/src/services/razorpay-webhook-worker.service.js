@@ -97,10 +97,11 @@ const setAttemptState = async (orderId, state, paymentId, reasonCode = null, dia
       }
     }
     if (state === 'FAILED' && ['FAILED', 'CREATE_FAILED'].includes(attempt.status)) return attempt;
+    const nextStatus = attempt.status === 'SUPERSEDED' && state !== 'FAILED' ? 'SUPERSEDED' : state;
     const updated = await tx.razorpayCheckoutAttempt.update({
       where: { id: attempt.id },
       data: {
-        status: state,
+        status: nextStatus,
         ...(paymentId ? { razorpayPaymentId: paymentId } : {}),
         failureCode: reasonCode,
         providerMethod: diagnostics.providerMethod || null,
@@ -109,19 +110,19 @@ const setAttemptState = async (orderId, state, paymentId, reasonCode = null, dia
         providerErrorSource: diagnostics.providerErrorSource || null,
         providerErrorStep: diagnostics.providerErrorStep || null,
         providerErrorReason: diagnostics.providerErrorReason || null,
-        ...(state === 'FAILED' ? { completedAt: new Date() } : {}),
+        ...(nextStatus === 'FAILED' ? { completedAt: new Date() } : {}),
       },
     });
-    await auditAttemptTransition(tx, updated, state === 'FAILED' ? 'RAZORPAY_PAYMENT_PROVIDER_FAILED' : 'RAZORPAY_PAYMENT_PROVIDER_AUTHORIZED', `Razorpay webhook changed checkout attempt state to ${state}`, {
+    await auditAttemptTransition(tx, updated, nextStatus === 'FAILED' ? 'RAZORPAY_PAYMENT_PROVIDER_FAILED' : 'RAZORPAY_PAYMENT_PROVIDER_AUTHORIZED', `Razorpay webhook changed checkout attempt state to ${state}`, {
       razorpayOrderId: orderId, razorpayPaymentId: paymentId || null,
-      priorState: attempt.status, nextState: state, reasonCode,
+      priorState: attempt.status, providerState: state, nextState, reasonCode,
       providerMethod: diagnostics.providerMethod || null,
       providerMethodDetail: diagnostics.providerMethodDetail || null,
       providerErrorCode: diagnostics.providerErrorCode || null,
       providerErrorSource: diagnostics.providerErrorSource || null,
       providerErrorStep: diagnostics.providerErrorStep || null,
       providerErrorReason: diagnostics.providerErrorReason || null,
-    }, state === 'FAILED' ? 'FAILURE' : 'SUCCESS');
+    }, nextStatus === 'FAILED' ? 'FAILURE' : 'SUCCESS');
     return updated;
   });
 };

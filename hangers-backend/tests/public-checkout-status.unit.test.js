@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { getPublicRazorpayCheckoutStatus } = require('../src/controllers/public.controller');
 const { RazorpayCheckoutError } = require('../src/services/razorpay-invoice-checkout.service');
 
@@ -20,6 +21,214 @@ const boundProvider = (attempt, payments) => ({ orders: {
   }),
 } });
 
+test('customer share recovers its explicit combined attempt after the outstanding anchor changes', async () => {
+  const invoice = { id: 'new-outstanding-invoice', customerId: 'home', balanceDue: 20, status: 'OPEN' };
+  const attempt = boundAttempt(invoice, 'customer-share', {
+    id: 'combined-attempt', invoiceId: 'settled-original-anchor', status: 'CAPTURED',
+    razorpayOrderId: 'order_combined', razorpayPaymentId: 'pay_combined', amountPaise: 3000n,
+    allocationPlan: [{ invoiceId: 'settled-original-anchor', invoiceNumber: 'INV-OLD', amount: 30 }],
+  });
+  const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'customer-share' }, query: { invoiceId: invoice.id, attemptId: attempt.id }, headers: {},
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => ({ invoice, share: { id: 'customer-share', resourceType: 'CUSTOMER', resourceId: 'home' } }),
+    prisma: {
+      razorpayCheckoutAttempt: { findFirst: async ({ where }) => {
+        assert.deepEqual(where, { customerId: 'home', mode: 'TEST', id: attempt.id });
+        return attempt;
+      } },
+      invoice: { findUnique: async () => invoice },
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.paymentId, 'pay_combined');
+  assert.equal(res.body.data.allocations[0].invoiceId, 'settled-original-anchor');
+  assert.equal(res.body.data.invoice.balanceDue, 20, 'new invoice remains unpaid');
+});
+
+test('combined status checks unresolved attempts on every unpaid invoice, not only its first invoice', async () => {
+  const invoice = { id: 'first', customerId: 'home', balanceDue: 10, status: 'OPEN' };
+  const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+  await getPublicRazorpayCheckoutStatus({ params: { slug: 'customer-share' }, query: { invoiceId: 'first' }, headers: {} }, res, undefined, {
+    getPublicInvoiceForPayment: async () => ({ invoice, share: { id: 'customer-share', resourceType: 'CUSTOMER', resourceId: 'home' } }),
+    prisma: {
+      invoice: { findMany: async ({ where }) => {
+        assert.equal(where.customerId, 'home');
+        return [{ id: 'first' }, { id: 'second' }];
+      }, findUnique: async () => invoice },
+      razorpayCheckoutAttempt: { findFirst: async ({ where }) => {
+        if (where.publicShareId) return null;
+        assert.equal(where.mode, 'TEST');
+        assert.deepEqual(where.OR, [{ invoiceId: { in: ['first', 'second'] } },
+          { allocationPlan: { array_contains: [{ invoiceId: 'first' }] } },
+          { allocationPlan: { array_contains: [{ invoiceId: 'second' }] } }]);
+        return boundAttempt(invoice, 'individual-share', { id: 'second-attempt', invoiceId: 'second', status: 'PENDING', razorpayOrderId: 'order_second' });
+      } },
+    },
+    getRazorpay: () => boundProvider({
+      id: 'second-attempt', invoiceId: 'second', customerId: 'home', amountPaise: 1000n,
+      currency: 'INR', mode: 'TEST', razorpayOrderId: 'order_second', publicShareId: 'individual-share',
+    }, [{ id: 'pay_second', status: 'created', created_at: 1 }]),
+    markAttemptPending: async ({ attemptId }) => ({
+      id: attemptId, invoiceId: 'second', customerId: 'home', amountPaise: 1000n,
+      currency: 'INR', mode: 'TEST', status: 'PENDING', razorpayOrderId: 'order_second', razorpayPaymentId: 'pay_second',
+    }),
+  });
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  assert.equal(res.body.data.status, 'PENDING');
+  assert.equal(res.body.data.canResumeCheckout, false);
+  assert.equal(res.body.data.razorpayOrderId, 'order_second');
+  assert.equal(res.body.data.attemptId, 'second-attempt');
+});
+
+test('refreshed customer share resumes a failed combined order only after Razorpay confirms all payments failed', async () => {
+  const invoiceIds = ['invoice-a', 'invoice-b', 'invoice-c'];
+  const invoice = { id: invoiceIds[0], customerId: 'home', invoiceNumber: 'INV-A', balanceDue: 10, status: 'OPEN' };
+  const allocationPlan = [
+    { invoiceId: invoiceIds[0], invoiceNumber: 'INV-A', amount: 10 },
+    { invoiceId: invoiceIds[1], invoiceNumber: 'INV-B', amount: 10 },
+    { invoiceId: invoiceIds[2], invoiceNumber: 'INV-C', amount: 100 },
+  ];
+  const attempt = boundAttempt(invoice, 'previous-customer-share', {
+    id: 'combined-failed-attempt', status: 'FAILED', razorpayOrderId: 'order_combined_failed',
+    razorpayPaymentId: 'pay_latest_failed', amountPaise: 12000n, allocationPlan,
+  });
+  const allocationHash = crypto.createHash('sha256')
+    .update(JSON.stringify(allocationPlan.map(({ invoiceId, amount }) => ({ invoiceId, amount }))))
+    .digest('hex');
+  const payments = [
+    { id: 'pay_failed_1', status: 'failed', created_at: 1 },
+    { id: 'pay_latest_failed', status: 'failed', created_at: 2 },
+  ];
+  const provider = { orders: {
+    fetchPayments: async () => ({ items: payments.map((payment) => ({
+      order_id: attempt.razorpayOrderId, amount: 12000, currency: 'INR', ...payment,
+    })) }),
+    fetch: async () => ({ id: attempt.razorpayOrderId, amount: 12000, currency: 'INR', status: 'attempted',
+      attempts: 2, amount_due: 12000, amount_paid: 0, notes: {
+        crm_attempt_id: attempt.id, invoice_id: attempt.invoiceId,
+        share_id: attempt.publicShareId, allocation_plan_hash: allocationHash,
+      } }),
+  } };
+  const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'current-customer-share' }, query: { invoiceId: invoice.id, checkoutIntegration: 'CUSTOM' }, headers: {},
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => ({ invoice, share: {
+      id: 'current-customer-share', resourceType: 'CUSTOMER', resourceId: 'home', invoiceIds,
+    } }),
+    prisma: {
+      invoice: {
+        findMany: async ({ where }) => {
+          assert.equal(where.customerId, 'home');
+          assert.deepEqual(where.id, { in: invoiceIds });
+          return invoiceIds.map((id) => ({ id }));
+        },
+        findUnique: async () => invoice,
+      },
+      razorpayCheckoutAttempt: {
+        findFirst: async ({ where }) => {
+          if (where.publicShareId) return null;
+          assert.equal(where.mode, 'TEST');
+          assert.deepEqual(where.status.in, ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW', 'FAILED', 'SUPERSEDED']);
+          return attempt;
+        },
+      },
+    },
+    getPublicPaymentSummary: async (customerId, _legalTerms, scopedInvoiceIds) => {
+      assert.equal(customerId, 'home');
+      assert.deepEqual(scopedInvoiceIds, invoiceIds);
+      return { receivables: allocationPlan.map((item) => ({ invoiceId: item.invoiceId, balanceDue: item.amount })) };
+    },
+    getRazorpay: () => provider,
+    markAttemptFailed: async ({ paymentId }) => ({ ...attempt, status: 'FAILED', razorpayPaymentId: paymentId }),
+  });
+
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  assert.equal(res.body.data.attemptId, attempt.id);
+  assert.equal(res.body.data.status, 'FAILED');
+  assert.equal(res.body.data.razorpayOrderId, attempt.razorpayOrderId);
+  assert.equal(res.body.data.razorpayPaymentId, 'pay_latest_failed');
+  assert.equal(res.body.data.canResumeCheckout, true);
+  assert.equal(res.body.data.providerLookupUnavailable, false);
+});
+
+test('individual invoice status reconciles an overlapping combined attempt without exposing other allocations', async () => {
+  const invoice = { id: 'invoice-b', customerId: 'customer-b', invoiceNumber: 'INV-B', balanceDue: 20, status: 'OPEN' };
+  let attempt = boundAttempt(invoice, 'combined-share', {
+    id: 'combined-attempt-b', invoiceId: 'invoice-a', publicShareId: 'combined-share',
+    status: 'CREATED', razorpayOrderId: 'order-combined-b', amountPaise: 3000n,
+    allocationPlan: [
+      { invoiceId: 'invoice-a', invoiceNumber: 'INV-A', amount: 10 },
+      { invoiceId: 'invoice-b', invoiceNumber: 'INV-B', amount: 20 },
+    ],
+  });
+  const planHash = crypto.createHash('sha256').update(JSON.stringify(attempt.allocationPlan.map(({ invoiceId, amount }) => ({ invoiceId, amount })))).digest('hex');
+  const provider = { orders: {
+    fetchPayments: async () => ({ items: [{ id: 'pay-pending-b', order_id: attempt.razorpayOrderId, amount: 3000, currency: 'INR', status: 'created', created_at: 1 }] }),
+    fetch: async () => ({ id: attempt.razorpayOrderId, amount: 3000, currency: 'INR', status: 'attempted', attempts: 1,
+      amount_due: 3000, amount_paid: 0, notes: { crm_attempt_id: attempt.id, invoice_id: attempt.invoiceId,
+        share_id: attempt.publicShareId, allocation_plan_hash: planHash } }),
+  } };
+  const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'invoice-share-b' }, query: { invoiceId: invoice.id, checkoutIntegration: 'CUSTOM' }, headers: {},
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => ({ invoice, share: { id: 'invoice-share-b', resourceType: 'INVOICE', resourceId: invoice.id } }),
+    prisma: {
+      razorpayCheckoutAttempt: { findFirst: async ({ where }) => {
+        if (where.publicShareId) return null;
+        assert.deepEqual(where.OR, [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }]);
+        return attempt;
+      }, findUnique: async () => attempt },
+      invoice: { findUnique: async () => invoice },
+    },
+    getRazorpay: () => provider,
+    markAttemptPending: async ({ paymentId }) => {
+      attempt = { ...attempt, status: 'PENDING', razorpayPaymentId: paymentId };
+      return attempt;
+    },
+  });
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  assert.equal(res.body.data.status, 'PENDING');
+  assert.equal(res.body.data.attemptId, attempt.id);
+  assert.equal(res.body.data.canResumeCheckout, false);
+  assert.deepEqual(res.body.data.allocations, []);
+  assert.equal(res.body.data.razorpayOrderId, attempt.razorpayOrderId);
+});
+
+test('captured combined status on an individual link returns only that invoice allocation', async () => {
+  const invoice = { id: 'invoice-b', customerId: 'customer-b', invoiceNumber: 'INV-B', balanceDue: 0, paidAmount: 20, status: 'PAID' };
+  const attempt = boundAttempt(invoice, 'combined-share', {
+    id: 'combined-attempt-b', invoiceId: 'invoice-a', publicShareId: 'combined-share',
+    status: 'CAPTURED', razorpayOrderId: 'order-combined-b', razorpayPaymentId: 'pay-combined-b', amountPaise: 3000n,
+    allocationPlan: [
+      { invoiceId: 'invoice-a', invoiceNumber: 'INV-A', amount: 10 },
+      { invoiceId: 'invoice-b', invoiceNumber: 'INV-B', amount: 20 },
+    ],
+  });
+  const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+  await getPublicRazorpayCheckoutStatus({
+    params: { slug: 'invoice-share-b' }, query: { invoiceId: invoice.id, attemptId: attempt.id, checkoutIntegration: 'CUSTOM' }, headers: {},
+  }, res, undefined, {
+    getPublicInvoiceForPayment: async () => ({ invoice, share: { id: 'invoice-share-b', resourceType: 'INVOICE', resourceId: invoice.id } }),
+    prisma: {
+      razorpayCheckoutAttempt: { findFirst: async ({ where }) => {
+        assert.equal(where.id, attempt.id);
+        assert.equal(where.customerId, invoice.customerId);
+        assert.deepEqual(where.OR, [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }]);
+        return attempt;
+      } },
+      invoice: { findUnique: async () => invoice },
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.capturedAmountPaise, '2000');
+  assert.deepEqual(res.body.data.allocations, [{ invoiceId: 'invoice-b', invoiceNumber: 'INV-B', amountPaise: '2000' }]);
+});
+
 test('status polling settles a captured payment bound to the same invoice share', async () => {
   const originalShareId = 'share_original';
   const invoice = { id: 'invoice_123', customerId: 'customer_123', invoiceNumber: 'INV-123', status: 'OPEN', balanceDue: 100, paidAmount: 0 };
@@ -37,7 +246,7 @@ test('status polling settles a captured payment bound to the same invoice share'
   const fakePrisma = {
     razorpayCheckoutAttempt: {
       findFirst: async ({ where }) => {
-        assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: originalShareId, invoiceId: invoice.id });
+        assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: originalShareId, invoiceId: invoice.id, mode: 'TEST' });
         return attempt;
       },
       findUnique: async ({ where }) => {
@@ -97,7 +306,7 @@ test('status recovery resolves the latest invoice attempt without a browser-cach
   const fakePrisma = {
     razorpayCheckoutAttempt: {
       findFirst: async ({ where, orderBy }) => {
-        assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'new_share_id', invoiceId: invoice.id });
+        assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'new_share_id', invoiceId: invoice.id, mode: 'TEST' });
         assert.deepEqual(orderBy, { createdAt: 'desc' });
         return attempt;
       },
@@ -245,12 +454,13 @@ test('status recovery returns NONE for an invoice without any checkout attempt',
       findFirst: async ({ where, orderBy }) => {
         assert.deepEqual(orderBy, { createdAt: 'desc' });
         if (where.publicShareId) {
-          assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'share_789', invoiceId: invoice.id });
+          assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'share_789', invoiceId: invoice.id, mode: 'TEST' });
         } else {
           assert.deepEqual(where, {
             customerId: invoice.customerId,
+            mode: 'TEST',
             OR: [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }],
-            status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] },
+            status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW', 'FAILED', 'SUPERSEDED'] },
           });
         }
         return null;
@@ -362,13 +572,14 @@ test('a fresh invoice link can inspect an unresolved attempt but cannot resume a
         assert.deepEqual(orderBy, { createdAt: 'desc' });
         lookup += 1;
         if (lookup === 1) {
-          assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'fresh_share', invoiceId: invoice.id });
+          assert.deepEqual(where, { customerId: invoice.customerId, publicShareId: 'fresh_share', invoiceId: invoice.id, mode: 'TEST' });
           return null;
         }
         assert.deepEqual(where, {
           customerId: invoice.customerId,
+          mode: 'TEST',
           OR: [{ invoiceId: invoice.id }, { allocationPlan: { array_contains: [{ invoiceId: invoice.id }] } }],
-          status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] },
+          status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW', 'FAILED', 'SUPERSEDED'] },
         });
         return activeAttempt;
       },
@@ -431,7 +642,7 @@ test('a fresh invoice link resumes the same provider order only when Razorpay co
         findFirst: async ({ where }) => {
           lookup += 1;
           if (lookup === 1) return null;
-          assert.deepEqual(where.status, { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW'] });
+          assert.deepEqual(where.status, { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW', 'FAILED', 'SUPERSEDED'] });
           return attempt;
         },
       },

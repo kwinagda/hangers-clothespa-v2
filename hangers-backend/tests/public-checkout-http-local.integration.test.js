@@ -16,6 +16,7 @@ test('existing local public payment routes reject an invalid invoice share', {
     ['GET', '/payment/custom/capabilities', null],
     ['GET', '/payment/custom/downtime', null],
     ['POST', '/payment/custom/card-eligibility', { iin: '410028' }],
+    ['POST', '/payment/custom/card-observation', { iin: '41002800', attemptId: 'invalid-share-attempt' }],
     ['POST', '/payment/custom/bank-transfer', {}],
     ['POST', '/payment/create-order', {}],
     ['POST', '/payment/verify', { razorpayOrderId: 'order_invalid_share_test', razorpayPaymentId: 'pay_invalid_share_test', razorpaySignature: 'a'.repeat(64) }],

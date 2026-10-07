@@ -7,6 +7,7 @@ const prisma = require('./config/database');
 const { processOutboxBatch } = require('./services/outbox.service');
 const { runScheduledFinancialReconciliation } = require('./services/reconciliation.service');
 const { processRazorpayWebhookBatch } = require('./services/razorpay-webhook-worker.service');
+const { processAutomaticRazorpayRefundBatch } = require('./services/razorpay-refund.service');
 const { processQueuedRazorpayPaymentReconciliation, runScheduledRazorpayPaymentReconciliation, enqueueScheduledRazorpaySettlementReconciliation } = require('./services/razorpay-payment-reconciliation.service');
 
 const workers = startWorkers();
@@ -14,6 +15,7 @@ const instanceId = process.env.WORKER_INSTANCE_ID || randomUUID();
 let outboxRunning = false;
 let razorpayWebhooksRunning = false;
 let razorpayPaymentReconciliationRunning = false;
+let razorpayAutomaticRefundsRunning = false;
 
 const heartbeat = async (status = 'RUNNING') => prisma.workerHeartbeat.upsert({
   where: { workerName_instanceId: { workerName: 'crm-background-worker', instanceId } },
@@ -72,6 +74,18 @@ const drainRazorpayPaymentReconciliation = async () => {
   }
 };
 
+const drainRazorpayAutomaticRefunds = async () => {
+  if (razorpayAutomaticRefundsRunning) return;
+  razorpayAutomaticRefundsRunning = true;
+  try {
+    await processAutomaticRazorpayRefundBatch({ limit: 10 });
+  } catch (err) {
+    console.error('[workers] automatic Razorpay refund drain failed:', err?.code || 'PROCESSING_ERROR');
+  } finally {
+    razorpayAutomaticRefundsRunning = false;
+  }
+};
+
 heartbeat().then(() => console.info(`[workers] heartbeat active for ${instanceId}`)).catch((err) => {
   console.error('[workers] initial heartbeat failed:', err?.message || err);
 });
@@ -81,6 +95,7 @@ const heartbeatTimer = setInterval(() => heartbeat().catch((err) => {
 const outboxTimer = setInterval(drainOutbox, 2_000);
 const razorpayWebhookTimer = setInterval(drainRazorpayWebhooks, 1_000);
 const razorpayPaymentReconciliationQueueTimer = setInterval(drainRazorpayPaymentReconciliation, 2_000);
+const razorpayAutomaticRefundTimer = setInterval(drainRazorpayAutomaticRefunds, 2_000);
 const reconciliationTimer = setInterval(() => runScheduledFinancialReconciliation().catch((err) => {
   console.error('[workers] scheduled reconciliation failed:', err?.message || err);
 }), 60 * 60 * 1000);
@@ -93,6 +108,7 @@ const razorpaySettlementReconciliationTimer = setInterval(() => enqueueScheduled
 drainOutbox();
 drainRazorpayWebhooks();
 drainRazorpayPaymentReconciliation();
+drainRazorpayAutomaticRefunds();
 runScheduledFinancialReconciliation().catch((err) => {
   console.error('[workers] initial reconciliation failed:', err?.message || err);
 });
@@ -110,6 +126,7 @@ const shutdown = async (signal) => {
     clearInterval(outboxTimer);
     clearInterval(razorpayWebhookTimer);
     clearInterval(razorpayPaymentReconciliationQueueTimer);
+    clearInterval(razorpayAutomaticRefundTimer);
     clearInterval(reconciliationTimer);
     clearInterval(razorpayPaymentReconciliationTimer);
     clearInterval(razorpaySettlementReconciliationTimer);

@@ -1,5 +1,6 @@
 // Exact upstream URL is retained as provenance; SDK/API controls availability.
-const providerArtwork = [
+const firstPartyArtwork = [
+  ['bank', 'FINO', 'Fino Payments Bank', '/payment-provider-logos/fino.svg', 'https://www.fino.bank.in/images/fino-logo.svg'],
   ['cardless_emi', 'cshe', 'CASHe', '/payment-provider-logos/cashe.png', 'https://www.cashe.co.in/wp-content/themes/cashe/images/logo.png'],
   ['cardless_emi', 'tvsc', 'TVS Credit', '/payment-provider-logos/tvs-credit.svg', 'https://www.tvscredit.com/wp-content/uploads/2025/03/tvs_credit_logo.svg'],
   ['cardless_emi', 'liquiloans', 'LiquiLoans', '/payment-provider-logos/liquiloans.png', 'https://www.liquiloans.com/investment-assets/img/logo_new.png'],
@@ -92,7 +93,7 @@ const assets = [
   ['cardless_emi', 'instant_emi', 'Instant EMI', 'https://cdn.razorpay.com/cardless_emi/instant_emi.svg'],
   ['cardless_emi', 'shopse', 'ShopSe', 'https://cdn.razorpay.com/cardless_emi/shopse.png'],
   ['cardless_emi', 'snapmint', 'Snapmint', 'https://cdn.razorpay.com/cardless_emi/snapmint.svg'],
-  ...providerArtwork,
+  ...firstPartyArtwork,
   ['paylater', 'amazonpay', 'Amazon Pay', 'https://cdn.razorpay.com/wallet-sq/amazonpay.png'],
   ['paylater', 'getsimpl', 'Simpl', 'https://cdn.razorpay.com/paylater/getsimpl.svg'],
   ['paylater', 'lazypay', 'LazyPay', 'https://cdn.razorpay.com/paylater/lazypay.svg'],

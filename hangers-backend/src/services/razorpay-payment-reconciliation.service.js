@@ -337,7 +337,7 @@ const persistFinanceAttention = async ({ mode, now }) => prisma.$transaction(asy
   const attempts = await tx.$queryRaw`
     SELECT attempts.* FROM razorpay_checkout_attempts AS attempts
     WHERE attempts.mode = ${mode}
-      AND attempts.status IN ('CREATING', 'PENDING', 'AUTHORIZED', 'REVIEW')
+      AND attempts.status IN ('CREATING', 'PENDING', 'AUTHORIZED', 'REVIEW', 'SUPERSEDED')
       AND attempts."createdAt" <= ${new Date(now.getTime() - FINANCE_ATTENTION_MINUTES * 60_000)}
       AND NOT EXISTS (
         SELECT 1 FROM audit_logs AS audit
@@ -369,7 +369,7 @@ const reconcileUnresolvedCheckoutAttempts = async ({ mode, provider, now, counte
     WITH due AS (
       SELECT id FROM razorpay_checkout_attempts
       WHERE mode = ${mode}
-        AND (status = 'REVIEW' OR (status = 'CREATING' AND "razorpayOrderId" IS NULL
+        AND (status IN ('REVIEW', 'SUPERSEDED') OR (status = 'CREATING' AND "razorpayOrderId" IS NULL
           AND "createdAt" <= ${new Date(now.getTime() - PENDING_ATTEMPT_ERROR_RETRY_MINUTES * 60_000)}))
         AND ("failureCode" IS NULL OR "failureCode" <> 'OVERPAYMENT_NOT_ALLOWED')
         AND ("nextProviderCheckAt" IS NULL OR "nextProviderCheckAt" <= ${now})
@@ -407,13 +407,13 @@ const reconcileUnresolvedCheckoutAttempts = async ({ mode, provider, now, counte
       await prisma.$transaction(async (tx) => {
         const rows = await tx.$queryRaw`
           SELECT * FROM razorpay_checkout_attempts
-          WHERE id = ${attempt.id} AND mode = ${mode} AND status = 'REVIEW'
+          WHERE id = ${attempt.id} AND mode = ${mode} AND status IN ('REVIEW', 'SUPERSEDED')
           FOR UPDATE
         `;
         if (!rows[0]) return;
         await auditAttemptTransition(tx, rows[0], 'RAZORPAY_ORDER_CREATE_RECOVERY_DEFERRED',
-          'Order recovery remains unresolved; durable retry retained and replacement remains blocked', {
-            errorCode: safeCode(error), source: 'PROVIDER_RECONCILIATION', nextState: 'REVIEW',
+          'Order recovery remains unresolved; durable retry retained for this superseded attempt', {
+            errorCode: safeCode(error), source: 'PROVIDER_RECONCILIATION', nextState: rows[0].status,
             nextProviderCheckAt: rows[0].nextProviderCheckAt?.toISOString() || null,
           }, 'FAILURE');
       });
@@ -428,7 +428,7 @@ const claimDueCheckoutAttempts = async (mode, now) => prisma.$transaction((tx) =
     SELECT id
     FROM razorpay_checkout_attempts
     WHERE mode = ${mode}
-      AND status IN ('CREATED', 'PENDING', 'AUTHORIZED', 'FAILED')
+      AND status IN ('CREATED', 'PENDING', 'AUTHORIZED', 'FAILED', 'SUPERSEDED')
       AND "razorpayOrderId" IS NOT NULL
       AND ("nextProviderCheckAt" IS NULL OR "nextProviderCheckAt" <= ${now})
     ORDER BY "nextProviderCheckAt" ASC NULLS FIRST, "createdAt" ASC
@@ -449,7 +449,7 @@ const reconcilePendingCheckoutAttempts = async ({ mode, provider, counters, exce
     const dueCount = await prisma.razorpayCheckoutAttempt.count({
       where: {
         mode,
-        status: { in: ['CREATED', 'PENDING', 'AUTHORIZED', 'FAILED'] },
+        status: { in: ['CREATED', 'PENDING', 'AUTHORIZED', 'FAILED', 'SUPERSEDED'] },
         razorpayOrderId: { not: null },
         OR: [{ nextProviderCheckAt: null }, { nextProviderCheckAt: { lte: now } }],
       },
@@ -474,7 +474,7 @@ const reconcilePendingCheckoutAttempts = async ({ mode, provider, counters, exce
         amountPaise: attempt.amountPaise,
         currency: attempt.currency,
       });
-      if (allPaymentsFailed && ['CREATED', 'PENDING', 'AUTHORIZED'].includes(attempt.status)) {
+      if (allPaymentsFailed && ['CREATED', 'PENDING', 'AUTHORIZED', 'SUPERSEDED'].includes(attempt.status)) {
         const latestFailedPayment = items.reduce((latest, payment) => (
           Number(payment.created_at || 0) > Number(latest?.created_at || 0) ? payment : latest
         ), null);
@@ -496,7 +496,7 @@ const reconcilePendingCheckoutAttempts = async ({ mode, provider, counters, exce
       counters.pendingAttemptErrors += 1;
       if (exceptions.length < 250) exceptions.push({ code: safeCode(error), attemptId: attempt.id, orderId: attempt.razorpayOrderId });
       await prisma.razorpayCheckoutAttempt.updateMany({
-        where: { id: attempt.id, status: { in: ['CREATED', 'PENDING', 'AUTHORIZED', 'FAILED'] } },
+        where: { id: attempt.id, status: { in: ['CREATED', 'PENDING', 'AUTHORIZED', 'FAILED', 'SUPERSEDED'] } },
         data: { nextProviderCheckAt: new Date(Date.now() + Math.max(
           PENDING_ATTEMPT_ERROR_RETRY_MINUTES * 60_000,
           providerRetryAfterMs(error) || 0,
@@ -508,7 +508,7 @@ const reconcilePendingCheckoutAttempts = async ({ mode, provider, counters, exce
     counters.pendingAttemptsStillDue = await prisma.razorpayCheckoutAttempt.count({
       where: {
         mode,
-        status: { in: ['CREATED', 'PENDING', 'AUTHORIZED', 'FAILED'] },
+        status: { in: ['CREATED', 'PENDING', 'AUTHORIZED', 'FAILED', 'SUPERSEDED'] },
         razorpayOrderId: { not: null },
         OR: [{ nextProviderCheckAt: null }, { nextProviderCheckAt: { lte: now } }],
       },
