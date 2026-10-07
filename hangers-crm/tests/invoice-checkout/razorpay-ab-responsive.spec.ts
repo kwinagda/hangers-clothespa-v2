@@ -256,7 +256,7 @@ test('untrusted payment.failed description is hidden and status is checked befor
   await expect(callbackStatus).toBeVisible()
   await expect(callbackStatus).not.toContainText('Bank said call')
   await expect(callbackStatus).not.toContainText('123456')
-  await expect(page.getByText('Payment status under review')).toBeVisible()
+  await expect(page.getByText('Payment status not confirmed yet')).toBeVisible()
 
   await page.getByRole('button', { name: 'Check Razorpay status' }).click()
   await expect(page.locator('div[role="status"]').filter({ hasText: 'This payment did not complete. You can start a new attempt.' })).toBeVisible()
@@ -657,6 +657,7 @@ test('rapid duplicate custom-checkout submits invoke the SDK payment method once
   await page.getByRole('radio', { name: 'Netbanking' }).click()
   await expect(page.locator('input[name="bank"]')).toHaveValue('HDFC')
   await expect(page.getByRole('button', { name: 'Pay ₹1' })).toBeEnabled()
+  await page.locator('input[name="email"]').fill('kevinnagda@gmail.com')
   await page.locator('form').evaluate((form) => {
     const event = new Event('submit', { bubbles: true, cancelable: true })
     form.dispatchEvent(event)
@@ -732,6 +733,7 @@ test('card validation focuses the invalid control and links its error for assist
   await page.getByLabel('Name on card').fill('Test Customer')
   await page.getByLabel('Expiry', { exact: true }).fill('12 / 30')
   await page.getByLabel('CVV').fill('123')
+  await page.locator('input[name="email"]').fill('kevinnagda@gmail.com')
   await expect(page.getByRole('button', { name: 'Pay ₹1' })).toBeEnabled()
   await page.getByRole('button', { name: 'Pay ₹1' }).click()
 
@@ -757,7 +759,7 @@ test('closing Checkout immediately checks the attempt and keeps a nonterminal pa
   await page.goto('/invoice/variant-modal-dismiss')
   await continueFromInvoiceToPayment(page)
 
-  await expect(page.getByText('Payment status under review')).toBeVisible()
+  await expect(page.getByText('Payment status not confirmed yet')).toBeVisible()
   await expect(page.locator('div[role="status"]').filter({ hasText: 'Razorpay is still processing this payment.' })).toBeVisible()
   await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
 })
@@ -906,7 +908,7 @@ test('Standard Checkout capture refreshes the invoice and never reopens Pay afte
 test('a reopened invoice with an unresolved provider attempt blocks a duplicate checkout', async ({ page }) => {
   await page.goto('/invoice/variant-recover-pending')
 
-  await expect(page.getByText('Payment status under review')).toBeVisible()
+  await expect(page.getByText('Payment status not confirmed yet')).toBeVisible()
   await expect(page.locator('div[role="status"]').filter({ hasText: 'Razorpay is still processing this payment.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Check Razorpay status' })).toBeVisible()
 })
@@ -929,7 +931,7 @@ test('manual reconciliation resumes only the same provider-confirmed unattempted
   })
 
   await page.goto('/invoice/variant-recover-pending')
-  await expect(page.getByText('Payment status under review')).toBeVisible()
+  await expect(page.getByText('Payment status not confirmed yet')).toBeVisible()
   await expect(page.getByText('Razorpay order reference: order_review')).toBeVisible()
   await page.getByRole('button', { name: 'Check Razorpay status' }).click()
   await expect(page.getByRole('button', { name: 'Continue to secure checkout' })).toBeVisible()
@@ -958,14 +960,14 @@ test('initial status recovery never flashes Pay while an existing attempt is unr
   await expect(page.getByRole('status').filter({ hasText: 'Checking payment status…' })).toBeVisible()
 
   releaseResponse()
-  await expect(page.getByText('Payment status under review')).toBeVisible()
+  await expect(page.getByText('Payment status not confirmed yet')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
 })
 
 test('page-return recovery releases the checkout after Razorpay confirms the payment failed', async ({ page }) => {
   await page.goto('/invoice/variant-recover-failed')
 
-  await expect(page.getByText('Payment status under review')).toBeVisible()
+  await expect(page.getByText('Payment status not confirmed yet')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Check Razorpay status' })).toBeVisible()
 
   await page.waitForTimeout(1600)
@@ -991,7 +993,7 @@ test('visibility return keeps Pay blocked until the refreshed provider status is
   })
 
   await page.goto('/invoice/variant-recover-pending')
-  await expect(page.getByText('Payment status under review')).toBeVisible()
+  await expect(page.getByText('Payment status not confirmed yet')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
   await expect.poll(() => statusReads).toBeGreaterThanOrEqual(1)
 
