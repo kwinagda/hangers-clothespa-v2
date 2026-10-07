@@ -115,7 +115,7 @@ const setAttemptState = async (orderId, state, paymentId, reasonCode = null, dia
     });
     await auditAttemptTransition(tx, updated, nextStatus === 'FAILED' ? 'RAZORPAY_PAYMENT_PROVIDER_FAILED' : 'RAZORPAY_PAYMENT_PROVIDER_AUTHORIZED', `Razorpay webhook changed checkout attempt state to ${state}`, {
       razorpayOrderId: orderId, razorpayPaymentId: paymentId || null,
-      priorState: attempt.status, providerState: state, nextState, reasonCode,
+      priorState: attempt.status, providerState: state, nextState: nextStatus, reasonCode,
       providerMethod: diagnostics.providerMethod || null,
       providerMethodDetail: diagnostics.providerMethodDetail || null,
       providerErrorCode: diagnostics.providerErrorCode || null,

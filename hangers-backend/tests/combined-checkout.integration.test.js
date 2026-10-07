@@ -1,6 +1,7 @@
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const express = require('express');
 const prisma = require('../src/config/database');
 const { createInvoiceCheckout, reconcileAmbiguousOrderCreation, settleCapturedPayment } = require('../src/services/razorpay-invoice-checkout.service');
@@ -10,6 +11,7 @@ const { createPublicShareToken } = require('../src/services/publicShare.service'
 const { createRazorpayRefund, processAutomaticRazorpayRefundBatch, reconcileRazorpayRefundWebhook } = require('../src/services/razorpay-refund.service');
 const { recordInvoiceSettlement } = require('../src/services/payment.service');
 const { processOutboxBatch } = require('../src/services/outbox.service');
+const { processWebhook } = require('../src/services/razorpay-webhook-worker.service');
 const { LEGAL_TERMS } = require('../src/config/master-data');
 const publicRoutes = require('../src/routes/public.routes');
 
@@ -27,12 +29,17 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
   process.env.RAZORPAY_KEY_ID = 'rzp_test_combined_ci';
   const suffix = crypto.randomUUID();
   let customer;
+  let customerCreated = false;
   let subscription;
   let subscriptionCreated = false;
   const sourceRecords = [];
   const invoiceIds = [];
   try {
-    customer = await prisma.customer.create({ data: { name: `Source CI ${suffix}`, phone: '9930367267', notifWhatsApp: false } });
+    customer = await prisma.customer.findUnique({ where: { phone: '9930367267' } });
+    if (!customer) {
+      customer = await prisma.customer.create({ data: { name: `Home QA ${suffix}`, phone: '9930367267', notifWhatsApp: false } });
+      customerCreated = true;
+    }
     for (const sourceType of ['ORDER', 'DAILY_IRON', 'FIELD_SERVICE']) {
       let source;
       if (sourceType === 'ORDER') {
@@ -120,7 +127,7 @@ test('historical unpaid invoices prepare and reuse checkout across every billing
     }
     for (const [model, id] of sourceRecords.reverse()) await prisma[model].delete({ where: { id } });
     if (subscriptionCreated && subscription) await prisma.ironSubscription.delete({ where: { id: subscription.id } });
-    if (customer) await prisma.customer.delete({ where: { id: customer.id } });
+    if (customerCreated && customer) await prisma.customer.delete({ where: { id: customer.id } });
     if (previousKeyId === undefined) delete process.env.RAZORPAY_KEY_ID;
     else process.env.RAZORPAY_KEY_ID = previousKeyId;
   }
@@ -937,6 +944,517 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   assert.equal(await prisma.creditNote.count({ where: { id: refunded.creditNote.id } }), 1);
   assert.equal(Number((await prisma.invoice.findUnique({ where: { id: invoices[1].id } })).balanceDue), 0);
   assert.equal(await prisma.paymentAllocation.count({ where: { paymentId: settled.payment.id } }), 2);
+});
+
+test('A18 public retry preserves an ambiguous old order, frozen invoice split, and webhook settlement after share revocation', { skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' }, async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  assert.equal(url.hostname, 'localhost');
+  assert.equal(url.pathname, '/hangers_test');
+  assert.equal((await prisma.$queryRaw`SELECT current_database() AS name`)[0].name, 'hangers_test');
+
+  const previousEnv = {
+    keyId: process.env.RAZORPAY_KEY_ID,
+    keySecret: process.env.RAZORPAY_KEY_SECRET,
+    testContact: process.env.RAZORPAY_TEST_CONTACT_NUMBER,
+    customDisabled: process.env.RAZORPAY_CUSTOM_CHECKOUT_DISABLED,
+  };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_a18_local_acceptance';
+  process.env.RAZORPAY_KEY_SECRET = 'local-injected-provider-only';
+  process.env.RAZORPAY_TEST_CONTACT_NUMBER = '9930367267';
+  process.env.RAZORPAY_CUSTOM_CHECKOUT_DISABLED = 'false';
+
+  const suffix = crypto.randomUUID();
+  let customer = await prisma.customer.findUnique({ where: { phone: '9930367267' } });
+  const customerCreated = !customer;
+  if (!customer) customer = await prisma.customer.create({ data: { name: 'Home QA', phone: '9930367267', notifWhatsApp: false } });
+  const invoiceIds = [];
+  const orderIds = [];
+  const shareHashes = [];
+  const paymentIds = [];
+  let checkoutAttemptIds = [];
+  const providerOrders = new Map();
+  const providerPaymentsByOrder = new Map();
+  const providerPaymentsById = new Map();
+  let providerCreateCalls = 0;
+  let combinedAttemptId = null;
+  let thirdInvoice;
+
+  const createInvoice = async (label, amount, dueOffset) => {
+    const order = await prisma.order.create({ data: {
+      orderNumber: `A18-${suffix}-${label}`, customerId: customer.id,
+      source: 'COUNTER', status: 'PICKED_UP', subtotal: amount, totalAmount: amount,
+    } });
+    orderIds.push(order.id);
+    const invoice = await prisma.invoice.create({ data: {
+      invoiceNumber: `A18-${suffix}-${label}`, customerId: customer.id,
+      orderId: order.id, sourceType: 'ORDER', status: 'OPEN', currency: 'INR',
+      subtotal: amount, totalAmount: amount, paidAmount: 0, balanceDue: amount,
+      issueDate: new Date(1700000000000 + dueOffset), dueDate: new Date(1700001000000 + dueOffset),
+    } });
+    invoiceIds.push(invoice.id);
+    return invoice;
+  };
+  const addShareHash = (token) => {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    shareHashes.push(tokenHash);
+    return tokenHash;
+  };
+
+  const provider = {
+    orders: {
+      create: async (payload) => {
+        providerCreateCalls += 1;
+        const order = {
+          ...payload,
+          id: `order_a18_${suffix.replaceAll('-', '')}_${providerCreateCalls}`,
+          status: 'created', amount_paid: 0, amount_due: payload.amount, attempts: 0,
+        };
+        providerOrders.set(order.id, order);
+        if (providerCreateCalls === 1) throw Object.assign(new Error('Injected lost order-create response'), { code: 'ETIMEDOUT' });
+        return order;
+      },
+      all: async ({ receipt }) => ({ items: [...providerOrders.values()].filter((order) => order.receipt === receipt) }),
+      fetch: async (id) => providerOrders.get(id),
+      fetchPayments: async (id) => {
+        const items = providerPaymentsByOrder.get(id) || [];
+        return { count: items.length, items };
+      },
+    },
+    payments: { fetch: async (id) => providerPaymentsById.get(id) },
+  };
+  const callPublicCreate = async (slug, body, idempotencyKey) => {
+    const res = response();
+    await createPublicRazorpayOrder({
+      params: { slug }, body, headers: {}, id: `a18-${suffix}`,
+      get: (header) => header === 'Idempotency-Key' ? idempotencyKey : undefined,
+    }, res, null, { provider, logRazorpayAction: async () => {} });
+    return res;
+  };
+
+  try {
+    const firstInvoice = await createInvoice('A', 10, 1);
+    const secondInvoice = await createInvoice('B', 20, 2);
+    const customerToken = await createPublicShareToken({
+      resourceType: 'CUSTOMER', resourceId: customer.id, purpose: 'INVOICE_VIEW',
+      invoiceIds: [firstInvoice.id, secondInvoice.id],
+    });
+    const customerHash = addShareHash(customerToken);
+    const customerShare = await prisma.publicShareToken.findUnique({ where: { tokenHash: customerHash } });
+    const invoiceToken = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: firstInvoice.id, purpose: 'INVOICE_VIEW' });
+    const invoiceHash = addShareHash(invoiceToken);
+    const invoiceShare = await prisma.publicShareToken.findUnique({ where: { tokenHash: invoiceHash } });
+
+    const individualStart = await callPublicCreate(invoiceToken, {
+      checkoutIntegration: 'CUSTOM', invoiceId: firstInvoice.id, expectedAmountPaise: 1000,
+    }, `a18-individual-${suffix}`);
+    assert.equal(individualStart.statusCode, 503);
+    assert.equal(individualStart.body.code, 'CHECKOUT_RESULT_UNKNOWN');
+    let oldAttempt = await prisma.razorpayCheckoutAttempt.findFirst({ where: { invoiceId: firstInvoice.id } });
+    assert.ok(oldAttempt);
+    assert.equal(oldAttempt.status, 'REVIEW');
+    assert.equal(oldAttempt.razorpayOrderId, null);
+    assert.equal(providerCreateCalls, 1);
+
+    const recovered = await reconcileAmbiguousOrderCreation({
+      attemptId: oldAttempt.id, actor: { requestId: `a18-${suffix}` }, customCheckout: true, provider,
+    });
+    oldAttempt = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: oldAttempt.id } });
+    assert.equal(recovered.reused, true);
+    assert.equal(oldAttempt.status, 'CREATED');
+    assert.ok(oldAttempt.razorpayOrderId);
+    assert.equal(providerCreateCalls, 1, 'receipt recovery must not create a replacement order');
+
+    const staleTotal = await callPublicCreate(customerToken, {
+      checkoutIntegration: 'CUSTOM', invoiceId: firstInvoice.id, paymentScope: 'CUSTOMER_OUTSTANDING',
+      supersedeAttemptId: oldAttempt.id, expectedAmountPaise: 2999,
+    }, `a18-stale-${suffix}`);
+    assert.equal(staleTotal.statusCode, 409);
+    assert.equal(staleTotal.body.code, 'CHECKOUT_ATTEMPT_STALE');
+    assert.equal(providerCreateCalls, 1, 'the stale amount must be rejected before another provider order is created');
+    assert.equal((await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: oldAttempt.id } })).status, 'CREATED',
+      'a stale confirmation must not supersede the previous checkout');
+
+    const combined = await callPublicCreate(customerToken, {
+      checkoutIntegration: 'CUSTOM', invoiceId: firstInvoice.id, paymentScope: 'CUSTOMER_OUTSTANDING',
+      supersedeAttemptId: oldAttempt.id, expectedAmountPaise: 3000,
+    }, `a18-combined-${suffix}`);
+    assert.equal(combined.statusCode, 200, JSON.stringify(combined.body));
+    assert.equal(combined.body.data.amount, 3000);
+    combinedAttemptId = combined.body.data.checkoutAttemptId;
+    assert.notEqual(combinedAttemptId, oldAttempt.id);
+    assert.equal(providerCreateCalls, 2);
+    assert.equal((await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: oldAttempt.id } })).status, 'SUPERSEDED');
+    let combinedAttempt = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: combinedAttemptId } });
+    assert.deepEqual(combinedAttempt.allocationPlan.map((item) => item.invoiceId), [firstInvoice.id, secondInvoice.id]);
+    assert.equal(Number(combinedAttempt.amountPaise), 3000);
+    assert.equal(combinedAttempt.publicShareId, customerShare.id);
+    thirdInvoice = await createInvoice('C', 5, 3);
+
+    const publicSummary = response();
+    await getPublicInvoice({ params: { slug: customerToken } }, publicSummary);
+    assert.equal(publicSummary.body.data.paymentSummary.invoiceCount, 2);
+    assert.equal(publicSummary.body.data.paymentSummary.totals.balanceDue, 30);
+
+    const orderFor = (attempt) => providerOrders.get(attempt.razorpayOrderId);
+    const oldOrder = providerOrders.get(oldAttempt.razorpayOrderId);
+    const oldPayment = {
+      id: `pay_a18_old_${suffix.replaceAll('-', '')}`, order_id: oldOrder.id,
+      amount: 1000, currency: 'INR', status: 'captured', captured: true, method: 'card',
+    };
+    oldOrder.status = 'paid'; oldOrder.amount_paid = 1000; oldOrder.amount_due = 0; oldOrder.attempts = 1;
+    providerPaymentsById.set(oldPayment.id, oldPayment);
+    providerPaymentsByOrder.set(oldOrder.id, [oldPayment]);
+    const oldCapture = await settleCapturedPayment({ paymentId: oldPayment.id, providerOrderId: oldOrder.id, source: 'WEBHOOK', provider });
+    paymentIds.push(oldCapture.payment.id);
+    assert.equal((await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: oldAttempt.id } })).status, 'CAPTURED',
+      'a late capture remains attributable even after its attempt was superseded');
+    const summaryAfterAnchorPaid = response();
+    await getPublicInvoice({ params: { slug: customerToken } }, summaryAfterAnchorPaid);
+    assert.equal(summaryAfterAnchorPaid.body.data.paymentSummary.invoiceCount, 1,
+      'the paid anchor invoice disappears from the current outstanding summary');
+    assert.equal(summaryAfterAnchorPaid.body.data.paymentSummary.totals.balanceDue, 20);
+
+    const resumedStatus = response();
+    await getPublicRazorpayCheckoutStatus({
+      params: { slug: customerToken }, query: { invoiceId: secondInvoice.id, checkoutIntegration: 'CUSTOM' }, headers: {}, id: `a18-status-${suffix}`,
+    }, resumedStatus, null, { getRazorpay: () => provider });
+    assert.equal(resumedStatus.statusCode, 200);
+    assert.equal(resumedStatus.body.data.attemptId, combinedAttemptId,
+      'the combined payment remains discoverable after its anchor invoice disappears from outstanding balances');
+    assert.equal(resumedStatus.body.data.status, 'CREATED');
+    assert.equal(providerCreateCalls, 2, 'status/reopen reads must never create another order');
+
+    await prisma.publicShareToken.update({ where: { id: customerShare.id }, data: { revokedAt: new Date() } });
+    const revokedStatus = response();
+    await getPublicRazorpayCheckoutStatus({
+      params: { slug: customerToken }, query: { invoiceId: secondInvoice.id, checkoutIntegration: 'CUSTOM' }, headers: {}, id: `a18-revoked-${suffix}`,
+    }, revokedStatus, null, { getRazorpay: () => provider });
+    assert.equal(revokedStatus.statusCode, 404, 'a revoked public link no longer exposes checkout status');
+
+    const combinedOrder = orderFor(combinedAttempt);
+    const combinedPayment = {
+      id: `pay_a18_combined_${suffix.replaceAll('-', '')}`, order_id: combinedOrder.id,
+      amount: 3000, currency: 'INR', status: 'captured', captured: true, method: 'card',
+    };
+    combinedOrder.status = 'paid'; combinedOrder.amount_paid = 3000; combinedOrder.amount_due = 0; combinedOrder.attempts = 1;
+    providerPaymentsById.set(combinedPayment.id, combinedPayment);
+    providerPaymentsByOrder.set(combinedOrder.id, [combinedPayment]);
+    const webhook = await processWebhook({
+      event: 'payment.captured', eventId: `a18-event-${suffix}`, paymentId: combinedPayment.id,
+      orderId: combinedOrder.id, mode: 'TEST',
+    }, { razorpayProvider: provider });
+    assert.equal(webhook.state, 'PROCESSED', 'a signed-provider event can settle an existing attempt after its public share is revoked');
+    paymentIds.push(await prisma.payment.findFirst({ where: { razorpayPaymentId: combinedPayment.id } }).then((payment) => payment.id));
+
+    const allocations = await prisma.paymentAllocation.findMany({
+      where: { payment: { razorpayPaymentId: combinedPayment.id }, status: 'POSTED' },
+      orderBy: { invoiceId: 'asc' },
+    });
+    assert.deepEqual(allocations.map((item) => [item.invoiceId, Math.round(Number(item.amount) * 100)]), [[secondInvoice.id, 2000]]);
+    const thirdAfter = await prisma.invoice.findUnique({ where: { id: thirdInvoice.id } });
+    assert.equal(Number(thirdAfter.balanceDue), 5, 'an invoice created after the checkout snapshot is not swept into the old payment');
+    assert.equal(Number((await prisma.payment.findFirst({ where: { razorpayPaymentId: combinedPayment.id } })).unallocatedAmount), 10);
+
+    const refundProvider = async ({ paymentId, amountPaise, attempt }) => ({
+      id: `rfnd_a18_${suffix.replaceAll('-', '')}`, payment_id: paymentId,
+      amount: Number(amountPaise), currency: 'INR', status: 'processed',
+      notes: { crm_refund_attempt_id: attempt.id },
+    });
+    const refundResult = await processAutomaticRazorpayRefundBatch({ provider: refundProvider });
+    assert.deepEqual(refundResult, { claimed: 1, processed: 1 });
+    const refundAttempt = await prisma.razorpayRefundAttempt.findFirst({ where: { checkoutAttemptId: combinedAttemptId, automatic: true } });
+    assert.ok(refundAttempt);
+    assert.equal(refundAttempt.status, 'PROCESSED');
+    assert.equal(refundAttempt.amountPaise, 1000n);
+    assert.equal(refundAttempt.sourcePaymentId, paymentIds.at(-1));
+    paymentIds.push(refundAttempt.localRefundPaymentId);
+    assert.equal(await prisma.payment.count({ where: { kind: 'REFUND', razorpayRefundId: refundAttempt.razorpayRefundId } }), 1);
+  } finally {
+    const attempts = invoiceIds.length
+      ? await prisma.razorpayCheckoutAttempt.findMany({ where: { invoiceId: { in: invoiceIds } }, select: { id: true } })
+      : [];
+    checkoutAttemptIds = attempts.map((attempt) => attempt.id);
+    const refundAttempts = checkoutAttemptIds.length
+      ? await prisma.razorpayRefundAttempt.findMany({ where: { checkoutAttemptId: { in: checkoutAttemptIds } }, select: { id: true, localRefundPaymentId: true } })
+      : [];
+    paymentIds.push(...refundAttempts.map((attempt) => attempt.localRefundPaymentId).filter(Boolean));
+    const refundAttemptIds = refundAttempts.map((attempt) => attempt.id);
+    const resourceIds = [...checkoutAttemptIds, ...refundAttemptIds];
+    if (resourceIds.length) await prisma.auditLog.deleteMany({ where: { resourceId: { in: resourceIds } } });
+    if (checkoutAttemptIds.length) await prisma.razorpayPaymentJourneyEvent.deleteMany({ where: { checkoutAttemptId: { in: checkoutAttemptIds } } });
+    if (refundAttemptIds.length) await prisma.razorpayRefundAttempt.deleteMany({ where: { id: { in: refundAttemptIds } } });
+    if (orderIds.length) {
+      await prisma.outboxEvent.deleteMany({ where: { aggregateId: { in: orderIds } } });
+      await prisma.orderStage.deleteMany({ where: { orderId: { in: orderIds } } });
+    }
+    const uniquePaymentIds = [...new Set(paymentIds.filter(Boolean))];
+    const allocations = uniquePaymentIds.length || invoiceIds.length
+      ? await prisma.paymentAllocation.findMany({ where: { OR: [
+        ...(uniquePaymentIds.length ? [{ paymentId: { in: uniquePaymentIds } }] : []),
+        ...(invoiceIds.length ? [{ invoiceId: { in: invoiceIds } }] : []),
+      ] }, select: { id: true } })
+      : [];
+    const allocationIds = allocations.map((item) => item.id);
+    const receipts = uniquePaymentIds.length
+      ? await prisma.receipt.findMany({ where: { paymentId: { in: uniquePaymentIds } }, select: { id: true } })
+      : [];
+    const receiptIds = receipts.map((item) => item.id);
+    if (allocationIds.length) await prisma.receiptAllocation.deleteMany({ where: { paymentAllocationId: { in: allocationIds } } });
+    if (receiptIds.length) await prisma.receipt.deleteMany({ where: { id: { in: receiptIds } } });
+    if (allocationIds.length) await prisma.paymentAllocation.deleteMany({ where: { id: { in: allocationIds } } });
+    if (uniquePaymentIds.length) await prisma.payment.deleteMany({ where: { id: { in: uniquePaymentIds } } });
+    if (checkoutAttemptIds.length) await prisma.razorpayCheckoutAttempt.deleteMany({ where: { id: { in: checkoutAttemptIds } } });
+    if (shareHashes.length) await prisma.publicShareToken.deleteMany({ where: { tokenHash: { in: shareHashes } } });
+    if (invoiceIds.length) await prisma.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
+    if (orderIds.length) await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
+    if (customerCreated) await prisma.customer.delete({ where: { id: customer.id } });
+    if (previousEnv.keyId === undefined) delete process.env.RAZORPAY_KEY_ID; else process.env.RAZORPAY_KEY_ID = previousEnv.keyId;
+    if (previousEnv.keySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET; else process.env.RAZORPAY_KEY_SECRET = previousEnv.keySecret;
+    if (previousEnv.testContact === undefined) delete process.env.RAZORPAY_TEST_CONTACT_NUMBER; else process.env.RAZORPAY_TEST_CONTACT_NUMBER = previousEnv.testContact;
+    if (previousEnv.customDisabled === undefined) delete process.env.RAZORPAY_CUSTOM_CHECKOUT_DISABLED; else process.env.RAZORPAY_CUSTOM_CHECKOUT_DISABLED = previousEnv.customDisabled;
+  }
+});
+
+test('A18 100-invoice settlement uses exact paise and a fresh refund worker process', {
+  skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' || process.env.RUN_A18_SCALE_ACCEPTANCE !== '1',
+}, async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  assert.equal(process.env.GITHUB_ACTIONS, 'true');
+  assert.equal(process.env.CI, 'true');
+  assert.equal(url.hostname, 'localhost');
+  assert.equal(url.pathname, '/hangers_test');
+  assert.equal((await prisma.$queryRaw`SELECT current_database() AS name`)[0].name, 'hangers_test');
+
+  const previousKeys = { keyId: process.env.RAZORPAY_KEY_ID, keySecret: process.env.RAZORPAY_KEY_SECRET };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_a18_scale';
+  process.env.RAZORPAY_KEY_SECRET = 'local-injected-provider-only';
+  const suffix = crypto.randomUUID().replaceAll('-', '');
+  let customer = await prisma.customer.findUnique({ where: { phone: '9930367267' } });
+  const customerCreated = !customer;
+  if (!customer) customer = await prisma.customer.create({ data: { name: `Home QA ${suffix}`, phone: '9930367267', notifWhatsApp: false } });
+  const orderIds = [];
+  const invoiceIds = [];
+  const paymentIds = [];
+  let checkoutAttemptId = null;
+  try {
+    const orderRows = Array.from({ length: 100 }, (_, index) => {
+      const amountPaise = 101 + index;
+      return {
+        orderNumber: `A18-SCALE-${suffix}-${String(index).padStart(3, '0')}`,
+        customerId: customer.id,
+        source: 'COUNTER',
+        status: 'PICKED_UP',
+        subtotal: amountPaise / 100,
+        totalAmount: amountPaise / 100,
+      };
+    });
+    const invoiceRows = orderRows.map((order, index) => {
+      const amountPaise = 101 + index;
+      return {
+        invoiceNumber: `A18-SCALE-${suffix}-${String(index).padStart(3, '0')}`,
+        customerId: customer.id,
+        sourceType: 'ORDER',
+        status: 'OPEN',
+        currency: 'INR',
+        subtotal: amountPaise / 100,
+        totalAmount: amountPaise / 100,
+        paidAmount: 0,
+        balanceDue: amountPaise / 100,
+        issueDate: new Date(1700000000000 + index * 1000),
+        dueDate: new Date(1700001000000 + index * 1000),
+      };
+    });
+    await prisma.order.createMany({ data: orderRows });
+    const orders = await prisma.order.findMany({
+      where: { orderNumber: { startsWith: `A18-SCALE-${suffix}-` } },
+      orderBy: { orderNumber: 'asc' },
+    });
+    orderIds.push(...orders.map((order) => order.id));
+    assert.equal(orders.length, 100);
+    await prisma.invoice.createMany({ data: invoiceRows.map((invoice, index) => ({ ...invoice, orderId: orders[index].id })) });
+    const invoices = await prisma.invoice.findMany({
+      where: { invoiceNumber: { startsWith: `A18-SCALE-${suffix}-` } },
+      orderBy: { invoiceNumber: 'asc' },
+    });
+    invoiceIds.push(...invoices.map((invoice) => invoice.id));
+    assert.equal(invoices.length, 100);
+
+    const allocationPlan = invoices.map((invoice) => ({ invoiceId: invoice.id, amount: Number(invoice.balanceDue) }));
+    const expectedTotalPaise = allocationPlan.reduce((sum, item) => sum + BigInt(Math.round(item.amount * 100)), 0n);
+    assert.equal(expectedTotalPaise, 15050n);
+    let providerOrder;
+    const providerPayment = {
+      id: `pay_a18_scale_${suffix}`,
+      order_id: `order_a18_scale_${suffix}`,
+      amount: Number(expectedTotalPaise),
+      currency: 'INR',
+      status: 'captured',
+      captured: true,
+      method: 'card',
+    };
+    const provider = {
+      orders: {
+        create: async (payload) => (providerOrder = {
+          ...payload,
+          id: providerPayment.order_id,
+          status: 'created',
+          amount_paid: 0,
+          amount_due: payload.amount,
+          attempts: 0,
+        }),
+        fetch: async () => providerOrder,
+        fetchPayments: async () => ({ items: [] }),
+      },
+      payments: { fetch: async () => providerPayment },
+    };
+    const checkout = await createInvoiceCheckout({
+      invoice: invoices[0], allocationPlan, shareId: `a18-scale-${suffix}`,
+      idempotencyKey: `a18-scale-${suffix}`, customCheckout: true, provider,
+    });
+    checkoutAttemptId = checkout.attempt.id;
+    assert.equal(checkout.order.amount, Number(expectedTotalPaise));
+    assert.equal(checkout.attempt.allocationPlan.length, 100);
+
+    const manual = await prisma.$transaction((tx) => recordInvoiceSettlement(tx, {
+      invoiceId: invoices[0].id,
+      amount: 1,
+      method: 'CASH',
+      reference: `A18-SCALE-CASH-${suffix}`,
+      idempotencyKey: `a18-scale-cash-${suffix}`,
+      notes: 'A18 scale acceptance: invoice was partially paid before captured checkout settlement',
+    }));
+    paymentIds.push(...manual.payments.map((payment) => payment.id));
+
+    providerOrder = { ...providerOrder, status: 'paid', amount_paid: Number(expectedTotalPaise), amount_due: 0, attempts: 1 };
+    const captured = await settleCapturedPayment({
+      paymentId: providerPayment.id,
+      providerOrderId: providerOrder.id,
+      source: 'WEBHOOK',
+      provider,
+    });
+    paymentIds.push(captured.payment.id);
+    assert.equal(captured.allocatedAmountPaise, expectedTotalPaise - 100n);
+    assert.equal(captured.unallocatedAmountPaise, 100n);
+    assert.equal(Number(captured.payment.amount), 150.5);
+    assert.equal(Number(captured.payment.unallocatedAmount), 1);
+
+    const allocations = await prisma.paymentAllocation.findMany({
+      where: { paymentId: captured.payment.id, status: 'POSTED' },
+      orderBy: { invoiceId: 'asc' },
+    });
+    assert.equal(allocations.length, 100);
+    const allocatedPaise = allocations.reduce((sum, item) => sum + BigInt(Math.round(Number(item.amount) * 100)), 0n);
+    assert.equal(allocatedPaise, expectedTotalPaise - 100n);
+    const firstAllocation = allocations.find((item) => item.invoiceId === invoices[0].id);
+    assert.equal(Math.round(Number(firstAllocation.amount) * 100), 1,
+      'the previously paid ₹1 leaves exactly one paise due on the first invoice');
+    const refreshedInvoices = await prisma.invoice.findMany({ where: { id: { in: invoiceIds } } });
+    assert.equal(refreshedInvoices.length, 100);
+    assert.ok(refreshedInvoices.every((invoice) => Number(invoice.balanceDue) === 0 && invoice.status === 'PAID'));
+
+    const refundAttempt = await prisma.razorpayRefundAttempt.findFirst({
+      where: { checkoutAttemptId, automatic: true },
+    });
+    assert.ok(refundAttempt);
+    assert.equal(refundAttempt.status, 'CREATING');
+    assert.equal(refundAttempt.amountPaise, 100n);
+    assert.equal(refundAttempt.sourcePaymentId, captured.payment.id);
+    const eligibleJobs = await prisma.razorpayRefundAttempt.count({
+      where: {
+        automatic: true,
+        OR: [{ failureCode: null }, { failureCode: { not: 'REFUND_BELOW_PROVIDER_MINIMUM' } }],
+        status: { in: ['CREATING', 'PENDING', 'REVIEW'] },
+        nextAttemptAt: { lte: new Date() },
+      },
+    });
+    assert.equal(eligibleJobs, 1, 'the disposable database contains only this worker job before process restart');
+
+    const workerScript = `
+      const prisma = require('./src/config/database');
+      const { processAutomaticRazorpayRefundBatch } = require('./src/services/razorpay-refund.service');
+      (async () => {
+        try {
+          const result = await processAutomaticRazorpayRefundBatch({ limit: 1, provider: async ({ paymentId, amountPaise, attempt }) => ({
+            id: 'rfnd_a18_scale_' + attempt.id.slice(-16),
+            payment_id: paymentId,
+            amount: Number(amountPaise),
+            currency: attempt.currency,
+            status: 'processed',
+            notes: { crm_refund_attempt_id: attempt.id },
+          }) });
+          process.stdout.write(JSON.stringify(result));
+        } catch (error) {
+          process.stderr.write(String(error.code || error.name || 'WORKER_FAILED'));
+          process.exitCode = 1;
+        } finally {
+          await prisma.$disconnect();
+        }
+      })();
+    `;
+    const worker = spawnSync(process.execPath, ['-e', workerScript], {
+      cwd: process.cwd(),
+      env: { ...process.env, NODE_ENV: 'test' },
+      encoding: 'utf8',
+      timeout: 30000,
+      maxBuffer: 1024 * 1024,
+    });
+    assert.equal(worker.error, undefined, worker.error?.message);
+    assert.equal(worker.status, 0, worker.stderr || 'fresh refund worker process failed');
+    assert.deepEqual(JSON.parse(worker.stdout), { claimed: 1, processed: 1 });
+    const finishedRefund = await prisma.razorpayRefundAttempt.findUnique({ where: { id: refundAttempt.id } });
+    assert.equal(finishedRefund.status, 'PROCESSED');
+    assert.ok(finishedRefund.razorpayRefundId);
+    paymentIds.push(finishedRefund.localRefundPaymentId);
+    assert.equal(await prisma.payment.count({
+      where: { id: finishedRefund.localRefundPaymentId, kind: 'REFUND', razorpayRefundId: finishedRefund.razorpayRefundId },
+    }), 1);
+    assert.equal(Number((await prisma.payment.findUnique({ where: { id: captured.payment.id } })).unallocatedAmount), 0);
+  } finally {
+    const attempts = invoiceIds.length
+      ? await prisma.razorpayCheckoutAttempt.findMany({ where: { invoiceId: { in: invoiceIds } }, select: { id: true } })
+      : [];
+    const checkoutAttemptIds = attempts.map((attempt) => attempt.id);
+    const refunds = checkoutAttemptIds.length
+      ? await prisma.razorpayRefundAttempt.findMany({ where: { checkoutAttemptId: { in: checkoutAttemptIds } }, select: { id: true, localRefundPaymentId: true } })
+      : [];
+    paymentIds.push(...refunds.map((refund) => refund.localRefundPaymentId).filter(Boolean));
+    const refundIds = refunds.map((refund) => refund.id);
+    const resourceIds = [...checkoutAttemptIds, ...refundIds];
+    if (resourceIds.length) await prisma.auditLog.deleteMany({ where: { resourceId: { in: resourceIds } } });
+    if (checkoutAttemptIds.length) await prisma.razorpayPaymentJourneyEvent.deleteMany({ where: { checkoutAttemptId: { in: checkoutAttemptIds } } });
+    if (refundIds.length) await prisma.razorpayRefundAttempt.deleteMany({ where: { id: { in: refundIds } } });
+    const invoiceIdSet = [...new Set(invoiceIds)];
+    const orderIdSet = [...new Set(orderIds)];
+    const uniquePaymentIds = [...new Set(paymentIds.filter(Boolean))];
+    if (orderIdSet.length || invoiceIdSet.length) {
+      await prisma.outboxEvent.deleteMany({ where: { OR: [
+        ...(orderIdSet.length ? [{ aggregateType: 'order', aggregateId: { in: orderIdSet } }] : []),
+        ...(invoiceIdSet.length ? [{ aggregateType: 'invoice', aggregateId: { in: invoiceIdSet } }] : []),
+      ] } });
+    }
+    if (orderIdSet.length) await prisma.orderStage.deleteMany({ where: { orderId: { in: orderIdSet } } });
+    const allocations = uniquePaymentIds.length || invoiceIdSet.length
+      ? await prisma.paymentAllocation.findMany({ where: { OR: [
+        ...(uniquePaymentIds.length ? [{ paymentId: { in: uniquePaymentIds } }] : []),
+        ...(invoiceIdSet.length ? [{ invoiceId: { in: invoiceIdSet } }] : []),
+      ] }, select: { id: true } })
+      : [];
+    const allocationIds = allocations.map((item) => item.id);
+    const receipts = uniquePaymentIds.length
+      ? await prisma.receipt.findMany({ where: { paymentId: { in: uniquePaymentIds } }, select: { id: true } })
+      : [];
+    const receiptIds = receipts.map((item) => item.id);
+    if (allocationIds.length) await prisma.receiptAllocation.deleteMany({ where: { paymentAllocationId: { in: allocationIds } } });
+    if (receiptIds.length) await prisma.receipt.deleteMany({ where: { id: { in: receiptIds } } });
+    if (allocationIds.length) await prisma.paymentAllocation.deleteMany({ where: { id: { in: allocationIds } } });
+    if (uniquePaymentIds.length) await prisma.payment.deleteMany({ where: { id: { in: uniquePaymentIds } } });
+    if (checkoutAttemptIds.length) await prisma.razorpayCheckoutAttempt.deleteMany({ where: { id: { in: checkoutAttemptIds } } });
+    if (invoiceIdSet.length) await prisma.invoice.deleteMany({ where: { id: { in: invoiceIdSet } } });
+    if (orderIdSet.length) await prisma.order.deleteMany({ where: { id: { in: orderIdSet } } });
+    if (customerCreated && customer) await prisma.customer.delete({ where: { id: customer.id } });
+    if (previousKeys.keyId === undefined) delete process.env.RAZORPAY_KEY_ID; else process.env.RAZORPAY_KEY_ID = previousKeys.keyId;
+    if (previousKeys.keySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET; else process.env.RAZORPAY_KEY_SECRET = previousKeys.keySecret;
+  }
 });
 
 test('late combined capture caps invoice allocations and recovers one automatic surplus refund', { skip: process.env.RUN_COMBINED_CHECKOUT_INTEGRATION !== '1' }, async () => {

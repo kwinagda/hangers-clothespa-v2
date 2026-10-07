@@ -532,7 +532,9 @@ export default function InvoicePaymentButton({ slug, invoiceId, invoiceNumber, o
           <span style={{ color: '#6b7fa3', fontSize: 12 }}>{experimentVariant === 'B' ? 'Continue to Razorpay’s secure checkout' : 'Secure checkout via Razorpay'}</span>
         </div>
       {verificationPending ? (
-          <span role="status" style={{ borderRadius: 8, padding: '11px 16px', background: '#fff4d6', color: '#795500', fontWeight: 800 }}>Payment status under review</span>
+          <><span role="status" style={{ borderRadius: 8, padding: '11px 16px', background: '#fff4d6', color: '#795500', fontWeight: 800 }}>Payment status not confirmed yet</span>
+            {!checkoutPage && <button type="button" onClick={continueToCheckout} style={{ border: '1px solid #cfe2ef', borderRadius: 8, padding: '11px 16px', background: '#fff', color: '#023c62', fontWeight: 800, cursor: 'pointer' }}>Open payment options</button>}
+          </>
       ) : !statusReady ? (
           <span role="status" style={{ borderRadius: 8, padding: '11px 16px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>{recoveryUnavailable ? 'Payment status unavailable' : 'Checking payment status…'}</span>
       ) : customCheckoutOrder ? (

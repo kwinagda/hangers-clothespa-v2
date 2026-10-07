@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { checkoutRequestMessage, isInvoiceNotFound } from '../../src/app/invoice/[slug]/checkout/checkout-errors.ts'
+import { emiEligibilityRequestMessage, checkoutRequestMessage, isInvoiceNotFound } from '../../src/app/invoice/[slug]/checkout/checkout-errors.ts'
 import { checkoutRequest } from '../../src/app/invoice/[slug]/checkout/razorpay-sdk.ts'
 
 test('a provider-coded missing invoice is distinguished from payment status', () => {
@@ -8,6 +8,21 @@ test('a provider-coded missing invoice is distinguished from payment status', ()
   assert.equal(isInvoiceNotFound(error), true)
   assert.match(checkoutRequestMessage(error, 'status'), /invoice link is no longer available/i)
   assert.match(checkoutRequestMessage(error, 'methods'), /invoice link is no longer available/i)
+})
+
+test('EMI eligibility errors keep Hangers and Razorpay codes in separate namespaces', () => {
+  const message = emiEligibilityRequestMessage({
+    code: 'CUSTOM_IIN_UNAVAILABLE',
+    details: { provider: { code: 'BAD_REQUEST_ERROR' } },
+  })
+  assert.match(message, /Hangers code: CUSTOM_IIN_UNAVAILABLE/)
+  assert.match(message, /Razorpay code: BAD_REQUEST_ERROR/)
+  assert.match(message, /EMI eligibility could not be confirmed/)
+  assert.doesNotMatch(emiEligibilityRequestMessage({ name: 'TypeError' }), /Razorpay code:/)
+  assert.match(emiEligibilityRequestMessage({ name: 'TypeError' }), /Hangers code: CUSTOM_IIN_TRANSPORT_FAILED/)
+  assert.match(emiEligibilityRequestMessage({ name: 'TimeoutError' }), /Hangers code: CUSTOM_IIN_REQUEST_TIMEOUT/)
+  assert.match(emiEligibilityRequestMessage({ name: 'AbortError' }), /Hangers code: CUSTOM_IIN_REQUEST_ABORTED/)
+  assert.match(emiEligibilityRequestMessage({ name: 'SyntaxError' }), /Hangers code: CUSTOM_IIN_RESPONSE_INVALID/)
 })
 
 test('a missing API route never exposes its raw path', () => {

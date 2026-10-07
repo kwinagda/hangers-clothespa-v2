@@ -906,7 +906,7 @@ const markAttemptPending = async ({ attemptId, paymentId, providerPayment, sourc
     razorpayPaymentId: paymentId,
     source,
     priorState: current.status,
-    nextState,
+    nextState: nextStatus,
     providerDiagnostics,
   });
   return updated;

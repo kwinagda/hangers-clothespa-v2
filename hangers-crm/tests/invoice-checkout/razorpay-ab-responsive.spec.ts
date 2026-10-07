@@ -503,7 +503,7 @@ test('CRED eligibility retry clears the previous ineligible result without submi
   expect(await page.evaluate(() => (window as Window & { __credPaymentSubmitted?: boolean }).__credPaymentSubmitted)).not.toBe(true)
 })
 
-test('custom checkout keeps methods hidden until SDK readiness and retries after timeout', async ({ page }) => {
+test('custom checkout shows Razorpay documented methods fallback after timeout and retries', async ({ page }) => {
   const origin = 'http://localhost:55104'
   const corsHeaders = {
     'access-control-allow-origin': origin,
@@ -579,11 +579,14 @@ test('custom checkout keeps methods hidden until SDK readiness and retries after
 
   await page.getByRole('button', { name: 'Retry payment methods' }).click()
   await expect.poll(() => sdkScriptRequests).toBe(2)
-  await expect(checkout.getByRole('alert')).toContainText('Razorpay payment methods could not be confirmed. Retry loading payment methods.', { timeout: 8000 })
-  await expect(checkout.getByRole('radio')).toHaveCount(0)
-  await expect(checkout.getByRole('button', { name: /^Pay/ })).toHaveCount(0)
-  expect(createOrderRequests).toBe(0)
+  await expect(checkout.getByRole('status').filter({ hasText: 'Temporary card, UPI and Netbanking choices are shown' })).toBeVisible({ timeout: 8000 })
+  await expect(checkout.getByRole('radio')).toHaveCount(3)
+  await expect(checkout.getByRole('radio', { name: 'Credit or debit card' })).toBeVisible()
+  await expect(checkout.getByRole('radio', { name: 'UPI', exact: true })).toBeVisible()
+  await expect(checkout.getByRole('radio', { name: 'Netbanking', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => (window as Window & { __readyRetryPayments?: number }).__readyRetryPayments)).toBe(0)
   expect(verifyRequests).toBe(0)
+  await expect.poll(() => createOrderRequests).toBe(1)
 
   const instancesBeforeRetry = await page.evaluate(() => (window as Window & { __readyRetryInstances?: number }).__readyRetryInstances || 0)
   await page.evaluate(() => { (window as Window & { __readyRetryReady?: boolean }).__readyRetryReady = true })

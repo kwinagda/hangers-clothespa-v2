@@ -1,5 +1,28 @@
 export type CheckoutRequestError = { status?: number; code?: string; retryAt?: number; message?: string }
 
+type EmiEligibilityRequestError = CheckoutRequestError & {
+  name?: string
+  details?: { provider?: { code?: unknown } }
+}
+
+const ERROR_CODE = /^[A-Z][A-Z0-9_]{1,79}$/
+
+export function emiEligibilityRequestMessage(error: EmiEligibilityRequestError) {
+  let applicationCode = typeof error.code === 'string' && ERROR_CODE.test(error.code)
+    ? error.code
+    : 'CUSTOM_IIN_REQUEST_FAILED'
+  if (!error.code) {
+    if (error.name === 'TimeoutError' || error.status === 408) applicationCode = 'CUSTOM_IIN_REQUEST_TIMEOUT'
+    else if (error.name === 'AbortError') applicationCode = 'CUSTOM_IIN_REQUEST_ABORTED'
+    else if (error.name === 'SyntaxError') applicationCode = 'CUSTOM_IIN_RESPONSE_INVALID'
+    else if (error.name === 'TypeError') applicationCode = 'CUSTOM_IIN_TRANSPORT_FAILED'
+  }
+  const providerCode = typeof error.details?.provider?.code === 'string' && ERROR_CODE.test(error.details.provider.code)
+    ? error.details.provider.code
+    : null
+  return `EMI eligibility could not be confirmed. No payment was started. Retry the EMI check or choose another payment method. Hangers code: ${applicationCode}.${providerCode ? ` Razorpay code: ${providerCode}.` : ''}`
+}
+
 export const isInvoiceNotFound = (error: CheckoutRequestError) => error.code === 'INVOICE_NOT_FOUND'
 
 export function checkoutRequestMessage(error: CheckoutRequestError, context: 'status' | 'methods' | 'prepare') {

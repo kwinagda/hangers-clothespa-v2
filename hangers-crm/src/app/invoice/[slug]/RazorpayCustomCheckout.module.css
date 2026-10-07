@@ -84,7 +84,9 @@
 .contactEdit:not([open]) { height: 0; }
 .contactEdit summary { position: absolute; top: 24px; right: 14px; color: #023c62; font-size: 12px; font-weight: 700; cursor: pointer; list-style: none; }
 .contactFields { display: grid; gap: 12px; padding-top: 4px; }
+.contactCard > .contactFields { grid-column: 1 / -1; width: 100%; }
 .contactFields .row { grid-template-columns: minmax(0, 1fr); }
+.requiredField { margin-left: 6px; color: #526b80; font-size: 12px; font-weight: 500; }
 
 .methodGroup {
   overflow: hidden;

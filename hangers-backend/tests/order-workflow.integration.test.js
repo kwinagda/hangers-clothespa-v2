@@ -8,7 +8,7 @@ const { syncOrderGarmentUnits } = require('../src/services/garment-unit.service'
 const { nextDocumentNumber } = require('../src/services/document-number.service');
 const { createInvoiceCheckout, markAttemptFailed, reconcileAmbiguousOrderCreation, settleCapturedPayment } = require('../src/services/razorpay-invoice-checkout.service');
 const { createPublicShareToken, resolvePublicShareToken } = require('../src/services/publicShare.service');
-const { createRazorpayRefund, reconcileRazorpayRefundAttempt, reconcileRazorpayRefundWebhook, serializeRefundAttempt } = require('../src/services/razorpay-refund.service');
+const { createRazorpayRefund, processAutomaticRazorpayRefundBatch, reconcileRazorpayRefundAttempt, reconcileRazorpayRefundWebhook, serializeRefundAttempt } = require('../src/services/razorpay-refund.service');
 const crypto = require('node:crypto');
 const { handleRazorpayWebhook } = require('../src/controllers/webhooks.controller');
 const { listRazorpayWebhookEvents, listRazorpayCheckoutAttempts, getRazorpayCheckoutMethodOutcomes, getRazorpayCheckoutExperimentReport, replayRazorpayWebhookEvent } = require('../src/controllers/razorpayWebhookOps.controller');
@@ -31,7 +31,7 @@ const { listOrderTimelineLogs } = require('../src/controllers/logs.controller');
 const { idempotent } = require('../src/middleware/idempotency');
 const { generateStaffToken } = require('../src/services/jwt.service');
 const { buildStaffSessionData, createSessionId } = require('../src/services/sessionToken.service');
-const { getPublicInvoice, createPublicRazorpayOrder, getPublicRazorpayCheckoutStatus, receivePublicRazorpayCallback, recordPublicRazorpayClientEvent } = require('../src/controllers/public.controller');
+const { getPublicInvoice, createPublicRazorpayOrder, getPublicRazorpayCheckoutStatus, handlePublicRazorpayCallback, recordPublicRazorpayClientEvent } = require('../src/controllers/public.controller');
 const { EXPERIMENT_ID, assignVariant, hashVisitorId } = require('../src/utils/razorpay-checkout-experiment');
 const { app } = require('../src/index');
 const express = require('express');
@@ -1034,6 +1034,7 @@ after(async () => {
     await prisma.refundAllocation.deleteMany({ where: { invoice: { customerId: state.customer.id } } });
     await prisma.paymentAllocation.deleteMany({ where: { invoice: { customerId: state.customer.id } } });
     await prisma.receipt.deleteMany({ where: { customerId: state.customer.id } });
+    await prisma.razorpayRefundAttempt.deleteMany({ where: { sourcePayment: { customerId: state.customer.id } } });
     await prisma.payment.deleteMany({ where: { customerId: state.customer.id } });
     await prisma.receipt.deleteMany({ where: { invoiceId: { in: fixtureInvoiceIds } } });
     await prisma.payment.deleteMany({ where: { orderId: { in: orderIds } } });
@@ -1698,27 +1699,38 @@ integrationTest('document sequence remains unique under concurrent generation', 
   assert.equal(new Set(values).size, values.length);
 });
 
-integrationTest('Razorpay checkout replays the same active order for repeated requests', async () => {
+integrationTest('same checkout request replays one order and explicit Pay creates a distinct attempt', async () => {
   const invoice = await createInvoice('RZP-REUSE');
   const previousKeyId = process.env.RAZORPAY_KEY_ID;
   process.env.RAZORPAY_KEY_ID = 'rzp_test_integration';
   let providerCalls = 0;
-  const provider = { orders: { create: async (payload) => {
-    providerCalls += 1;
-    assert.equal(payload.amount, 10000);
-    return { id: `order_${runId}`, amount: payload.amount, currency: payload.currency };
-  } } };
+  let providerOrder;
+  const provider = { orders: {
+    create: async (payload) => {
+      providerCalls += 1;
+      assert.equal(payload.amount, 10000);
+      return (providerOrder = {
+        id: `order_${providerCalls}_${runId}`, amount: payload.amount, amount_due: payload.amount,
+        amount_paid: 0, currency: payload.currency, notes: payload.notes, status: 'created', attempts: 0,
+      });
+    },
+    fetch: async () => providerOrder,
+    fetchPayments: async () => ({ items: [] }),
+  } };
   try {
-    const first = await createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `first-${runId}`, provider });
-    const retry = await createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `retry-${runId}`, provider });
-    const sameRequestReplay = await createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `first-${runId}`, provider });
-    assert.equal(retry.reused, true);
+    const first = await createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `first-${runId}`, customCheckout: true, provider });
+    const sameRequestReplay = await createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `first-${runId}`, customCheckout: true, provider });
     assert.equal(sameRequestReplay.reused, true);
     assert.equal(sameRequestReplay.attempt.id, first.attempt.id);
     assert.equal(sameRequestReplay.order.id, first.order.id);
-    assert.equal(retry.attempt.id, first.attempt.id);
-    assert.equal(retry.order.id, first.order.id);
-    assert.equal(providerCalls, 1);
+    const nextExplicitPay = await createInvoiceCheckout({
+      invoice, shareId: `share-${runId}`, idempotencyKey: `explicit-next-${runId}`,
+      supersedeAttemptId: first.attempt.id, customCheckout: true, provider,
+    });
+    assert.notEqual(nextExplicitPay.attempt.id, first.attempt.id);
+    assert.notEqual(nextExplicitPay.order.id, first.order.id);
+    assert.equal((await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: first.attempt.id } })).status, 'SUPERSEDED');
+    assert.equal(providerCalls, 2);
     assert.equal(await prisma.auditLog.count({ where: { resource: 'razorpay_checkout_attempt', resourceId: first.attempt.id, action: { in: ['RAZORPAY_CHECKOUT_ATTEMPT_RESERVED', 'RAZORPAY_PROVIDER_ORDER_CREATED'] } } }), 2);
   } finally {
     if (previousKeyId === undefined) delete process.env.RAZORPAY_KEY_ID;
@@ -1884,7 +1896,10 @@ integrationTest('public invoice checkout status enables resume only for the same
         query: includeAttemptId ? { attemptId: checkout.attempt.id } : {},
         headers: {},
         id: `request-${runId}`,
-      }, res, undefined, { getRazorpay: () => provider });
+      }, res, undefined, {
+        getRazorpay: () => provider,
+        settleCapturedPayment: (args) => settleCapturedPayment({ ...args, provider }),
+      });
       return res;
     };
 
@@ -1902,36 +1917,37 @@ integrationTest('public invoice checkout status enables resume only for the same
     }] };
     const refreshed = await makeRequest(false, true);
     assert.equal(refreshed.statusCode, 200);
-    assert.equal(refreshed.body.data.status, 'CREATED');
+    assert.equal(refreshed.body.data.status, 'PENDING');
     assert.equal(refreshed.body.data.attemptId, checkout.attempt.id);
     assert.equal(refreshed.body.data.canResumeCheckout, false);
     const nonterminalAudit = await prisma.auditLog.findFirst({
       where: {
-        action: 'RAZORPAY_PAYMENT_STATUS_NONTERMINAL_PROVIDER_PAYMENT',
-        resourceId: checkout.order.id,
-        metadata: { path: ['checkoutAttemptId'], equals: checkout.attempt.id },
+        action: 'RAZORPAY_PAYMENT_PROVIDER_PENDING',
+        resourceId: checkout.attempt.id,
       },
       orderBy: { createdAt: 'desc' },
     });
     assert.ok(nonterminalAudit, 'nonterminal provider status must leave durable audit evidence');
-    assert.deepEqual(nonterminalAudit.metadata.providerPaymentStatuses, [{
-      paymentId: `pay_created_${runId}`,
-      status: 'created',
-      method: 'unknown',
-      amountPaise: 15900,
-      currency: 'INR',
-      captured: false,
-    }]);
+    assert.equal(nonterminalAudit.metadata.razorpayPaymentId, `pay_created_${runId}`);
+    assert.equal(nonterminalAudit.metadata.nextState, 'PENDING');
     assert.equal(JSON.stringify(nonterminalAudit).includes(token), false, 'audit must not contain public share tokens');
 
     const blocked = await makeRequest(true, true);
     assert.equal(blocked.statusCode, 200);
     assert.equal(blocked.body.data.canResumeCheckout, false);
-    assert.equal((await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: checkout.attempt.id } })).status, 'CREATED');
+    assert.equal((await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: checkout.attempt.id } })).status, 'PENDING');
     assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: `pay_created_${runId}` } }), 0);
 
     const paymentId = `pay_captured_after_tab_close_${runId}`;
-    providerPayments = { items: [{ id: paymentId, status: 'captured' }] };
+    providerPayments = { items: [{
+      id: paymentId,
+      order_id: providerOrder.id,
+      amount: 15900,
+      currency: 'INR',
+      status: 'captured',
+      captured: true,
+      method: 'card',
+    }] };
     const recovered = await makeRequest(false, true);
     assert.equal(recovered.statusCode, 200);
     assert.equal(recovered.body.data.status, 'CAPTURED');
@@ -1955,26 +1971,54 @@ integrationTest('Razorpay late authorization recovers a failed attempt and a sta
   const invoice = await createInvoice('RZP-LATE-AUTH', 10);
   const previousKeyId = process.env.RAZORPAY_KEY_ID;
   process.env.RAZORPAY_KEY_ID = 'rzp_test_integration';
+  const paymentId = `pay_late_${runId}`;
+  let providerPayment = { id: paymentId, amount: 1000, currency: 'INR', status: 'authorized', captured: false };
+  let providerOrder;
   const provider = {
-    orders: { create: async (payload) => ({ id: `order_late_${runId}`, amount: payload.amount, currency: payload.currency }) },
-    payments: { fetch: async (paymentId) => ({ id: paymentId, order_id: `order_late_${runId}`, amount: 1000, currency: 'INR', status: 'authorized' }) },
+    orders: {
+      create: async (payload) => (providerOrder = {
+        ...payload, id: `order_late_${runId}`, amount_due: payload.amount, amount_paid: 0,
+        status: 'created', attempts: 0,
+      }),
+      fetch: async () => providerOrder,
+      fetchPayments: async () => ({ items: [] }),
+    },
+    payments: { fetch: async () => ({ ...providerPayment, order_id: providerOrder.id }) },
   };
   try {
-    const checkout = await createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `late-auth-${runId}`, provider });
-    await markAttemptFailed({ attemptId: checkout.attempt.id, paymentId: `pay_late_${runId}`, source: 'INTEGRATION_TEST' });
-    await processWebhook({ event: 'payment.authorized', paymentId: `pay_late_${runId}`, orderId: checkout.order.id }, { razorpayProvider: provider });
+    const checkout = await createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `late-auth-${runId}`, customCheckout: true, provider });
+    await markAttemptFailed({ attemptId: checkout.attempt.id, paymentId, source: 'INTEGRATION_TEST' });
+    await processWebhook({ event: 'payment.authorized', paymentId, orderId: checkout.order.id }, { razorpayProvider: provider });
     let attempt = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: checkout.attempt.id } });
     assert.equal(attempt.status, 'AUTHORIZED');
-    await processWebhook({ event: 'payment.failed', paymentId: `pay_late_${runId}`, orderId: checkout.order.id }, { razorpayProvider: provider });
+    await processWebhook({ event: 'payment.failed', paymentId, orderId: checkout.order.id }, { razorpayProvider: provider });
     attempt = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: checkout.attempt.id } });
     assert.equal(attempt.status, 'AUTHORIZED');
+
+    providerPayment = { ...providerPayment, status: 'captured', captured: true };
+    providerOrder.status = 'paid'; providerOrder.amount_paid = 1000; providerOrder.amount_due = 0;
+    const captured = await processWebhook({ event: 'payment.captured', paymentId, orderId: checkout.order.id }, { razorpayProvider: provider });
+    assert.equal(captured.state, 'PROCESSED');
+    attempt = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: checkout.attempt.id } });
+    assert.equal(attempt.status, 'CAPTURED');
+    assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: paymentId, kind: 'RECEIPT', status: 'CAPTURED' } }), 1);
+    assert.equal(Number((await prisma.invoice.findUnique({ where: { id: invoice.id } })).balanceDue), 0);
+
+    providerPayment = { ...providerPayment, status: 'failed', captured: false };
+    await processWebhook({ event: 'payment.failed', paymentId, orderId: checkout.order.id }, { razorpayProvider: provider });
+    attempt = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: checkout.attempt.id } });
+    assert.equal(attempt.status, 'CAPTURED', 'a late failed status must not downgrade an authoritative capture');
+    assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: paymentId, kind: 'RECEIPT', status: 'CAPTURED' } }), 1);
+    assert.equal(Number((await prisma.invoice.findUnique({ where: { id: invoice.id } })).balanceDue), 0);
+    assert.equal(await prisma.razorpayRefundAttempt.count({ where: { checkoutAttemptId: checkout.attempt.id } }), 0,
+      'a stale failure after a fully allocated capture must not create a refund');
   } finally {
     if (previousKeyId === undefined) delete process.env.RAZORPAY_KEY_ID;
     else process.env.RAZORPAY_KEY_ID = previousKeyId;
   }
 });
 
-integrationTest('captured Razorpay payment after invoice balance changes is quarantined without a duplicate receipt', async () => {
+integrationTest('late single-invoice capture records exact surplus and completes its automatic refund', async () => {
   const invoice = await createInvoice('RZP-CAPTURE-AFTER-BALANCE-CHANGE', 10);
   const previousKeys = { keyId: process.env.RAZORPAY_KEY_ID, keySecret: process.env.RAZORPAY_KEY_SECRET };
   process.env.RAZORPAY_KEY_ID = 'rzp_test_integration';
@@ -1995,10 +2039,16 @@ integrationTest('captured Razorpay payment after invoice balance changes is quar
       create: async (payload) => (providerOrder = {
         id: providerPayment.order_id,
         amount: payload.amount,
+        amount_due: payload.amount,
+        amount_paid: 0,
         currency: payload.currency,
+        receipt: payload.receipt,
         notes: payload.notes,
+        status: 'created',
+        attempts: 0,
       }),
       fetch: async () => providerOrder,
+      fetchPayments: async () => ({ items: [] }),
     },
     payments: { fetch: async () => providerPayment },
   };
@@ -2007,6 +2057,7 @@ integrationTest('captured Razorpay payment after invoice balance changes is quar
       invoice,
       shareId: `share-balance-change-${runId}`,
       idempotencyKey: `balance-change-${runId}`,
+      customCheckout: true,
       provider,
     });
 
@@ -2020,23 +2071,44 @@ integrationTest('captured Razorpay payment after invoice balance changes is quar
     }));
     assert.equal(manualSettlement.balanceDue, 0);
 
-    await assert.rejects(
-      settleCapturedPayment({ paymentId, providerOrderId: checkout.order.id, provider }),
-      (error) => error.code === 'SETTLEMENT_REQUIRES_REVIEW' && /do not pay again/i.test(error.message),
-    );
-
+    const settled = await settleCapturedPayment({ paymentId, providerOrderId: checkout.order.id, provider });
     const attempt = await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: checkout.attempt.id } });
     const refreshedInvoice = await prisma.invoice.findUnique({ where: { id: invoice.id } });
-    assert.equal(attempt.status, 'REVIEW');
-    assert.equal(attempt.failureCode, 'OVERPAYMENT_NOT_ALLOWED');
-    assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: paymentId } }), 0);
+    assert.equal(settled.alreadyRecorded, false);
+    assert.equal(Number(settled.payment.amount), 10);
+    assert.equal(Number(settled.payment.unallocatedAmount), 10);
+    assert.equal(settled.allocatedAmountPaise, 0n);
+    assert.equal(settled.unallocatedAmountPaise, 1000n);
+    assert.equal(attempt.status, 'CAPTURED');
+    assert.equal(attempt.failureCode, null);
+    assert.equal(Number(attempt.allocatedAmountPaise), 0);
+    assert.equal(Number(attempt.unallocatedAmountPaise), 1000);
+    assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: paymentId, kind: 'RECEIPT', status: 'CAPTURED' } }), 1);
     assert.equal(await prisma.payment.count({ where: { orderId: invoice.orderId, kind: 'RECEIPT', status: 'CAPTURED' } }), 1);
     assert.equal(await prisma.paymentAllocation.count({ where: { invoiceId: invoice.id, status: 'POSTED' } }), 1);
     assert.equal(Number(refreshedInvoice.balanceDue), 0);
     assert.equal(Number(refreshedInvoice.paidAmount), 10);
-    assert.equal(await prisma.auditLog.count({
-      where: { resource: 'razorpay_checkout_attempt', resourceId: attempt.id, action: 'RAZORPAY_CAPTURE_REQUIRES_FINANCE_REVIEW', status: 'FAILURE' },
-    }), 1);
+    let refundAttempt = await prisma.razorpayRefundAttempt.findFirst({ where: { checkoutAttemptId: attempt.id, automatic: true } });
+    assert.ok(refundAttempt);
+    assert.equal(refundAttempt.amountPaise, 1000n);
+    assert.equal(refundAttempt.sourcePaymentId, settled.payment.id);
+    const refundResult = await processAutomaticRazorpayRefundBatch({ provider: async ({ paymentId: sourcePaymentId, amountPaise, attempt: refund }) => {
+      assert.equal(sourcePaymentId, providerPayment.id);
+      assert.equal(amountPaise, 1000n);
+      return {
+        id: `rfnd_single_${runId.replace(/[^A-Za-z0-9]/g, '')}`,
+        payment_id: sourcePaymentId,
+        amount: Number(amountPaise),
+        currency: 'INR',
+        status: 'processed',
+        notes: { crm_refund_attempt_id: refund.id, crm_refund_reason: 'DUPLICATE_CAPTURE_SURPLUS' },
+      };
+    } });
+    assert.deepEqual(refundResult, { claimed: 1, processed: 1 });
+    refundAttempt = await prisma.razorpayRefundAttempt.findUnique({ where: { id: refundAttempt.id } });
+    assert.equal(refundAttempt.status, 'PROCESSED');
+    assert.equal(await prisma.payment.count({ where: { id: refundAttempt.localRefundPaymentId, kind: 'REFUND', razorpayRefundId: refundAttempt.razorpayRefundId } }), 1);
+    assert.equal(Number((await prisma.payment.findUnique({ where: { id: settled.payment.id } })).unallocatedAmount), 0);
   } finally {
     if (previousKeys.keyId === undefined) delete process.env.RAZORPAY_KEY_ID;
     else process.env.RAZORPAY_KEY_ID = previousKeys.keyId;
@@ -2366,27 +2438,35 @@ integrationTest('Finance reconciles an ambiguous order create by unique receipt 
   };
   const provider = { orders: {
     create: async () => { createCalls += 1; throw Object.assign(new Error('connection reset'), { code: 'ECONNRESET' }); },
+    fetch: async () => providerOrder,
+    fetchPayments: async () => ({ items: [] }),
     all: async (query) => {
       assert.equal(query.receipt, providerOrder.receipt);
-      return { items: [{ ...providerOrder, receipt: query.receipt, notes: { crm_attempt_id: attempt.id, invoice_id: invoice.id } }] };
+      return { items: [{ ...providerOrder, receipt: query.receipt, notes: {
+        crm_attempt_id: attempt.id, invoice_id: invoice.id, share_id: `share-${runId}`,
+        custom_checkout: '1', cred_coins_disabled: '1',
+      } }] };
     },
   } };
   let attempt;
   try {
     await assert.rejects(
-      createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `recover-${runId}`, provider }),
+      createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `recover-${runId}`, customCheckout: true, provider }),
       (error) => error.code === 'CHECKOUT_RESULT_UNKNOWN'
     );
     attempt = await prisma.razorpayCheckoutAttempt.findFirst({ where: { invoiceId: invoice.id } });
     providerOrder.receipt = `hc-${attempt.id}`;
-    providerOrder.notes = { crm_attempt_id: attempt.id, invoice_id: invoice.id };
-    const recovered = await reconcileAmbiguousOrderCreation({ attemptId: attempt.id, actor: { id: state.staff.id }, provider });
+    providerOrder.notes = {
+      crm_attempt_id: attempt.id, invoice_id: invoice.id, share_id: `share-${runId}`,
+      custom_checkout: '1', cred_coins_disabled: '1',
+    };
+    const recovered = await reconcileAmbiguousOrderCreation({ attemptId: attempt.id, actor: { id: state.staff.id }, provider, customCheckout: true });
     assert.equal(recovered.attempt.status, 'CREATED');
     assert.equal(recovered.attempt.razorpayOrderId, providerOrder.id);
     assert.equal(recovered.order.id, providerOrder.id);
     assert.equal(createCalls, 1, 'reconciliation must never call order creation again');
     assert.equal(await prisma.auditLog.count({ where: { resourceId: attempt.id, action: 'RAZORPAY_ORDER_CREATE_RECONCILED' } }), 1);
-    const resumed = await createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `recover-resume-${runId}`, provider });
+    const resumed = await createInvoiceCheckout({ invoice, shareId: `share-${runId}`, idempotencyKey: `recover-${runId}`, customCheckout: true, provider });
     assert.equal(resumed.reused, true);
     assert.equal(resumed.order.id, providerOrder.id);
     assert.equal(createCalls, 1);
@@ -4899,6 +4979,7 @@ integrationTest('captured Test invoice payment queues but suppresses the Whatoma
         notes: payload.notes,
       }),
       fetch: async () => providerOrder,
+      fetchPayments: async () => ({ items: [] }),
     },
     payments: { fetch: async () => providerPayment },
   };
@@ -5072,13 +5153,15 @@ integrationTest('documented redirect callback verifies the exact invoice/share b
       .update(`${checkout.order.id}|${paymentId}`).digest('hex');
     const invoke = async (callbackSignature) => {
       const res = response();
-      await receivePublicRazorpayCallback({
+      await handlePublicRazorpayCallback({
         params: { slug: shareId },
         query: { invoiceId: invoice.id },
         body: { razorpay_order_id: checkout.order.id, razorpay_payment_id: paymentId, razorpay_signature: callbackSignature },
         headers: {},
         id: `redirect-callback-${runId}`,
-      }, res, { provider });
+      }, res, null, {
+        settleCapturedPayment: (args) => settleCapturedPayment({ ...args, provider }),
+      });
       return res;
     };
 

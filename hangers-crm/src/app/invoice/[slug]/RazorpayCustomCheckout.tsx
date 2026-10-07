@@ -9,6 +9,7 @@ import styles from './RazorpayCustomCheckout.module.css'
 import SavedCards, { SavedCardSelection } from './checkout/SavedCards'
 import { useCheckoutBack } from './checkout/CheckoutNavigation'
 import CheckoutHandoff, { Handoff } from './checkout/CheckoutHandoff'
+import { emiEligibilityRequestMessage } from './checkout/checkout-errors'
 import { CardEligibility, Configuration, Methods, checkoutRequest, enabled, issuerPlans, networkCode, money, loadCustomSdk, supportedUpiIntentApps, upiIntentUnavailable } from './checkout/razorpay-sdk'
 
 type CheckoutOrder = {
@@ -26,6 +27,8 @@ type CheckoutOrder = {
 
 type BrandArtwork = { label: string; url: string }
 
+const MINIMAL_METHODS_FALLBACK = { card: true, upi: true, netbanking: true }
+
 const isRazorpayCdnUrl = (value?: string) => {
   if (!value) return false
   try {
@@ -36,7 +39,7 @@ const isRazorpayCdnUrl = (value?: string) => {
 
 const isApprovedArtworkUrl = (value?: string) => Boolean(value && (
   isRazorpayCdnUrl(value)
-  || /^\/payment-provider-logos\/(?:cashe\.png|tvs-credit\.svg|liquiloans\.png)$/.test(value)
+  || /^\/payment-provider-logos\/(?:cashe\.png|tvs-credit\.svg|liquiloans\.png|fino\.svg)$/.test(value)
 ))
 
 function BankLogo({ url, accessibleLabel, width, height, className }: {
@@ -68,10 +71,6 @@ type PaymentError = {
 const paymentErrorMessage = (response: PaymentError) => typeof response?.error?.description === 'string' && response.error.description
   ? response.error.description
   : 'Payment result unavailable. Check its status before retrying.'
-
-const cardEligibilityErrorMessage = (error: any) => error?.code === 'CUSTOM_IIN_UNAVAILABLE'
-  ? "Razorpay couldn't verify this card's eligibility. No payment has been started. If its network is listed as enabled, you can continue; otherwise retry the check or choose another method."
-  : error?.message || 'Card eligibility could not be verified.'
 
 type CustomInstance = {
   methods?: Record<string, any>
@@ -141,7 +140,12 @@ export default function RazorpayCustomCheckout({
   configuration,
   onPrepare,
   onSubmitted,
+  email,
+  onEmailChange,
+  selectedMethod,
+  onSelectedMethodChange,
   recoveryRequired = false,
+  retryRevision = 0,
   readOnly = false,
   showList = false,
 }: {
@@ -159,11 +163,17 @@ export default function RazorpayCustomCheckout({
   configuration?: Configuration
   onPrepare?: () => Promise<CheckoutOrder>
   onSubmitted?: () => void
+  email?: string
+  onEmailChange?: (email: string) => void
+  selectedMethod?: string
+  onSelectedMethodChange?: (method: string) => void
   recoveryRequired?: boolean
+  retryRevision?: number
   readOnly?: boolean
   showList?: boolean
 }) {
   const [methods, setMethods] = useState<Record<string, any> | null>(null)
+  const [methodsFallback, setMethodsFallback] = useState(false)
   const [methodLoadError, setMethodLoadError] = useState('')
   const [methodLoadAttempt, setMethodLoadAttempt] = useState(0)
   const [method, setMethod] = useState('')
@@ -223,7 +233,9 @@ export default function RazorpayCustomCheckout({
   const aliveRef = useRef(true)
   const credSequence = useRef(0)
   const submittedRef = useRef(false)
+  const appliedRetryRevision = useRef(retryRevision)
   const eligibilitySequence = useRef(0)
+  const normalIinObservationAttemptRef = useRef<string | null>(null)
   const expiryFieldRef = useRef<CardField | null>(null)
   const cardFieldRef = useRef<CardField | null>(null)
   const instanceRef = useRef<CustomInstance | null>(null)
@@ -274,6 +286,15 @@ export default function RazorpayCustomCheckout({
   }, [])
 
   useEffect(() => {
+    if (retryRevision === appliedRetryRevision.current) return
+    appliedRetryRevision.current = retryRevision
+    submittedRef.current = false
+    setSubmitting(false)
+    setError('')
+    setHandoff(null)
+  }, [retryRevision])
+
+  useEffect(() => {
     let mounted = true
     // Release component callbacks even if the provider retains its listeners.
     const callbacks: {
@@ -287,6 +308,8 @@ export default function RazorpayCustomCheckout({
     let readyTimer: ReturnType<typeof setTimeout> | undefined
     let readyReceived = false
     setMethods(null)
+    setMethodsFallback(false)
+    setAuthoritativeMethods(undefined)
     setMethodLoadError('')
     setMethod('')
     setUpiApps([])
@@ -322,6 +345,7 @@ export default function RazorpayCustomCheckout({
           if (!available || !Object.keys(available).length) return
           readyReceived = true
           if (readyTimer) clearTimeout(readyTimer)
+          setMethodsFallback(false)
           setMethodLoadError('')
           setMethods(available)
           setAuthoritativeMethods(available)
@@ -333,6 +357,7 @@ export default function RazorpayCustomCheckout({
             if (Object.keys(available).length) acceptMethods({ methods: available })
             else {
               if (readyTimer) clearTimeout(readyTimer)
+              setMethodsFallback(false)
               setMethods({})
               setAuthoritativeMethods({})
             }
@@ -343,7 +368,8 @@ export default function RazorpayCustomCheckout({
         instance.once('ready', (payload?: any) => callbacks.ready?.(payload))
         readyTimer = setTimeout(() => {
           if (mounted && !readyReceived) {
-            setMethodLoadError('Razorpay payment methods could not be confirmed. Retry loading payment methods.')
+            setMethodsFallback(true)
+            setMethods(MINIMAL_METHODS_FALLBACK)
           }
         }, 5000)
         if (instance.methods && Object.keys(instance.methods).length) acceptMethods()
@@ -419,7 +445,7 @@ export default function RazorpayCustomCheckout({
     if (enabled(methods.upi)) list.push({ id: 'upi', label: 'UPI' })
     if (enabled(methods.card)) list.push({ id: 'card', label: 'Credit or debit card' })
     const availableBanks = optionKeys(methods.netbanking)
-    if (availableBanks.length) list.push({ id: 'netbanking', label: 'Netbanking' })
+    if (availableBanks.length || (methodsFallback && enabled(methods.netbanking))) list.push({ id: 'netbanking', label: 'Netbanking' })
     const availableWallets = optionKeys(methods.wallet)
     if (availableWallets.length) list.push({ id: 'wallet', label: 'Wallet' })
     if (enabled(methods.emi)) {
@@ -430,7 +456,7 @@ export default function RazorpayCustomCheckout({
     if (enabled(methods.app?.cred)) list.push({ id: 'cred', label: 'CRED Pay' })
     if (configuration?.bankTransfer && apiBase) list.push({ id: 'bank_transfer', label: 'Bank transfer' })
     return list
-  }, [methods, order.amount, configuration?.bankTransfer, apiBase])
+  }, [methods, methodsFallback, order.amount, configuration?.bankTransfer, apiBase])
 
   const methodSubtitle = (id: string) => {
     if (id === 'card') return cardNetworks.length ? 'Cards enabled for this checkout' : 'Enter card details'
@@ -440,9 +466,9 @@ export default function RazorpayCustomCheckout({
       if (mobile && upiDiscovery === 'ready') return `${upiApps.length} UPI apps available`
       return 'Checking UPI app availability'
     }
-    if (id === 'netbanking') return `${banks.length} ${banks.length === 1 ? 'bank' : 'banks'} available`
+    if (id === 'netbanking') return methodsFallback ? 'Bank list is still loading' : `${banks.length} ${banks.length === 1 ? 'bank' : 'banks'} available`
     if (id === 'wallet') return `${wallets.length} ${wallets.length === 1 ? 'wallet' : 'wallets'} available`
-    if (id === 'emi') return 'Check card eligibility for available plans'
+    if (id === 'emi') return 'Check EMI eligibility for available plans'
     if (id === 'cardless_emi') return `${optionKeys(methods?.cardless_emi).length} providers available`
     if (id === 'paylater') return `${optionKeys(methods?.paylater).length} providers available`
     if (id === 'cred') return 'Check availability for this payment'
@@ -461,7 +487,9 @@ export default function RazorpayCustomCheckout({
   }
 
   useEffect(() => {
-    if (!availableMethods.some((item) => item.id === method)) setMethod(availableMethods[0]?.id || '')
+    const preferredMethod = availableMethods.some((item) => item.id === selectedMethod) ? selectedMethod : ''
+    const nextMethod = availableMethods.some((item) => item.id === method) ? method : preferredMethod || availableMethods[0]?.id || ''
+    if (nextMethod !== method) setMethod(nextMethod)
     const nextBanks = optionKeys(methods?.netbanking)
     const nextWallets = optionKeys(methods?.wallet)
     setBanks(nextBanks)
@@ -470,7 +498,7 @@ export default function RazorpayCustomCheckout({
     setWallet((current) => nextWallets.includes(current) ? current : nextWallets[0] || '')
     const providers = optionKeys(methods?.[method])
     setProvider((current) => providers.includes(current) ? current : providers[0] || '')
-  }, [availableMethods, method, methods])
+  }, [availableMethods, method, methods, selectedMethod])
 
   const plans = useMemo(() => issuerPlans(methods, eligibility, order.amount), [methods, eligibility, order.amount])
   const emiDurations = plans.map((plan) => String(plan.duration))
@@ -478,13 +506,20 @@ export default function RazorpayCustomCheckout({
     .filter((code) => !configuration?.excludedCardNetworks?.includes(code)), [methods, configuration?.excludedCardNetworks])
   const formatterNetwork = FORMATTER_NETWORK_CODES[cardNetwork] || null
   const iinNetwork = networkCode(eligibility?.network || null)
-  const detectedNetwork = savedCard?.sdk.token ? networkCode(savedCard.network || null) : iinNetwork || formatterNetwork
-  // Formatter and Methods use separate namespaces. Unknown is not permission to bypass exclusions.
+  const detectedNetwork = savedCard?.sdk.token
+    ? networkCode(savedCard.network || null)
+    : method === 'emi' ? iinNetwork || formatterNetwork : formatterNetwork
+  // Formatter data serves normal Card. Only EMI consumes IIN eligibility; normal Card records IIN silently.
   const cardOrEmi = method === 'card' || method === 'emi'
   const excludedNetwork = Boolean(detectedNetwork && configuration?.excludedCardNetworks?.includes(detectedNetwork))
-  const networkUnavailable = cardOrEmi && (excludedNetwork || (!detectedNetwork
-    || Boolean(!savedCard?.sdk.token && formatterNetwork && iinNetwork && formatterNetwork !== iinNetwork)
-    || !enabled(methods?.card_networks?.[detectedNetwork])))
+  const explicitNetworkDisabled = Boolean(detectedNetwork && !methodsFallback
+    && methods?.card_networks && typeof methods.card_networks === 'object'
+    && Object.hasOwn(methods.card_networks, detectedNetwork)
+    && !enabled(methods.card_networks[detectedNetwork]))
+  const networkUnavailable = cardOrEmi && (excludedNetwork || explicitNetworkDisabled
+    || Boolean(method === 'emi' && formatterNetwork && iinNetwork && formatterNetwork !== iinNetwork))
+  const emiEligibilityUnavailable = method === 'emi'
+    && (!eligibility || eligibility.emiAvailable !== true || eligibilityBusy)
   const intentUnavailable = upiIntentUnavailable(methods, authoritativeMethods, configuration?.feeBearer)
   const upiUnavailable = mobile === null || (mobile && (intentUnavailable || upiDiscovery !== 'ready' || !upiApps.includes(upiApp)))
   const collectContact = method === 'cred'
@@ -571,23 +606,47 @@ export default function RazorpayCustomCheckout({
     return () => { mounted = false; if (expiryTimer) clearTimeout(expiryTimer); window.removeEventListener('online', onReturn); window.removeEventListener('focus', onReturn); document.removeEventListener('visibilitychange', onReturn) }
   }, [apiBase, invoiceId, method, bank, mobile, upiApp, detectedNetwork, eligibility?.issuerCode, eligibility?.type])
 
-  const checkCardEligibility = async () => {
-    if (!apiBase) return
+  const lookupCardIin = async () => {
+    if (method !== 'emi' || !apiBase || savedCard?.sdk.token) return
+    if (!order.checkoutAttemptId) {
+      setError('Secure payment details are still loading. Try checking EMI eligibility again in a moment.')
+      return
+    }
     const input = formRef.current?.querySelector<HTMLInputElement>('[name="card-number"]')
-    const iin = (input?.value || '').replace(/\s/g, '').slice(0, 8)
+    if (!cardFieldRef.current?.isValid()) {
+      setError('Enter a valid card number before checking EMI eligibility.')
+      return
+    }
+    const iin = (input?.value || '').replace(/\D/g, '').slice(0, 8)
     const sequence = ++eligibilitySequence.current
     setEligibility(null)
-    setEligibilityBusy(false)
+    setError('')
     if (!/^\d{6,8}$/.test(iin)) return
     setEligibilityBusy(true)
     try {
       const result = await checkoutRequest<CardEligibility>(`${apiBase}/custom/card-eligibility${invoiceId ? `?invoiceId=${encodeURIComponent(invoiceId)}` : ''}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ iin, invoiceId }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ iin, invoiceId, attemptId: order.checkoutAttemptId }),
       })
-      if (sequence === eligibilitySequence.current) setEligibility(result)
+      if (sequence === eligibilitySequence.current) {
+        setEligibility(result)
+        if (result.emiAvailable !== true) setError('Razorpay did not confirm EMI eligibility for this card. Choose another payment method.')
+      }
     } catch (err: any) {
-      if (sequence === eligibilitySequence.current) setError(cardEligibilityErrorMessage(err))
+      if (sequence === eligibilitySequence.current) setError(emiEligibilityRequestMessage(err))
     } finally { if (sequence === eligibilitySequence.current) setEligibilityBusy(false) }
+  }
+
+  const checkEmiEligibility = () => lookupCardIin()
+
+  const observeNormalCardIin = (iin: string) => {
+    const attemptId = order.checkoutAttemptId
+    if (method !== 'card' || savedCard?.sdk.token || !apiBase || !attemptId
+      || !/^\d{6,8}$/.test(iin) || normalIinObservationAttemptRef.current === attemptId) return
+    normalIinObservationAttemptRef.current = attemptId
+    void checkoutRequest(`${apiBase}/custom/card-observation${invoiceId ? `?invoiceId=${encodeURIComponent(invoiceId)}` : ''}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ iin, invoiceId, attemptId }),
+    }).catch(() => {})
   }
 
   useEffect(() => { setCredEligible(false); setCredBusy(false); credSequence.current += 1 }, [contact, order.key, methodLoadAttempt])
@@ -678,12 +737,18 @@ export default function RazorpayCustomCheckout({
     event.preventDefault()
     if (readOnly || (method === 'card' && saveRequested && !savedCard?.sdk.token && savedCard?.sdk.save !== 1) || savedCardsBusyRef.current || recoveryRequired || submittedRef.current || submitting || preparing || !order.razorpayOrderId || !instanceRef.current || !method) return
     if (method === 'bank_transfer') return
+    if (method === 'emi' && emiEligibilityUnavailable) {
+      setError('EMI eligibility could not be confirmed. Check this card before paying with EMI.')
+      return
+    }
     if (configuration && configuration.feeBearer !== 'MERCHANT') return setError('Payment configuration needs review. Please contact Hangers before paying.')
     if (!methods || !availableMethods.some((item) => item.id === method)) return
     setError('')
     setFieldErrors({})
     const form = formRef.current
     const values = new FormData(form || undefined)
+    const email = String(values.get('email') || '').trim()
+    if (!email) return invalidFields(['email'], 'Enter your email address to continue.')
     const common: Record<string, any> = {
       amount: order.amount,
       currency: order.currency,
@@ -691,7 +756,7 @@ export default function RazorpayCustomCheckout({
       method,
       ...(order.redirect && order.callbackUrl ? { callback_url: order.callbackUrl } : {}),
       ...(collectContact && contact ? { contact } : order.testContact ? { contact: order.testContact } : {}),
-      ...((order.email || values.get('email')) ? { email: order.email || String(values.get('email')).trim() } : {}),
+      email,
     }
     let payment: Record<string, any> = common
     let options: Record<string, any> | undefined
@@ -762,6 +827,7 @@ export default function RazorpayCustomCheckout({
       payment = { ...common, method: 'app', provider: 'cred' }
     }
 
+    if (method === 'card' && !savedCard?.sdk.token) observeNormalCardIin(String(payment['card[number]'] || '').slice(0, 8))
     submittedRef.current = true
     setSubmitting(true)
     const selectedLabel = method === 'netbanking' ? bankLabel(bank)
@@ -806,7 +872,7 @@ export default function RazorpayCustomCheckout({
 
   const paymentActions = <div className={styles.actions}>
     <p className={styles.payingWith}><span>Paying with</span><b>{availableMethods.find((item) => item.id === method)?.label || 'Choose a payment method'}</b></p>
-    {method !== 'bank_transfer' && <Button size="lg" type="submit" form={formId} disabled={(method === 'card' && saveRequested && !savedCard?.sdk.token && savedCard?.sdk.save !== 1) || savedCardsBusy || recoveryRequired || submitting || preparing || !order.razorpayOrderId || !methods || !method || Boolean(configuration && configuration.feeBearer !== 'MERCHANT') || networkUnavailable || ((method === 'card' || method === 'emi') && !savedCard?.sdk.token && !cardFormatterReady) || (method === 'emi' && !emiDurations.length) || (method === 'upi' && upiUnavailable)}>
+    {method !== 'bank_transfer' && <Button size="lg" type="submit" form={formId} disabled={(method === 'card' && saveRequested && !savedCard?.sdk.token && savedCard?.sdk.save !== 1) || savedCardsBusy || recoveryRequired || submitting || preparing || !order.razorpayOrderId || !methods || !method || Boolean(configuration && configuration.feeBearer !== 'MERCHANT') || networkUnavailable || ((method === 'card' || method === 'emi') && !savedCard?.sdk.token && !cardFormatterReady) || (method === 'emi' && (emiEligibilityUnavailable || !emiDurations.length)) || (method === 'netbanking' && (!bank || !banks.includes(bank))) || (method === 'upi' && upiUnavailable)}>
       <LockKeyhole size={16} aria-hidden="true" />
       {submitting ? 'Confirming payment...' : preparing ? 'Preparing payment...' : `${method === 'upi' && mobile === false ? 'Show QR for' : 'Pay'} ${money(order.amount, order.currency)}${method === 'upi' && mobile === false ? '' : ` with ${availableMethods.find((item) => item.id === method)?.label || ''}`}`}
     </Button>}
@@ -835,6 +901,10 @@ export default function RazorpayCustomCheckout({
         {order.razorpayOrderId && <span>Razorpay order <b>{order.razorpayOrderId}</b></span>}
       </div></details>
       {!methods && !methodLoadError && !error && <p role="status">Loading available payment methods…</p>}
+      {methodsFallback && !recoveryRequired && !readOnly && <div className={styles.notice} role="status">
+        <p>Razorpay is taking longer to load your payment options. Temporary card, UPI and Netbanking choices are shown; retry to load the full account-enabled list. A bank must be selected before paying.</p>
+        <button type="button" className={styles.retry} onClick={() => { setError(''); setMethodLoadAttempt((attempt) => attempt + 1) }}>Retry payment methods</button>
+      </div>}
       {methodLoadError && <div className={styles.notice} role="alert">
         <p>{methodLoadError}</p>
         <button type="button" className={styles.retry} onClick={() => { setMethodLoadError(''); setError(''); setMethodLoadAttempt((attempt) => attempt + 1) }}>Retry payment methods</button>
@@ -843,24 +913,27 @@ export default function RazorpayCustomCheckout({
       {methods && !availableMethods.length && <div className={styles.notice} role="status"><p>No available payment option was returned for this checkout.</p><button type="button" onClick={() => setMethodLoadAttempt((attempt) => attempt + 1)}>Reload payment methods</button></div>}
       {configuration && configuration.feeBearer !== 'MERCHANT' && <p className={styles.notice} role="status">Online payment configuration needs review. Please contact Hangers before paying.</p>}
       {downtimeFresh && downtime?.incidents.some((incident) => incident.match.action === 'warn') && <p className={styles.notice} role="status">Razorpay reports a current disruption for this payment option. You can choose another available method.</p>}
+      <div className={styles.contactCard}>
+        <span className={styles.avatar} aria-hidden="true">{customerName?.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('') || <Smartphone size={20} />}</span>
+        <div className={styles.contactInfo}>{customerName && <b>{customerName}</b>}{(contact || customerPhone) && <span>{contact || customerPhone}</span>}</div>
+        <div className={styles.contactFields}>
+          <div className={styles.row}>
+            <label>Email address <span className={styles.requiredField} aria-hidden="true">Required</span><input name="email" {...fieldProps('email')} type="email" autoComplete="email" value={email ?? order.email ?? ''} onChange={(event) => onEmailChange?.(event.target.value)} disabled={readOnly || submitting || recoveryRequired} aria-required="true" required /></label>
+            {fieldMessage('email')}
+          </div>
+        </div>
+        {collectContact && <details className={styles.contactEdit}>
+          <summary>Edit contact</summary>
+          <div className={styles.contactFields}>
+            <div className={styles.row}>
+              <label>Mobile number with country code<input name="contact" {...fieldProps('contact')} type="tel" autoComplete="tel" value={contact} onChange={(event) => { credSequence.current += 1; setCredBusy(false); setCredEligible(false); setContact(event.target.value) }} readOnly={Boolean(order.testContact)} disabled={readOnly || submitting || recoveryRequired} required />{fieldMessage('contact')}</label>
+            </div>
+          </div>
+        </details>}
+      </div>
       {!!availableMethods.length && <>
         {submitting && handoff && !showList && <CheckoutHandoff handoff={handoff} />}
         <fieldset hidden={submitting && !showList} disabled={readOnly || submitting || recoveryRequired} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        {(customerName || contact || customerPhone || order.email || collectContact) && <div className={styles.contactCard}>
-          <span className={styles.avatar} aria-hidden="true">{customerName?.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('') || <Smartphone size={20} />}</span>
-          <div className={styles.contactInfo}>{customerName && <b>{customerName}</b>}{(contact || customerPhone || order.email) && <span>{contact || customerPhone}{order.email && <> · {order.email}</>}</span>}</div>
-          {(!order.email || collectContact) && <details className={styles.contactEdit}>
-          <summary>Edit contact</summary>
-          <div className={styles.contactFields}>
-        {!order.email && <div className={styles.row}>
-          <label>Email address (optional)<input name="email" {...fieldProps('email')} type="text" inputMode="email" autoComplete="email" disabled={submitting} /></label>
-          {fieldMessage('email')}
-        </div>}
-        {collectContact && <div className={styles.row}>
-          <label>Mobile number with country code<input name="contact" {...fieldProps('contact')} type="tel" autoComplete="tel" value={contact} onChange={(event) => { credSequence.current += 1; setCredBusy(false); setCredEligible(false); setContact(event.target.value) }} readOnly={Boolean(order.testContact)} disabled={submitting} required />{fieldMessage('contact')}</label>
-        </div>}
-          </div></details>}
-        </div>}
         {methodPage && <nav className={styles.methodBreadcrumb} aria-label="Payment method">
           <button type="button" disabled={submitting} onClick={leaveMethod}><ChevronLeft size={16} aria-hidden="true" />Payment methods</button>
           <span aria-hidden="true">/</span><span aria-current="page">{availableMethods.find((item) => item.id === method)?.label}</span>
@@ -868,7 +941,7 @@ export default function RazorpayCustomCheckout({
         {configuration?.savedCards && <div hidden={methodPage && method !== 'card'}>
           <SavedCards mode={order.key.startsWith('rzp_test_') ? 'TEST' : 'LIVE'} keyId={order.key} disabled={submitting || recoveryRequired}
             presentation={methodPage ? 'card' : 'list'}
-            onChange={(selection) => { setSavedCard(selection); if (selection?.sdk.token) setMethod('card') }}
+            onChange={(selection) => { setSavedCard(selection); if (selection?.sdk.token) { setMethod('card'); onSelectedMethodChange?.('card') } }}
             approvedTestContact={order.testContact} contextKey={`${invoiceId || ''}:${order.razorpayOrderId}`}
             onSaveRequested={setSaveRequested} onBusy={(value) => { savedCardsBusyRef.current = value; setSavedCardsBusy(value) }} />
           {!methodPage && method === 'card' && savedCard?.sdk.token && <label>{savedCard.cvvRequired === false ? 'CVV (optional)' : 'CVV'}
@@ -884,7 +957,7 @@ export default function RazorpayCustomCheckout({
             <label key={item.id} className={method === item.id ? `${styles.method} ${styles.methodSelected}` : styles.method}>
               <input type="radio" aria-label={item.label} name="payment-method" value={item.id} checked={method === item.id}
                 onClick={() => { if (method === item.id) { setMethodPage(item.id !== 'upi'); setError('') } }}
-                onChange={() => { setMethod(item.id); setMethodPage(item.id !== 'upi'); setError('') }} />
+                onChange={() => { setMethod(item.id); onSelectedMethodChange?.(item.id); setMethodPage(item.id !== 'upi'); setError('') }} />
               {(() => { const Icon = methodIcon(item.id); return <span className={styles.methodIcon} aria-hidden="true"><Icon size={20} strokeWidth={1.8} /></span> })()}
               <span className={styles.methodCopy}>
                 <span className={styles.methodLabel}>{item.label}</span>
@@ -919,13 +992,13 @@ export default function RazorpayCustomCheckout({
             {!emiDurations.length && <small>Enter your card and check issuer eligibility to see available plans.</small>}
           </fieldset>}
           <label>Card number
-            <div className={styles.cardNumber}>
-              <input name="card-number" {...fieldProps('card-number')} inputMode="numeric" autoComplete="cc-number" placeholder="Card number" disabled={submitting || !cardFormatterReady} onBlur={() => void checkCardEligibility()} required />
+          <div className={styles.cardNumber}>
+              <input name="card-number" {...fieldProps('card-number')} inputMode="numeric" autoComplete="cc-number" placeholder="Card number" disabled={submitting || !cardFormatterReady} required />
               {networkAssets.filter((asset) => asset.code === detectedNetwork).map((asset) => <BankLogo key={asset.code} accessibleLabel={asset.label} url={asset.url} width={48} height={30} className={styles.networkArtwork} />)}
             </div>
             {fieldMessage('card-number')}
             {cardNetwork && <small aria-live="polite">{cardNetwork}</small>}
-            {networkUnavailable && <small role="status">{detectedNetwork ? 'This card network is not enabled for this checkout. Choose another card.' : eligibilityBusy ? 'Checking card network...' : 'Card network must be verified before payment. Check card eligibility or choose another method.'}</small>}
+            {networkUnavailable && <small role="status">{detectedNetwork ? 'This card network is not enabled for this checkout. Choose another card.' : eligibilityBusy ? 'Checking card network...' : method === 'emi' ? 'Card network must be verified before EMI. Check EMI eligibility or choose another method.' : 'This card network could not be identified for this checkout. Try another card or payment method.'}</small>}
           </label>
           {networkAssets.length > 0 && <div className={styles.networks} role="group" aria-label={`Card networks enabled for this account: ${cardNetworks.map(networkLabel).join(', ')}`}>
             <span>Enabled card networks</span>
@@ -939,14 +1012,18 @@ export default function RazorpayCustomCheckout({
             <label>CVV<input name="card-cvv" {...fieldProps('card-cvv')} type="password" inputMode="numeric" autoComplete="cc-csc" disabled={submitting} required />{fieldMessage('card-cvv')}</label>
           </div>
           <label>Name on card<input name="card-name" {...fieldProps('card-name')} autoComplete="cc-name" defaultValue={customerName || ''} required />{fieldMessage('card-name')}</label>
-          <button type="button" disabled={submitting || eligibilityBusy} onClick={() => void checkCardEligibility()}>{eligibilityBusy ? 'Checking card...' : method === 'emi' ? 'Check EMI eligibility' : 'Check card eligibility'}</button>
+          {method === 'emi' && <button type="button" disabled={submitting || preparing || eligibilityBusy || !order.checkoutAttemptId} onClick={() => void checkEmiEligibility()}>{eligibilityBusy ? 'Checking EMI eligibility...' : 'Check EMI eligibility'}</button>}
           {method === 'emi' && eligibility && <small>{eligibility.issuerName || eligibility.issuerCode}: {eligibility.emiAvailable === true ? 'Select an available plan.' : 'EMI availability is not confirmed for this card.'}</small>}
           {method === 'emi' && selectedPlan && <small>{selectedPlan.duration} months at {selectedPlan.rate}% annual interest{Number.isFinite(installment) ? `; ${money(Math.round(installment as number))} per month` : ''}. Issuer fees and taxes, where applicable, are confirmed by your bank.</small>}
           <small>Card details are sent directly to Razorpay. Hangers does not receive or store your full card number or security code.</small>
           </>}
         </div>}
 
-        {method === 'netbanking' && <div className={styles.fields}>
+        {method === 'netbanking' && methodsFallback && <div className={styles.notice} role="status">
+          <p>Razorpay has not returned its bank list yet. Retry loading payment methods before choosing a bank.</p>
+          <button type="button" className={styles.retry} onClick={() => setMethodLoadAttempt((attempt) => attempt + 1)}>Retry bank list</button>
+        </div>}
+        {method === 'netbanking' && !methodsFallback && <div className={styles.fields}>
           <div className={styles.bankGrid} role="group" aria-label="Available banks">
             {popularBanks.map((code) => <button type="button" key={code} className={styles.brandChoice} aria-pressed={bank === code} onClick={() => setBank(code)}>
               <BankLogo url={bankArtwork(code)?.url} /><span>{bankLabel(code)}</span>{bank === code && <Check size={16} aria-label="Selected" />}
