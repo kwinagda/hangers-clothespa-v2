@@ -60,11 +60,13 @@ test('Back from a captured result shows read-only methods without exposing order
   assert.match(html, /data-method-list="true" data-read-only="true" data-prepares-order="false"/)
   assert.equal(view.back(), false)
 })
-test('Back from unresolved status never enables payment or replacement-order preparation', () => {
+test('Back from unresolved status keeps method browsing read-only until an explicit new-attempt action', () => {
   const view = fixture({ status: 'PENDING', attemptId: 'fixture-attempt', canResumeCheckout: false })
-  assert.match(view.render(), /Do not pay again/)
+  assert.match(view.render(), /start a separate payment attempt/i)
   assert.equal(view.back(), true)
-  assert.match(view.render(), /data-method-list="true" data-read-only="true" data-prepares-order="false" data-recovery-required="true"/)
+  const html = view.render()
+  assert.match(html, /Start a new payment attempt/)
+  assert.match(html, /data-method-list="true" data-read-only="true" data-prepares-order="false" data-recovery-required="true"/)
 })
 test('Back from terminal failure permits methods only under the server resumability gate', () => {
   const view = fixture({ status: 'FAILED', attemptId: 'fixture-attempt', canResumeCheckout: true })

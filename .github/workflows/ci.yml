@@ -156,7 +156,7 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:5002/api/v1
 
       - name: Install browser for combined-checkout UI checks
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps --only-shell chromium
 
       - name: Verify combined-checkout responsive UI
         run: npx playwright test --config=playwright.combined-ci.config.ts razorpay-ab-responsive.spec.ts

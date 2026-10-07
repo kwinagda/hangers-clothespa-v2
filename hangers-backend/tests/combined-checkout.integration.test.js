@@ -978,6 +978,8 @@ test('A18 public retry preserves an ambiguous old order, frozen invoice split, a
   let providerCreateCalls = 0;
   let combinedAttemptId = null;
   let thirdInvoice;
+  const legalTermsKey = 'master.legalTerms';
+  let legalTermsCreated = false;
 
   const createInvoice = async (label, amount, dueOffset) => {
     const order = await prisma.order.create({ data: {
@@ -1032,6 +1034,10 @@ test('A18 public retry preserves an ambiguous old order, frozen invoice split, a
   };
 
   try {
+    if (!await prisma.setting.findUnique({ where: { key: legalTermsKey } })) {
+      await prisma.setting.create({ data: { key: legalTermsKey, value: JSON.stringify(LEGAL_TERMS) } });
+      legalTermsCreated = true;
+    }
     const firstInvoice = await createInvoice('A', 10, 1);
     const secondInvoice = await createInvoice('B', 20, 2);
     const customerToken = await createPublicShareToken({
@@ -1208,6 +1214,7 @@ test('A18 public retry preserves an ambiguous old order, frozen invoice split, a
     if (invoiceIds.length) await prisma.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
     if (orderIds.length) await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
     if (customerCreated) await prisma.customer.delete({ where: { id: customer.id } });
+    if (legalTermsCreated) await prisma.setting.delete({ where: { key: legalTermsKey } });
     if (previousEnv.keyId === undefined) delete process.env.RAZORPAY_KEY_ID; else process.env.RAZORPAY_KEY_ID = previousEnv.keyId;
     if (previousEnv.keySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET; else process.env.RAZORPAY_KEY_SECRET = previousEnv.keySecret;
     if (previousEnv.testContact === undefined) delete process.env.RAZORPAY_TEST_CONTACT_NUMBER; else process.env.RAZORPAY_TEST_CONTACT_NUMBER = previousEnv.testContact;
