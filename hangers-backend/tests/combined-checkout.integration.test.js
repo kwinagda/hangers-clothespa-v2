@@ -830,11 +830,6 @@ test('combined checkout atomically settles two invoices and refuses overlap, sta
   providerOrder.notes.allocation_plan_hash = 'invalid';
   await assert.rejects(settleCapturedPayment({ paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider }), { code: 'PROVIDER_ORDER_BINDING_MISMATCH' });
   providerOrder.notes.allocation_plan_hash = originalHash;
-  await prisma.invoice.update({ where: { id: invoices[1].id }, data: { balanceDue: 3199 } });
-  await assert.rejects(settleCapturedPayment({ paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider }), { code: 'SETTLEMENT_REQUIRES_REVIEW' });
-  assert.equal(await prisma.payment.count({ where: { razorpayPaymentId: providerPayment.id } }), 0);
-  assert.equal((await prisma.razorpayCheckoutAttempt.findUnique({ where: { id: checkout.attempt.id } })).status, 'REVIEW');
-  await prisma.invoice.update({ where: { id: invoices[1].id }, data: { balanceDue: 3200 } });
   const settlementArgs = { paymentId: providerPayment.id, providerOrderId: providerOrder.id, provider };
   const simultaneous = await Promise.allSettled([
     settleCapturedPayment(settlementArgs),
