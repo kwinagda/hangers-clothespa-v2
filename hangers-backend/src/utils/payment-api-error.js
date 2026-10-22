@@ -26,6 +26,12 @@ const paymentApiError = (res, {
   fieldErrors,
   details,
 } = {}) => {
+  const retryAfter = details?.retryAfter;
+  if (typeof retryAfter === 'string' && retryAfter.length <= 128
+    && !/[\r\n]/.test(retryAfter)
+    && (/^\d+$/.test(retryAfter.trim()) || Number.isFinite(Date.parse(retryAfter)))) {
+    res.set('Retry-After', retryAfter.trim());
+  }
   const canRetry = retryable ?? (!CHECK_STATUS_FIRST.has(code) && (statusCode === 408 || statusCode === 429 || statusCode >= 500));
   const body = {
     success: false,

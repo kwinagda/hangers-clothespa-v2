@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { canResumeUnattemptedCheckout, getUnattemptedCheckoutResumeBlockReason, matchesExpectedCheckoutBinding } = require('../src/services/razorpay-invoice-checkout.service');
+const { canResumeUnattemptedCheckout, getUnattemptedCheckoutResumeBlockReason, matchesExpectedCheckoutBinding, updateCreatingAttempt } = require('../src/services/razorpay-invoice-checkout.service');
 
 const attempt = {
   id: 'attempt_123',
@@ -8,6 +8,7 @@ const attempt = {
   razorpayOrderId: 'order_123',
   amountPaise: 15900n,
   currency: 'INR',
+  mode: 'TEST',
   status: 'CREATED',
 };
 
@@ -96,4 +97,35 @@ test('settlement binding requires both the expected invoice and public share whe
   assert.equal(matchesExpectedCheckoutBinding({ attempt: boundAttempt, expectedInvoiceId: 'invoice_123', expectedShareId: 'share_other' }), false);
   assert.equal(matchesExpectedCheckoutBinding({ attempt: boundAttempt, expectedInvoiceId: 'invoice_123' }), true,
     'a refreshed valid public token may reconcile the same invoice without matching the original token ID');
+});
+
+test('provider order persistence uses a compare-and-set and preserves recovery or settlement state', async () => {
+  for (const initial of [
+    { ...attempt, status: 'CREATING', razorpayOrderId: null },
+    { ...attempt, status: 'REVIEW', razorpayOrderId: null },
+    { ...attempt, status: 'CAPTURED', razorpayOrderId: 'order_123', razorpayPaymentId: 'pay_123' },
+  ]) {
+    let current = { ...initial };
+    let updateWhere;
+    const tx = { razorpayCheckoutAttempt: {
+      updateMany: async ({ where, data }) => {
+        updateWhere = where;
+        const matches = current.id === where.id
+          && current.mode === where.mode
+          && current.status === where.status
+          && current.razorpayOrderId === where.razorpayOrderId;
+        if (!matches) return { count: 0 };
+        current = { ...current, ...data };
+        return { count: 1 };
+      },
+      findUnique: async () => current,
+    } };
+
+    const result = await updateCreatingAttempt(tx, initial, { status: 'CREATED', razorpayOrderId: 'order_123' });
+    assert.deepEqual(updateWhere, { id: attempt.id, mode: 'TEST', status: 'CREATING', razorpayOrderId: null });
+    assert.equal(result.transitioned, initial.status === 'CREATING');
+    assert.equal(current.status, initial.status === 'CREATING' ? 'CREATED' : initial.status);
+    assert.equal(current.razorpayOrderId, initial.status === 'CREATING' ? 'order_123' : initial.razorpayOrderId);
+    if (initial.status === 'CAPTURED') assert.equal(current.razorpayPaymentId, 'pay_123');
+  }
 });

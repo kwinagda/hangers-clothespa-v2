@@ -12,6 +12,11 @@ on:
         required: false
         default: false
         type: boolean
+      migrate_custom_checkout:
+        description: Apply only approved Custom saved-card and virtual-account migrations after verified production backup
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -158,7 +163,15 @@ jobs:
           remote_script="$(cat <<EOF
           set -euo pipefail
           cd /opt/hangers
+          migration_script=''
+          custom_script=''
+          deploy_script=''
+          trap 'rm -f "\$migration_script" "\$custom_script" "\$deploy_script"' EXIT
           runuser -u ubuntu -- git fetch --prune origin main
+          if [[ '${{ inputs.migrate_combined_checkout }}' == 'true' && '${{ inputs.migrate_custom_checkout }}' == 'true' ]]; then
+            echo 'Select only one separately reviewed schema release' >&2
+            exit 1
+          fi
           if [[ '${{ inputs.migrate_combined_checkout }}' == 'true' ]]; then
             install -d -m 0700 -o ubuntu -g ubuntu /var/backups/hangers
             migration_script=\$(mktemp /tmp/hangers-combined-migration.XXXXXX.cjs)
@@ -166,9 +179,18 @@ jobs:
             chmod 0644 "\$migration_script"
             flock -n /var/lock/hangers-code-deploy.lock runuser -u ubuntu -- node "\$migration_script" '$COMMIT'
             rm -f "\$migration_script"
+            migration_script=''
+          fi
+          if [[ '${{ inputs.migrate_custom_checkout }}' == 'true' ]]; then
+            install -d -m 0700 -o ubuntu -g ubuntu /var/backups/hangers
+            custom_script=\$(mktemp /tmp/hangers-custom-migration.XXXXXX.cjs)
+            runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/migrate-custom-checkout.cjs' > "\$custom_script"
+            chmod 0644 "\$custom_script"
+            flock -n /var/lock/hangers-code-deploy.lock runuser -u ubuntu -- node "\$custom_script" '$COMMIT' --approved-custom-schema
+            rm -f "\$custom_script"
+            custom_script=''
           fi
           deploy_script=\$(mktemp /tmp/hangers-deploy-code.XXXXXX)
-          trap 'rm -f "\$deploy_script"' EXIT
           runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/deploy-ec2-code.sh' > "\$deploy_script"
           chmod 0755 "\$deploy_script"
           "\$deploy_script" '$COMMIT'

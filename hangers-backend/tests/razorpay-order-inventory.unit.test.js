@@ -25,6 +25,31 @@ test('inventory fails closed before provider access when key mode is unknown', a
   assert.equal(providerCalled, false);
 });
 
+test('inventory preserves Razorpay response codes but not local transport codes', async (t) => {
+  const now = new Date('2026-09-26T00:00:00Z');
+  const from = Math.floor(now.getTime() / 1000) - 60;
+  const to = Math.floor(now.getTime() / 1000);
+  for (const [providerError, expected] of [
+    [{ response: { data: { error: { code: 'BAD_REQUEST_ERROR' } } } }, 'BAD_REQUEST_ERROR'],
+    [Object.assign(new Error('network timeout'), { code: 'ETIMEDOUT' }), null],
+    [new Error('provider failure without code'), null],
+  ]) {
+    await t.test(expected || 'missing code stays missing', async () => {
+      await assert.rejects(previewRazorpayOrderInventory({
+        from,
+        to,
+        now,
+        keyId: 'rzp_test_inventory',
+        provider: { orders: { all: async () => { throw providerError; } }, payments: { all: async () => ({ items: [] }) } },
+      }), (error) => {
+        assert.equal(error.providerCode, expected);
+        assert.equal(error.code, 'ORDER_INVENTORY_PROVIDER_FAILED');
+        return true;
+      });
+    });
+  }
+});
+
 test('Razorpay Order inventory enforces the documented 180-day direct-fetch retention', () => {
   const now = new Date('2026-09-26T00:00:00Z');
   const nowSeconds = Math.floor(now.getTime() / 1000);

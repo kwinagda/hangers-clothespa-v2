@@ -14,6 +14,16 @@ test('staging API proxy is disabled by default', async () => {
   assert.deepEqual(await readRewrites(undefined), []);
 });
 
+test('saved-card proxy path gets no-referrer without changing the site-wide policy', async () => {
+  const headers = await require('../next.config.js').headers();
+  const sitePolicy = headers.find((rule) => rule.source === '/(.*)')
+    .headers.find((header) => header.key === 'Referrer-Policy');
+  const savedCardsRule = headers.find((rule) => rule.source === '/api/v1/customer/payments/razorpay/saved-cards/:path*');
+
+  assert.equal(sitePolicy.value, 'strict-origin-when-cross-origin');
+  assert.deepEqual(savedCardsRule.headers, [{ key: 'Referrer-Policy', value: 'no-referrer' }]);
+});
+
 test('staging API proxy only forwards to credential-free loopback origins', async () => {
   assert.deepEqual(await readRewrites('http://localhost:5001'), [
     { source: '/__staging_health', destination: 'http://localhost:5001/health' },

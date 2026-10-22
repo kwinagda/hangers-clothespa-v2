@@ -52,7 +52,7 @@ const runRazorpayPaymentsNow = async (req, res) => {
     });
     return success(res, { run }, 'Razorpay reconciliation queued', 202);
   } catch (err) {
-    console.error('Razorpay payment reconciliation:', err?.code || err?.message || 'PROVIDER_ERROR');
+    console.error('Razorpay payment reconciliation:', err?.code || err?.message || '[no error code or message]');
     return error(res, 'Razorpay payment reconciliation failed to execute');
   }
 };

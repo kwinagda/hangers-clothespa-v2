@@ -4,6 +4,8 @@ const { log } = require('../services/activity.service');
 const { paymentApiError } = require('../utils/payment-api-error');
 const { getSafeRazorpayPaymentDiagnostics } = require('../utils/razorpay-payment-method');
 const { getMode } = require('../services/razorpay-invoice-checkout.service');
+const { DOWNTIME_EVENTS, getDowntimeWebhookPayload } = require('../services/razorpay-downtime.service');
+const { getBankTransferWebhookPayload } = require('../services/razorpay-bank-transfer.service');
 
 const safeId = (value) => typeof value === 'string' && value.length <= 100 ? value : null;
 const eventReferences = (body) => {
@@ -99,6 +101,8 @@ const handleRazorpayWebhook = async (req, res) => {
   const minimalPayload = Object.fromEntries(
     [...Object.entries(refs), ...Object.entries(paymentDiagnostics || {})].filter(([, value]) => value),
   );
+  if (DOWNTIME_EVENTS.includes(event)) Object.assign(minimalPayload, getDowntimeWebhookPayload(req.body));
+  if (event === 'virtual_account.credited') Object.assign(minimalPayload, getBankTransferWebhookPayload(req.body));
   try {
     const inserted = await prisma.razorpayWebhookEvent.create({
       data: {

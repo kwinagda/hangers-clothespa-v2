@@ -1,14 +1,16 @@
 const prisma = require('../config/database');
 const { getRazorpay } = require('./razorpay-invoice-checkout.service');
-const { razorpayErrorSummary } = require('../utils/redact');
-
 const PAGE_SIZE = 100;
 const MAX_PAGES = 1000;
 const MIN_EPOCH_SECONDS = 946684800;
 const MAX_EPOCH_SECONDS = 4765046400;
 const SETTLEMENT_STATES = new Set(['created', 'processed', 'failed']);
 const modeFromKey = () => String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_') ? 'TEST' : 'LIVE';
-const safeCode = (error) => String(razorpayErrorSummary(error).code || 'PROVIDER_ERROR').slice(0, 80);
+const safeCode = (error) => {
+  const root = error?.response?.data?.error || error?.error;
+  const code = root && typeof root === 'object' ? root.code : null;
+  return typeof code === 'string' && code.length ? code : null;
+};
 
 const validateWindow = (from, to) => {
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < MIN_EPOCH_SECONDS || to > MAX_EPOCH_SECONDS || to <= from) {

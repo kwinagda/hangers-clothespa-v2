@@ -1,3 +1,4 @@
+const { safeText } = require('./redact');
 const PROVIDER_METHODS = new Set([
   'card',
   'netbanking',
@@ -16,6 +17,7 @@ const CARD_TYPES = new Set(['credit', 'debit', 'prepaid']);
 const safeLabel = (value) => {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
+  if (safeText(normalized, 80) !== normalized) return null;
   return /^[a-z0-9_-]{1,24}$/.test(normalized) ? normalized : null;
 };
 
@@ -40,6 +42,7 @@ const getSafeRazorpayPaymentMethod = (payment) => {
 const safeErrorCode = (value) => {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toUpperCase();
+  if (safeText(normalized, 80) !== normalized) return null;
   return /^[A-Z0-9_-]{1,80}$/.test(normalized) ? normalized : null;
 };
 

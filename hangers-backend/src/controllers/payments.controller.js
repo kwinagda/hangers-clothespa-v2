@@ -10,7 +10,7 @@ const { writeAuditEvent, getRequestMeta } = require('../services/activity.servic
 const { PaymentRuleError, recordOrderSettlement, recordInvoiceAllocationsSettlement } = require('../services/payment.service');
 const { ensureOrderInvoice } = require('../services/billing.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
-const { createPublicShareToken } = require('../services/publicShare.service');
+const { createPublicShareToken, MAX_PUBLIC_SHARE_INVOICES } = require('../services/publicShare.service');
 const { getDefaultPaymentAccount, getPaymentAccountQrMediaUrl } = require('../services/payment-account-settings.service');
 const { findOpenReceivableInvoices, groupReceivablesByCustomer, openInvoiceWhere, allocateReceivablePayment } = require('../services/receivables.service');
 const { sendPaymentReminderMessage } = require('../services/whatomate.service');
@@ -204,17 +204,28 @@ const getReceivables = async (req, res) => {
 };
 
 const selectedReceivableSummary = async ({ customerId, invoiceIds = [] }) => {
-  const selectedIds = Array.isArray(invoiceIds) ? invoiceIds.map(String).filter(Boolean) : [];
+  if (!Array.isArray(invoiceIds)) throw new PaymentRuleError('INVALID_RECEIVABLE_SELECTION', 'Selected invoices could not be verified. Refresh receivables and try again.');
+  const selectedIds = invoiceIds.map((id) => String(id || '').trim());
+  if (selectedIds.some((id) => !id) || new Set(selectedIds).size !== selectedIds.length || selectedIds.length > MAX_PUBLIC_SHARE_INVOICES) {
+    throw new PaymentRuleError('INVALID_RECEIVABLE_SELECTION', 'Selected invoices could not be verified. Refresh receivables and try again.');
+  }
   if (!customerId) throw new PaymentRuleError('CUSTOMER_REQUIRED', 'Customer is required');
   const receivables = (await findOpenReceivableInvoices({ customerId }))
     .filter((invoice) => !selectedIds.length || selectedIds.includes(invoice.invoiceId));
+  if (selectedIds.length && (new Set(selectedIds).size !== selectedIds.length || receivables.length !== selectedIds.length)) {
+    throw new PaymentRuleError('RECEIVABLE_SELECTION_STALE', 'Some selected invoices are no longer open. Refresh the receivables and review the current balance.', 409);
+  }
   if (!receivables.length) throw new PaymentRuleError('NO_OUTSTANDING_BALANCE', 'No outstanding selected bills/orders found');
+  if (receivables.length > MAX_PUBLIC_SHARE_INVOICES) {
+    throw new PaymentRuleError('RECEIVABLE_SELECTION_LIMIT', 'This payment link supports up to 100 open bills/orders. Select no more than 100 and try again.', 409);
+  }
   const customer = receivables[0].customer;
   const outstandingAmount = Number(receivables.reduce((sum, invoice) => sum + Number(invoice.balanceDue || invoice.balance || 0), 0).toFixed(2));
   const buttonSlug = await createPublicShareToken({
     resourceType: 'CUSTOMER',
     resourceId: customerId,
     purpose: 'INVOICE_VIEW',
+    invoiceIds: receivables.map((invoice) => invoice.invoiceId),
   });
   const { account } = await getDefaultPaymentAccount();
   const paymentSettings = account ? { ...account, qrMediaUrl: getPaymentAccountQrMediaUrl(account) } : null;
@@ -256,6 +267,7 @@ const previewReceivablesReminder = async (req, res) => {
       ].join('\n'),
       paymentAccount: reminder.paymentSettings,
       qrImage: reminder.paymentSettings?.qrMediaUrl || reminder.paymentSettings?.qrImageUrl || reminder.paymentSettings?.qrImageDataUrl || '',
+      paymentPath: `/invoice/${encodeURIComponent(reminder.buttonSlug)}`,
       source: 'DB',
     });
   } catch (err) {

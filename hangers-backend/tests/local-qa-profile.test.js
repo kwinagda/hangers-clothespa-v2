@@ -30,6 +30,13 @@ test('accepts the canonical local Test-mode connection configuration', () => {
   assert.equal(matchesLocalQaConfiguration(validConfiguration), true);
 });
 
+test('local QA permits explicitly enabled Home-only dispatch, never unrestricted dispatch', () => {
+  assert.equal(matchesLocalQaConfiguration({ ...validConfiguration, outboxWorker: 'true', outboxHomeOnly: 'true' }), true);
+  assert.equal(matchesLocalQaProfile({ ...validProfile, outboxWorker: 'true', outboxHomeOnly: 'true' }), true);
+  assert.equal(matchesLocalQaConfiguration({ ...validConfiguration, outboxWorker: 'true', outboxHomeOnly: 'false' }), false);
+  assert.equal(matchesLocalQaProfile({ ...validProfile, outboxWorker: 'true', outboxHomeOnly: undefined }), false);
+});
+
 for (const [description, field, value] of [
   ['malformed URL', 'databaseUrl', 'not a URL'],
   ['non-local host', 'databaseUrl', 'postgresql://postgres:qa-only@127.0.0.1:5432/hangers_db'],
