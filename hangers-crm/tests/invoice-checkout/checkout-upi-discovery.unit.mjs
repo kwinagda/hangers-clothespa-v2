@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { supportedUpiIntentApps, upiIntentUnavailable } from '../../src/app/invoice/[slug]/checkout/razorpay-sdk.ts'
+import { supportedUpiIntentApps, upiIntentUnavailable } from '../../src/app/(crm)/invoice/[slug]/checkout/razorpay-sdk.ts'
 
 test('UPI discovery accepts string app identifiers from a list and filters malformed entries', () => {
   assert.deepEqual(supportedUpiIntentApps(['gpay', 'phonepe', 7, null]), ['gpay', 'phonepe'])

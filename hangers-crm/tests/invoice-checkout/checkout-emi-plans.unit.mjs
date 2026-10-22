@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { issuerPlans } from '../../src/app/invoice/[slug]/checkout/razorpay-sdk.ts'
+import { issuerPlans } from '../../src/app/(crm)/invoice/[slug]/checkout/razorpay-sdk.ts'
 
 const eligible = { issuerCode: 'HDFC', emiAvailable: true }
 

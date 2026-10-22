@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checkoutAvailability } from '../../src/app/invoice/[slug]/checkout/availability.ts'
+import { checkoutAvailability } from '../../src/app/(crm)/invoice/[slug]/checkout/availability.ts'
 
 test('paid invoice stays confirmable without another payment', () => {
   assert.equal(checkoutAvailability('0', 'PAID', false), 'PAID')

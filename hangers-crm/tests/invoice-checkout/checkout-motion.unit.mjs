@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
-const source = readFileSync(new URL('../../src/app/invoice/[slug]/checkout/PaymentReceivedVisual.tsx', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../../src/app/(crm)/invoice/[slug]/checkout/PaymentReceivedVisual.tsx', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText
 const module = { exports: {} }
 new Function('require', 'module', 'exports', compiled)((name) => {
@@ -28,14 +28,14 @@ test('success artwork contains eight decorative dots without a payment transitio
   const html = renderToStaticMarkup(React.createElement(module.exports.PaymentReceivedMark))
   assert.equal((html.match(/class="confetti"/g) || []).length, 8)
   assert.match(html, /aria-hidden="true"/)
-  const css = readFileSync(new URL('../../src/app/invoice/[slug]/RazorpayCustomCheckout.module.css', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../../src/app/(crm)/invoice/[slug]/RazorpayCustomCheckout.module.css', import.meta.url), 'utf8')
   assert.match(css, /amountCount 900ms ease-out/)
   assert.match(css, /prefers-reduced-motion: reduce/)
   assert.match(css, /\.successRipple, \.confetti \{ display: none; \}/)
 })
 
 test('motion component renders the supplied static state during server rendering', () => {
-  const motionSource = readFileSync(new URL('../../src/app/invoice/[slug]/checkout/CheckoutMotion.tsx', import.meta.url), 'utf8')
+  const motionSource = readFileSync(new URL('../../src/app/(crm)/invoice/[slug]/checkout/CheckoutMotion.tsx', import.meta.url), 'utf8')
   const motionCompiled = ts.transpileModule(motionSource, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022,
   } }).outputText

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { customCheckoutModeAllowed } from '../../src/app/invoice/[slug]/checkout/checkout-mode.ts'
+import { customCheckoutModeAllowed } from '../../src/app/(crm)/invoice/[slug]/checkout/checkout-mode.ts'
 
 const localTest = { mode: 'TEST', key: 'rzp_test_example', hostname: 'localhost', protocol: 'http:', liveEnabled: false, siteUrl: 'https://hangers-cs.com' }
 const liveSite = { mode: 'LIVE', key: 'rzp_live_example', hostname: 'hangers-cs.com', protocol: 'https:', liveEnabled: true, siteUrl: 'https://hangers-cs.com' }

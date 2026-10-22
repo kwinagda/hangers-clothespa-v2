@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { emiEligibilityRequestMessage, checkoutRequestMessage, isInvoiceNotFound } from '../../src/app/invoice/[slug]/checkout/checkout-errors.ts'
-import { checkoutRequest } from '../../src/app/invoice/[slug]/checkout/razorpay-sdk.ts'
+import { emiEligibilityRequestMessage, checkoutRequestMessage, isInvoiceNotFound } from '../../src/app/(crm)/invoice/[slug]/checkout/checkout-errors.ts'
+import { checkoutRequest } from '../../src/app/(crm)/invoice/[slug]/checkout/razorpay-sdk.ts'
 
 test('a provider-coded missing invoice is distinguished from payment status', () => {
   const error = { status: 404, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found' }

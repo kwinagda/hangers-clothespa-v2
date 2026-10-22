@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
-const source = readFileSync(new URL('../../src/app/invoice/[slug]/checkout/SavedCards.tsx', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../../src/app/(crm)/invoice/[slug]/checkout/SavedCards.tsx', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022,
 } }).outputText

@@ -5,11 +5,11 @@ import { createRequire } from 'node:module'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import ts from 'typescript'
-import { checkoutAvailability } from '../../src/app/invoice/[slug]/checkout/availability.ts'
+import { checkoutAvailability } from '../../src/app/(crm)/invoice/[slug]/checkout/availability.ts'
 
 const require = createRequire(import.meta.url)
 const postcss = require('postcss')
-const source = readFileSync(new URL('../../src/app/invoice/[slug]/checkout/page.tsx', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../../src/app/(crm)/invoice/[slug]/checkout/page.tsx', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022,
 } }).outputText
@@ -141,7 +141,7 @@ test('API outage is recoverable and not presented as a missing invoice', async (
 })
 
 test('custom checkout normal, error, warning, and selected text meet WCAG AA source-color contrast', () => {
-  const css = readFileSync(new URL('../../src/app/invoice/[slug]/RazorpayCustomCheckout.module.css', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../../src/app/(crm)/invoice/[slug]/RazorpayCustomCheckout.module.css', import.meta.url), 'utf8')
   const root = postcss.parse(css)
   const declarations = (selector) => {
     let result = {}
