@@ -116,7 +116,9 @@ refresh_dependencies() {
     NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=640" \
     npm ci --prefix "$name" --foreground-scripts --maxsockets=2 --no-audit --no-fund
 
-  install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$marker_dir"
+  install -d "$marker_dir"
+  chown "$DEPLOY_USER:$DEPLOY_USER" "$marker_dir"
+  chmod 0750 "$marker_dir"
   run_as_deploy_user sh -c 'printf "%s\n" "$1" > "$2.tmp" && mv "$2.tmp" "$2"' \
     sh "$fingerprint" "$marker"
 }
