@@ -521,12 +521,46 @@ const ensureServiceAppointmentInvoice = async (tx, appointmentId, actorId = null
   return createServiceAppointmentInvoice(tx, appointment, actorId);
 };
 
+const refreshServiceAppointmentInvoice = async (tx, appointmentId, actorId, reason) => {
+  const appointment = await tx.serviceAppointment.findUnique({
+    where: { id: appointmentId },
+    include: { lines: { orderBy: { createdAt: 'asc' } }, invoice: { include: { lines: true } } },
+  });
+  if (!appointment) throw new BillingRuleError('SERVICE_APPOINTMENT_NOT_FOUND', 'Service appointment not found', 404);
+  if (!appointment.invoice) return null;
+  const invoice = appointment.invoice;
+  if (invoice.voidedAt) throw new BillingRuleError('INVOICE_VOID', 'A void invoice cannot be changed');
+
+  const settlement = await getInvoiceSettlement(tx, invoice);
+  const settledAmount = roundMoney(settlement.paidAmount + settlement.creditAmount + settlement.writeOffAmount);
+  const nextTotal = roundMoney(Number(appointment.totalAmount || 0));
+  if (nextTotal + 0.005 < settledAmount) {
+    throw new BillingRuleError('INVOICE_BELOW_SETTLEMENT', 'Invoice total cannot be reduced below its settled value');
+  }
+
+  await storeRevision(tx, invoice, reason, actorId);
+  await tx.invoiceLine.deleteMany({ where: { invoiceId: invoice.id } });
+  await tx.invoice.update({
+    where: { id: invoice.id },
+    data: {
+      subtotal: Number(appointment.subtotal || 0),
+      discountAmount: Number(appointment.discountAmount || 0),
+      totalAmount: nextTotal,
+      balanceDue: roundMoney(nextTotal - settledAmount),
+      version: { increment: 1 },
+      lines: { create: appointment.lines.map((line) => fieldServiceLineData(line, appointment)) },
+    },
+  });
+  return syncInvoiceBalance(tx, invoice.id);
+};
+
 module.exports = {
   BillingRuleError,
   CAPTURED_PAYMENT_STATUSES,
   ensureIronBillInvoice,
   ensureOrderInvoice,
   ensureServiceAppointmentInvoice,
+  refreshServiceAppointmentInvoice,
   refreshIronBillInvoice,
   refreshOrderInvoice,
   resolveIronBillStatusAfterInvoiceSync,

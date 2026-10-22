@@ -104,6 +104,9 @@ jobs:
       - name: Verify payment journey retries and webhook correlation against disposable database
         run: RUN_DB_INTEGRATION=1 node --test --test-name-pattern='Razorpay durable webhook inbox retries a transient worker failure|a confirmed failed payment retry reserves a new attempt and Razorpay order' tests/order-workflow.integration.test.js
 
+      - name: Verify Sofa appointment invoice edits against disposable database
+        run: RUN_DB_INTEGRATION=1 node --test --test-name-pattern='Sofa appointment edits update invoice revisions' tests/order-workflow.integration.test.js
+
   crm:
     name: CRM — type-check, build
     runs-on: ubuntu-latest

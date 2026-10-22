@@ -252,6 +252,7 @@ export const deliveryAPI = {
 export const serviceAppointmentsAPI = {
   list: (params?: any) => api.get('/service-appointments', { params }) as any,
   create: (data: any) => api.post('/service-appointments', data, idempotencyConfig('crm-field-service-create')) as any,
+  update: (id: string, data: any) => api.patch(`/service-appointments/${id}`, data, idempotencyConfig('crm-field-service-edit')) as any,
   setStatus: (id: string, data: any) => api.patch(`/service-appointments/${id}/status`, data, idempotencyConfig('crm-field-service-status')) as any,
   invoice: (id: string) => api.post(`/service-appointments/${id}/invoice`, {}, idempotencyConfig('crm-field-service-invoice')) as any,
   pay: (id: string, data: any) => api.post(`/service-appointments/${id}/payments`, data, idempotencyConfig('crm-field-service-payment')) as any,

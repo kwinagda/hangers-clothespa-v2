@@ -9,6 +9,7 @@ const { idempotent } = require('../middleware/idempotency');
 const {
   getAppointments,
   createAppointment,
+  editServiceAppointment,
   updateStatus,
   invoiceAppointment,
   recordAppointmentPayment,
@@ -23,6 +24,7 @@ router.use(requireTrustedWrite);
 
 router.get('/', staffAuth, crmAccess, officeRoles, getAppointments);
 router.post('/', staffAuth, crmAccess, officeRoles, requirePermission('orders.create'), idempotent({ scope: 'field-service.appointment.create' }), createAppointment);
+router.patch('/:id', staffAuth, crmAccess, officeRoles, requirePermission('orders.edit'), idempotent({ scope: 'field-service.appointment.edit' }), editServiceAppointment);
 router.patch('/:id/status', staffAuth, crmAccess, officeRoles, requirePermission('orders.update'), idempotent({ scope: 'field-service.appointment.status' }), updateStatus);
 router.post('/:id/invoice', staffAuth, crmAccess, officeRoles, requirePermission('finance.collect_payment'), idempotent({ scope: 'field-service.appointment.invoice' }), invoiceAppointment);
 router.post('/:id/payments', staffAuth, crmAccess, officeRoles, requirePermission('finance.collect_payment'), idempotent({ scope: 'field-service.appointment.payment' }), recordAppointmentPayment);
