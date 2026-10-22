@@ -734,6 +734,7 @@ export default function ServiceAppointmentsPage() {
             {appointments.map((appointment) => <AppointmentRow
               key={appointment.id}
               appointment={appointment}
+              services={sofaServices}
               statusMeta={statusMeta}
               workflow={workflow}
               staff={staff}
@@ -747,6 +748,7 @@ export default function ServiceAppointmentsPage() {
               pay={pay}
               writeOff={writeOff}
               voidPayment={voidPayment}
+              onSaved={load}
             />)}
           </div>
         )}
@@ -755,8 +757,9 @@ export default function ServiceAppointmentsPage() {
   )
 }
 
-function AppointmentRow({ appointment, statusMeta, workflow, staff, busy, setStatus, generateInvoice, paymentMethods, defaultPaymentMethod, paymentForm, setPaymentForm, pay, writeOff, voidPayment }: any) {
+function AppointmentRow({ appointment, services, statusMeta, workflow, staff, busy, setStatus, generateInvoice, paymentMethods, defaultPaymentMethod, paymentForm, setPaymentForm, pay, writeOff, voidPayment, onSaved }: any) {
   const [assigneeId, setAssigneeId] = useState(appointment.assignedToId || appointment.assignedTo?.id || '')
+  const [editing, setEditing] = useState(false)
   const meta = statusMeta[appointment.status] || { label: appointment.status, bg: '#f1f5f9', color: '#334155' }
   const invoice = appointment.invoice
   const serviceAddress = appointmentAddressText(appointment)
@@ -792,6 +795,10 @@ function AppointmentRow({ appointment, statusMeta, workflow, staff, busy, setSta
           })}
         </div>
       </div>
+      {appointment.status !== 'CANCELLED' && <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+        <button onClick={() => setEditing((value) => !value)} style={ghostBtn}>{editing ? 'Close editor' : invoice ? 'Edit invoice' : 'Edit service'}</button>
+      </div>}
+      {editing && <ServiceAppointmentEditor appointment={appointment} services={services} onCancel={() => setEditing(false)} onSaved={onSaved} />}
       {invoice && balance > 0.005 && (
         <div className="field-payment-row" style={payRow}>
           <input inputMode="decimal" value={paymentForm[appointment.id]?.amount || ''} onChange={(e) => setPaymentForm({ ...paymentForm, [appointment.id]: { amount: sanitizeDecimalInput(e.target.value), paymentMethod: paymentForm[appointment.id]?.paymentMethod || defaultPaymentMethod } })} placeholder={`Collect ${fmt(balance)}`} style={input} />
@@ -808,6 +815,101 @@ function AppointmentRow({ appointment, statusMeta, workflow, staff, busy, setSta
       })}</div>}
     </div>
   )
+}
+
+function ServiceAppointmentEditor({ appointment, services, onCancel, onSaved }: any) {
+  const [items, setItems] = useState<any[]>(() => (appointment.lines || []).map((line: any) => ({
+    id: line.id,
+    serviceId: line.serviceId || '',
+    description: line.description,
+    quantity: String(line.quantity || 1),
+    unitPrice: String(line.unitPrice || 0),
+    lineDiscountType: String(line.lineDiscountType || 'flat').toLowerCase(),
+    lineDiscountValue: Number(line.lineDiscountValue || 0) > 0 ? String(line.lineDiscountValue) : '',
+    notes: line.notes || '',
+  })))
+  const snapshot = appointment.pricingSnapshot || {}
+  const [discountType, setDiscountType] = useState(String(snapshot.commercialDiscountType || 'FLAT').toUpperCase())
+  const [discountValue, setDiscountValue] = useState(String(snapshot.commercialDiscountValue || ''))
+  const [reason, setReason] = useState('')
+  const [newServiceId, setNewServiceId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const subtotal = items.reduce((sum, line) => sum + money(line.quantity) * money(line.unitPrice), 0)
+  const lineDiscount = items.reduce((sum, line) => sum + getLineDiscountAmount({
+    quantity: line.quantity, unitPrice: line.unitPrice,
+    lineDiscountType: line.lineDiscountValue ? String(line.lineDiscountType).toLowerCase() as LineDiscountType : null,
+    lineDiscountValue: line.lineDiscountValue,
+  }), 0)
+  const discountedSubtotal = Math.max(0, subtotal - lineDiscount)
+  const invoiceDiscount = discountType === 'PERCENT'
+    ? roundCurrency(discountedSubtotal * money(discountValue) / 100)
+    : Math.min(discountedSubtotal, money(discountValue))
+  const total = Math.max(0, discountedSubtotal - invoiceDiscount)
+  const patchItem = (index: number, patch: Record<string, any>) => setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
+  const addService = () => {
+    const service = services.find((item: ServiceItem) => item.id === newServiceId)
+    if (!service) return toast.error('Choose a sofa service from the catalog')
+    setItems((current) => [...current, { serviceId: service.id, description: service.name, quantity: '1', unitPrice: String(service.basePrice), lineDiscountType: 'flat', lineDiscountValue: '', notes: '' }])
+    setNewServiceId('')
+  }
+  const save = async () => {
+    if (!items.length) return toast.error('Keep at least one service item')
+    if (items.some((line) => !Number.isInteger(Number(line.quantity)) || Number(line.quantity) < 1 || !isStrictMoneyText(String(line.unitPrice)))) return toast.error('Check each item quantity and price')
+    if (discountValue.trim() && !isStrictMoneyText(discountValue)) return toast.error('Enter a valid invoice discount')
+    if (!reason.trim() || reason.trim().length < 3) return toast.error('Enter a reason for this invoice edit')
+    setSaving(true)
+    try {
+      await serviceAppointmentsAPI.update(appointment.id, {
+        expectedUpdatedAt: appointment.updatedAt,
+        items: items.map((line) => ({
+          ...(line.id ? { id: line.id } : {}),
+          serviceId: line.serviceId || null,
+          description: line.description,
+          quantity: Number(line.quantity),
+          unitPrice: money(line.unitPrice),
+          lineDiscountType: line.lineDiscountValue ? String(line.lineDiscountType).toUpperCase() : null,
+          lineDiscountValue: line.lineDiscountValue ? money(line.lineDiscountValue) : 0,
+          notes: line.notes || null,
+        })),
+        discountType,
+        discountValue: discountValue.trim() ? money(discountValue) : 0,
+        commercialReason: reason.trim(),
+      })
+      toast.success('Sofa service and invoice updated')
+      onSaved?.()
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update sofa service and invoice')
+    } finally {
+      setSaving(false)
+    }
+  }
+  return <div style={{ marginTop: 12, border: '1px solid #dfeaf3', borderRadius: 10, padding: 14, background: '#fbfdff' }}>
+    <div style={{ fontWeight: 900, color: '#023c62', marginBottom: 10 }}>{appointment.invoice ? `Edit ${appointment.invoice.invoiceNumber}` : 'Edit sofa service pricing'}</div>
+    <div style={{ display: 'grid', gap: 8 }}>
+      {items.map((line, index) => <div key={line.id || `${line.serviceId}-${index}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1.5fr) 76px 110px 100px 130px 34px', gap: 6, alignItems: 'center' }}>
+        <input value={line.description} onChange={(event) => patchItem(index, { description: event.target.value })} aria-label={`Item ${index + 1} description`} style={input} />
+        <input inputMode="numeric" value={line.quantity} onChange={(event) => patchItem(index, { quantity: sanitizeIntegerInput(event.target.value) })} aria-label={`Item ${index + 1} quantity`} style={input} />
+        <input inputMode="decimal" value={line.unitPrice} onChange={(event) => patchItem(index, { unitPrice: sanitizeDecimalInput(event.target.value) })} aria-label={`Item ${index + 1} rate`} style={input} />
+        <select value={line.lineDiscountType || 'flat'} onChange={(event) => patchItem(index, { lineDiscountType: event.target.value })} aria-label={`Item ${index + 1} discount type`} style={input}><option value="flat">₹ / qty</option><option value="percent">%</option></select>
+        <input inputMode="decimal" value={line.lineDiscountValue} onChange={(event) => patchItem(index, { lineDiscountValue: sanitizeDecimalInput(event.target.value) })} placeholder="Line discount" aria-label={`Item ${index + 1} discount`} style={input} />
+        <button onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={items.length === 1} title="Remove item" style={iconBtn}><Trash2 size={14} /></button>
+      </div>)}
+    </div>
+    <div style={{ display: 'flex', gap: 8, marginTop: 10, maxWidth: 420 }}>
+      <select value={newServiceId} onChange={(event) => setNewServiceId(event.target.value)} style={input}><option value="">Add sofa service item</option>{services.map((service: ServiceItem) => <option key={service.id} value={service.id}>{service.name} · {fmt(service.basePrice)}</option>)}</select>
+      <button onClick={addService} style={ghostBtn}><Plus size={14} /> Add</button>
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: '150px minmax(120px, 220px) 1fr', gap: 8, alignItems: 'end', marginTop: 12 }}>
+      <label style={label}>Invoice discount<select value={discountType} onChange={(event) => setDiscountType(event.target.value)} style={input}><option value="FLAT">Flat amount</option><option value="PERCENT">Percentage</option></select></label>
+      <label style={label}>Discount value<input inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(sanitizeDecimalInput(event.target.value))} placeholder={discountType === 'PERCENT' ? '0-100' : 'Amount'} style={input} /></label>
+      <label style={label}>Reason for change<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Required for audit history" style={input} /></label>
+    </div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, borderTop: '1px solid #e7eef4', marginTop: 12, paddingTop: 10 }}>
+      <span style={{ color: '#536b80', fontSize: 13 }}>Subtotal {fmt(subtotal)} · Item discounts {fmt(lineDiscount)} · Invoice discount {fmt(invoiceDiscount)} · <b>Total {fmt(total)}</b></span>
+      <div style={{ display: 'flex', gap: 8 }}><button onClick={onCancel} disabled={saving} style={ghostBtn}>Cancel</button><button onClick={save} disabled={saving} style={primaryBtn}>{saving ? <><Loader2 size={14} className="crm-spin" /> Saving…</> : 'Save invoice changes'}</button></div>
+    </div>
+    {appointment.invoice && Number(appointment.invoice.paidAmount || 0) > 0 && <div style={{ marginTop: 8, fontSize: 12, color: '#7b5b19' }}>Collected amount: {fmt(appointment.invoice.paidAmount)}. The new total cannot be lower than the settled amount.</div>}
+  </div>
 }
 
 function Info({ label, value }: { label: string; value: any }) { return <div style={info}><span>{label}</span><b>{value}</b></div> }
