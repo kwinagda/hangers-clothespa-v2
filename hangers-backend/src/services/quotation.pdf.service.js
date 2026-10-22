@@ -1,5 +1,7 @@
 const fs = require('fs/promises');
 const path = require('path');
+const { htmlToPDF } = require('./pdf-render.service');
+const { normalizeOrderItem } = require('../utils/line-pricing');
 
 const fmt = (n) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const roundMoney = (value) => Number((Number.isFinite(value) ? value : 0).toFixed(2));
@@ -105,6 +107,23 @@ const buildServiceDescriptionRows = (items) => items
   `)
   .join('');
 
+const getBillDiscountLabel = (quotation, billDiscount, subtotal) => {
+  if (billDiscount <= 0) return '';
+  const input = quotation?.pricingSnapshot?.discountInput;
+  if (String(input?.type || '').toUpperCase() === 'PERCENT' && Number(input?.value) > 0) {
+    return `Bill Discount (${Number(input.value)}%)`;
+  }
+  // Older quotations stored only the final discount amount. Recover the
+  // percentage when the amount maps exactly to a whole or two-decimal rate.
+  if (subtotal > 0) {
+    const calculatedPercent = roundMoney((billDiscount / subtotal) * 100);
+    if (calculatedPercent > 0 && roundMoney((subtotal * calculatedPercent) / 100) === roundMoney(billDiscount)) {
+      return `Bill Discount (${calculatedPercent}%)`;
+    }
+  }
+  return 'Bill Discount';
+};
+
 const generateQuotationHTML = async (quotation) => {
   const { blueLogo, whiteLogo } = await getBrandAssets();
   const items = Array.isArray(quotation?.items) ? quotation.items : [];
@@ -112,13 +131,14 @@ const generateQuotationHTML = async (quotation) => {
   const serviceDescriptionMarkup = buildServiceDescriptionRows(items);
   const compactLayout = items.length > 5 || noteText.length > 140;
 
-  const serviceDiscount = items.reduce((sum, item) => sum + Number(item.lineDiscountAmount || 0), 0);
+  const serviceDiscount = roundMoney(items.reduce((sum, item) => sum + getDiscountMath(item).totalDiscount, 0));
   const grossServiceValue = roundMoney(items.reduce((sum, item) => {
     const { grossAmount } = getDiscountMath(item);
     return sum + grossAmount;
   }, 0));
   const adjustedSubtotal = Number(quotation.subtotal || 0);
   const billDiscount = Number(quotation.discount || 0);
+  const billDiscountLabel = getBillDiscountLabel(quotation, billDiscount, adjustedSubtotal);
   const finalTotal = Number(quotation.totalAmount || 0);
   const totalPieces = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
 
@@ -363,16 +383,17 @@ const generateQuotationHTML = async (quotation) => {
         .negative { color: #166534; font-weight: 700; }
         .final-line { color: #023c62; font-weight: 800; }
         .summary-wrap {
-          display: grid;
-          grid-template-columns: 1fr 304px;
-          gap: 10px;
+          display: flex;
+          justify-content: flex-end;
           margin-top: 10px;
-          align-items: start;
         }
         .summary-card {
+          width: 304px;
+          max-width: 100%;
           border-radius: 16px;
           overflow: hidden;
-          box-shadow: 0 10px 26px rgba(2, 60, 98, 0.08);
+          background: #fff;
+          border: 1px solid #dce8f0;
         }
         .summary-top {
           background: linear-gradient(135deg, #023c62 0%, #0d537e 100%);
@@ -474,7 +495,10 @@ const generateQuotationHTML = async (quotation) => {
           max-width: 390px;
         }
         .layout-compact .summary-wrap {
-          grid-template-columns: 1fr 292px;
+          justify-content: flex-end;
+        }
+        .layout-compact .summary-card {
+          width: 292px;
         }
         @page {
           size: A4;
@@ -518,7 +542,7 @@ const generateQuotationHTML = async (quotation) => {
               <div class="customer-phone">${escapeHtml(quotation.customer?.phone || '—')}</div>
               <div class="chip-row">
                 <div class="chip chip-blue">${totalPieces} item${totalPieces === 1 ? '' : 's'}</div>
-                <div class="chip chip-green">Service Discount ${serviceDiscount ? fmt(serviceDiscount) : '—'}</div>
+                ${serviceDiscount > 0 ? `<div class="chip chip-green">Service Savings ${fmt(serviceDiscount)}</div>` : ''}
               </div>
             </div>
             <div class="panel">
@@ -558,14 +582,13 @@ const generateQuotationHTML = async (quotation) => {
           </table>
 
           <div class="summary-wrap">
-            <div></div>
             <div class="summary-card">
               <div class="summary-top">Estimate Summary</div>
               <div class="summary-body">
                 <div class="summary-row"><span>Gross Service Value</span><span class="summary-value">${fmt(grossServiceValue)}</span></div>
-                <div class="summary-row"><span>Included Service Discount</span><span class="summary-value ${serviceDiscount ? 'negative' : ''}">${serviceDiscount ? `-${fmt(serviceDiscount)}` : '—'}</span></div>
-                <div class="summary-row"><span>Net After Service Discount</span><span class="summary-value">${fmt(adjustedSubtotal)}</span></div>
-                <div class="summary-row"><span>Bill-Level Discount</span><span class="summary-value ${billDiscount ? 'negative' : ''}">${billDiscount ? `-${fmt(billDiscount)}` : '—'}</span></div>
+                ${serviceDiscount > 0 ? `<div class="summary-row"><span>Service Discounts</span><span class="summary-value negative">-${fmt(serviceDiscount)}</span></div>` : ''}
+                <div class="summary-row"><span>${serviceDiscount > 0 ? 'Subtotal After Service Discounts' : 'Subtotal'}</span><span class="summary-value">${fmt(adjustedSubtotal)}</span></div>
+                ${billDiscount > 0 ? `<div class="summary-row"><span>${escapeHtml(billDiscountLabel)}</span><span class="summary-value negative">-${fmt(billDiscount)}</span></div>` : ''}
                 <div class="summary-total"><span>Final Quoted Total</span><span>${fmt(finalTotal)}</span></div>
               </div>
           </div>
@@ -588,6 +611,38 @@ const generateQuotationHTML = async (quotation) => {
   </html>`;
 };
 
+const hydrateQuotationPricing = (quotation) => {
+  if (!quotation) return quotation;
+  const items = Array.isArray(quotation.items)
+    ? quotation.items.map((item) => ({
+        ...item,
+        ...normalizeOrderItem(item, { defaultServiceName: item.serviceName || 'Service' }),
+      }))
+    : [];
+  const subtotal = roundMoney(items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0));
+  const discount = Math.max(0, Number.parseFloat(String(quotation.discount ?? 0)) || 0);
+  const totalAmount = roundMoney(Math.max(0, subtotal - discount));
+  return { ...quotation, items, subtotal, discount, totalAmount };
+};
+
+const generateQuotationPDF = async (quotation) => {
+  const hydratedQuotation = hydrateQuotationPricing(quotation);
+  const html = await generateQuotationHTML(hydratedQuotation);
+  const itemCount = Array.isArray(hydratedQuotation?.items) ? hydratedQuotation.items.length : 0;
+  const noteLength = String(hydratedQuotation?.notes || '').trim().length;
+  const scale = itemCount > 8 || noteLength > 220
+    ? 0.92
+    : itemCount > 5 || noteLength > 120
+      ? 0.96
+      : 1;
+  return htmlToPDF(html, {
+    margin: { top: '3mm', bottom: '3mm', left: '3mm', right: '3mm' },
+    scale,
+  });
+};
+
 module.exports = {
   generateQuotationHTML,
+  hydrateQuotationPricing,
+  generateQuotationPDF,
 };

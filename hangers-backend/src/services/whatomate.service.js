@@ -113,6 +113,7 @@ const quotationSlugFor = async (quotation) => createPublicShareToken({
   resourceType: 'QUOTATION',
   resourceId: quotation?.id,
   purpose: 'QUOTATION_VIEW',
+  stable: true,
 });
 
 const ironBalance = (bill) => {
@@ -460,7 +461,7 @@ const sendQuotationSentMessage = async (quotation, options = {}) => {
     phone,
     templateName: template.templateName,
     templateParams: buildTemplateParams(template.params, { order: quotation }),
-    buttonParams: { [template.buttonIndex || config.quotationButtonIndex || '0']: quotationSlug },
+    buttonParams: { [template.buttonIndex || config.quotationButtonIndex || '0']: `${quotationSlug}?format=pdf` },
     accountName: config.accountName,
     idempotencyKey: options.idempotencyKey || `quotation-sent:${quotation.id}:v${quotation.version || 'latest'}`,
     throwOnFailure: options.throwOnFailure,

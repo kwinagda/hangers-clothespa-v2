@@ -1,0 +1,4 @@
+# Default owner for everything until branch protection is turned on (see DEPLOY.md).
+# Once "Require review from Code Owners" is enabled under Settings > Branches, this
+# makes every PR need a review from @kwinagda before merging.
+*       @kwinagda

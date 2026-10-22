@@ -130,7 +130,20 @@ refresh_dependencies hangers-crm \
   hangers-crm/package.json hangers-crm/package-lock.json
 
 echo "Building CRM..."
-run_as_deploy_user npm run build --prefix hangers-crm
+# The 2 GiB EC2 host keeps the live services running during the Next.js build.
+BUILD_SWAP="/var/lib/hangers-deploy/build.swap"
+if ! swapon --show=NAME --noheadings | grep -Fxq "$BUILD_SWAP"; then
+  install -d -m 700 /var/lib/hangers-deploy
+  if [[ ! -f "$BUILD_SWAP" ]]; then
+    available_kb="$(df -Pk /var/lib/hangers-deploy | awk 'NR == 2 { print $4 }')"
+    (( available_kb >= 4 * 1024 * 1024 )) || fail "less than 4 GiB free for the CRM build swap cushion"
+  fi
+  fallocate -l 2G "$BUILD_SWAP"
+  chmod 600 "$BUILD_SWAP"
+  mkswap "$BUILD_SWAP" >/dev/null
+  swapon "$BUILD_SWAP"
+fi
+run_as_deploy_user env NODE_OPTIONS="--max-old-space-size=640" npm run build --prefix hangers-crm
 
 # CloudFront serves /_next/static from S3, while CRM HTML comes from EC2. Publish
 # the complete new immutable build before exposing its HTML. Never delete older

@@ -100,6 +100,7 @@ export const quotationsAPI = {
   updateStatus: (id: string, quotationStatus: string, reason?: string) => api.patch(`/quotations/${id}/status`, { quotationStatus, reason }, idempotencyConfig('crm-quotation-status')) as any,
   convert:      (id: string)   => api.post(`/quotations/${id}/convert`, {}, idempotencyConfig('crm-quotation-convert')) as any,
   share:        (id: string)   => api.post(`/quotations/${id}/share`) as any,
+  sendWhatsApp: (id: string) => api.post(`/quotations/${id}/whatsapp`, {}, idempotencyConfig('crm-quotation-whatsapp')) as any,
   pdfUrl:       (id: string) => `${API_BASE_URL}/quotations/${id}/pdf`,
 }
 export const customersAPI = {

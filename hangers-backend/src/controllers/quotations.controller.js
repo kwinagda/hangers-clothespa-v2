@@ -3,8 +3,7 @@ const { success, badRequest, error, notFound } = require('../utils/response');
 const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const { generateOrderNumber } = require('../utils/order-number');
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
-const { generateQuotationHTML } = require('../services/quotation.pdf.service');
-const { htmlToPDF } = require('../services/pdf-render.service');
+const { generateQuotationPDF, hydrateQuotationPricing } = require('../services/quotation.pdf.service');
 const { createPublicShareToken } = require('../services/publicShare.service');
 const { ensureOrderInvoice } = require('../services/billing.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
@@ -68,37 +67,14 @@ const includeQuotation = {
   assignedTo: { select: { id: true, name: true, role: true } },
 };
 
-const hydrateQuotationPricing = (quotation) => {
-  if (!quotation) return quotation;
-
-  const items = Array.isArray(quotation.items)
-    ? quotation.items.map((item) => ({
-        ...item,
-        ...normalizeOrderItem(item, { defaultServiceName: item.serviceName || 'Service' }),
-      }))
-    : [];
-
-  const subtotal = roundMoney(items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0));
-  const discount = Math.max(0, Number.parseFloat(String(quotation.discount ?? 0)) || 0);
-  const totalAmount = roundMoney(Math.max(0, subtotal - discount));
-
-  return {
-    ...quotation,
-    items,
-    subtotal,
-    discount,
-    totalAmount,
-  };
-};
-
 const buildPublicQuotationUrl = (req, slug) => {
   const configuredBase = process.env.CRM_URL || process.env.CUSTOMER_APP_URL;
   const requestBase = req.get?.('origin');
   const base = String(configuredBase || requestBase || '').replace(/\/+$/, '');
-  return base ? `${base}/quotation/${slug}` : `/quotation/${slug}`;
+  return base ? `${base}/quotation/${slug}?format=pdf` : `/quotation/${slug}?format=pdf`;
 };
 
-const logQuotationWhatsAppStage = async ({ quotation, outcome, error: sendError, staff }) => {
+const logQuotationWhatsAppStage = async ({ quotation, outcome, error: sendError, staff, label = 'Quotation sent' }) => {
   if (!quotation?.id) return;
   const failed = outcome === 'FAILED';
   const skipped = outcome === 'SKIPPED';
@@ -109,10 +85,10 @@ const logQuotationWhatsAppStage = async ({ quotation, outcome, error: sendError,
       eventType: 'NOTIFICATION',
       reasonCode: `WHATSAPP_${outcome}`,
       notes: failed
-        ? `WhatsApp failed: Quotation sent - ${String(sendError || 'Provider did not accept message').slice(0, 180)}`
+        ? `WhatsApp failed: ${label} - ${String(sendError || 'Provider did not accept message').slice(0, 180)}`
         : skipped
-          ? `WhatsApp skipped: Quotation sent${sendError ? ` - ${String(sendError).slice(0, 180)}` : ''}`
-          : 'WhatsApp sent: Quotation sent',
+          ? `WhatsApp skipped: ${label}${sendError ? ` - ${String(sendError).slice(0, 180)}` : ''}`
+          : `WhatsApp sent: ${label}`,
       metadata: {
         channel: 'WHATSAPP',
         provider: 'WHATOMATE',
@@ -126,6 +102,51 @@ const logQuotationWhatsAppStage = async ({ quotation, outcome, error: sendError,
       changedById: staff?.id || null,
     },
   });
+};
+
+const resendQuotationWhatsApp = async (req, res) => {
+  let quotation;
+  try {
+    quotation = await prisma.order.findFirst({
+      where: { id: req.params.id, ...QUOTATION_WHERE },
+      include: includeQuotation,
+    });
+    if (!quotation) return notFound(res, 'Quotation not found');
+    if (!['SENT', 'APPROVED'].includes(quotation.quotationStatus)) {
+      return badRequest(res, 'Only sent or approved quotations can be resent on WhatsApp');
+    }
+    if (quotation.customer?.notifWhatsApp === false) {
+      await logQuotationWhatsAppStage({
+        quotation,
+        outcome: 'SKIPPED',
+        error: 'customer WhatsApp notifications disabled',
+        staff: req.staff,
+        label: 'Quotation resent',
+      });
+      return badRequest(res, 'WhatsApp notifications are disabled for this customer');
+    }
+
+    await sendQuotationSentMessage(quotation, {
+      throwOnFailure: true,
+      idempotencyKey: `quotation-resend:${quotation.id}:${req.idempotencyKey}`,
+    });
+    await logQuotationWhatsAppStage({ quotation, outcome: 'SENT', staff: req.staff, label: 'Quotation resent' })
+      .catch((logError) => console.error('Failed to log quotation WhatsApp resend:', logError));
+    return success(res, { quotationId: quotation.id }, 'Quotation resent on WhatsApp');
+  } catch (err) {
+    console.error('resendQuotationWhatsApp error:', err);
+    if (quotation) {
+      await logQuotationWhatsAppStage({
+        quotation,
+        outcome: 'FAILED',
+        error: err?.message || 'Failed to resend quotation on WhatsApp',
+        staff: req.staff,
+        label: 'Quotation resent',
+      }).catch((logError) => console.error('Failed to log quotation WhatsApp resend:', logError));
+    }
+    if (err.code === 'QUOTATION_NOT_FOUND') return notFound(res, err.message);
+    return error(res, err?.message || 'Failed to resend quotation on WhatsApp');
+  }
 };
 
 const listQuotations = async (req, res) => {
@@ -206,6 +227,7 @@ const createQuotation = async (req, res) => {
           subtotal: payload.subtotal,
           discount: payload.discount,
           totalAmount: payload.totalAmount,
+          pricingSnapshot: { quotation: true, discountInput: payload.pricing.discountInput },
           paidAmount: 0,
           paymentStatus: 'UNPAID',
           notes: payload.notes,
@@ -288,6 +310,7 @@ const updateQuotation = async (req, res) => {
           subtotal: payload.subtotal,
           discount: payload.discount,
           totalAmount: payload.totalAmount,
+          pricingSnapshot: { quotation: true, discountInput: payload.pricing.discountInput },
           notes: payload.notes,
           version: { increment: 1 },
           items: {
@@ -470,6 +493,9 @@ const convertQuotation = async (req, res) => {
       if (!hydratedQuotation.items.length) {
         throw Object.assign(new Error('Quotation must have at least one item before conversion'), { code: 'EMPTY_QUOTATION' });
       }
+      if (hydratedQuotation.items.some((item) => item.garmentType === 'SOFA CLEANING')) {
+        throw Object.assign(new Error('Sofa and chair cleaning quotations must be scheduled through Sofa / Field Service, not converted to garment orders'), { code: 'FIELD_SERVICE_QUOTATION' });
+      }
       const orderNumber = await generateOrderNumber({ documentType: 'ORDER', client: tx });
       const order = await tx.order.create({
         data: {
@@ -575,7 +601,7 @@ const convertQuotation = async (req, res) => {
   } catch (err) {
     console.error('convertQuotation error:', err);
     if (err.code === 'QUOTATION_NOT_FOUND') return notFound(res, err.message);
-    if (['ALREADY_CONVERTED', 'NOT_APPROVED', 'EXPIRED_QUOTATION', 'EMPTY_QUOTATION'].includes(err.code)) return badRequest(res, err.message);
+    if (['ALREADY_CONVERTED', 'NOT_APPROVED', 'EXPIRED_QUOTATION', 'EMPTY_QUOTATION', 'FIELD_SERVICE_QUOTATION'].includes(err.code)) return badRequest(res, err.message);
     if (err.code === 'CONVERSION_CONFLICT' || err.code === 'P2034') return res.status(409).json({ success: false, message: 'Quotation conversion conflicted with another request; retry with the same idempotency key' });
     return error(res, 'Failed to convert quotation');
   }
@@ -590,18 +616,7 @@ const getQuotationPDF = async (req, res) => {
     if (!quotation) return notFound(res, 'Quotation not found');
 
     const hydratedQuotation = hydrateQuotationPricing(quotation);
-    const html = await generateQuotationHTML(hydratedQuotation);
-    const itemCount = Array.isArray(hydratedQuotation.items) ? hydratedQuotation.items.length : 0;
-    const noteLength = String(hydratedQuotation.notes || '').trim().length;
-    const scale = itemCount > 8 || noteLength > 220
-      ? 0.92
-      : itemCount > 5 || noteLength > 120
-        ? 0.96
-        : 1;
-    const pdf = await htmlToPDF(html, {
-      margin: { top: '3mm', bottom: '3mm', left: '3mm', right: '3mm' },
-      scale,
-    });
+    const pdf = await generateQuotationPDF(hydratedQuotation);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${quotation.orderNumber}.pdf"`);
     res.send(pdf);
@@ -624,6 +639,7 @@ const createQuotationShare = async (req, res) => {
       resourceId: quotation.id,
       purpose: 'QUOTATION_VIEW',
       ttlDays: 30,
+      stable: true,
     });
     if (!slug) return error(res, 'Failed to create quotation share link');
 
@@ -645,6 +661,7 @@ module.exports = {
   getQuotation,
   getQuotationPDF,
   createQuotationShare,
+  resendQuotationWhatsApp,
   createQuotation,
   updateQuotation,
   updateQuotationStatus,

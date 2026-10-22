@@ -21,6 +21,7 @@ const stagingApiProxyUrl = () => {
 const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR || '.next',
   outputFileTracingRoot: path.join(__dirname),
+  experimental: { cpus: 1 },
   async headers() {
     return [
       {

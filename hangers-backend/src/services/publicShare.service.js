@@ -6,6 +6,15 @@ const MAX_PUBLIC_SHARE_INVOICES = 100;
 
 const hashToken = (token) => crypto.createHash('sha256').update(String(token || '')).digest('hex');
 
+const stableTokenFor = ({ resourceType, resourceId, purpose }) => {
+  const secret = process.env.PUBLIC_SHARE_TOKEN_SECRET || process.env.JWT_SECRET;
+  if (!secret) return null;
+  return crypto
+    .createHmac('sha256', secret)
+    .update(`${resourceType}:${resourceId}:${purpose}`)
+    .digest('base64url');
+};
+
 const addDays = (days) => {
   const date = new Date();
   date.setDate(date.getDate() + Number(days || DEFAULT_TTL_DAYS));
@@ -25,9 +34,37 @@ const normalizeInvoiceScope = (invoiceIds, resourceType, purpose) => {
   return normalized;
 };
 
-const createPublicShareToken = async ({ resourceType, resourceId, purpose, invoiceIds, ttlDays = DEFAULT_TTL_DAYS }) => {
+const createPublicShareToken = async ({ resourceType, resourceId, purpose, invoiceIds, ttlDays = DEFAULT_TTL_DAYS, stable = false }) => {
   if (!resourceType || !resourceId || !purpose) return null;
   const scopedInvoiceIds = normalizeInvoiceScope(invoiceIds, resourceType, purpose);
+
+  if (stable) {
+    const token = stableTokenFor({ resourceType, resourceId, purpose });
+    if (!token) return null;
+    const tokenHash = hashToken(token);
+    const expiresAt = addDays(ttlDays);
+    const existing = await prisma.publicShareToken.findUnique({ where: { tokenHash } });
+    if (existing) {
+      if (existing.resourceType !== resourceType || existing.resourceId !== resourceId || existing.purpose !== purpose) return null;
+      if (existing.revokedAt) return null;
+      if (existing.expiresAt <= new Date()) {
+        await prisma.publicShareToken.update({
+          where: { id: existing.id },
+          data: { expiresAt },
+        });
+      }
+      return token;
+    }
+
+    try {
+      await prisma.publicShareToken.create({
+        data: { tokenHash, resourceType, resourceId, purpose, expiresAt },
+      });
+    } catch (error) {
+      if (error?.code !== 'P2002') throw error;
+    }
+    return token;
+  }
 
   const existing = await prisma.publicShareToken.findFirst({
     where: {

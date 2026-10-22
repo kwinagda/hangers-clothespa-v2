@@ -10,7 +10,8 @@ export function buildPublicMetadata({ title, description, path }: { title: strin
   // image convention). Compute its URL from the page's own path rather than hardcoding
   // the root image here, or every page silently shares one preview image regardless
   // of whether it has its own opengraph-image.tsx sitting right next to it.
-  const ogImagePath = canonicalPath === '/' ? '/opengraph-image' : `${canonicalPath}/opengraph-image`
+  // Versioned so messaging apps that cached the old card re-fetch the redesigned image.
+  const ogImagePath = `${canonicalPath === '/' ? '' : canonicalPath}/opengraph-image?v=2`
   return {
     title: { absolute: title },
     description,

@@ -3,7 +3,7 @@ import tseslint from 'typescript-eslint'
 import globals from 'globals'
 
 export default tseslint.config({
-  files: ['src/app/invoice/**/*.{ts,tsx}'],
+  files: ['src/app/(crm)/invoice/**/*.{ts,tsx}'],
   extends: [js.configs.recommended, ...tseslint.configs.recommended],
   languageOptions: { globals: { ...globals.browser, ...globals.node } },
   rules: {
