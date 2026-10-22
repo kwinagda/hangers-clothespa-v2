@@ -8,6 +8,7 @@ const { syncOrderGarmentUnits } = require('../src/services/garment-unit.service'
 const { nextDocumentNumber } = require('../src/services/document-number.service');
 const { createInvoiceCheckout, markAttemptFailed, reconcileAmbiguousOrderCreation, settleCapturedPayment } = require('../src/services/razorpay-invoice-checkout.service');
 const { createPublicShareToken, resolvePublicShareToken } = require('../src/services/publicShare.service');
+const { editServiceAppointment } = require('../src/controllers/service-appointments.controller');
 const { createRazorpayRefund, reconcileRazorpayRefundAttempt, reconcileRazorpayRefundWebhook, serializeRefundAttempt } = require('../src/services/razorpay-refund.service');
 const crypto = require('node:crypto');
 const { handleRazorpayWebhook } = require('../src/controllers/webhooks.controller');
@@ -941,7 +942,10 @@ before(async () => {
     && process.env.CI === 'true'
     && database === 'hangers_test'
     && databaseUrl.pathname === '/hangers_test';
-  if (!isExistingLocalDatabase && !isDisposableGitHubDatabase) {
+  const isDisposableSofaEditDatabase = process.env.RUN_SOFA_EDIT_INTEGRATION === '1'
+    && database.startsWith('hangers_sofa_qa_')
+    && loopbackHosts.has(databaseUrl.hostname);
+  if (!isExistingLocalDatabase && !isDisposableGitHubDatabase && !isDisposableSofaEditDatabase) {
     throw new Error('Refusing mutating integration suite unless current database is the existing local hangers_db or the disposable GitHub Actions hangers_test database');
   }
   if (!String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_')) {
@@ -1076,6 +1080,12 @@ after(async () => {
   await prisma.reconciliationRun.deleteMany({ where: { scheduleKey: { startsWith: `IT-${runId}` } } });
   await prisma.idempotencyRecord.deleteMany({ where: { scope: 'razorpay.webhook.replay', key: { contains: runId } } });
   await prisma.publicShareToken.deleteMany({ where: { resourceId: { in: [state.customer?.id, state.foreignCustomer?.id].filter(Boolean) }, purpose: 'INVOICE_VIEW' } });
+  const fieldAppointments = await prisma.serviceAppointment.findMany({ where: { appointmentNumber: { startsWith: `IT-${runId}` } }, select: { id: true } });
+  const fieldAppointmentIds = fieldAppointments.map(({ id }) => id);
+  if (fieldAppointmentIds.length) {
+    await prisma.activityLog.deleteMany({ where: { resource: 'service_appointment', resourceId: { in: fieldAppointmentIds } } });
+    await prisma.auditLog.deleteMany({ where: { resource: 'service_appointment', resourceId: { in: fieldAppointmentIds } } });
+  }
   await prisma.invoice.deleteMany({ where: { invoiceNumber: { startsWith: `IT-${runId}` } } });
   await prisma.serviceAppointment.deleteMany({ where: { appointmentNumber: { startsWith: `IT-${runId}` } } });
   await prisma.payment.deleteMany({ where: { razorpayPaymentId: { startsWith: `pay_${runId}_` } } });
@@ -1116,6 +1126,74 @@ const createInvoice = async (suffix, balanceDue = 100, customerId = state.custom
     },
   });
 };
+
+integrationTest('Sofa appointment edits update invoice revisions and enforce payment and settlement guards', async () => {
+  const appointment = await prisma.serviceAppointment.create({
+    data: {
+      appointmentNumber: `IT-${runId}-SOFA-EDIT`, customerId: state.customer.id,
+      serviceName: 'Sofa Cleaning', status: 'SERVICE_DONE', scheduledAt: new Date(),
+      subtotal: 1000, totalAmount: 1000,
+      lines: { create: [{ description: 'Sofa Cleaning', quantity: 1, unitPrice: 1000, lineTotal: 1000 }] },
+    },
+    include: { lines: true },
+  });
+  const invoice = await prisma.invoice.create({
+    data: {
+      invoiceNumber: `IT-${runId}-SOFA-EDIT`, customerId: state.customer.id,
+      serviceAppointmentId: appointment.id, sourceType: 'FIELD_SERVICE', status: 'OPEN',
+      currency: 'INR', dueDate: new Date(Date.now() + 86400000), subtotal: 1000,
+      totalAmount: 1000, balanceDue: 1000,
+      lines: { create: [{ lineType: 'FIELD_SERVICE', description: 'Sofa Cleaning', quantity: 1, unitPrice: 1000, lineTotal: 1000 }] },
+    },
+  });
+  const response = () => ({ statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
+  const payload = (current, discountValue) => ({
+    expectedUpdatedAt: current.updatedAt.toISOString(),
+    items: current.lines.map((line) => ({ id: line.id, serviceId: null, description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice) })),
+    discountType: 'PERCENT', discountValue, commercialReason: 'Customer service adjustment',
+  });
+
+  const firstResponse = response();
+  await editServiceAppointment({ params: { id: appointment.id }, body: payload(appointment, 10), staff: state.actor }, firstResponse);
+  assert.equal(firstResponse.statusCode, 200);
+  assert.equal(Number(firstResponse.body.data.appointment.totalAmount), 900);
+  assert.equal(Number(firstResponse.body.data.appointment.invoice.totalAmount), 900);
+  assert.equal(Number(firstResponse.body.data.appointment.invoice.balanceDue), 900);
+  assert.equal(await prisma.invoiceRevision.count({ where: { invoiceId: invoice.id } }), 1);
+
+  const attempt = await prisma.razorpayCheckoutAttempt.create({
+    data: {
+      idempotencyKey: `sofa-edit-${runId}`, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber,
+      customerId: state.customer.id, amountPaise: 90000n, mode: 'TEST', status: 'CREATED',
+      razorpayOrderId: `order_sofa_edit_${runId.replace(/[^a-zA-Z0-9]/g, '').slice(-20)}`,
+    },
+  });
+  const blockedResponse = response();
+  await editServiceAppointment({ params: { id: appointment.id }, body: payload(firstResponse.body.data.appointment, 5), staff: state.actor }, blockedResponse);
+  assert.equal(blockedResponse.statusCode, 409);
+  assert.equal(blockedResponse.body.code, 'CHECKOUT_ATTEMPT_UNRESOLVED');
+  assert.equal(await prisma.invoiceRevision.count({ where: { invoiceId: invoice.id } }), 1);
+
+  await prisma.razorpayCheckoutAttempt.update({ where: { id: attempt.id }, data: { status: 'FAILED' } });
+  const secondResponse = response();
+  await editServiceAppointment({ params: { id: appointment.id }, body: payload(firstResponse.body.data.appointment, 5), staff: state.actor }, secondResponse);
+  assert.equal(secondResponse.statusCode, 200);
+  assert.equal(Number(secondResponse.body.data.appointment.totalAmount), 950);
+  assert.equal(Number(secondResponse.body.data.appointment.invoice.totalAmount), 950);
+  assert.equal(await prisma.invoiceRevision.count({ where: { invoiceId: invoice.id } }), 2);
+
+  await prisma.$transaction((tx) => recordInvoiceSettlement(tx, {
+    invoiceId: invoice.id, amount: 200, method: 'CASH', notes: 'Sofa edit settlement guard',
+    idempotencyKey: `sofa-edit-settlement-${runId}`, staff: state.actor,
+  }));
+  const settled = await prisma.serviceAppointment.findUnique({ where: { id: appointment.id }, include: { lines: true } });
+  const underSettlement = response();
+  await editServiceAppointment({ params: { id: appointment.id }, body: payload(settled, 90), staff: state.actor }, underSettlement);
+  assert.equal(underSettlement.statusCode, 400);
+  assert.match(underSettlement.body.message, /settled value/i);
+  assert.equal(Number((await prisma.invoice.findUnique({ where: { id: invoice.id } })).totalAmount), 950);
+  assert.equal(await prisma.invoiceRevision.count({ where: { invoiceId: invoice.id } }), 2);
+});
 
 integrationTest('Razorpay-collected payment cannot be marked refunded by the manual CRM refund flow', async () => {
   const invoice = await createInvoice('RZP-REFUND-GUARD', 100);

@@ -71,6 +71,9 @@ jobs:
       - name: Run scoped Razorpay Payment Gateway and deployment contracts
         run: npm run test:razorpay-release
 
+      - name: Verify Sofa appointment invoice edits against disposable database
+        run: RUN_DB_INTEGRATION=1 node --test --test-name-pattern='Sofa appointment edits update invoice revisions' tests/order-workflow.integration.test.js
+
       - name: Verify combined invoice checkout against disposable database
         run: RUN_COMBINED_CHECKOUT_INTEGRATION=1 node --test tests/combined-checkout.integration.test.js
 

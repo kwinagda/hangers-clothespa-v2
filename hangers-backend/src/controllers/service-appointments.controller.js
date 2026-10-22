@@ -2,11 +2,12 @@ const prisma = require('../config/database');
 const { success, created, error, badRequest, notFound, forbidden } = require('../utils/response');
 const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const { nextDocumentNumber } = require('../services/document-number.service');
-const { BillingRuleError, ensureServiceAppointmentInvoice } = require('../services/billing.service');
+const { BillingRuleError, ensureServiceAppointmentInvoice, refreshServiceAppointmentInvoice } = require('../services/billing.service');
 const { PaymentRuleError, recordInvoiceSettlement, reverseInvoicePaymentCorrection } = require('../services/payment.service');
 const { getCorePaymentMethods, getFieldServiceWorkflow } = require('../services/masterData.service');
 const { normalizePaymentMethod } = require('../utils/payment-method');
 const { calculateLineDiscountAmount, normalizeLineDiscountType, roundMoney } = require('../utils/line-pricing');
+const { serviceAppointmentEditSchema } = require('../validation/service-appointments.schemas');
 
 const FIELD_SERVICE_CATEGORY = 'SOFA CLEANING';
 
@@ -383,6 +384,118 @@ const updateStatus = async (req, res) => {
   }
 };
 
+const editServiceAppointment = async (req, res) => {
+  const parsed = serviceAppointmentEditSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid sofa service edit');
+  const { expectedUpdatedAt, items, discountType, discountValue, commercialReason } = parsed.data;
+  const permissions = req.staff?.effectivePermissions || [];
+  const hasPermission = (permission) => permissions.includes('*') || permissions.includes(permission);
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "service_appointments" WHERE "id" = ${req.params.id} FOR UPDATE`;
+      const current = await tx.serviceAppointment.findUnique({
+        where: { id: req.params.id },
+        include: { lines: { orderBy: { createdAt: 'asc' } }, invoice: { include: { lines: true } } },
+      });
+      if (!current) throw new PaymentRuleError('SERVICE_APPOINTMENT_NOT_FOUND', 'Service appointment not found', 404);
+      if (new Date(expectedUpdatedAt).getTime() !== new Date(current.updatedAt).getTime()) {
+        throw new PaymentRuleError('STALE_SERVICE_APPOINTMENT', 'This sofa service changed after it was opened. Refresh before editing.', 409);
+      }
+      if (current.status === 'CANCELLED') throw new PaymentRuleError('SERVICE_APPOINTMENT_EDIT_FORBIDDEN', 'Cancelled sofa services cannot be edited');
+      const existingIds = new Set(current.lines.map((line) => line.id));
+      if (items.some((item) => item.id && !existingIds.has(item.id))) {
+        throw new PaymentRuleError('INVALID_SERVICE_APPOINTMENT_LINE', 'An edited item does not belong to this sofa service');
+      }
+
+      const normalizedLines = await normalizeAppointmentLines(tx, { items });
+      const catalogue = await tx.service.findMany({
+        where: { id: { in: normalizedLines.map((line) => line.serviceId).filter(Boolean) }, isActive: true },
+        select: { id: true, basePrice: true },
+      });
+      const catalogueById = new Map(catalogue.map((service) => [service.id, Number(service.basePrice)]));
+      const hasDiscount = normalizedLines.some((line) => line.discountAmount > 0) || discountValue > 0;
+      const hasPriceOverride = normalizedLines.some((line) => !line.serviceId
+        || Math.abs(Number(line.unitPrice) - Number(catalogueById.get(line.serviceId))) > 0.009);
+      if (hasDiscount && !hasPermission('pricing.discount')) throw new PaymentRuleError('COMMERCIAL_APPROVAL_REQUIRED', 'You do not have permission to apply a discount', 403);
+      if (hasPriceOverride && !hasPermission('pricing.override')) throw new PaymentRuleError('COMMERCIAL_APPROVAL_REQUIRED', 'You do not have permission to use a custom item or override a catalog price', 403);
+
+      const subtotal = roundMoney(normalizedLines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0));
+      const lineDiscount = roundMoney(normalizedLines.reduce((sum, line) => sum + line.discountAmount, 0));
+      const discountedSubtotal = roundMoney(subtotal - lineDiscount);
+      const commercialDiscount = discountType === 'PERCENT'
+        ? roundMoney(discountedSubtotal * discountValue / 100)
+        : roundMoney(discountValue);
+      if (commercialDiscount > discountedSubtotal) throw new PaymentRuleError('DISCOUNT_EXCEEDS_SUBTOTAL', 'Discount cannot exceed the remaining service total');
+      const totalAmount = roundMoney(discountedSubtotal - commercialDiscount);
+      const totalDiscount = roundMoney(lineDiscount + commercialDiscount);
+
+      if (current.invoice) {
+        const activeAttempts = await tx.razorpayCheckoutAttempt.count({
+          where: { invoiceId: current.invoice.id, status: { in: ['CREATING', 'CREATED', 'AUTHORIZED', 'PENDING', 'REVIEW', 'SUPERSEDED'] } },
+        });
+        if (activeAttempts) throw new PaymentRuleError('CHECKOUT_ATTEMPT_UNRESOLVED', 'Confirm the payment status before editing this invoice amount', 409);
+      }
+
+      await tx.serviceAppointmentLine.deleteMany({ where: { appointmentId: current.id } });
+      const primaryLine = normalizedLines[0];
+      const updated = await tx.serviceAppointment.update({
+        where: { id: current.id },
+        data: {
+          serviceId: normalizedLines.length === 1 ? primaryLine.serviceId : null,
+          serviceName: normalizedLines.length === 1 ? primaryLine.description : `${primaryLine.description} + ${normalizedLines.length - 1} more`,
+          subtotal,
+          discountAmount: totalDiscount,
+          totalAmount,
+          pricingSnapshot: {
+            subtotal,
+            lineDiscountAmount: lineDiscount,
+            commercialDiscountAmount: commercialDiscount,
+            commercialDiscountType: discountType,
+            commercialDiscountValue: discountValue,
+            discountAmount: totalDiscount,
+            totalAmount,
+            source: 'FIELD_SERVICE_CRM_EDIT',
+            commercialReason,
+            lines: normalizedLines.map(({ serviceId, description, quantity, unitPrice, lineDiscountType, lineDiscountValue, discountAmount, lineTotal, metadata }) => ({ serviceId, description, quantity, unitPrice, lineDiscountType, lineDiscountValue, discountAmount, lineTotal, metadata })),
+          },
+          lines: { create: normalizedLines.map((line) => ({
+            serviceId: line.serviceId, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice,
+            lineDiscountType: line.lineDiscountType, lineDiscountValue: line.lineDiscountValue,
+            discountAmount: line.discountAmount, lineTotal: line.lineTotal, notes: line.notes, metadata: line.metadata,
+          })) },
+        },
+      });
+      if (current.invoice) await refreshServiceAppointmentInvoice(tx, current.id, req.staff?.id, commercialReason);
+      await logAppointmentEvent(tx, updated, {
+        eventType: 'FIELD_SERVICE_COMMERCIAL_DETAILS_EDITED', notes: commercialReason,
+        metadata: { invoiceId: current.invoice?.id || null, before: { subtotal: Number(current.subtotal), discountAmount: Number(current.discountAmount), totalAmount: Number(current.totalAmount) }, after: { subtotal, discountAmount: totalDiscount, totalAmount } },
+        staffId: req.staff?.id || null,
+      });
+      await writeAuditEvent(tx, {
+        actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
+        action: 'FIELD_SERVICE_COMMERCIAL_DETAILS_EDITED', resource: 'service_appointment', resourceId: current.id,
+        description: `${current.appointmentNumber} pricing updated`,
+        metadata: { reason: commercialReason, invoiceId: current.invoice?.id || null, before: { subtotal: Number(current.subtotal), discountAmount: Number(current.discountAmount), totalAmount: Number(current.totalAmount) }, after: { subtotal, discountAmount: totalDiscount, totalAmount } },
+        ...getRequestMeta(req),
+      });
+      return updated;
+    }, { isolationLevel: 'Serializable' });
+    const appointment = await prisma.serviceAppointment.findUnique({ where: { id: result.id }, include: includeAppointment });
+    return success(res, { appointment }, 'Sofa service and invoice updated');
+  } catch (err) {
+    console.error('editServiceAppointment error:', err);
+    if (err instanceof PaymentRuleError || err instanceof BillingRuleError) {
+      if (err.statusCode === 404) return notFound(res, err.message);
+      if (err.statusCode === 403) return forbidden(res, err.message);
+      if (err.statusCode === 409) return res.status(409).json({ success: false, code: err.code, message: err.message });
+      return badRequest(res, err.message);
+    }
+    if (err?.code === 'P2034') return res.status(409).json({ success: false, code: 'CONCURRENT_SERVICE_EDIT', message: 'Sofa service changed while saving. Refresh and try again.' });
+    return error(res, 'Failed to update sofa service and invoice');
+  }
+};
+
 const invoiceAppointment = async (req, res) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -502,6 +615,7 @@ module.exports = {
   getAppointments,
   createAppointment,
   updateStatus,
+  editServiceAppointment,
   invoiceAppointment,
   recordAppointmentPayment,
   reverseAppointmentPayment,
