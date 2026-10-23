@@ -36,3 +36,17 @@ test('missing MSG91 credentials still select the development OTP only outside pr
     restoreEnv(previous);
   }
 });
+
+test('production OTP delivery fails closed when MSG91 is not configured', async (t) => {
+  const previous = envSnapshot();
+  t.after(() => restoreEnv(previous));
+  process.env.NODE_ENV = 'production';
+  delete process.env.MSG91_AUTH_KEY;
+  process.env.DEV_MODE = 'false';
+  process.env.WA_DELIVERY_OTP_DEV = 'false';
+
+  for (const service of [customerOtp, deliveryOtp]) {
+    await assert.rejects(service.sendOtp('9876543210', '123456'), (error) =>
+      error.code === 'OTP_PROVIDER_UNAVAILABLE');
+  }
+});
