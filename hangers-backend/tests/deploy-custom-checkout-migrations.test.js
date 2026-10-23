@@ -33,7 +33,9 @@ test('Custom migration policy refuses wrong targets, revisions and unrelated his
 
 test('production migration dispatch preserves remote cleanup variables and requires explicit schema gate', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/deploy-production.yml'), 'utf8');
-  assert.ok(workflow.includes(String.raw`trap 'rm -f "\$migration_script" "\$custom_script" "\$deploy_script"' EXIT`));
-  assert.ok(workflow.includes("inputs.migrate_combined_checkout }}' == 'true' && '${{ inputs.migrate_custom_checkout }}' == 'true'"));
+  assert.ok(workflow.includes(String.raw`trap 'rm -f "\$migration_script" "\$custom_script" "\$duplicate_capture_script" "\$deploy_script"' EXIT`));
+  assert.ok(workflow.includes("inputs.migrate_combined_checkout }}' == 'true'"));
+  assert.ok(workflow.includes("inputs.migrate_custom_checkout }}' == 'true'"));
+  assert.ok(workflow.includes("selected_migrations > 1"));
   assert.ok(workflow.includes("'$COMMIT' --approved-custom-schema"));
 });
