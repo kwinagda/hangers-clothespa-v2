@@ -15,6 +15,15 @@ const isDevMode = () => {
     || k.length < 10;
 };
 
+const isProviderConfigured = () =>
+  typeof process.env.MSG91_AUTH_KEY === 'string' && process.env.MSG91_AUTH_KEY.trim().length >= 10;
+
+const providerUnavailableError = () => {
+  const error = new Error('OTP_PROVIDER_UNAVAILABLE');
+  error.code = 'OTP_PROVIDER_UNAVAILABLE';
+  return error;
+};
+
 // ── OTP generation & hashing ──────────────────────────────────────────────────
 const generateOtp = () =>
   isDevMode()
@@ -36,6 +45,8 @@ const sendOtp = async (phone, otp) => {
     console.log(`[MSG91 DEV] OTP generated for ${maskPhone(phone)} (redacted)`);
     return { success: true, devMode: true };
   }
+
+  if (!isProviderConfigured()) throw providerUnavailableError();
 
   const authKey    = process.env.MSG91_AUTH_KEY;
   const templateId = process.env.MSG91_TEMPLATE_ID || 'hangers_otp';
@@ -91,4 +102,5 @@ module.exports = {
   sendOtp,
   resendOtp,
   isDevMode,
+  isProviderConfigured,
 };

@@ -87,7 +87,7 @@ test('production environment requires a public HTTPS API origin', () => {
   }
 });
 
-test('production rejects development delivery OTP and missing MSG91 credentials', () => {
+test('production rejects development delivery OTP but does not couple API startup to MSG91', () => {
   const env = snapshotEnv();
   try {
     process.env.NODE_ENV = 'production';
@@ -100,7 +100,13 @@ test('production rejects development delivery OTP and missing MSG91 credentials'
     process.env.WA_DELIVERY_OTP_DEV = 'true';
     delete process.env.MSG91_AUTH_KEY;
 
-    assert.throws(() => validateEnvironment(), /WA_DELIVERY_OTP_DEV cannot be true.*MSG91_AUTH_KEY is required/);
+    assert.throws(() => validateEnvironment(), /WA_DELIVERY_OTP_DEV cannot be true/);
+
+    process.env.WA_DELIVERY_OTP_DEV = 'false';
+    process.env.ALLOWED_ORIGINS = 'https://crm.example.com';
+    process.env.PUBLIC_API_URL = 'https://api.example.com';
+    delete process.env.MSG91_AUTH_KEY;
+    assert.equal(validateEnvironment().isProduction, true);
   } finally {
     restoreEnv(env);
   }

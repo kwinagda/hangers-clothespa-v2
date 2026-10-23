@@ -4,7 +4,7 @@
 
 const prisma = require('../config/database');
 const {
-  generateOtp, hashOtp, sendOtp, isDevMode
+  generateOtp, hashOtp, sendOtp, isDevMode, isProviderConfigured
 }                                                  = require('../services/msg91.service');
 const { clearAuthThrottle, getAuthThrottleBlock, registerAuthThrottleFailure } = require('../services/authThrottle.service');
 const { generateCustomerToken, getTokenExpiry }    = require('../services/jwt.service');
@@ -104,6 +104,10 @@ const sendOtpController = async (req, res) => {
   const { phone } = parsed.data;
 
   const normalizedPhone = normalizePhone(phone);
+
+  if (!isDevMode() && !isProviderConfigured()) {
+    return error(res, 'Phone verification is temporarily unavailable.', 503, { code: 'OTP_PROVIDER_UNAVAILABLE' });
+  }
 
   // Shared auth has no invoice mode: use only server-owned Test/QA configuration.
   const restrictedTestContext = String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_')
