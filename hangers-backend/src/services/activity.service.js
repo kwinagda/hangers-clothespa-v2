@@ -3,16 +3,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const prisma = require('../config/database');
-const { sanitizeRazorpayErrorSummary } = require('../utils/redact');
-
-const sanitizeAuditMetadata = (metadata) => {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return metadata || null;
-  if (!Object.prototype.hasOwnProperty.call(metadata, 'providerError')) return metadata;
-  return {
-    ...metadata,
-    providerError: sanitizeRazorpayErrorSummary(metadata.providerError),
-  };
-};
 
 const buildEventData = ({
   actorType,     // 'customer' | 'staff' | 'system'
@@ -37,7 +27,7 @@ const buildEventData = ({
     resource: resource || null,
     resourceId: resourceId || null,
     description,
-    metadata: sanitizeAuditMetadata(metadata),
+    metadata: metadata || null,
     ipAddress: ipAddress || null,
     userAgent: userAgent || null,
   },
@@ -50,7 +40,7 @@ const buildEventData = ({
     resource: resource || null,
     resourceId: resourceId || null,
     description,
-    metadata: sanitizeAuditMetadata(metadata),
+    metadata: metadata || null,
     route: route || null,
     method: method || null,
     ipAddress: ipAddress || null,

@@ -1,5 +1,7 @@
 const prisma = require('../config/database');
 const { getMode, getRazorpay } = require('./razorpay-invoice-checkout.service');
+const { razorpayErrorSummary } = require('../utils/redact');
+
 const PAGE_SIZE = 100;
 const MAX_PAGES = 100;
 const MAX_WINDOW_SECONDS = 31 * 24 * 60 * 60;
@@ -10,11 +12,7 @@ const LINKED_ORDER_LOOKUP_CONCURRENCY = 5;
 const ORDER_ID_PATTERN = /^order_[A-Za-z0-9]+$/;
 const PAYMENT_ID_PATTERN = /^pay_[A-Za-z0-9]+$/;
 
-const safeCode = (error) => {
-  const root = error?.response?.data?.error || error?.error;
-  const code = root && typeof root === 'object' ? root.code : null;
-  return typeof code === 'string' && code.length ? code : null;
-};
+const safeCode = (error) => String(razorpayErrorSummary(error).code || 'PROVIDER_ERROR').slice(0, 80);
 
 const validateWindow = ({ from, to, now = new Date() }) => {
   const start = Number(from);
@@ -418,7 +416,6 @@ const previewRazorpayOrderInventory = async ({ from, to, provider: injectedProvi
       skippedByLimit: skippedOrderIds.size,
       complete: failedOrderIds.size === 0 && skippedOrderIds.size === 0,
       failureCodeCounts: [...failedOrderCodes.values()].reduce((counts, code) => {
-        if (typeof code !== 'string' || !code) return counts;
         counts[code] = (counts[code] || 0) + 1;
         return counts;
       }, {}),

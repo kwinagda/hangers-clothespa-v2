@@ -79,7 +79,6 @@ const validateEnvironment = () => {
       }
     }
     if (process.env.DEV_MODE === 'true') errors.push('DEV_MODE cannot be true in production');
-    if (process.env.WA_DELIVERY_OTP_DEV === 'true') errors.push('WA_DELIVERY_OTP_DEV cannot be true in production');
     if (!process.env.REDIS_URL) errors.push('REDIS_URL is required in production so background jobs do not silently run inline');
   }
 

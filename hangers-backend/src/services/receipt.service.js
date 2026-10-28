@@ -35,7 +35,6 @@ const issueReceipt = async (tx, { payment, invoiceId, staffId = null }) => {
         paymentId: payment.id,
         kind: payment.kind,
         amount: Number(payment.amount || 0),
-        unallocatedAmount: Number(payment.unallocatedAmount || 0),
         method: payment.method,
         reference: payment.reference || null,
         collectedAt: payment.createdAt,
