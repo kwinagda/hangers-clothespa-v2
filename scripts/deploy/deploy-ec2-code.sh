@@ -98,10 +98,6 @@ echo "Deploying $previous_commit -> $target_commit"
 echo "$(date -Is) started previous=${previous_commit} target=${target_commit}" >>"$DEPLOY_LOG" 2>/dev/null || true
 run_as_deploy_user git merge --ff-only "$target_commit"
 
-# The deployment user writes dependency markers here; keep the parent traversable
-# even when an earlier release created it as root-only for swap setup.
-install -d -m 0750 -o "$DEPLOY_USER" -g "$DEPLOY_USER" /var/lib/hangers-deploy
-
 refresh_dependencies() {
   local name="$1"
   shift
@@ -137,7 +133,7 @@ echo "Building CRM..."
 # The 2 GiB EC2 host keeps the live services running during the Next.js build.
 BUILD_SWAP="/var/lib/hangers-deploy/build.swap"
 if ! swapon --show=NAME --noheadings | grep -Fxq "$BUILD_SWAP"; then
-  install -d -m 0750 -o "$DEPLOY_USER" -g "$DEPLOY_USER" /var/lib/hangers-deploy
+  install -d -m 700 /var/lib/hangers-deploy
   if [[ ! -f "$BUILD_SWAP" ]]; then
     available_kb="$(df -Pk /var/lib/hangers-deploy | awk 'NR == 2 { print $4 }')"
     (( available_kb >= 4 * 1024 * 1024 )) || fail "less than 4 GiB free for the CRM build swap cushion"

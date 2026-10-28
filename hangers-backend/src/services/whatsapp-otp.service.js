@@ -7,21 +7,11 @@ const bcrypt = require('bcryptjs');
 const { maskPhone, providerErrorSummary } = require('../utils/redact');
 
 const isDevMode = () => {
-  if (process.env.NODE_ENV === 'production') return false;
   const k = process.env.MSG91_AUTH_KEY || '';
   return process.env.DEV_MODE === 'true'
     || process.env.WA_DELIVERY_OTP_DEV === 'true'
     || !k
     || k.length < 10;
-};
-
-const isProviderConfigured = () =>
-  typeof process.env.MSG91_AUTH_KEY === 'string' && process.env.MSG91_AUTH_KEY.trim().length >= 10;
-
-const providerUnavailableError = () => {
-  const error = new Error('OTP_PROVIDER_UNAVAILABLE');
-  error.code = 'OTP_PROVIDER_UNAVAILABLE';
-  return error;
 };
 
 // ── OTP generation & hashing ──────────────────────────────────────────────────
@@ -45,8 +35,6 @@ const sendOtp = async (phone, otp) => {
     console.log(`[MSG91 DEV] OTP generated for ${maskPhone(phone)} (redacted)`);
     return { success: true, devMode: true };
   }
-
-  if (!isProviderConfigured()) throw providerUnavailableError();
 
   const authKey    = process.env.MSG91_AUTH_KEY;
   const templateId = process.env.MSG91_TEMPLATE_ID || 'hangers_otp';
@@ -102,5 +90,4 @@ module.exports = {
   sendOtp,
   resendOtp,
   isDevMode,
-  isProviderConfigured,
 };

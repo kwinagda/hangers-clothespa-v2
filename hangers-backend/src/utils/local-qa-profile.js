@@ -1,5 +1,3 @@
-const { localOutboxEnabled } = require('./local-outbox-scope');
-
 const matchesLocalQaProfile = ({
   isProduction,
   databaseName,
@@ -8,7 +6,6 @@ const matchesLocalQaProfile = ({
   databasePort,
   razorpayKeyId,
   outboxWorker,
-  outboxHomeOnly,
   skipStartupSync,
 }) => (
   !isProduction
@@ -17,7 +14,7 @@ const matchesLocalQaProfile = ({
   && ['127.0.0.1', '::1'].includes(databaseAddress)
   && databasePort === 5432
   && String(razorpayKeyId || '').startsWith('rzp_test_')
-  && localOutboxEnabled({ outboxWorker, outboxHomeOnly })
+  && outboxWorker === 'false'
   && skipStartupSync === 'true'
 );
 
@@ -25,7 +22,6 @@ const matchesLocalQaConfiguration = ({
   databaseUrl,
   razorpayKeyId,
   outboxWorker,
-  outboxHomeOnly,
   skipStartupSync,
 }) => {
   let parsed;
@@ -41,7 +37,7 @@ const matchesLocalQaConfiguration = ({
     && parsed.pathname === '/hangers_db'
     && parsed.username === 'postgres'
     && String(razorpayKeyId || '').startsWith('rzp_test_')
-    && localOutboxEnabled({ outboxWorker, outboxHomeOnly })
+    && outboxWorker === 'false'
     && skipStartupSync === 'true';
 };
 

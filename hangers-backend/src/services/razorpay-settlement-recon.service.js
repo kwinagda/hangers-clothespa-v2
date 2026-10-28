@@ -1,13 +1,11 @@
 const prisma = require('../config/database');
 const { getRazorpay } = require('./razorpay-invoice-checkout.service');
+const { razorpayErrorSummary } = require('../utils/redact');
+
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 1000;
 const SUPPORTED_TYPES = new Set(['payment', 'refund', 'transfer', 'adjustment']);
-const safeCode = (error) => {
-  const root = error?.response?.data?.error || error?.error;
-  const code = root && typeof root === 'object' ? root.code : null;
-  return typeof code === 'string' && code.length ? code : null;
-};
+const safeCode = (error) => String(razorpayErrorSummary(error).code || 'PROVIDER_ERROR').slice(0, 80);
 const modeFromKey = () => String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_') ? 'TEST' : 'LIVE';
 const daysInMonth = (year, month) => new Date(Date.UTC(year, month, 0)).getUTCDate();
 

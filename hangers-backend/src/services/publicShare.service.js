@@ -2,7 +2,6 @@ const crypto = require('crypto');
 const prisma = require('../config/database');
 
 const DEFAULT_TTL_DAYS = 30;
-const MAX_PUBLIC_SHARE_INVOICES = 100;
 
 const hashToken = (token) => crypto.createHash('sha256').update(String(token || '')).digest('hex');
 
@@ -21,22 +20,8 @@ const addDays = (days) => {
   return date;
 };
 
-const normalizeInvoiceScope = (invoiceIds, resourceType, purpose) => {
-  if (invoiceIds === undefined || invoiceIds === null) return undefined;
-  if (resourceType !== 'CUSTOMER' || purpose !== 'INVOICE_VIEW' || !Array.isArray(invoiceIds)
-    || invoiceIds.length < 1 || invoiceIds.length > MAX_PUBLIC_SHARE_INVOICES) {
-    throw new TypeError('A customer invoice share requires between 1 and 100 invoice IDs');
-  }
-  const normalized = invoiceIds.map((id) => String(id || '').trim());
-  if (normalized.some((id) => !id) || new Set(normalized).size !== normalized.length) {
-    throw new TypeError('Customer invoice share IDs must be non-empty and unique');
-  }
-  return normalized;
-};
-
-const createPublicShareToken = async ({ resourceType, resourceId, purpose, invoiceIds, ttlDays = DEFAULT_TTL_DAYS, stable = false }) => {
+const createPublicShareToken = async ({ resourceType, resourceId, purpose, ttlDays = DEFAULT_TTL_DAYS, stable = false }) => {
   if (!resourceType || !resourceId || !purpose) return null;
-  const scopedInvoiceIds = normalizeInvoiceScope(invoiceIds, resourceType, purpose);
 
   if (stable) {
     const token = stableTokenFor({ resourceType, resourceId, purpose });
@@ -87,7 +72,6 @@ const createPublicShareToken = async ({ resourceType, resourceId, purpose, invoi
       resourceType,
       resourceId,
       purpose,
-      ...(scopedInvoiceIds ? { invoiceIds: scopedInvoiceIds } : {}),
       expiresAt: addDays(ttlDays),
     },
   });
@@ -126,7 +110,6 @@ const findPublicShareToken = async ({ token, purpose }) => {
 };
 
 module.exports = {
-  MAX_PUBLIC_SHARE_INVOICES,
   createPublicShareToken,
   findPublicShareToken,
   resolvePublicShareToken,

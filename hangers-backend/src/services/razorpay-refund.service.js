@@ -5,11 +5,7 @@ const { recordOrderRefund, PaymentRuleError } = require('./payment.service');
 const { writeAuditEvent } = require('./activity.service');
 const { razorpayErrorSummary } = require('../utils/redact');
 
-const ACTIVE_REFUND_STATES = ['CREATING', 'PROCESSING', 'PENDING', 'REVIEW'];
-const providerErrorSummary = (error) => {
-  const root = error?.response?.data?.error || error?.error;
-  return root && typeof root === 'object' ? razorpayErrorSummary({ error: root }) : {};
-};
+const ACTIVE_REFUND_STATES = ['CREATING', 'PENDING', 'REVIEW'];
 const serializeRefundAttempt = (attempt) => {
   if (!attempt) return null;
   return {
@@ -25,29 +21,13 @@ const serializeRefundAttempt = (attempt) => {
     razorpayRefundId: attempt.razorpayRefundId,
     reasonCode: attempt.reasonCode,
     reason: attempt.reason,
-    automatic: Boolean(attempt.automatic),
     failureCode: attempt.failureCode,
     createdAt: attempt.createdAt,
     updatedAt: attempt.updatedAt,
     completedAt: attempt.completedAt,
   };
 };
-const mode = () => {
-  const keyId = process.env.RAZORPAY_KEY_ID;
-  if (typeof keyId === 'string' && keyId.startsWith('rzp_test_')) return 'TEST';
-  if (typeof keyId === 'string' && keyId.startsWith('rzp_live_')) return 'LIVE';
-  throw new PaymentRuleError('RAZORPAY_MODE_UNAVAILABLE', 'Razorpay mode cannot be verified from the configured API key', 503);
-};
-const assertProviderMode = (expectedMode) => {
-  if (!['TEST', 'LIVE'].includes(expectedMode)) {
-    throw new PaymentRuleError('RAZORPAY_MODE_UNAVAILABLE', 'Refund mode is not recorded; no provider request was made.', 503);
-  }
-  const activeMode = mode();
-  if (expectedMode !== activeMode) {
-    throw new PaymentRuleError('RAZORPAY_MODE_MISMATCH', 'Refund belongs to a different Razorpay mode; no provider request was made.', 409);
-  }
-  return activeMode;
-};
+const mode = () => String(process.env.RAZORPAY_KEY_ID || '').startsWith('rzp_test_') ? 'TEST' : 'LIVE';
 const hash = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 const paise = (value) => {
   const amount = Number(value);
@@ -85,14 +65,12 @@ const providerCreateRefund = async ({ paymentId, amountPaise, attempt }) => {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
   if (!keyId || !keySecret) throw new PaymentRuleError('RAZORPAY_NOT_CONFIGURED', 'Razorpay refunds are temporarily unavailable', 503);
-  assertProviderMode(attempt?.mode);
   const response = await axios.post(
     `https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}/refund`,
     {
       amount: Number(amountPaise),
-      speed: 'normal',
       receipt: `hcr-${attempt.id}`,
-      notes: { crm_refund_attempt_id: attempt.id, ...(attempt.automatic ? { crm_refund_reason: attempt.reasonCode } : {}) },
+      notes: { crm_refund_attempt_id: attempt.id },
     },
     {
       auth: { username: keyId, password: keySecret },
@@ -101,45 +79,6 @@ const providerCreateRefund = async ({ paymentId, amountPaise, attempt }) => {
     }
   );
   return response.data;
-};
-
-const reserveAutomaticSurplusRefund = async (tx, { sourcePayment, amountPaise, checkoutAttempt, requestId }) => {
-  if (!sourcePayment?.id || !sourcePayment.razorpayPaymentId || !checkoutAttempt?.id || amountPaise <= 0n) return null;
-  const idempotencyKey = hash(`razorpay-automatic-surplus:${sourcePayment.razorpayPaymentId}`);
-  const providerIdempotencyKey = `hcrf_${idempotencyKey.slice(0, 48)}`;
-  const requestHash = hash(JSON.stringify({ sourcePaymentId: sourcePayment.id, amountPaise: String(amountPaise), reasonCode: 'DUPLICATE_CAPTURE_SURPLUS' }));
-  const existing = await tx.razorpayRefundAttempt.findUnique({ where: { idempotencyKey }, include: { sourcePayment: true } });
-  if (existing) {
-    if (!existing.automatic || existing.sourcePaymentId !== sourcePayment.id || existing.amountPaise !== amountPaise || existing.requestHash !== requestHash) {
-      throw new PaymentRuleError('AUTOMATIC_REFUND_IDEMPOTENCY_CONFLICT', 'Automatic refund record does not match the captured surplus', 409);
-    }
-    return existing;
-  }
-  const belowMinimum = amountPaise < 100n;
-  const attempt = await tx.razorpayRefundAttempt.create({
-    data: {
-      idempotencyKey,
-      providerIdempotencyKey,
-      requestHash,
-      sourcePaymentId: sourcePayment.id,
-      checkoutAttemptId: checkoutAttempt.id,
-      customerId: sourcePayment.customerId,
-      amountPaise,
-      currency: 'INR',
-      mode: checkoutAttempt.mode,
-      status: belowMinimum ? 'REVIEW' : 'CREATING',
-      automatic: true,
-      reasonCode: 'DUPLICATE_CAPTURE_SURPLUS',
-      reason: 'Captured Razorpay amount exceeded the currently due amounts in its frozen invoice allocation plan',
-      requestId: requestId || null,
-      ...(belowMinimum ? { failureCode: 'REFUND_BELOW_PROVIDER_MINIMUM' } : {}),
-    },
-    include: { sourcePayment: true },
-  });
-  await logRefund(tx, attempt, belowMinimum ? 'RAZORPAY_AUTOMATIC_REFUND_MINIMUM_EXCEPTION' : 'RAZORPAY_AUTOMATIC_REFUND_RESERVED',
-    belowMinimum ? 'Captured surplus is below Razorpay normal-refund minimum and requires Finance handling' : 'Automatic refund job reserved for captured surplus',
-    belowMinimum ? 'REVIEW' : 'SUCCESS', { checkoutAttemptId: checkoutAttempt.id, requestId: requestId || null });
-  return attempt;
 };
 
 const reserveRefund = async ({ orderId, sourcePaymentId, amount, reasonCode, reason, staff, idempotencyKey, requestId }) => {
@@ -182,9 +121,6 @@ const reserveRefund = async ({ orderId, sourcePaymentId, amount, reasonCode, rea
       },
     });
     if (!source || !invoice) throw new PaymentRuleError('RAZORPAY_SOURCE_PAYMENT_NOT_FOUND', 'Captured Razorpay payment was not found for this order invoice', 404);
-    const configuredMode = mode();
-    if (!source.mode) throw new PaymentRuleError('RAZORPAY_MODE_UNAVAILABLE', 'The captured payment has no recorded Razorpay mode; Finance must verify it before refunding.', 409);
-    if (source.mode !== configuredMode) throw new PaymentRuleError('RAZORPAY_MODE_MISMATCH', 'The captured payment belongs to a different Razorpay mode; no refund request was made.', 409);
     const currency = String(invoice.currency || 'INR').toUpperCase();
     if (currency !== 'INR') throw new PaymentRuleError('UNSUPPORTED_RAZORPAY_REFUND_CURRENCY', 'Razorpay refunds are only configured for INR invoices', 409);
 
@@ -213,7 +149,7 @@ const reserveRefund = async ({ orderId, sourcePaymentId, amount, reasonCode, rea
         createdById: staff.id,
         amountPaise,
         currency,
-        mode: configuredMode,
+        mode: mode(),
         status: 'CREATING',
         reasonCode: reasonCode || 'CUSTOMER_REFUND',
         reason: normalizedReason,
@@ -242,10 +178,6 @@ const updateRefundState = async ({ attemptId, refund, state, failureCode = null,
       providerStatus: refund?.status || null,
       ...(refund?.id ? { razorpayRefundId: refund.id } : {}),
       failureCode,
-      lockedAt: null,
-      nextAttemptAt: state === 'PENDING' ? new Date(Date.now() + 60_000)
-        : state === 'REVIEW' ? new Date(Date.now() + Math.min(15 * 60_000, 2 ** Math.min(current.attemptCount || 0, 9) * 1000))
-          : new Date(),
       ...(state === 'FAILED' ? { completedAt: new Date() } : {}),
     },
     include: { sourcePayment: true },
@@ -272,47 +204,6 @@ const finalizeProcessedRefund = async ({ attemptId, refund }) => prisma.$transac
   }
   if (refund.notes?.crm_refund_attempt_id && refund.notes.crm_refund_attempt_id !== attempt.id) {
     throw new PaymentRuleError('RAZORPAY_REFUND_BINDING_MISMATCH', 'Provider refund is bound to a different CRM refund attempt', 409);
-  }
-  if (attempt.automatic) {
-    await tx.$queryRaw`SELECT "id" FROM "Payment" WHERE "id" = ${attempt.sourcePaymentId} FOR UPDATE`;
-    const source = await tx.payment.findUnique({ where: { id: attempt.sourcePaymentId } });
-    if (!source || BigInt(Math.round(Number(source.unallocatedAmount || 0) * 100)) < attempt.amountPaise) {
-      throw new PaymentRuleError('AUTOMATIC_REFUND_SURPLUS_MISMATCH', 'The captured payment no longer has enough unallocated surplus for this refund', 409);
-    }
-    let refundPayment = attempt.localRefundPayment;
-    if (!refundPayment) {
-      refundPayment = await tx.payment.create({
-        data: {
-          customerId: attempt.customerId,
-          amount: Number(attempt.amountPaise) / 100,
-          kind: 'REFUND',
-          method: 'RAZORPAY',
-          status: 'CAPTURED',
-          reference: refund.id,
-          razorpayRefundId: refund.id,
-          idempotencyKey: `razorpay-automatic-refund:${attempt.id}`,
-          mode: attempt.mode,
-          notes: 'Automatic refund of captured checkout surplus',
-        },
-      });
-    }
-    await tx.payment.update({
-      where: { id: source.id },
-      data: { unallocatedAmount: Number(BigInt(Math.round(Number(source.unallocatedAmount || 0) * 100)) - attempt.amountPaise) / 100 },
-    });
-    const updated = await tx.razorpayRefundAttempt.update({
-      where: { id: attempt.id },
-      data: {
-        status: 'PROCESSED', providerStatus: refund.status, razorpayRefundId: refund.id,
-        localRefundPaymentId: refundPayment.id, completedAt: new Date(), failureCode: null, lockedAt: null,
-      },
-      include: { sourcePayment: true, localRefundPayment: true },
-    });
-    await logRefund(tx, updated, 'RAZORPAY_AUTOMATIC_REFUND_LEDGER_POSTED', 'Provider-processed surplus refund was posted to the CRM payment ledger', 'SUCCESS', {
-      localRefundPaymentId: refundPayment.id,
-      checkoutAttemptId: attempt.checkoutAttemptId || null,
-    });
-    return { attempt: updated, refundPayment, alreadyRecorded: false };
   }
   const result = await recordOrderRefund(tx, {
     orderId: attempt.orderId,
@@ -368,7 +259,7 @@ const persistProviderRefund = async ({ attempt, refund }) => {
   validateProviderRefund(attempt, refund);
   const state = String(refund.status).toLowerCase();
   if (state === 'processed') return finalizeProcessedRefund({ attemptId: attempt.id, refund });
-  const updated = await updateRefundState({ attemptId: attempt.id, refund, state: state === 'pending' ? 'PENDING' : 'FAILED' });
+  const updated = await updateRefundState({ attemptId: attempt.id, refund, state: state === 'pending' ? 'PENDING' : 'FAILED', failureCode: state === 'failed' ? 'PROVIDER_REFUND_FAILED' : null });
   return { attempt: updated };
 };
 
@@ -395,19 +286,18 @@ const createRazorpayRefund = async ({ orderId, sourcePaymentId, amount, reasonCo
       throw error;
     }
     const definitiveProviderRejection = statusCode >= 400 && statusCode < 500 && statusCode !== 409;
-    const providerError = providerErrorSummary(error);
-    const failureCode = providerError.code || null;
+    const providerError = razorpayErrorSummary(error);
+    const failureCode = String(providerError.code || (definitiveProviderRejection ? 'PROVIDER_REFUND_REJECTED' : 'PROVIDER_RESULT_UNKNOWN')).slice(0, 80);
     const failed = await updateRefundState({ attemptId: attempt.id, refund: null, state: definitiveProviderRejection ? 'FAILED' : 'REVIEW', failureCode, providerError });
     if (!definitiveProviderRejection) return { attempt: failed, pending: true, review: true };
-    throw new PaymentRuleError(failureCode || 'RAZORPAY_REFUND_REJECTED', 'Razorpay rejected the refund request. No CRM refund was posted.', 400);
+    throw new PaymentRuleError(failureCode, 'Razorpay rejected the refund request. No CRM refund was posted.', 400);
   }
 };
 
-const fetchProviderRefund = async (refundId, expectedMode) => {
+const fetchProviderRefund = async (refundId) => {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
   if (!keyId || !keySecret) throw new PaymentRuleError('RAZORPAY_NOT_CONFIGURED', 'Razorpay refund status is temporarily unavailable', 503);
-  assertProviderMode(expectedMode);
   const response = await axios.get(`https://api.razorpay.com/v1/refunds/${encodeURIComponent(refundId)}`, {
     auth: { username: keyId, password: keySecret },
     timeout: 10000,
@@ -427,65 +317,11 @@ const reconcileRazorpayRefundWebhook = async (event, fetcher = fetchProviderRefu
     include: { sourcePayment: true },
   });
   if (!attempt) throw Object.assign(new Error('Refund webhook has no matching CRM refund attempt'), { code: 'UNMATCHED_REFUND', permanent: true });
-  if (event.mode && event.mode !== attempt.mode) {
-    throw Object.assign(new Error('Refund webhook mode does not match its CRM refund attempt'), { code: 'RAZORPAY_MODE_MISMATCH', permanent: true });
-  }
-  const refund = await fetcher(event.refundId, attempt.mode);
+  const refund = await fetcher(event.refundId);
   validateProviderRefund(attempt, refund);
   const status = String(refund.status).toLowerCase();
   const result = await persistProviderRefund({ attempt, refund });
   return { state: result.attempt?.status === 'REVIEW' ? 'REVIEW' : 'PROCESSED', attemptId: attempt.id, refundId: event.refundId, providerStatus: status };
-};
-
-const claimAutomaticRefundBatch = async (limit = 10, leaseMs = 5 * 60_000) => prisma.$transaction((tx) => tx.$queryRaw`
-  WITH candidates AS (
-    SELECT "id"
-    FROM "razorpay_refund_attempts"
-    WHERE "automatic" = TRUE
-      AND "failureCode" IS DISTINCT FROM 'REFUND_BELOW_PROVIDER_MINIMUM'
-      AND (
-        ("status" IN ('CREATING', 'PENDING', 'REVIEW') AND "nextAttemptAt" <= (NOW() AT TIME ZONE 'UTC'))
-        OR ("status" = 'PROCESSING' AND "lockedAt" < (NOW() AT TIME ZONE 'UTC') - (${leaseMs} * INTERVAL '1 millisecond'))
-      )
-    ORDER BY "nextAttemptAt" ASC, "createdAt" ASC
-    FOR UPDATE SKIP LOCKED
-    LIMIT ${limit}
-  )
-  UPDATE "razorpay_refund_attempts" AS attempts
-  SET "status" = 'PROCESSING', "lockedAt" = (NOW() AT TIME ZONE 'UTC'),
-      "attemptCount" = attempts."attemptCount" + 1, "updatedAt" = (NOW() AT TIME ZONE 'UTC')
-  FROM candidates
-  WHERE attempts."id" = candidates."id"
-  RETURNING attempts."id"
-`);
-
-const processAutomaticRazorpayRefundBatch = async ({ limit = 10, fetcher = fetchProviderRefund, provider = providerCreateRefund } = {}) => {
-  const claimed = await claimAutomaticRefundBatch(limit);
-  let processed = 0;
-  for (const row of claimed) {
-    const attempt = await prisma.razorpayRefundAttempt.findUnique({ where: { id: row.id }, include: { sourcePayment: true } });
-    if (!attempt || !attempt.automatic || !attempt.sourcePayment?.razorpayPaymentId) continue;
-    try {
-      const refund = attempt.razorpayRefundId
-        ? await fetcher(attempt.razorpayRefundId, attempt.mode)
-        : await provider({ paymentId: attempt.sourcePayment.razorpayPaymentId, amountPaise: attempt.amountPaise, attempt });
-      await persistProviderRefund({ attempt, refund });
-      processed += 1;
-    } catch (error) {
-      const statusCode = Number(error?.response?.status || error?.statusCode || 0);
-      const definitiveProviderRejection = statusCode >= 400 && statusCode < 500 && statusCode !== 409;
-      const providerError = providerErrorSummary(error);
-      await updateRefundState({
-        attemptId: attempt.id,
-        refund: null,
-        state: definitiveProviderRejection ? 'FAILED' : 'REVIEW',
-        failureCode: providerError.code || error?.code || null,
-        providerError: providerError.code ? providerError : undefined,
-      }).catch((persistError) => console.error('[razorpay-refund] automatic refund state persistence failed:', persistError?.code || 'DB_ERROR'));
-      console.error('[razorpay-refund] automatic refund processing failed:', providerError.code || error?.code || 'PROCESSING_ERROR');
-    }
-  }
-  return { claimed: claimed.length, processed };
 };
 
 const reconcileRazorpayRefundAttempt = async ({ orderId, attemptId, staff, requestId, fetcher = fetchProviderRefund, provider = providerCreateRefund }) => {
@@ -512,10 +348,10 @@ const reconcileRazorpayRefundAttempt = async ({ orderId, attemptId, staff, reque
   if (attempt.razorpayRefundId) {
     let refund;
     try {
-      refund = await fetcher(attempt.razorpayRefundId, attempt.mode);
+      refund = await fetcher(attempt.razorpayRefundId);
     } catch (error) {
-      const providerError = providerErrorSummary(error);
-      const failureCode = providerError.code || error?.code || null;
+      const providerError = razorpayErrorSummary(error);
+      const failureCode = String(providerError.code || 'PROVIDER_RESULT_UNKNOWN').slice(0, 80);
       const updated = await updateRefundState({ attemptId: attempt.id, refund: null, state: 'REVIEW', failureCode, providerError });
       return { attempt: updated, pending: true, review: true };
     }
@@ -545,8 +381,8 @@ const reconcileRazorpayRefundAttempt = async ({ orderId, attemptId, staff, reque
   } catch (error) {
     const statusCode = Number(error?.response?.status || error?.statusCode || 0);
     const definitiveProviderRejection = statusCode >= 400 && statusCode < 500 && statusCode !== 409;
-    const providerError = providerErrorSummary(error);
-    const failureCode = providerError.code || error?.code || null;
+    const providerError = razorpayErrorSummary(error);
+    const failureCode = String(providerError.code || (definitiveProviderRejection ? 'PROVIDER_REFUND_REJECTED' : 'PROVIDER_RESULT_UNKNOWN')).slice(0, 80);
     const state = definitiveProviderRejection ? 'FAILED' : 'REVIEW';
     const updated = await updateRefundState({ attemptId: attempt.id, refund: null, state, failureCode, providerError });
     if (!definitiveProviderRejection) return { attempt: updated, pending: true, review: true };
@@ -554,4 +390,4 @@ const reconcileRazorpayRefundAttempt = async ({ orderId, attemptId, staff, reque
   }
 };
 
-module.exports = { createRazorpayRefund, fetchProviderRefund, processAutomaticRazorpayRefundBatch, reconcileRazorpayRefundAttempt, reconcileRazorpayRefundWebhook, reserveAutomaticSurplusRefund, serializeRefundAttempt };
+module.exports = { createRazorpayRefund, fetchProviderRefund, reconcileRazorpayRefundAttempt, reconcileRazorpayRefundWebhook, serializeRefundAttempt };

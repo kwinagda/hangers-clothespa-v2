@@ -52,9 +52,6 @@ test('production dependency installs are bounded and recover after an interrupte
   const installIndex = script.indexOf('npm ci --prefix "$name"');
   const markerWriteIndex = script.indexOf('mv "$2.tmp" "$2"', installIndex);
   const crmInstallIndex = script.indexOf('refresh_dependencies hangers-crm');
-  const stateDirectoryFixIndex = script.indexOf(
-    'install -d -m 0750 -o "$DEPLOY_USER" -g "$DEPLOY_USER" /var/lib/hangers-deploy',
-  );
 
   assert.match(script, /NODE_OPTIONS=.*--max-old-space-size=640/);
   assert.match(script, /--foreground-scripts --maxsockets=2 --no-audit --no-fund/);
@@ -62,10 +59,6 @@ test('production dependency installs are bounded and recover after an interrupte
   assert.match(script, /if \[\[ -f "\$marker" \]\] && \[\[ "\$\(<"\$marker"\)" == "\$fingerprint" \]\]; then/);
   assert.ok(markerWriteIndex > installIndex, 'failed npm ci must not mark dependencies as installed');
   assert.ok(crmInstallIndex > markerWriteIndex, 'CRM dependency state must be checked on every deploy retry');
-  assert.ok(stateDirectoryFixIndex >= 0 && stateDirectoryFixIndex < crmInstallIndex,
-    'deployment state directory must be writable/traversable by the deploy user before marker writes');
-  assert.equal((script.match(/install -d -m 0750 -o "\$DEPLOY_USER" -g "\$DEPLOY_USER" \/var\/lib\/hangers-deploy/g) || []).length, 2,
-    'swap setup must preserve deploy-user access to dependency marker state');
   assert.match(script, /hangers-backend\/prisma\/schema\.prisma/);
   assert.doesNotMatch(script, /if grep -Eq '\^hangers-crm\/package/);
 });
@@ -137,9 +130,7 @@ test('PM2 runtime gate executes each online payment process binary', (t) => {
   for (const pid of [101, 102]) {
     const processDir = path.join(procRoot, String(pid));
     fs.mkdirSync(processDir);
-    const executable = path.join(processDir, 'exe');
-    fs.writeFileSync(executable, '#!/bin/sh\nprintf "v24.11.0\\n"\n');
-    fs.chmodSync(executable, 0o755);
+    fs.symlinkSync(process.execPath, path.join(processDir, 'exe'));
   }
 
   const processes = [
@@ -150,7 +141,7 @@ test('PM2 runtime gate executes each online payment process binary', (t) => {
   const output = [];
   assert.deepEqual(checkProcesses(processes, procRoot, (line) => output.push(line)), []);
   assert.equal(output.length, 2);
-  assert.ok(output.every((line) => line.includes('Node.js v24.11.0')));
+  assert.ok(output.every((line) => line.includes(process.version)));
 
   processes[1].pm2_env.status = 'stopped';
   assert.match(checkProcesses(processes, procRoot).join('\n'), /hangers-worker is not online/);

@@ -13,7 +13,7 @@
 const prisma = require('../config/database');
 const { log, writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const { success, badRequest, error, notFound, forbidden } = require('../utils/response');
-const { generateOtp, hashOtp, sendDeliveryOtp, isDevMode, isProviderConfigured } = require('../services/whatsapp-otp.service');
+const { generateOtp, hashOtp, sendDeliveryOtp } = require('../services/whatsapp-otp.service');
 const { processReferralQualification } = require('../services/referral.service');
 const { DELIVERY_MANAGER_ROLES, DELIVERY_PIN_ROLES } = require('../config/master-data');
 const { getDeliveryFailReasons, getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
@@ -437,10 +437,6 @@ const collectCash = async (req, res) => {
 // POST /api/v1/delivery/orders/:id/send-otp
 const sendDeliveryOtpController = async (req, res) => {
   const { id } = req.params;
-
-  if (!isDevMode() && !isProviderConfigured()) {
-    return error(res, 'Delivery verification is temporarily unavailable.', 503, { code: 'OTP_PROVIDER_UNAVAILABLE' });
-  }
 
   try {
     const order = await prisma.order.findFirst({
