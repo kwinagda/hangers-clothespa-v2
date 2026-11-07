@@ -98,11 +98,14 @@ const getServices = async (req, res) => {
       where.category = normalizedCategory;
     }
 
-    const services = await prisma.service.findMany({
-      where,
-      orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
-      select:  { id: true, name: true, category: true, basePrice: true, sortOrder: true },
-    });
+    const [services, savedCategories] = await Promise.all([
+      prisma.service.findMany({
+        where,
+        orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+        select:  { id: true, name: true, category: true, basePrice: true, sortOrder: true },
+      }),
+      category ? Promise.resolve([]) : prisma.serviceCategory.findMany({ select: { name: true } }),
+    ]);
 
     // Group by category
     const grouped = {};
@@ -110,12 +113,48 @@ const getServices = async (req, res) => {
       if (!grouped[s.category]) grouped[s.category] = [];
       grouped[s.category].push({ id: s.id, name: s.name, price: s.basePrice, sortOrder: s.sortOrder });
     }
-    const catalog = Object.entries(grouped).map(([category, items]) => ({ category, items: [...items].sort(compareServiceDisplay) }));
+    for (const savedCategory of savedCategories) {
+      if (!grouped[savedCategory.name]) grouped[savedCategory.name] = [];
+    }
+    const catalog = Object.entries(grouped)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([category, items]) => ({ category, items: [...items].sort(compareServiceDisplay) }));
 
     return success(res, { catalog, total: services.length });
   } catch (err) {
     console.error('getServices error:', err);
     return error(res, 'Failed to fetch services');
+  }
+};
+
+// ── POST /api/v1/services/categories ────────────────────────────────────────
+// Body: { name }
+const createServiceCategory = async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return badRequest(res, 'Category name is required');
+  if (name.length > 80) return badRequest(res, 'Category name must be 80 characters or fewer');
+
+  try {
+    const [savedCategory, existingService] = await Promise.all([
+      prisma.serviceCategory.findFirst({
+        where: { normalizedName: name.toLowerCase() },
+        select: { id: true },
+      }),
+      prisma.service.findFirst({
+        where: { category: { equals: name, mode: 'insensitive' } },
+        select: { id: true },
+      }),
+    ]);
+    if (savedCategory || existingService) return error(res, 'A category with this name already exists', 409);
+
+    const category = await prisma.serviceCategory.create({
+      data: { name, normalizedName: name.toLowerCase() },
+    });
+    return success(res, { category }, `Category "${name}" created`, 201);
+  } catch (err) {
+    if (err.code === 'P2002') return error(res, 'A category with this name already exists', 409);
+    console.error('createServiceCategory error:', err);
+    return error(res, 'Failed to create service category');
   }
 };
 
@@ -305,4 +344,4 @@ const upsertServices = async (req, res) => {
   }
 };
 
-module.exports = { getServices, upsertServices, createServiceItem, updateServiceItem, deactivateServiceItem };
+module.exports = { getServices, createServiceCategory, upsertServices, createServiceItem, updateServiceItem, deactivateServiceItem };

@@ -533,6 +533,13 @@ model Service {
   @@index([category])
 }
 
+model ServiceCategory {
+  id             String   @id @default(cuid())
+  name           String
+  normalizedName String   @unique
+  createdAt      DateTime @default(now())
+}
+
 model IronSubscription {
   id                String    @id @default(cuid())
   customerId        String    @unique

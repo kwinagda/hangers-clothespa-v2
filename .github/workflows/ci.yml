@@ -68,6 +68,9 @@ jobs:
       - name: Deploy migrations to test DB
         run: npx prisma migrate deploy
 
+      - name: Verify pricing category creation and migration gate
+        run: node --test tests/service-categories.controller.test.js tests/deploy-service-categories-migration.test.js
+
       - name: Run scoped Razorpay Payment Gateway and deployment contracts
         run: npm run test:razorpay-release
 
