@@ -50,6 +50,8 @@ test('production deployment revalidates backend and worker PM2 state after resta
 test('production dependency installs are bounded and recover after an interrupted install', () => {
   const script = fs.readFileSync(deployScript, 'utf8');
   const installIndex = script.indexOf('npm ci --prefix "$name"');
+  const markerOwnershipIndex = script.indexOf('chown "$DEPLOY_USER:$DEPLOY_USER" "$marker_dir"', installIndex);
+  const markerModeIndex = script.indexOf('chmod 0750 "$marker_dir"', installIndex);
   const markerWriteIndex = script.indexOf('mv "$2.tmp" "$2"', installIndex);
   const crmInstallIndex = script.indexOf('refresh_dependencies hangers-crm');
 
@@ -57,6 +59,8 @@ test('production dependency installs are bounded and recover after an interrupte
   assert.match(script, /--foreground-scripts --maxsockets=2 --no-audit --no-fund/);
   assert.match(script, /\/var\/lib\/hangers-deploy\/dependencies/);
   assert.match(script, /if \[\[ -f "\$marker" \]\] && \[\[ "\$\(<"\$marker"\)" == "\$fingerprint" \]\]; then/);
+  assert.ok(markerOwnershipIndex > installIndex, 'marker directory ownership must be normalized before writing');
+  assert.ok(markerModeIndex > markerOwnershipIndex, 'marker directory mode must be enforced before writing');
   assert.ok(markerWriteIndex > installIndex, 'failed npm ci must not mark dependencies as installed');
   assert.ok(crmInstallIndex > markerWriteIndex, 'CRM dependency state must be checked on every deploy retry');
   assert.match(script, /hangers-backend\/prisma\/schema\.prisma/);
