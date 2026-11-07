@@ -2,7 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { staffAuth }   = require('../middleware/auth');
 const { requireRole, requireServiceAccess } = require('../middleware/rbac');
-const { getServices, upsertServices, createServiceItem, updateServiceItem, deactivateServiceItem } = require('../controllers/services.controller');
+const { getServices, createServiceCategory, upsertServices, createServiceItem, updateServiceItem, deactivateServiceItem } = require('../controllers/services.controller');
 const { privateNoStore } = require('../middleware/privateCache');
 const { requireTrustedWrite } = require('../middleware/origin');
 
@@ -16,6 +16,7 @@ const crmAccess = requireServiceAccess('CRM');
 router.get('/', getServices);
 
 // Staff-only — pricing admin
+router.post('/categories', staffAuth, crmAccess, adminRoles, createServiceCategory);
 router.post('/', staffAuth, crmAccess, adminRoles, createServiceItem);
 router.put('/', staffAuth, crmAccess, adminRoles, upsertServices);
 router.patch('/:id', staffAuth, crmAccess, adminRoles, updateServiceItem);

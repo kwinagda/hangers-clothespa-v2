@@ -74,6 +74,8 @@ export default function PricingPage() {
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('')
   const [addingCategory, setAddingCategory] = useState('')
+  const [showCreateCategory, setShowCreateCategory] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState('')
   const [newItemName, setNewItemName] = useState('')
   const [newItemPrice, setNewItemPrice] = useState('')
   const [newItemSortOrder, setNewItemSortOrder] = useState('')
@@ -206,6 +208,29 @@ export default function PricingPage() {
     }
   }
 
+  const createCategory = async () => {
+    const name = newCategoryName.trim()
+    if (!name) {
+      toast.error('Enter a category name')
+      return
+    }
+
+    setSaving(true)
+    try {
+      await servicesAPI.createCategory({ name })
+      await loadCatalog()
+      setActiveCategory(name)
+      setSearch('')
+      setNewCategoryName('')
+      setShowCreateCategory(false)
+      toast.success(`Created ${name}`)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to create category')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const deactivateItem = async (item: CatalogItem) => {
     if (!item.id) {
       toast.error('This item cannot be managed yet')
@@ -279,11 +304,31 @@ export default function PricingPage() {
         subtitle="Rate card used across quotations, orders and the customer app"
         actions={<div style={{display:'flex',gap:10}}>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search service..." style={{border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 14px',fontSize:14,outline:'none',width:220}} />
+          <button onClick={() => setShowCreateCategory((open) => !open)} disabled={saving} style={{display:'inline-flex',alignItems:'center',gap:7,padding:'10px 14px',background:'#023c62',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,border:'none',cursor:'pointer',opacity:saving?0.6:1}}>
+            <Plus size={15} /> Create category
+          </button>
           <button onClick={downloadRateCard} disabled={!catalog.length} style={{padding:'10px 16px',background:'#fff',color:'#023c62',borderRadius:10,fontSize:13,fontWeight:700,border:'1px solid #dce8f0',cursor:'pointer',opacity:catalog.length?1:0.5}}>Download Rate Card</button>
           <button onClick={openBulkUpload} disabled={saving} style={{padding:'10px 16px',background:'#fff7ed',color:'#9a3412',borderRadius:10,fontSize:13,fontWeight:700,border:'1px solid #fed7aa',cursor:'pointer',opacity:saving?0.5:1}}>Bulk Upload</button>
           <input ref={bulkUploadInputRef} type="file" accept=".csv,text/csv" onChange={uploadRateCard} style={{display:'none'}} />
         </div>}
       />
+
+      {showCreateCategory && (
+        <form className="pricing-add-row" onSubmit={(event) => { event.preventDefault(); createCategory() }} style={{background:'#fff',border:'1px solid #dce8f0',borderRadius:12,padding:14,marginBottom:16,display:'flex',gap:10,alignItems:'center'}}>
+          <input
+            value={newCategoryName}
+            onChange={(event) => setNewCategoryName(event.target.value)}
+            onKeyDown={(event) => { if (event.key === 'Escape') setShowCreateCategory(false) }}
+            autoFocus
+            maxLength={80}
+            aria-label="Main category name"
+            placeholder="Main category name"
+            style={{flex:1,minWidth:0,border:'1.5px solid #dce8f0',borderRadius:10,padding:'10px 12px',fontSize:14,outline:'none'}}
+          />
+          <button type="submit" disabled={saving} style={{padding:'10px 14px',background:'#023c62',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontSize:13,fontWeight:700,opacity:saving?0.6:1}}>Save category</button>
+          <button type="button" onClick={() => { setShowCreateCategory(false); setNewCategoryName('') }} style={{padding:'10px 12px',background:'#fff',color:'#6b7fa3',border:'1px solid #dce8f0',borderRadius:10,cursor:'pointer',fontSize:13,fontWeight:700}}>Cancel</button>
+        </form>
+      )}
 
       <div style={{ background: '#fffaf0', border: '1px solid #fed7aa', borderRadius: 12, padding: '12px 14px', marginBottom: 20, fontSize: 12, color: '#9a3412', lineHeight: 1.55 }}>
         Customer pricing stays on the existing service catalog only. Use <strong>Add Item</strong> inside any category for single-row changes, or <strong>Bulk Upload</strong> when replacing the rate card through the same master-data API.
@@ -377,6 +422,13 @@ export default function PricingPage() {
                       </tr>
                     </thead>
                     <tbody>
+                      {!cat.items.length && (
+                        <tr>
+                          <td colSpan={3} style={{ padding: '24px 20px', textAlign: 'center', color: '#6b7fa3', fontSize: 13 }}>
+                            No services in this category yet. Add the first item to populate it.
+                          </td>
+                        </tr>
+                      )}
                       {cat.items.map((item, itemIdx) => {
                         const isEditing = editing?.catIdx === realCatIdx && editing?.itemIdx === itemIdx
                         return (

@@ -135,6 +135,7 @@ export const servicesAPI = {
   getPriceList: ()           => api.get('/services') as any,
   getCatalog:   ()           => api.get('/services').then((r: any) => { const cat = r.data?.catalog || r.data || []; return cat.flatMap((g: any) => (g.items||[]).map((item: any) => ({id: item.id, name: item.name, basePrice: item.price, category: g.category, catalogName: g.category.replace(/\u2014/g, "—")}))); }) as any,
   saveCatalog:  (catalog: any) => api.put('/services', { catalog }) as any,
+  createCategory: (data: { name: string }) => api.post('/services/categories', data) as any,
   createItem:   (data: any) => api.post('/services', data) as any,
   updateItem:   (id: string, data: any) => api.patch(`/services/${id}`, data) as any,
   deactivateItem: (id: string) => api.delete(`/services/${id}`) as any,

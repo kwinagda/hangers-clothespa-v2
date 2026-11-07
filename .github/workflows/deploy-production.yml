@@ -12,6 +12,11 @@ on:
         required: false
         default: false
         type: boolean
+      migrate_service_categories:
+        description: Apply only the additive ServiceCategory table migration after a verified production backup
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -163,6 +168,14 @@ jobs:
             install -d -m 0700 -o ubuntu -g ubuntu /var/backups/hangers
             migration_script=\$(mktemp /tmp/hangers-combined-migration.XXXXXX.cjs)
             runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/migrate-combined-checkout.cjs' > "\$migration_script"
+            chmod 0644 "\$migration_script"
+            flock -n /var/lock/hangers-code-deploy.lock runuser -u ubuntu -- node "\$migration_script" '$COMMIT'
+            rm -f "\$migration_script"
+          fi
+          if [[ '${{ inputs.migrate_service_categories }}' == 'true' ]]; then
+            install -d -m 0700 -o ubuntu -g ubuntu /var/backups/hangers
+            migration_script=\$(mktemp /tmp/hangers-service-categories-migration.XXXXXX.cjs)
+            runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/migrate-service-categories.cjs' > "\$migration_script"
             chmod 0644 "\$migration_script"
             flock -n /var/lock/hangers-code-deploy.lock runuser -u ubuntu -- node "\$migration_script" '$COMMIT'
             rm -f "\$migration_script"
