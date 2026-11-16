@@ -3,8 +3,9 @@ const { success, notFound, error, badRequest, created, forbidden } = require('..
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
 const { compareServiceDisplay } = require('../utils/service-sort');
 const { findPublicShareToken, resolvePublicShareToken } = require('../services/publicShare.service');
-const { findInvoiceDocument, generateInvoiceHTML, invoicePdfFilename } = require('../services/invoice-document.service');
-const { htmlToPDF } = require('../services/pdf-render.service');
+const { findInvoiceDocument, invoicePdfFilename } = require('../services/invoice-document.service');
+const { urlToPDF } = require('../services/pdf-render.service');
+const { buildPublicInvoiceReturnUrl } = require('../utils/razorpay-public-callback');
 const { getLegalTerms, getServiceCategoryUi, getWebsitePickupRequestStatuses, getWebsitePickupTimeSlots } = require('../services/masterData.service');
 const { nextDocumentNumber } = require('../services/document-number.service');
 const { enqueueOutboxEvent, OUTBOX_EVENT } = require('../services/outbox.service');
@@ -713,7 +714,8 @@ const getPublicInvoicePDF = async (req, res) => {
     if (!where) return notFound(res, 'Invoice not found');
     const invoice = await findInvoiceDocument({ where });
     if (!invoice) return notFound(res, 'Invoice not found');
-    const pdf = await htmlToPDF(generateInvoiceHTML(invoice));
+    const invoiceUrl = buildPublicInvoiceReturnUrl({ slug });
+    const pdf = await urlToPDF(invoiceUrl, { allowedOrigin: new URL(invoiceUrl).origin });
     const disposition = req.query?.download === '1' ? 'attachment' : 'inline';
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${disposition}; filename="${invoicePdfFilename(invoice.invoiceNumber)}"`);

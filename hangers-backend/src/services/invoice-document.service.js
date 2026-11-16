@@ -93,9 +93,26 @@ const invoiceDocumentSelect = {
 const paymentMethodLabel = (payment) => {
   const method = String(payment?.method || '').trim().toUpperCase();
   if (method === 'RAZORPAY') {
-    return String(payment?.providerMethodDetail || payment?.providerMethod || 'Online payment').trim();
+    const providerMethod = String(payment?.providerMethod || '').trim().toLowerCase();
+    const providerDetail = String(payment?.providerMethodDetail || '').trim().toLowerCase();
+    const providerLabels = {
+      upi: 'UPI',
+      card: 'Card',
+      netbanking: 'Net banking',
+      wallet: 'Wallet',
+      emi: 'EMI',
+      paylater: 'Pay later',
+      cardless_emi: 'Cardless EMI',
+      bank_transfer: 'Bank transfer',
+    };
+    const baseLabel = providerLabels[providerMethod] || 'Online payment';
+    const detailLabel = providerDetail && providerDetail !== providerMethod
+      ? providerDetail.split(':').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+      : '';
+    return `${baseLabel}${detailLabel ? ` (${detailLabel})` : ''} via Razorpay`;
   }
-  return method || 'Payment';
+  const directLabels = { CASH: 'Cash', UPI: 'UPI', CARD: 'Card', ONLINE: 'Online payment', COD: 'Cash on delivery', WALLET: 'Wallet' };
+  return directLabels[method] || method || 'Payment';
 };
 
 const paymentReference = (payment) => {
@@ -171,58 +188,14 @@ const findInvoiceDocument = async ({ id, where, client = prisma }) => {
   return normalizeInvoiceDocument(invoice);
 };
 
-const escapeHtml = (value) => String(value ?? '')
-  .replaceAll('&', '&amp;')
-  .replaceAll('<', '&lt;')
-  .replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;')
-  .replaceAll("'", '&#039;');
-
-const money = (value, currency = 'INR') => {
-  const amount = Number(value || 0).toFixed(2);
-  return currency === 'INR' ? `&#8377;${amount}` : `${escapeHtml(currency)} ${amount}`;
-};
-
-const dateTime = (value) => value
-  ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' })
-  : '—';
-
 const invoicePdfFilename = (invoiceNumber) => {
   const safe = String(invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
   return `${safe || 'invoice'}.pdf`;
-};
-
-const generateInvoiceHTML = (invoice) => {
-  const itemRows = invoice.items.map((item) => `<tr>
-    <td>${escapeHtml(item.serviceName || item.garmentType || 'Service')}</td>
-    <td class="num">${escapeHtml(item.quantity)}</td>
-    <td class="num">${money(item.unitPrice, invoice.currency)}</td>
-    <td class="num">${money(item.subtotal, invoice.currency)}</td>
-  </tr>`).join('');
-  const paymentRows = invoice.payments.length
-    ? invoice.payments.map((payment) => `<tr>
-      <td>${escapeHtml(dateTime(payment.paidAt))}</td>
-      <td>${escapeHtml(payment.method)}</td>
-      <td>${escapeHtml(payment.receiptNumber || '—')}</td>
-      <td>${escapeHtml(payment.reference || '—')}</td>
-      <td class="num">${money(payment.amountApplied, invoice.currency)}</td>
-    </tr>`).join('')
-    : '<tr><td colspan="5" class="empty">No posted payment has been allocated to this invoice.</td></tr>';
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(invoice.invoiceNumber)}</title><style>
-    @page{size:A4;margin:12mm}*{box-sizing:border-box}body{margin:0;color:#172033;font-family:Arial,sans-serif;font-size:12px}.header{background:#023c62;color:white;padding:22px;border-radius:12px;display:flex;justify-content:space-between}.brand{font-size:25px;font-weight:800}.muted{color:#64748b}.header .muted{color:#dcecf9}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}.card{border:1px solid #dbe6ee;border-radius:9px;padding:11px}.label{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;font-weight:700}.value{margin-top:4px;font-weight:700;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse;margin-top:8px}th{background:#eff5f8;color:#38536b;text-align:left;font-size:10px;text-transform:uppercase}th,td{border-bottom:1px solid #e5edf2;padding:9px}.num{text-align:right}.section{margin-top:19px;color:#023c62;font-weight:800;text-transform:uppercase;letter-spacing:.08em}.totals{margin:18px 0 0 auto;width:310px;border:1px solid #dbe6ee;border-radius:10px;overflow:hidden}.row{display:flex;justify-content:space-between;padding:9px 12px;border-bottom:1px solid #e5edf2}.row:last-child{border:0;background:#023c62;color:white;font-weight:800}.paid{color:#087443}.empty{text-align:center;color:#64748b;padding:18px}.footer{margin-top:22px;border-top:1px solid #dbe6ee;padding-top:12px;color:#64748b;font-size:10px}</style></head><body>
-    <header class="header"><div><div class="brand">Hangers Clothes Spa</div><div class="muted">Premium garment care</div></div><div style="text-align:right"><div style="font-size:22px;font-weight:800">INVOICE</div><div>${escapeHtml(invoice.invoiceNumber)}</div><div>${escapeHtml(invoice.paymentStatus)}</div></div></header>
-    <section class="meta"><div class="card"><div class="label">Customer</div><div class="value">${escapeHtml(invoice.customer?.name || 'Customer')}</div><div class="muted">${escapeHtml(invoice.customer?.phone || '')}</div></div><div class="card"><div class="label">Order / Source</div><div class="value">${escapeHtml(invoice.orderNumber)}</div></div><div class="card"><div class="label">Invoice date</div><div class="value">${escapeHtml(dateTime(invoice.createdAt))}</div></div></section>
-    <div class="section">Services</div><table><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead><tbody>${itemRows}</tbody></table>
-    <div class="totals"><div class="row"><span>Subtotal</span><b>${money(invoice.subtotal, invoice.currency)}</b></div>${Number(invoice.discount || 0)>0?`<div class="row"><span>Discount</span><b>-${money(invoice.discount, invoice.currency)}</b></div>`:''}${Number(invoice.taxAmount||0)>0?`<div class="row"><span>Tax</span><b>${money(invoice.taxAmount, invoice.currency)}</b></div>`:''}<div class="row"><span>Total</span><b>${money(invoice.totalAmount, invoice.currency)}</b></div><div class="row"><span>Paid</span><b class="paid">${money(invoice.paidAmount, invoice.currency)}</b></div><div class="row"><span>Balance due</span><b>${money(invoice.balanceDue, invoice.currency)}</b></div></div>
-    <div class="section">Payment details</div><table><thead><tr><th>Date</th><th>Method</th><th>Receipt</th><th>Reference</th><th class="num">Applied</th></tr></thead><tbody>${paymentRows}</tbody></table>
-    <div class="footer">This invoice is generated from the Hangers CRM master record. Payment rows show posted, unreversed allocations only.</div>
-  </body></html>`;
 };
 
 module.exports = {
   invoiceDocumentSelect,
   normalizeInvoiceDocument,
   findInvoiceDocument,
-  generateInvoiceHTML,
   invoicePdfFilename,
 };

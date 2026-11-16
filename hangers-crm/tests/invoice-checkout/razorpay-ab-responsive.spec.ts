@@ -39,6 +39,35 @@ test('WhatsApp timelines replace resolved queue rows with the provider outcome a
   expect(collapseQueuedWhatsAppEvents([queued, differentOutbox])).toHaveLength(2)
 })
 
+test('canonical invoice document keeps compact actions in its header and payment evidence in print', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto('/invoice/variant-a')
+
+  const header = page.locator('.public-invoice-header')
+  const actions = page.locator('.invoice-document-actions')
+  await expect(header).toBeVisible()
+  await expect(actions).toBeVisible()
+  await expect(header.locator('.invoice-document-actions')).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Print', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'PDF', exact: true })).toBeVisible()
+  await expect(page.getByText('Payment details', { exact: true })).toBeVisible()
+  await expect(page.getByText('UPI via Razorpay', { exact: true })).toBeVisible()
+  await expect(page.getByText('REC-UI-001', { exact: true })).toBeVisible()
+  await expect(page.getByText('pay_ui_fixture', { exact: true })).toBeVisible()
+
+  const actionBox = await actions.boundingBox()
+  const headerBox = await header.boundingBox()
+  expect(actionBox).not.toBeNull()
+  expect(headerBox).not.toBeNull()
+  expect(actionBox!.y).toBeGreaterThanOrEqual(headerBox!.y)
+  expect(actionBox!.y + actionBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height + 1)
+  await page.screenshot({ path: testInfo.outputPath('canonical-invoice-header.png'), fullPage: true })
+
+  await page.emulateMedia({ media: 'print' })
+  await expect(actions).toBeHidden()
+  await expect(page.getByText('Payment details', { exact: true })).toBeVisible()
+})
+
 test('invoice checkout A/B presentation stays responsive without starting a payment', async ({ page, request }, testInfo) => {
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })

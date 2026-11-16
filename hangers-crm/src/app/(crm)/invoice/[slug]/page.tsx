@@ -86,6 +86,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .summary-shell { max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #d7e4ee; border-radius: 16px; overflow: hidden; box-shadow: 0 18px 45px rgba(2,60,98,0.08); }
           .summary-header { padding: 24px 26px; background: linear-gradient(135deg, #022d4d 0%, #023c62 58%, #2a6b97 100%); color: #fff; display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
           .summary-logo { height: 42px; object-fit: contain; margin-bottom: 12px; }
+          .summary-header-side { display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
           .summary-card { min-width: 230px; padding: 14px 16px; border: 1px solid rgba(255,255,255,0.16); border-radius: 14px; background: rgba(255,255,255,0.12); text-align: right; }
           .summary-meta { padding: 22px 26px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; border-bottom: 1px solid #edf3f8; }
           .summary-meta-card { border: 1px solid #dce8f0; border-radius: 14px; padding: 14px 16px; background: #fff; }
@@ -109,13 +110,15 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .public-legal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
           .public-legal-item b { display: block; color: #24364b; font-size: 12px; margin-bottom: 3px; }
           .public-legal-item p { margin: 0; color: #52647e; font-size: 11.5px; line-height: 1.48; }
-          .invoice-document-actions { display:flex; justify-content:flex-end; gap:10px; padding:16px 26px 0; }
-          .invoice-document-actions button, .invoice-document-actions a { display:inline-flex; align-items:center; gap:7px; border:1px solid #c9ddea; border-radius:9px; background:#fff; color:#023c62; padding:10px 13px; font:700 12px var(--crm-font-ui); text-decoration:none; cursor:pointer; }
+          .invoice-document-actions { display:flex; justify-content:flex-end; gap:7px; }
+          .invoice-document-actions button, .invoice-document-actions a { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(255,255,255,.36); border-radius:8px; background:rgba(255,255,255,.12); color:#fff; padding:7px 10px; font:750 11px var(--crm-font-ui); text-decoration:none; cursor:pointer; backdrop-filter:blur(8px); }
           @media print { .invoice-document-actions, .summary-receivable-pay { display:none !important; } main.public-invoice-page { padding:0 !important; background:#fff !important; } .summary-shell { box-shadow:none; border:0; } }
           @media (max-width: 640px) {
             main.public-invoice-page { padding: 12px 10px 28px !important; }
             .summary-shell { border-radius: 12px; }
             .summary-header { padding: 18px 16px; display: block; }
+            .summary-header-side { align-items:stretch; margin-top:14px; }
+            .summary-header-side .invoice-document-actions { justify-content:flex-start; }
             .summary-card { text-align: left; margin-top: 16px; min-width: 0; }
             .summary-meta { padding: 16px; grid-template-columns: 1fr 1fr; gap: 10px; }
             .summary-receivables { padding: 4px 14px 18px; }
@@ -135,16 +138,18 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           }
         `}</style>
         <section className="summary-shell">
-          <InvoiceDocumentActions />
           <header className="summary-header">
             <div>
               <img className="summary-logo" src={LOGO_WHITE_URL} alt="Hangers Clothes Spa" />
               <div style={{ color: '#dcecf9', fontSize: 13 }}>Premium garment care</div>
             </div>
-            <div className="summary-card">
-              <h1 style={{ margin: '0 0 6px', color: '#fff', fontSize: 27 }}>Outstanding Summary</h1>
-              <div style={{ color: '#e8f5ff', fontWeight: 800 }}>{summary.invoiceCount || 0} open bills/orders</div>
-              <div style={{ marginTop: 10, fontSize: 24, fontWeight: 900 }}>{money(summary?.totals?.balanceDue)}</div>
+            <div className="summary-header-side">
+              <InvoiceDocumentActions />
+              <div className="summary-card">
+                <h1 style={{ margin: '0 0 6px', color: '#fff', fontSize: 27 }}>Outstanding Summary</h1>
+                <div style={{ color: '#e8f5ff', fontWeight: 800 }}>{summary.invoiceCount || 0} open bills/orders</div>
+                <div style={{ marginTop: 10, fontSize: 24, fontWeight: 900 }}>{money(summary?.totals?.balanceDue)}</div>
+              </div>
             </div>
           </header>
 
@@ -373,8 +378,9 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
         .public-legal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
         .public-legal-item b { display: block; color: #24364b; font-size: 12px; margin-bottom: 3px; }
         .public-legal-item p { margin: 0; color: #52647e; font-size: 11.5px; line-height: 1.48; }
-        .invoice-document-actions { display:flex; justify-content:flex-end; gap:10px; padding:16px 26px 0; }
-        .invoice-document-actions button, .invoice-document-actions a { display:inline-flex; align-items:center; gap:7px; border:1px solid #c9ddea; border-radius:9px; background:#fff; color:#023c62; padding:10px 13px; font:700 12px var(--crm-font-ui); text-decoration:none; cursor:pointer; }
+        .public-invoice-header-side { display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
+        .invoice-document-actions { display:flex; justify-content:flex-end; gap:7px; }
+        .invoice-document-actions button, .invoice-document-actions a { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(255,255,255,.36); border-radius:8px; background:rgba(255,255,255,.12); color:#fff; padding:7px 10px; font:750 11px var(--crm-font-ui); text-decoration:none; cursor:pointer; backdrop-filter:blur(8px); }
         .public-payment-list { padding:0 26px 24px; overflow-x:auto; }
         .public-payment-list table { width:100%; border-collapse:collapse; min-width:620px; border:1px solid #dce8f0; }
         .public-payment-list th { padding:11px 13px; background:#eef8f2; color:#365e48; font-size:10px; text-align:left; text-transform:uppercase; letter-spacing:.07em; }
@@ -392,6 +398,8 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
             padding: 18px 16px;
             display: block;
           }
+          .public-invoice-header-side { align-items:stretch; margin-top:14px; }
+          .public-invoice-header-side .invoice-document-actions { justify-content:flex-start; }
           .public-invoice-header-summary {
             text-align: left !important;
             margin-top: 16px;
@@ -476,16 +484,18 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
         }
       `}</style>
       <section className="public-invoice-shell">
-        <InvoiceDocumentActions pdfUrl={`${API_BASE_URL}/public/invoices/${encodeURIComponent(slug)}/pdf`} />
         <header className="public-invoice-header">
           <div>
             <img className="public-invoice-logo" src={LOGO_WHITE_URL} alt="Hangers Clothes Spa" />
             <div className="public-invoice-kicker">Premium garment care</div>
           </div>
-          <div className="public-invoice-header-summary public-invoice-summary-card" style={{ textAlign: 'right' }}>
-            <h1 style={{ margin: '0 0 6px', color: '#fff', fontSize: 28 }}>Invoice</h1>
-            <div style={{ fontFamily: 'var(--crm-font-mono)', color: '#e8f5ff', fontWeight: 800 }}>{invoice.orderNumber}</div>
-            <div className="public-invoice-status-pill">{invoice.paymentStatus}</div>
+          <div className="public-invoice-header-side">
+            <InvoiceDocumentActions pdfUrl={`${API_BASE_URL}/public/invoices/${encodeURIComponent(slug)}/pdf`} />
+            <div className="public-invoice-header-summary public-invoice-summary-card" style={{ textAlign: 'right' }}>
+              <h1 style={{ margin: '0 0 6px', color: '#fff', fontSize: 28 }}>Invoice</h1>
+              <div style={{ fontFamily: 'var(--crm-font-mono)', color: '#e8f5ff', fontWeight: 800 }}>{invoice.orderNumber}</div>
+              <div className="public-invoice-status-pill">{invoice.paymentStatus}</div>
+            </div>
           </div>
         </header>
 

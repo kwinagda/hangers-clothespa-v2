@@ -29,6 +29,13 @@ const invoice = {
   deliveryDate: '2026-09-25T00:00:00.000Z',
   customer: { name: 'Home QA', phone: '9930367267' },
   items: [{ sourceType: 'SERVICE', garmentType: 'Test garment', serviceName: 'Dry Clean', quantity: 1, unitPrice: 1, subtotal: 1 }],
+  payments: [{
+    paidAt: '2026-09-24T04:30:00.000Z',
+    method: 'UPI via Razorpay',
+    receiptNumber: 'REC-UI-001',
+    reference: 'pay_ui_fixture',
+    amountApplied: 1,
+  }],
   legalTerms: { sections: [] },
 }
 
