@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeInvoiceDocument, generateInvoiceHTML, invoicePdfFilename } = require('../src/services/invoice-document.service');
+const { normalizeInvoiceDocument, invoicePdfFilename } = require('../src/services/invoice-document.service');
+const { validateInvoicePdfTarget } = require('../src/services/pdf-render.service');
 
 const invoiceFixture = {
   id: 'invoice-1', invoiceNumber: 'INV-1001', sourceType: 'ORDER', status: 'PAID', currency: 'INR',
@@ -19,7 +20,7 @@ const invoiceFixture = {
 test('invoice document exposes safe settlement details for every posted payment method', () => {
   const document = normalizeInvoiceDocument(invoiceFixture);
   assert.equal(document.payments.length, 2);
-  assert.deepEqual(document.payments.map((payment) => payment.method), ['CASH', 'UPI']);
+  assert.deepEqual(document.payments.map((payment) => payment.method), ['Cash', 'UPI via Razorpay']);
   assert.deepEqual(document.payments.map((payment) => payment.receiptNumber), ['REC-1', 'REC-2']);
   assert.deepEqual(document.payments.map((payment) => Number(payment.amountApplied)), [300, 500]);
   assert.equal(document.payments[1].reference, 'pay_safe');
@@ -31,12 +32,18 @@ test('invoice PDF filename cannot inject response headers', () => {
   assert.equal(invoicePdfFilename('INV-1001\r\nX-Test: unsafe'), 'INV-1001-X-Test-unsafe.pdf');
 });
 
-test('invoice PDF HTML contains invoice lines, totals, and payment evidence', () => {
-  const html = generateInvoiceHTML(normalizeInvoiceDocument(invoiceFixture));
-  assert.match(html, /INV-1001/);
-  assert.match(html, /Dry cleaning/);
-  assert.match(html, /REC-1/);
-  assert.match(html, /COUNTER-1/);
-  assert.match(html, /REC-2/);
-  assert.match(html, /pay_safe/);
+test('invoice PDF renderer accepts only the canonical invoice page on the configured CRM origin', () => {
+  const result = validateInvoicePdfTarget(
+    'https://hangers.example/invoice/share-token',
+    'https://hangers.example',
+  );
+  assert.equal(result.target.pathname, '/invoice/share-token');
+  assert.throws(
+    () => validateInvoicePdfTarget('https://attacker.example/invoice/share-token', 'https://hangers.example'),
+    /outside the configured CRM invoice route/,
+  );
+  assert.throws(
+    () => validateInvoicePdfTarget('https://hangers.example/dashboard/orders/1', 'https://hangers.example'),
+    /outside the configured CRM invoice route/,
+  );
 });

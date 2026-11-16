@@ -15,8 +15,7 @@ const { getDefaultPaymentAccount, getPaymentAccountQrMediaUrl } = require('../se
 const { findOpenReceivableInvoices, groupReceivablesByCustomer, openInvoiceWhere, allocateReceivablePayment } = require('../services/receivables.service');
 const { sendPaymentReminderMessage } = require('../services/whatomate.service');
 const { paymentApiError, validationFieldErrors } = require('../utils/payment-api-error');
-const { findInvoiceDocument, generateInvoiceHTML, invoicePdfFilename } = require('../services/invoice-document.service');
-const { htmlToPDF } = require('../services/pdf-render.service');
+const { findInvoiceDocument } = require('../services/invoice-document.service');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // ── POST /api/v1/payments — Record a payment for an order ─────────────────────
@@ -304,9 +303,15 @@ const createInvoiceShareLink = async (req, res) => {
       createdById: req.staff?.id || null,
       creationSource: 'CRM_FINANCE',
       creationReason: 'INVOICE_SHARE',
+      stable: true,
     });
     if (!slug) return paymentApiError(res, { code: 'INVOICE_SHARE_CREATE_FAILED', message: 'Failed to create invoice link', requestId: req.id });
-    return success(res, { invoiceNumber: invoice.invoiceNumber, slug, path: `/invoice/${slug}` });
+    return success(res, {
+      invoiceNumber: invoice.invoiceNumber,
+      slug,
+      path: `/invoice/${slug}`,
+      pdfPath: `/public/invoices/${slug}/pdf`,
+    });
   } catch (err) {
     console.error('createInvoiceShareLink error:', err);
     return paymentApiError(res, { code: 'INVOICE_SHARE_CREATE_FAILED', message: 'Failed to create invoice link', requestId: req.id });
@@ -321,21 +326,6 @@ const getInvoiceDocument = async (req, res) => {
   } catch (err) {
     console.error('getInvoiceDocument error:', err);
     return paymentApiError(res, { code: 'INVOICE_LOAD_FAILED', message: 'Failed to load invoice', requestId: req.id });
-  }
-};
-
-const getInvoicePDF = async (req, res) => {
-  try {
-    const invoice = await findInvoiceDocument({ id: String(req.params.invoiceId || '') });
-    if (!invoice) return paymentApiError(res, { statusCode: 404, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found', requestId: req.id });
-    const pdf = await htmlToPDF(generateInvoiceHTML(invoice));
-    const disposition = req.query?.download === '1' ? 'attachment' : 'inline';
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `${disposition}; filename="${invoicePdfFilename(invoice.invoiceNumber)}"`);
-    return res.send(pdf);
-  } catch (err) {
-    console.error('getInvoicePDF error:', err);
-    return paymentApiError(res, { code: 'INVOICE_PDF_FAILED', message: 'Failed to generate invoice PDF', requestId: req.id });
   }
 };
 
@@ -377,4 +367,4 @@ const recordReceivablesPayment = async (req, res) => {
   }
 };
 
-module.exports = { recordPayment, recordReceivablesPayment, getOrderPayments, getDailySummary, getReceivables, previewReceivablesReminder, sendReceivablesReminder, createInvoiceShareLink, getInvoiceDocument, getInvoicePDF };
+module.exports = { recordPayment, recordReceivablesPayment, getOrderPayments, getDailySummary, getReceivables, previewReceivablesReminder, sendReceivablesReminder, createInvoiceShareLink, getInvoiceDocument };
