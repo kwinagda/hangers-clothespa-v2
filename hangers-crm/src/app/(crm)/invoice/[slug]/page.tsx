@@ -1,5 +1,6 @@
 import { LOGO_BLUE_URL, LOGO_WHITE_URL } from '@/lib/branding'
 import InvoicePaymentButton from './InvoicePaymentButton'
+import InvoiceDocumentActions from './InvoiceDocumentActions'
 
 export const dynamic = 'force-dynamic'
 
@@ -108,6 +109,9 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           .public-legal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
           .public-legal-item b { display: block; color: #24364b; font-size: 12px; margin-bottom: 3px; }
           .public-legal-item p { margin: 0; color: #52647e; font-size: 11.5px; line-height: 1.48; }
+          .invoice-document-actions { display:flex; justify-content:flex-end; gap:10px; padding:16px 26px 0; }
+          .invoice-document-actions button, .invoice-document-actions a { display:inline-flex; align-items:center; gap:7px; border:1px solid #c9ddea; border-radius:9px; background:#fff; color:#023c62; padding:10px 13px; font:700 12px var(--crm-font-ui); text-decoration:none; cursor:pointer; }
+          @media print { .invoice-document-actions, .summary-receivable-pay { display:none !important; } main.public-invoice-page { padding:0 !important; background:#fff !important; } .summary-shell { box-shadow:none; border:0; } }
           @media (max-width: 640px) {
             main.public-invoice-page { padding: 12px 10px 28px !important; }
             .summary-shell { border-radius: 12px; }
@@ -131,6 +135,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           }
         `}</style>
         <section className="summary-shell">
+          <InvoiceDocumentActions />
           <header className="summary-header">
             <div>
               <img className="summary-logo" src={LOGO_WHITE_URL} alt="Hangers Clothes Spa" />
@@ -368,6 +373,14 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
         .public-legal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
         .public-legal-item b { display: block; color: #24364b; font-size: 12px; margin-bottom: 3px; }
         .public-legal-item p { margin: 0; color: #52647e; font-size: 11.5px; line-height: 1.48; }
+        .invoice-document-actions { display:flex; justify-content:flex-end; gap:10px; padding:16px 26px 0; }
+        .invoice-document-actions button, .invoice-document-actions a { display:inline-flex; align-items:center; gap:7px; border:1px solid #c9ddea; border-radius:9px; background:#fff; color:#023c62; padding:10px 13px; font:700 12px var(--crm-font-ui); text-decoration:none; cursor:pointer; }
+        .public-payment-list { padding:0 26px 24px; overflow-x:auto; }
+        .public-payment-list table { width:100%; border-collapse:collapse; min-width:620px; border:1px solid #dce8f0; }
+        .public-payment-list th { padding:11px 13px; background:#eef8f2; color:#365e48; font-size:10px; text-align:left; text-transform:uppercase; letter-spacing:.07em; }
+        .public-payment-list td { padding:12px 13px; border-top:1px solid #e4eee8; color:#334155; overflow-wrap:anywhere; }
+        .public-payment-list td:last-child, .public-payment-list th:last-child { text-align:right; }
+        @media print { .invoice-document-actions, .invoice-payment-actions { display:none !important; } main.public-invoice-page { padding:0 !important; background:#fff !important; } .public-invoice-shell { box-shadow:none; border:0; } }
         @media (max-width: 640px) {
           main.public-invoice-page {
             padding: 12px 10px 28px !important;
@@ -463,6 +476,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
         }
       `}</style>
       <section className="public-invoice-shell">
+        <InvoiceDocumentActions pdfUrl={`${API_BASE_URL}/public/invoices/${encodeURIComponent(slug)}/pdf`} />
         <header className="public-invoice-header">
           <div>
             <img className="public-invoice-logo" src={LOGO_WHITE_URL} alt="Hangers Clothes Spa" />
@@ -561,6 +575,24 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
               </div>
             </article>
           ))}
+        </div>
+
+        <div className="public-invoice-section-title">Payment details</div>
+        <div className="public-payment-list">
+          <table>
+            <thead><tr><th>Date</th><th>Method</th><th>Receipt</th><th>Reference</th><th>Applied</th></tr></thead>
+            <tbody>
+              {(invoice.payments || []).length ? (invoice.payments || []).map((payment: any) => (
+                <tr key={`${payment.receiptNumber || payment.reference || payment.paidAt}-${payment.amountApplied}`}>
+                  <td>{dateLabel(payment.paidAt)}</td>
+                  <td>{payment.method || 'Payment'}</td>
+                  <td>{payment.receiptNumber || '—'}</td>
+                  <td>{payment.reference || '—'}</td>
+                  <td>{money(payment.amountApplied)}</td>
+                </tr>
+              )) : <tr><td colSpan={5} style={{ textAlign: 'center', color: '#6b7fa3' }}>No posted payment has been allocated to this invoice.</td></tr>}
+            </tbody>
+          </table>
         </div>
 
         <footer className="public-invoice-footer">

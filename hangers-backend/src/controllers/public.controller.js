@@ -3,6 +3,8 @@ const { success, notFound, error, badRequest, created, forbidden } = require('..
 const { normalizeOrderItem, roundMoney } = require('../utils/line-pricing');
 const { compareServiceDisplay } = require('../utils/service-sort');
 const { findPublicShareToken, resolvePublicShareToken } = require('../services/publicShare.service');
+const { findInvoiceDocument, generateInvoiceHTML, invoicePdfFilename } = require('../services/invoice-document.service');
+const { htmlToPDF } = require('../services/pdf-render.service');
 const { getLegalTerms, getServiceCategoryUi, getWebsitePickupRequestStatuses, getWebsitePickupTimeSlots } = require('../services/masterData.service');
 const { nextDocumentNumber } = require('../services/document-number.service');
 const { enqueueOutboxEvent, OUTBOX_EVENT } = require('../services/outbox.service');
@@ -550,7 +552,7 @@ const getPublicDailyIronLogs = async (req, res) => {
   try {
     const slug = String(req.params.slug || '').trim();
     if (!slug) return notFound(res, 'Daily Iron account not found');
-    const share = await resolvePublicShareToken({ token: slug, purpose: 'DAILY_IRON_LOGS' });
+    const share = await resolvePublicShareToken({ token: slug, purpose: 'DAILY_IRON_LOGS', allowExpiredDocument: true });
     if (!share || share.resourceType !== 'IRON_SUBSCRIPTION') return notFound(res, 'Daily Iron account not found');
 
     const subscription = await prisma.ironSubscription.findFirst({
@@ -668,7 +670,7 @@ const getPublicInvoice = async (req, res) => {
   try {
     const slug = String(req.params.slug || '').trim();
     if (!slug) return notFound(res, 'Invoice not found');
-    const share = await resolvePublicShareToken({ token: slug, purpose: 'INVOICE_VIEW' });
+    const share = await resolvePublicShareToken({ token: slug, purpose: 'INVOICE_VIEW', allowExpiredDocument: true });
     if (!share) return notFound(res, 'Invoice not found');
 
     if (share.resourceType === 'CUSTOMER') {
@@ -686,12 +688,39 @@ const getPublicInvoice = async (req, res) => {
           : null;
     if (!where) return notFound(res, 'Invoice not found');
 
-    const invoice = await prisma.invoice.findFirst({ where, select: canonicalInvoiceSelect });
-    if (!invoice || invoice.status === 'VOID') return notFound(res, 'Invoice not found');
-    return success(res, { invoice: { ...normalizeCanonicalInvoice(invoice), legalTerms: await getLegalTerms() } });
+    const invoice = await findInvoiceDocument({ where });
+    if (!invoice) return notFound(res, 'Invoice not found');
+    return success(res, { invoice: { ...invoice, legalTerms: await getLegalTerms() } });
   } catch (err) {
     console.error('getPublicInvoice error:', err);
     return error(res, 'Failed to load invoice');
+  }
+};
+
+const getPublicInvoicePDF = async (req, res) => {
+  try {
+    const slug = String(req.params.slug || '').trim();
+    if (!slug) return notFound(res, 'Invoice not found');
+    const share = await resolvePublicShareToken({ token: slug, purpose: 'INVOICE_VIEW', allowExpiredDocument: true });
+    if (!share || share.resourceType === 'CUSTOMER') return notFound(res, 'Invoice not found');
+    const where = share.resourceType === 'INVOICE'
+      ? { id: share.resourceId }
+      : share.resourceType === 'IRON_BILL'
+        ? { ironBillId: share.resourceId }
+        : share.resourceType === 'ORDER'
+          ? { orderId: share.resourceId }
+          : null;
+    if (!where) return notFound(res, 'Invoice not found');
+    const invoice = await findInvoiceDocument({ where });
+    if (!invoice) return notFound(res, 'Invoice not found');
+    const pdf = await htmlToPDF(generateInvoiceHTML(invoice));
+    const disposition = req.query?.download === '1' ? 'attachment' : 'inline';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${disposition}; filename="${invoicePdfFilename(invoice.invoiceNumber)}"`);
+    return res.send(pdf);
+  } catch (err) {
+    console.error('getPublicInvoicePDF error:', err);
+    return error(res, 'Failed to generate invoice PDF');
   }
 };
 
@@ -1115,7 +1144,7 @@ const getPublicQuotation = async (req, res) => {
   try {
     const slug = String(req.params.slug || '').trim();
     if (!slug) return notFound(res, 'Quotation not found');
-    const share = await resolvePublicShareToken({ token: slug, purpose: 'QUOTATION_VIEW' });
+    const share = await resolvePublicShareToken({ token: slug, purpose: 'QUOTATION_VIEW', allowExpiredDocument: true });
     if (!share || share.resourceType !== 'QUOTATION') return notFound(res, 'Quotation not found');
 
     const quotation = await prisma.order.findFirst({
@@ -1138,7 +1167,7 @@ const getPublicQuotationPDF = async (req, res) => {
   try {
     const slug = String(req.params.slug || '').trim();
     if (!slug) return notFound(res, 'Quotation not found');
-    const share = await resolvePublicShareToken({ token: slug, purpose: 'QUOTATION_VIEW' });
+    const share = await resolvePublicShareToken({ token: slug, purpose: 'QUOTATION_VIEW', allowExpiredDocument: true });
     if (!share || share.resourceType !== 'QUOTATION') return notFound(res, 'Quotation not found');
 
     const quotation = await prisma.order.findFirst({
@@ -1337,6 +1366,7 @@ module.exports = {
   verifyPublicPickupOtp,
   getPublicSiteProfile,
   getPublicInvoice,
+  getPublicInvoicePDF,
   getPublicDailyIronLogs,
   getPublicQuotation,
   getPublicQuotationPDF,

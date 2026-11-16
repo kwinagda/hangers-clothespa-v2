@@ -14,6 +14,7 @@ import toast from 'react-hot-toast'
 import PaymentPanel from '@/components/PaymentPanel'
 import { itemServiceCode } from '@/lib/serviceCode'
 import { collapseQueuedWhatsAppEvents } from '@/lib/notificationTimeline'
+import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
 import { AlertTriangle, Bike, CalendarRange, ClipboardList, Clock3, IndianRupee, Lock, MapPin, MessageSquareText, PackageCheck, Printer, Receipt, RotateCcw, ScrollText, Shirt, Smartphone, Tag, User, XCircle } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1169,6 +1170,16 @@ export default function OrderDetailPage() {
                   Print
                 </button>
               </div>
+              {order.invoice?.id && <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                <button onClick={() => viewInvoicePdf(order.invoice.id).catch((error) => toast.error(error.message))}
+                  style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:9,borderRadius:8,background:'#eef7fb',border:'1px solid #bcd7e7',color:'#023c62',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>
+                  View / Print Invoice
+                </button>
+                <button onClick={() => downloadInvoicePdf(order.invoice.id, order.invoice.invoiceNumber).catch((error) => toast.error(error.message))}
+                  style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:9,borderRadius:8,background:'#fff',border:'1px solid #bcd7e7',color:'#023c62',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>
+                  Download Invoice
+                </button>
+              </div>}
               {orderWorkflow.cancellableStatuses.includes(order.status)&&!order.isReturn&&(
                 <button onClick={()=>updateStatus('CANCELLED')}
                   style={{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',padding:11,borderRadius:9,fontSize:13.5,fontWeight:700,background:'#fff',color:'#c0392b',border:'1.5px solid #f3c7bf',cursor:'pointer',marginTop:4}}>

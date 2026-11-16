@@ -107,12 +107,18 @@ const invoiceSlugFor = async (resource) => createPublicShareToken({
   resourceType: resource?.resourceType || 'ORDER',
   resourceId: resource?.resourceId || resource?.id,
   purpose: 'INVOICE_VIEW',
+  createdByType: 'SYSTEM',
+  creationSource: 'WHATSAPP_NOTIFICATION',
+  creationReason: 'INVOICE_DOCUMENT_LINK',
 });
 
 const quotationSlugFor = async (quotation) => createPublicShareToken({
   resourceType: 'QUOTATION',
   resourceId: quotation?.id,
   purpose: 'QUOTATION_VIEW',
+  createdByType: 'SYSTEM',
+  creationSource: 'WHATSAPP_NOTIFICATION',
+  creationReason: 'QUOTATION_DOCUMENT_LINK',
   stable: true,
 });
 
@@ -475,6 +481,9 @@ const dailyIronLogSlugFor = async (iron) => createPublicShareToken({
   resourceType: 'IRON_SUBSCRIPTION',
   resourceId: iron?.subscription?.id || iron?.subscriptionId,
   purpose: 'DAILY_IRON_LOGS',
+  createdByType: 'SYSTEM',
+  creationSource: 'WHATSAPP_NOTIFICATION',
+  creationReason: 'DAILY_IRON_DOCUMENT_LINK',
 });
 
 const dailyIronLinkSuffix = (slug, bill) => {

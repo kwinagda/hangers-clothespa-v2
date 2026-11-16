@@ -144,6 +144,21 @@ from **Actions > Deploy Production CRM > Run workflow** after CI passes.
 
 ## Database Releases
 
+The durable public-document release has an explicitly approved optional workflow
+input, `migrate_public_document_provenance`. It applies only
+`20261116193000_public_document_provenance`, after verifying a custom-format
+production backup, and records future share creation/revocation provenance. The
+helper refuses any other pending or failed migration and verifies every new column
+and index before code deployment proceeds. The change is additive; rollback keeps
+the nullable columns and uses a reviewed forward application revert rather than
+dropping audit evidence.
+
+Invoice, quotation, and Daily Iron document reads are durable: an existing random
+share token remains usable after its historical `expiresAt`, unless explicitly
+revoked. Payment/checkout authorization remains time-bound and continues to enforce
+expiry. Revocation is therefore the operational control for compromised document
+links; expiry must not be used as document retention or invoice availability.
+
 The combined-outstanding release has an explicitly approved optional workflow
 input, `migrate_combined_checkout`. It runs only the reviewed
 `20260929000000_razorpay_checkout_allocation_plan` addition before code deployment.

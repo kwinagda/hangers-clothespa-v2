@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { CalendarClock, CreditCard, Loader2, Plus, Search, Trash2, UserPlus, X, XCircle } from 'lucide-react'
 import { customersAPI, ironAPI, metadataAPI, serviceAppointmentsAPI, servicesAPI, staffAPI, statsAPI } from '@/lib/api'
 import { isStrictMoneyText, sanitizeDecimalInput, sanitizeIntegerInput } from '@/lib/numeric-input'
+import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
 
 type Address = { id: string; label?: string; addressLine1?: string; addressLine2?: string | null; landmark?: string | null; city?: string | null; pincode?: string | null; isDefault?: boolean }
 type Customer = { id: string; name?: string; phone: string; ordersDue?: number; loyaltyPoints?: number; addresses?: Address[] }
@@ -795,7 +796,9 @@ function AppointmentRow({ appointment, services, statusMeta, workflow, staff, bu
           })}
         </div>
       </div>
-      {appointment.status !== 'CANCELLED' && <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+      {appointment.status !== 'CANCELLED' && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+        {invoice?.id && <button onClick={() => viewInvoicePdf(invoice.id).catch((error) => toast.error(error.message))} style={ghostBtn}>View / Print Invoice</button>}
+        {invoice?.id && <button onClick={() => downloadInvoicePdf(invoice.id, invoice.invoiceNumber).catch((error) => toast.error(error.message))} style={ghostBtn}>Download PDF</button>}
         <button onClick={() => setEditing((value) => !value)} style={ghostBtn}>{editing ? 'Close editor' : invoice ? 'Edit invoice' : 'Edit service'}</button>
       </div>}
       {editing && <ServiceAppointmentEditor appointment={appointment} services={services} onCancel={() => setEditing(false)} onSaved={onSaved} />}

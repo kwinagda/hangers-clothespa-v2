@@ -14,6 +14,8 @@ const {
   previewReceivablesReminder,
   sendReceivablesReminder,
   createInvoiceShareLink,
+  getInvoiceDocument,
+  getInvoicePDF,
 } = require('../controllers/payments.controller');
 
 const financeRoles = requireRole('SUPER_ADMIN', 'MANAGER', 'ACCOUNTS');
@@ -29,6 +31,8 @@ router.get('/receivables',            staffAuth, financeAccess, financeRoles, ge
 router.post('/receivables/reminders/preview', staffAuth, financeAccess, financeRoles, previewReceivablesReminder);
 router.post('/receivables/reminders/send', staffAuth, financeAccess, financeRoles, idempotent({ scope: 'receivables.reminder-send' }), sendReceivablesReminder);
 router.post('/invoice/:invoiceId/share', staffAuth, financeAccess, financeRoles, createInvoiceShareLink);
+router.get('/invoice/:invoiceId', staffAuth, requirePermission('orders.view'), getInvoiceDocument);
+router.get('/invoice/:invoiceId/pdf', staffAuth, requirePermission('orders.view'), getInvoicePDF);
 router.get('/order/:orderId',         staffAuth, financeAccess, financeRoles, getOrderPayments);
 
 module.exports = router;

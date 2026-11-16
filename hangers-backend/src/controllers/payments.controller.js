@@ -15,6 +15,8 @@ const { getDefaultPaymentAccount, getPaymentAccountQrMediaUrl } = require('../se
 const { findOpenReceivableInvoices, groupReceivablesByCustomer, openInvoiceWhere, allocateReceivablePayment } = require('../services/receivables.service');
 const { sendPaymentReminderMessage } = require('../services/whatomate.service');
 const { paymentApiError, validationFieldErrors } = require('../utils/payment-api-error');
+const { findInvoiceDocument, generateInvoiceHTML, invoicePdfFilename } = require('../services/invoice-document.service');
+const { htmlToPDF } = require('../services/pdf-render.service');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // ── POST /api/v1/payments — Record a payment for an order ─────────────────────
@@ -148,7 +150,7 @@ const getDailySummary = async (req, res) => {
       include: {
         order:            { select: { orderNumber: true, customer: { select: { name: true, phone: true } } } },
         customer:         { select: { name: true, phone: true } },
-        allocations:      { include: { invoice: { select: { invoiceNumber: true, sourceType: true, ironBillId: true, serviceAppointmentId: true, ironBill: { select: { billNumber: true } }, serviceAppointment: { select: { appointmentNumber: true } } } } } },
+        allocations:      { include: { invoice: { select: { id: true, invoiceNumber: true, sourceType: true, ironBillId: true, serviceAppointmentId: true, ironBill: { select: { billNumber: true } }, serviceAppointment: { select: { appointmentNumber: true } } } } } },
         collectedByStaff: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -203,7 +205,7 @@ const getReceivables = async (req, res) => {
   }
 };
 
-const selectedReceivableSummary = async ({ customerId, invoiceIds = [] }) => {
+const selectedReceivableSummary = async ({ customerId, invoiceIds = [], staffId = null }) => {
   const selectedIds = Array.isArray(invoiceIds) ? invoiceIds.map(String).filter(Boolean) : [];
   if (!customerId) throw new PaymentRuleError('CUSTOMER_REQUIRED', 'Customer is required');
   const receivables = (await findOpenReceivableInvoices({ customerId }))
@@ -215,6 +217,10 @@ const selectedReceivableSummary = async ({ customerId, invoiceIds = [] }) => {
     resourceType: 'CUSTOMER',
     resourceId: customerId,
     purpose: 'INVOICE_VIEW',
+    createdByType: 'STAFF',
+    createdById: staffId,
+    creationSource: 'CRM_RECEIVABLES_REMINDER',
+    creationReason: 'OUTSTANDING_SUMMARY',
   });
   const { account } = await getDefaultPaymentAccount();
   const paymentSettings = account ? { ...account, qrMediaUrl: getPaymentAccountQrMediaUrl(account) } : null;
@@ -236,7 +242,7 @@ const selectedReceivableSummary = async ({ customerId, invoiceIds = [] }) => {
 const previewReceivablesReminder = async (req, res) => {
   try {
     const { customerId, invoiceIds = [] } = req.body || {};
-    const { customer, receivables, reminder } = await selectedReceivableSummary({ customerId, invoiceIds });
+    const { customer, receivables, reminder } = await selectedReceivableSummary({ customerId, invoiceIds, staffId: req.staff?.id || null });
     return success(res, {
       title: 'Outstanding summary',
       customer,
@@ -268,7 +274,7 @@ const previewReceivablesReminder = async (req, res) => {
 const sendReceivablesReminder = async (req, res) => {
   try {
     const { customerId, invoiceIds = [] } = req.body || {};
-    const { customer, receivables, reminder } = await selectedReceivableSummary({ customerId, invoiceIds });
+    const { customer, receivables, reminder } = await selectedReceivableSummary({ customerId, invoiceIds, staffId: req.staff?.id || null });
     if (customer?.notifWhatsApp === false) return paymentApiError(res, { statusCode: 409, code: 'PAYMENT_REMINDER_DISABLED', message: 'Customer WhatsApp notifications are disabled', requestId: req.id });
     const sent = await sendPaymentReminderMessage({ id: `customer-${customerId}`, customer }, reminder, {
       idempotencyKey: `ar-payment-reminder:${customerId}:${receivables.map((invoice) => invoice.invoiceId).join('-')}:${Date.now()}`,
@@ -290,12 +296,46 @@ const createInvoiceShareLink = async (req, res) => {
       select: { id: true, invoiceNumber: true },
     });
     if (!invoice) return paymentApiError(res, { statusCode: 404, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found', requestId: req.id });
-    const slug = await createPublicShareToken({ resourceType: 'INVOICE', resourceId: invoice.id, purpose: 'INVOICE_VIEW' });
+    const slug = await createPublicShareToken({
+      resourceType: 'INVOICE',
+      resourceId: invoice.id,
+      purpose: 'INVOICE_VIEW',
+      createdByType: 'STAFF',
+      createdById: req.staff?.id || null,
+      creationSource: 'CRM_FINANCE',
+      creationReason: 'INVOICE_SHARE',
+    });
     if (!slug) return paymentApiError(res, { code: 'INVOICE_SHARE_CREATE_FAILED', message: 'Failed to create invoice link', requestId: req.id });
     return success(res, { invoiceNumber: invoice.invoiceNumber, slug, path: `/invoice/${slug}` });
   } catch (err) {
     console.error('createInvoiceShareLink error:', err);
     return paymentApiError(res, { code: 'INVOICE_SHARE_CREATE_FAILED', message: 'Failed to create invoice link', requestId: req.id });
+  }
+};
+
+const getInvoiceDocument = async (req, res) => {
+  try {
+    const invoice = await findInvoiceDocument({ id: String(req.params.invoiceId || '') });
+    if (!invoice) return paymentApiError(res, { statusCode: 404, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found', requestId: req.id });
+    return success(res, { invoice });
+  } catch (err) {
+    console.error('getInvoiceDocument error:', err);
+    return paymentApiError(res, { code: 'INVOICE_LOAD_FAILED', message: 'Failed to load invoice', requestId: req.id });
+  }
+};
+
+const getInvoicePDF = async (req, res) => {
+  try {
+    const invoice = await findInvoiceDocument({ id: String(req.params.invoiceId || '') });
+    if (!invoice) return paymentApiError(res, { statusCode: 404, code: 'INVOICE_NOT_FOUND', message: 'Invoice not found', requestId: req.id });
+    const pdf = await htmlToPDF(generateInvoiceHTML(invoice));
+    const disposition = req.query?.download === '1' ? 'attachment' : 'inline';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${disposition}; filename="${invoicePdfFilename(invoice.invoiceNumber)}"`);
+    return res.send(pdf);
+  } catch (err) {
+    console.error('getInvoicePDF error:', err);
+    return paymentApiError(res, { code: 'INVOICE_PDF_FAILED', message: 'Failed to generate invoice PDF', requestId: req.id });
   }
 };
 
@@ -337,4 +377,4 @@ const recordReceivablesPayment = async (req, res) => {
   }
 };
 
-module.exports = { recordPayment, recordReceivablesPayment, getOrderPayments, getDailySummary, getReceivables, previewReceivablesReminder, sendReceivablesReminder, createInvoiceShareLink };
+module.exports = { recordPayment, recordReceivablesPayment, getOrderPayments, getDailySummary, getReceivables, previewReceivablesReminder, sendReceivablesReminder, createInvoiceShareLink, getInvoiceDocument, getInvoicePDF };

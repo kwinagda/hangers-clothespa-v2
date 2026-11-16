@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getPublicInvoice, getPublicDailyIronLogs, getPublicQuotation, getPublicQuotationPDF, getPublicRateChart, getPublicSiteProfile, getPublicBlogPosts, getPublicBlogPost, getPublicSuburbPages, getPublicSuburbPage, getPublicServicePages, getPublicServicePage, createPublicPickupRequest, ingestQueuedPickupRequest, sendPublicPickupOtp, verifyPublicPickupOtp, createPublicRazorpayOrder, verifyPublicRazorpayPayment, getPublicRazorpayCheckoutStatus, reconcilePublicRazorpayCheckout, assignPublicRazorpayCheckoutExperiment, recordPublicRazorpayCheckoutExperimentEvent } = require('../controllers/public.controller');
+const { getPublicInvoice, getPublicInvoicePDF, getPublicDailyIronLogs, getPublicQuotation, getPublicQuotationPDF, getPublicRateChart, getPublicSiteProfile, getPublicBlogPosts, getPublicBlogPost, getPublicSuburbPages, getPublicSuburbPage, getPublicServicePages, getPublicServicePage, createPublicPickupRequest, ingestQueuedPickupRequest, sendPublicPickupOtp, verifyPublicPickupOtp, createPublicRazorpayOrder, verifyPublicRazorpayPayment, getPublicRazorpayCheckoutStatus, reconcilePublicRazorpayCheckout, assignPublicRazorpayCheckoutExperiment, recordPublicRazorpayCheckoutExperimentEvent } = require('../controllers/public.controller');
 const { publicShareLimiter, otpSendLimiter, otpVerifyLimiter } = require('../middleware/rateLimit');
 
 // publicShareLimiter guards guessable share-token lookups (invoice/daily-iron/quotation
@@ -11,6 +11,7 @@ const { publicShareLimiter, otpSendLimiter, otpVerifyLimiter } = require('../mid
 // tight per-share-link budget was starving ordinary page loads. They still sit behind the
 // generous app-wide globalApiLimiter (1200 req/15min) applied at the /api/v1 level.
 router.get('/invoices/:slug', publicShareLimiter, getPublicInvoice);
+router.get('/invoices/:slug/pdf', publicShareLimiter, getPublicInvoicePDF);
 router.post('/invoices/:slug/payment/experiment/assign', publicShareLimiter, assignPublicRazorpayCheckoutExperiment);
 router.post('/invoices/:slug/payment/experiment/events', publicShareLimiter, recordPublicRazorpayCheckoutExperimentEvent);
 router.post('/invoices/:slug/payment/create-order', publicShareLimiter, createPublicRazorpayOrder);

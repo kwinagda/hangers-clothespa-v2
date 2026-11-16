@@ -6,6 +6,7 @@ import { customersAPI, statsAPI, ordersAPI, walletAPI, ironAPI, servicesAPI, met
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { CreditCard, Info, IndianRupee, MapPin, PackageCheck, Sparkles, Wallet } from 'lucide-react'
+import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
 
 const TAG_COLORS: Record<string, { bg: string; color: string }> = {
   VIP:       { bg: '#fef9c3', color: '#854d0e' },
@@ -794,6 +795,10 @@ export default function CustomerProfilePage() {
                           {paymentSourceLabel(payment)}{payment.reference ? ` · Ref ${payment.reference}` : ''}{payment.collectedByStaff?.name ? ` · Collected by ${payment.collectedByStaff.name}` : ''}
                         </div>
                         {payment.notes && <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>{payment.notes}</div>}
+                        {payment.allocations?.[0]?.invoice?.id && <div style={{display:'flex',gap:7,flexWrap:'wrap',marginTop:7}}>
+                          <button type="button" onClick={() => viewInvoicePdf(payment.allocations[0].invoice.id).catch((error) => toast.error(error.message))} style={{border:'1px solid #c9ddea',borderRadius:7,background:'#fff',color:'#023c62',padding:'5px 8px',fontSize:11,fontWeight:700,cursor:'pointer'}}>View / Print Invoice</button>
+                          <button type="button" onClick={() => downloadInvoicePdf(payment.allocations[0].invoice.id, payment.allocations[0].invoice.invoiceNumber).catch((error) => toast.error(error.message))} style={{border:'1px solid #c9ddea',borderRadius:7,background:'#fff',color:'#023c62',padding:'5px 8px',fontSize:11,fontWeight:700,cursor:'pointer'}}>Download PDF</button>
+                        </div>}
                       </div>
                       <div style={{ textAlign: 'right' as const }}>
                         <div style={{ fontSize: 12, color: '#6b7fa3' }}>{payment.createdAt ? format(new Date(payment.createdAt), 'dd MMM yyyy, h:mm a') : '—'}</div>
@@ -1191,6 +1196,8 @@ export default function CustomerProfilePage() {
                           <button onClick={() => sendIronBill(bill.id)} disabled={ironBusy === `bill-send-${bill.id}` || isBillPaid} style={{ padding: '8px 12px', background: isBillPaid ? '#cbd5e1' : '#023c62', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: isBillPaid ? 'not-allowed' : 'pointer' }}>
                             {ironBusy === `bill-send-${bill.id}` ? 'Sending…' : 'Send Bill'}
                           </button>
+                          {bill.invoice?.id && <button onClick={() => viewInvoicePdf(bill.invoice.id).catch((error) => toast.error(error.message))} style={{ padding: '8px 12px', background: '#fff', color: '#023c62', border: '1px solid #bcd7e7', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>View / Print Invoice</button>}
+                          {bill.invoice?.id && <button onClick={() => downloadInvoicePdf(bill.invoice.id, bill.invoice.invoiceNumber).catch((error) => toast.error(error.message))} style={{ padding: '8px 12px', background: '#fff', color: '#023c62', border: '1px solid #bcd7e7', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Download PDF</button>}
                           {!isBillPaid && (
                             <button onClick={() => voidIronBill(bill)} disabled={Boolean(ironBusy)} style={{ padding: '8px 12px', background: '#fff7ed', color: '#9a3412', border: '1px solid #fed7aa', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: ironBusy ? 'not-allowed' : 'pointer' }}>
                               {ironBusy === `bill-void-${bill.id}` ? 'Voiding...' : 'Void Bill'}

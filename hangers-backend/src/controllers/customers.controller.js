@@ -203,6 +203,7 @@ const getCustomer = async (req, res) => {
           include: {
             invoice: {
               select: {
+                id: true,
                 invoiceNumber: true,
                 sourceType: true,
                 ironBill: { select: { billNumber: true } },
