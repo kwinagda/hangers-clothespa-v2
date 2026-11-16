@@ -20,7 +20,17 @@ const addDays = (days) => {
   return date;
 };
 
-const createPublicShareToken = async ({ resourceType, resourceId, purpose, ttlDays = DEFAULT_TTL_DAYS, stable = false }) => {
+const createPublicShareToken = async ({
+  resourceType,
+  resourceId,
+  purpose,
+  ttlDays = DEFAULT_TTL_DAYS,
+  stable = false,
+  createdByType = 'SYSTEM',
+  createdById = null,
+  creationSource = 'SYSTEM',
+  creationReason = null,
+}) => {
   if (!resourceType || !resourceId || !purpose) return null;
 
   if (stable) {
@@ -43,7 +53,10 @@ const createPublicShareToken = async ({ resourceType, resourceId, purpose, ttlDa
 
     try {
       await prisma.publicShareToken.create({
-        data: { tokenHash, resourceType, resourceId, purpose, expiresAt },
+        data: {
+          tokenHash, resourceType, resourceId, purpose, expiresAt,
+          createdByType, createdById, creationSource, creationReason,
+        },
       });
     } catch (error) {
       if (error?.code !== 'P2002') throw error;
@@ -73,13 +86,17 @@ const createPublicShareToken = async ({ resourceType, resourceId, purpose, ttlDa
       resourceId,
       purpose,
       expiresAt: addDays(ttlDays),
+      createdByType,
+      createdById,
+      creationSource,
+      creationReason,
     },
   });
   return token;
 };
 
-const resolvePublicShareToken = async ({ token, purpose }) => {
-  const share = await findPublicShareToken({ token, purpose });
+const resolvePublicShareToken = async ({ token, purpose, allowExpiredDocument = false }) => {
+  const share = await findPublicShareToken({ token, purpose, allowExpiredDocument });
   if (!share) return null;
 
   await prisma.publicShareToken.update({
@@ -93,16 +110,17 @@ const resolvePublicShareToken = async ({ token, purpose }) => {
   return share;
 };
 
-const findPublicShareToken = async ({ token, purpose }) => {
+const findPublicShareToken = async ({ token, purpose, allowExpiredDocument = false }) => {
   const normalized = String(token || '').trim();
   if (!normalized || normalized.length < 24) return null;
 
+  const isDurableDocument = allowExpiredDocument && ['INVOICE_VIEW', 'QUOTATION_VIEW', 'DAILY_IRON_LOGS'].includes(purpose);
   const share = await prisma.publicShareToken.findFirst({
     where: {
       tokenHash: hashToken(normalized),
       purpose,
       revokedAt: null,
-      expiresAt: { gt: new Date() },
+      ...(!isDurableDocument ? { expiresAt: { gt: new Date() } } : {}),
     },
   });
   if (!share) return null;

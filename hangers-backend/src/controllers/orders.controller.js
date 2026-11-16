@@ -325,6 +325,7 @@ const listOrders = async (req, res) => {
           customer:   { select: { id: true, name: true, phone: true } },
           items:      { include: { service: { select: { name: true, category: true } } } },
           payments:   { select: { amount: true, status: true } },
+          invoice:    { select: { id: true, invoiceNumber: true, status: true } },
           assignedTo: { select: { id: true, name: true, role: true } },
         },
         orderBy:  { createdAt: 'desc' },
@@ -431,6 +432,7 @@ const getOrder = async (req, res) => {
         stages:     { orderBy: { createdAt: 'asc' } },
         assignedTo: { select: { id: true, name: true, role: true } },
         payments:   true,
+        invoice:    { select: { id: true, invoiceNumber: true, status: true } },
         ...((hasPermission(req.staff, 'finance.view') || hasPermission(req.staff, 'finance.refund')) ? { razorpayRefundAttempts: {
           orderBy: { createdAt: 'desc' },
           select: {
@@ -634,6 +636,10 @@ const sendManualOrderNotification = async (req, res) => {
           resourceType: 'CUSTOMER',
           resourceId: order.customerId,
           purpose: 'INVOICE_VIEW',
+          createdByType: 'STAFF',
+          createdById: req.staff?.id || null,
+          creationSource: 'CRM_ORDER_MESSAGE',
+          creationReason: 'OUTSTANDING_SUMMARY',
         });
         label = 'Outstanding payment summary';
         reminder = {
@@ -810,6 +816,10 @@ const retryWhatsAppNotification = async (req, res) => {
           resourceType: 'CUSTOMER',
           resourceId: order.customerId,
           purpose: 'INVOICE_VIEW',
+          createdByType: 'STAFF',
+          createdById: req.staff?.id || null,
+          creationSource: 'CRM_ORDER_RETRY',
+          creationReason: 'OUTSTANDING_SUMMARY',
         });
         label = 'Outstanding payment summary';
         reminder = {

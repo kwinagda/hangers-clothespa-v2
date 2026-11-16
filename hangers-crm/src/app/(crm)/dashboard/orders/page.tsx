@@ -11,6 +11,7 @@ import { InlineLoader, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import MissingVendorRatesModal from '@/components/MissingVendorRatesModal'
 import { itemServiceCode } from '@/lib/serviceCode'
+import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -686,6 +687,8 @@ function OrdersPageContent() {
             {orderWorkflow.directReadyAllowedStatuses.includes(mobileActionOrder.status) && <button onClick={() => { markReady(mobileActionOrder); setMobileActionOrder(null) }}><CheckSquare size={19} /><span>Mark cleaned</span></button>}
             <button onClick={() => { openWhatsAppModal(mobileActionOrder); setMobileActionOrder(null) }}><MessageCircle size={19} /><span>Send WhatsApp</span></button>
             <button onClick={() => { openPrintWindow(`/dashboard/print?orderId=${mobileActionOrder.id}&type=receipt&autoprint=1`); setMobileActionOrder(null) }}><Printer size={19} /><span>Print receipt</span></button>
+            {mobileActionOrder.invoice?.id && <button onClick={() => { viewInvoicePdf(mobileActionOrder.invoice.id).catch((error) => toast.error(error.message)); setMobileActionOrder(null) }}><Printer size={19} /><span>View / Print Invoice</span></button>}
+            {mobileActionOrder.invoice?.id && <button onClick={() => { downloadInvoicePdf(mobileActionOrder.invoice.id, mobileActionOrder.invoice.invoiceNumber).catch((error) => toast.error(error.message)); setMobileActionOrder(null) }}><Printer size={19} /><span>Download Invoice PDF</span></button>}
             <div className="crm-mobile-status-actions">
               <small>Move order</small>
               {getStatusChoices(mobileActionOrder.status, orderWorkflow, currentStaff).filter((status) => status !== mobileActionOrder.status).map((status) => <button key={status} onClick={() => { updateStatus(mobileActionOrder.id, mobileActionOrder.status, status); setMobileActionOrder(null) }}>{getStatusLabel(status, mobileActionOrder.source, statusLabels)}</button>)}
@@ -884,6 +887,8 @@ function OrdersPageContent() {
                             <div style={{position:'absolute',right:0,top:36,minWidth:190,background:'#fff',border:'1px solid #dce8f0',borderRadius:12,boxShadow:'0 16px 34px rgba(2,60,98,0.18)',padding:8,zIndex:9999}}>
 	                              <Link href={`/dashboard/orders/${o.id}?returnTo=${encodeURIComponent(returnTo)}`} style={{display:'block',padding:'8px 10px',fontSize:12,color:'#023c62',textDecoration:'none',borderRadius:8}}>View Order</Link>
 	                              <button onClick={() => openPrintWindow(`/dashboard/print?orderId=${o.id}&type=receipt&autoprint=1`)} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Print A4 Receipt</button>
+	                              {o.invoice?.id && <button onClick={() => viewInvoicePdf(o.invoice.id).catch((error) => toast.error(error.message))} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>View / Print Invoice</button>}
+	                              {o.invoice?.id && <button onClick={() => downloadInvoicePdf(o.invoice.id, o.invoice.invoiceNumber).catch((error) => toast.error(error.message))} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Download Invoice PDF</button>}
 	                              <button onClick={() => openPrintWindow(`/dashboard/print?orderId=${o.id}&type=thermal&autoprint=1`)} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Print 80mm Thermal</button>
 	                              <button onClick={() => openPrintWindow(`/dashboard/print?orderId=${o.id}&type=garment&autoprint=1`)} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Print Garment Tags</button>
 	                              <button onClick={() => openPrintWindow(`/dashboard/print?orderId=${o.id}&type=label&autoprint=1`)} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',fontSize:12,color:'#023c62',background:'transparent',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'var(--crm-font-ui)'}}>Print Label Tags</button>

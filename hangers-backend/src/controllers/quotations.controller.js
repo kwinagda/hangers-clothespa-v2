@@ -639,6 +639,10 @@ const createQuotationShare = async (req, res) => {
       resourceId: quotation.id,
       purpose: 'QUOTATION_VIEW',
       ttlDays: 30,
+      createdByType: 'STAFF',
+      createdById: req.staff?.id || null,
+      creationSource: 'CRM_QUOTATION',
+      creationReason: 'QUOTATION_SHARE',
       stable: true,
     });
     if (!slug) return error(res, 'Failed to create quotation share link');

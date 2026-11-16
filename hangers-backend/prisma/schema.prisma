@@ -332,20 +332,28 @@ model AuthChallenge {
 }
 
 model PublicShareToken {
-  id           String    @id @default(uuid())
-  tokenHash    String    @unique
-  resourceType String
-  resourceId   String
-  purpose      String
-  expiresAt    DateTime
-  revokedAt    DateTime?
-  accessCount  Int       @default(0)
-  lastAccessAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                 String    @id @default(uuid())
+  tokenHash          String    @unique
+  resourceType       String
+  resourceId         String
+  purpose            String
+  expiresAt          DateTime
+  revokedAt          DateTime?
+  createdByType      String?
+  createdById        String?
+  creationSource     String?
+  creationReason     String?
+  revokedByType      String?
+  revokedById        String?
+  revocationReason   String?
+  accessCount        Int       @default(0)
+  lastAccessAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([resourceType, resourceId, purpose])
   @@index([expiresAt])
+  @@index([creationSource, createdAt])
   @@map("public_share_tokens")
 }
 

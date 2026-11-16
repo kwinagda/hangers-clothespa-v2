@@ -82,6 +82,21 @@ test('production workflow checks out the exact resolved commit it will deploy', 
     < deploy.indexOf('git merge --ff-only "$target_commit"'));
 });
 
+test('production public-document migration is explicit, backed up, and allowlisted', () => {
+  const workflow = fs.readFileSync(path.resolve(__dirname, '../../.github/workflows/deploy-production.yml'), 'utf8');
+  const migration = fs.readFileSync(path.resolve(__dirname, '../../scripts/deploy/migrate-public-document-provenance.cjs'), 'utf8');
+
+  assert.match(workflow, /migrate_public_document_provenance:/);
+  assert.match(workflow, /git show '\$COMMIT:scripts\/deploy\/migrate-public-document-provenance\.cjs'/);
+  assert.match(workflow, /flock -n \/var\/lock\/hangers-code-deploy\.lock/);
+  assert.match(migration, /20261116193000_public_document_provenance/);
+  assert.match(migration, /pg_dump/);
+  assert.match(migration, /pg_restore/);
+  assert.match(migration, /Other pending migrations require a separate review/);
+  assert.match(migration, /public_share_tokens_creationSource_createdAt_idx/);
+  assert.match(migration, /Migration differs from the reviewed additive provenance change/);
+});
+
 test('PM2 runtime gate requires both payment processes on supported Node binaries', () => {
   assert.equal(versionSupported('v24.11.0'), true);
   assert.equal(versionSupported('v24.10.99'), false);

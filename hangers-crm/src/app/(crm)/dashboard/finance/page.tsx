@@ -7,6 +7,7 @@ import api, { authAPI, idempotencyConfig, metadataAPI, paymentsAPI, ironAPI, ser
 import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import { ResponsiveDialog } from '@/components/ui/ResponsiveDialog'
+import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
 
 const METHOD_ICON = {CASH:Landmark,UPI:Smartphone,CARD:CreditCard,RAZORPAY:WalletCards,ONLINE:WalletCards,COD:Landmark,WALLET:WalletCards,OTHER:Tag,ALL:BarChart3}
 const METHOD_COLOR: Record<string,string> = {CASH:'#22c55e',UPI:'#3b82f6',CARD:'#8b5cf6',RAZORPAY:'#f97316',ONLINE:'#0ea5e9',COD:'#14b8a6',WALLET:'#6366f1',OTHER:'#6b7fa3'}
@@ -816,13 +817,13 @@ export default function FinancePage() {
             </div>
             <table className="finance-table" style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{background:'#f7f9fc'}}>
-                {['Time','Order','Customer','Method','Ref','Amount','By'].map(h=>(
+                {['Time','Invoice','Customer','Method','Ref','Amount','By','Document'].map(h=>(
                   <th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
-                {loading?<tr><td colSpan={7} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>Loading...</td></tr>
-                :!filtered.length?<tr><td colSpan={7} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>No transactions for this date.</td></tr>
+                {loading?<tr><td colSpan={8} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>Loading...</td></tr>
+                :!filtered.length?<tr><td colSpan={8} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>No transactions for this date.</td></tr>
                 :pagedPayments.map((p:any)=>(
                   <tr key={p.id} style={{borderBottom:'1px solid #eef4f8'}}>
                     <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{format(new Date(p.createdAt),'h:mm a')}</td>
@@ -839,6 +840,10 @@ export default function FinancePage() {
                     <td style={{padding:'11px 16px',fontSize:12,color:'#9dafc8',fontFamily:"var(--crm-font-mono)"}}>{paymentReference(p)}</td>
                     <td style={{padding:'11px 16px',fontWeight:700,color:signedPaymentAmount(p)<0?'#b91c1c':'#022c50',fontSize:15}}>{signedPaymentLabel(p)}</td>
                     <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{p.collectedByStaff?.name||'—'}</td>
+                    <td style={{padding:'10px 14px'}}>{p.allocations?.[0]?.invoice?.id ? <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                      <button type="button" onClick={() => viewInvoicePdf(p.allocations[0].invoice.id).catch((error) => toast.error(error.message))} style={{border:'1px solid #c9ddea',background:'#fff',color:'#023c62',borderRadius:7,padding:'5px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>View / Print</button>
+                      <button type="button" onClick={() => downloadInvoicePdf(p.allocations[0].invoice.id, p.allocations[0].invoice.invoiceNumber).catch((error) => toast.error(error.message))} style={{border:'1px solid #c9ddea',background:'#fff',color:'#023c62',borderRadius:7,padding:'5px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>Download</button>
+                    </div> : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -851,7 +856,7 @@ export default function FinancePage() {
               )}
             </table>
             <div className="finance-mobile-transactions">
-              {loading ? Array.from({length:5},(_,index)=><div className="finance-mobile-skeleton" key={index}><i/><span/><b/></div>) : !filtered.length ? <div className="finance-mobile-empty">No transactions for this date.</div> : pagedPayments.map((p:any)=>{const Icon=METHOD_ICON[(p.method||'OTHER') as keyof typeof METHOD_ICON]||Tag;return <article key={p.id}><div><strong>{paymentCustomerName(p)}</strong><small>{paymentSourceNumber(p)} · {format(new Date(p.createdAt),'h:mm a')}</small></div><span><b style={{color:signedPaymentAmount(p)<0?'#b91c1c':'inherit'}}>{signedPaymentLabel(p)}</b><small><Icon size={11}/>{methodLabels[p.method]||p.method}</small>{p.kind==='REFUND'&&<small style={{color:'#b91c1c',fontWeight:700}}>Refund</small>}{providerMethodLabel(p)&&<small>{providerMethodLabel(p)}</small>}{paymentModeLabel(p)&&<small style={{fontWeight:700,color:p.mode === 'TEST' ? '#92400e' : p.mode === 'LIVE' ? '#166534' : '#475569'}}>{paymentModeLabel(p)}</small>}</span>{paymentReference(p) !== '—'&&<p>{p.method === 'RAZORPAY' ? 'Razorpay payment: ' : 'Reference: '}{paymentReference(p)}</p>}{p.method === 'RAZORPAY' && p.razorpayOrderId && <p>Razorpay order: {p.razorpayOrderId}</p>}<em>Collected by {p.collectedByStaff?.name||'—'}</em></article>})}
+              {loading ? Array.from({length:5},(_,index)=><div className="finance-mobile-skeleton" key={index}><i/><span/><b/></div>) : !filtered.length ? <div className="finance-mobile-empty">No transactions for this date.</div> : pagedPayments.map((p:any)=>{const Icon=METHOD_ICON[(p.method||'OTHER') as keyof typeof METHOD_ICON]||Tag;const invoice=p.allocations?.[0]?.invoice;return <article key={p.id}><div><strong>{paymentCustomerName(p)}</strong><small>{paymentSourceNumber(p)} · {format(new Date(p.createdAt),'h:mm a')}</small></div><span><b style={{color:signedPaymentAmount(p)<0?'#b91c1c':'inherit'}}>{signedPaymentLabel(p)}</b><small><Icon size={11}/>{methodLabels[p.method]||p.method}</small>{p.kind==='REFUND'&&<small style={{color:'#b91c1c',fontWeight:700}}>Refund</small>}{providerMethodLabel(p)&&<small>{providerMethodLabel(p)}</small>}{paymentModeLabel(p)&&<small style={{fontWeight:700,color:p.mode === 'TEST' ? '#92400e' : p.mode === 'LIVE' ? '#166534' : '#475569'}}>{paymentModeLabel(p)}</small>}</span>{paymentReference(p) !== '—'&&<p>{p.method === 'RAZORPAY' ? 'Razorpay payment: ' : 'Reference: '}{paymentReference(p)}</p>}{p.method === 'RAZORPAY' && p.razorpayOrderId && <p>Razorpay order: {p.razorpayOrderId}</p>}<em>Collected by {p.collectedByStaff?.name||'—'}</em>{invoice?.id&&<div style={{display:'flex',gap:7,flexWrap:'wrap'}}><button type="button" onClick={()=>viewInvoicePdf(invoice.id).catch((error)=>toast.error(error.message))}>View / Print Invoice</button><button type="button" onClick={()=>downloadInvoicePdf(invoice.id,invoice.invoiceNumber).catch((error)=>toast.error(error.message))}>Download PDF</button></div>}</article>})}
             </div>
           </div>
           <PaginationControls
@@ -959,7 +964,7 @@ export default function FinancePage() {
                       {(group.receivables || []).map((o: any) => {
                         const checked = selectedIds.includes(o.invoiceId)
                         return (
-                          <div className="ar-invoice-row" key={o.invoiceId} style={{display:'grid',gridTemplateColumns:'28px minmax(0,1.2fr) minmax(0,1fr) 96px 96px 120px',gap:10,alignItems:'center',padding:'9px 10px',border:'1px solid #eef4f8',borderRadius:10,background:checked?'#f7fbff':'#fff'}}>
+                          <div className="ar-invoice-row" key={o.invoiceId} style={{display:'grid',gridTemplateColumns:'28px minmax(0,1.5fr) minmax(0,1fr) 96px 96px 120px',gap:10,alignItems:'center',padding:'9px 10px',border:'1px solid #eef4f8',borderRadius:10,background:checked?'#f7fbff':'#fff'}}>
                             <input type="checkbox" checked={checked} onChange={() => toggleGroupSelection(group, o.invoiceId)} />
                             <div style={{minWidth:0}}>
                               <div style={{fontFamily:"var(--crm-font-mono)",fontWeight:800,color:'#023c62',fontSize:13}}>{o.invoiceNumber || o.orderNumber}</div>
@@ -968,6 +973,8 @@ export default function FinancePage() {
                                 {canCollect && <button type="button" onClick={() => { setArPaymentError(''); setArPayment({ invoice: o, customerName: group.customer?.name, amount: String(o.balanceDue), method: 'CASH', reference: '', date: format(new Date(), 'yyyy-MM-dd') }) }} style={{border:0,background:'#023c62',color:'#fff',borderRadius:7,padding:'8px 10px',fontSize:12,fontWeight:600,cursor:'pointer'}}>Record payment</button>}
                                 <button type="button" disabled={invoiceLinkBusy===o.invoiceId} onClick={() => openInvoice(o.invoiceId, 'open')} style={{border:'1px solid #c9ddea',background:'#fff',color:'#023c62',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>Open invoice</button>
                                 <button type="button" disabled={invoiceLinkBusy===o.invoiceId} onClick={() => openInvoice(o.invoiceId, 'copy')} style={{border:'1px solid #c9ddea',background:'#f7fbff',color:'#356b8e',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>Copy link</button>
+                                <button type="button" onClick={() => viewInvoicePdf(o.invoiceId).catch((error) => toast.error(error.message))} style={{border:'1px solid #c9ddea',background:'#fff',color:'#023c62',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>View / Print PDF</button>
+                                <button type="button" onClick={() => downloadInvoicePdf(o.invoiceId, o.invoiceNumber).catch((error) => toast.error(error.message))} style={{border:'1px solid #c9ddea',background:'#fff',color:'#023c62',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>Download PDF</button>
                               </div>
                             </div>
                             <div style={{fontSize:12,color:'#52647e',fontWeight:700}}>
