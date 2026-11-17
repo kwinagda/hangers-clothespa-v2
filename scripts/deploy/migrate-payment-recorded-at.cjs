@@ -13,40 +13,51 @@ const migration = '20261117130000_payment_recorded_at';
 const reviewedChecksum = '375de262288c132bae0b4538e41945e62d6e33289af7d2cbe9e2855211ef85d1';
 let phase = 'startup';
 
+function reject(code) {
+  const error = new Error('Payment recorded-time migration preflight rejected');
+  error.code = code;
+  throw error;
+}
+
 function assertReleaseScope(revision, currentMain, databaseUrl, history, expected) {
-  if (!/^[a-f0-9]{40}$/.test(revision || '') || revision !== currentMain) throw new Error('Exact current-main revision required');
-  const url = new URL(databaseUrl);
-  if (url.protocol !== 'postgresql:' || url.hostname !== 'localhost' || url.pathname !== '/hangers_prod') {
-    throw new Error('Unexpected production database target');
+  if (!/^[a-f0-9]{40}$/.test(revision || '') || revision !== currentMain) reject('REVISION_NOT_CURRENT_MAIN');
+  let url;
+  try {
+    url = new URL(databaseUrl);
+  } catch {
+    reject('DATABASE_URL_INVALID');
   }
-  if (history.some(row => !row.finished_at && !row.rolled_back_at)) throw new Error('Resolve existing failed migration first');
-  if (!expected.includes(migration)) throw new Error('Reviewed migration absent from revision');
+  if (url.protocol !== 'postgresql:' || url.hostname !== 'localhost' || url.pathname !== '/hangers_prod') {
+    reject('DATABASE_TARGET_NOT_EXPECTED');
+  }
+  if (history.some(row => !row.finished_at && !row.rolled_back_at)) reject('FAILED_MIGRATION_NEEDS_RESOLUTION');
+  if (!expected.includes(migration)) reject('REVIEWED_MIGRATION_MISSING_FROM_REVISION');
   const expectedNames = new Set(expected);
   if (history.some(row => row.finished_at && !row.rolled_back_at && !expectedNames.has(row.migration_name))) {
-    throw new Error('Database contains a migration absent from this revision');
+    reject('DATABASE_HAS_UNEXPECTED_APPLIED_MIGRATION');
   }
 
   const completed = new Map(history
     .filter(row => row.finished_at && !row.rolled_back_at)
     .map(row => [row.migration_name, row.checksum]));
   if (completed.has(migration) && completed.get(migration) !== reviewedChecksum) {
-    throw new Error('Applied migration checksum differs from review');
+    reject('APPLIED_MIGRATION_CHECKSUM_MISMATCH');
   }
   const pending = expected.filter(name => !completed.has(name));
-  if (pending.some(name => name !== migration)) throw new Error('Other pending migrations require separate approval');
+  if (pending.some(name => name !== migration)) reject('OTHER_MIGRATIONS_PENDING');
   return pending;
 }
 
 function verifyReviewedSql(sql) {
   const actual = crypto.createHash('sha256').update(sql).digest('hex');
-  if (actual !== reviewedChecksum) throw new Error('Migration SQL differs from the reviewed payment recorded-time change');
+  if (actual !== reviewedChecksum) reject('MIGRATION_SQL_CHECKSUM_MISMATCH');
 }
 
 async function verifySchema(db) {
   const columns = await db.$queryRaw`SELECT data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Payment' AND column_name = 'recordedAt'`;
   if (columns.length !== 1 || columns[0].data_type !== 'timestamp without time zone'
     || columns[0].is_nullable !== 'YES' || !String(columns[0].column_default || '').toUpperCase().includes('CURRENT_TIMESTAMP')) {
-    throw new Error('Payment recordedAt column verification failed');
+    reject('PAYMENT_RECORDED_AT_SCHEMA_VERIFICATION_FAILED');
   }
 }
 
