@@ -49,14 +49,22 @@ test('release policy allows only this migration on the exact main production tar
 
   assert.throws(
     () => assertReleaseScope(revision, revision, 'postgresql://localhost/hangers_prod', baseHistory.slice(1), migrationNames),
-    { code: 'OTHER_MIGRATIONS_PENDING' },
+    (error) => {
+      assert.equal(error.code, 'OTHER_MIGRATIONS_PENDING');
+      assert.equal(error.safeContext, `count=1;names=${migrationNames[0]}`);
+      return true;
+    },
   );
   assert.throws(
     () => assertReleaseScope(revision, revision, 'postgresql://localhost/hangers_prod', [
       ...baseHistory,
-      { migration_name: 'untracked_applied_migration', checksum: 'd'.repeat(64), finished_at: new Date(), rolled_back_at: null },
+      { migration_name: '20261117100000_untracked_applied_migration', checksum: 'd'.repeat(64), finished_at: new Date(), rolled_back_at: null },
     ], migrationNames),
-    { code: 'DATABASE_HAS_UNEXPECTED_APPLIED_MIGRATION' },
+    (error) => {
+      assert.equal(error.code, 'DATABASE_HAS_UNEXPECTED_APPLIED_MIGRATION');
+      assert.equal(error.safeContext, 'count=1;names=20261117100000_untracked_applied_migration');
+      return true;
+    },
   );
   assert.throws(
     () => assertReleaseScope(revision, revision, 'postgresql://remote/hangers_prod', baseHistory, migrationNames),
