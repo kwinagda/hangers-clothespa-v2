@@ -3,7 +3,7 @@
 **Audit date:** 12 July 2026  
 **Last updated:** 17 November 2026
 
-**Document version:** 1.34
+**Document version:** 1.36
 **Document status:** Active remediation register  
 **Primary scope:** CRM web application and the backend services required to make the CRM the master system of record  
 **Code baseline reviewed:** Commit 748adb9 plus the uncommitted CRM/order workflow changes present on 12 July 2026  
@@ -919,7 +919,10 @@ Wallet remediation verification on 17 November 2026:
 - Legacy-upgrade rehearsal stopped on unrelated local-source Razorpay tables/columns that are ahead of this branch schema; no wallet-origin or wallet-reversal drift was reported and the disposable target was removed.
 - CRM optimized production build and TypeScript validation passed after every wallet tender surface was connected; all 69 routes compiled/generated. The build retained a non-fatal pre-existing remote landing-image warning.
 - Production workflow YAML parsed successfully. The dedicated wallet migration gate has automated contract coverage for exact allowlisting, backup/list verification, production identity checking, and explicit workflow opt-in.
-- Production deployment remains pending merge and successful push-triggered CI; no production data was mutated by local verification.
+- Pull request 31 merged to `main` as commit `dfc455dd122cdfbd24446b37cc66af2cdd59a6bc`; the exact-commit push CI run `44082607508` passed backend and CRM jobs before deployment approval.
+- Production deployment run `44082951965` completed successfully with the wallet migration explicitly enabled. The guarded migration verified a non-empty restorable pre-migration backup, applied only `20261117123000_wallet_adjustment_origin`, and reported `WALLET_GOVERNANCE_MIGRATION_COMPLETE` before application restart.
+- Production backend, worker, and CRM processes returned online on Node.js v24.21.0. Backend liveness/readiness, CRM login, Finance route assets, and the workflow's exact deployed-commit check all passed.
+- Independent post-deploy read-only checks returned HTTP 200 for `/login` and `/dashboard/finance`. The public `/api/v1/health` proxy returned HTTP 403 as a protected surface; internal liveness and readiness were verified from the host by the deployment workflow. No production customer, order, invoice, payment, or wallet transaction was created for smoke testing.
 
 ---
 
@@ -975,6 +978,7 @@ Wallet remediation verification on 17 November 2026:
 | 1.33 | 2026-11-17 | Corrected invoice document rendering so CRM view/print/download and public PDF reuse the exact customer invoice page sent through WhatsApp instead of a second backend HTML design. Payment allocation evidence remains part of the canonical page and PDF. Print/PDF actions were moved into the blue invoice header as compact controls and are excluded from printed output. WhatsApp provider-template domain replacement is explicitly deferred. |
 | 1.34 | 2026-11-17 | Implemented the governed CRM wallet correction flow. Wallet adjustment reasons are DB/master-data and metadata-API backed; CRM exposes one permission-aware Adjust Wallet dialog and contextual reversal only for manual entries; ledger rows show before/after balance, origin/actor, structured reason, order and reversal evidence. Backend posts immutable, idempotent, serializable credit/debit entries, prevents negative balance and duplicate reversal, and uses a unique linked opposite entry instead of editing history. Referral and customer-app order balance mutations now use the same central ledger service. |
 | 1.35 | 2026-11-17 | Implemented wallet as an explicit API/DB-backed customer tender across every eligible CRM collection surface: order detail, Orders single/bulk pay, Finance single/bulk receivables, Daily Iron customer/monthly/bulk, field service, and existing new-order checkout. Central settlement now supports wallet-only or wallet plus one metadata-approved external tender, deterministic multi-invoice allocation, stable insufficient-balance errors, and complete audit/outbox evidence. Correcting a wallet receipt restores the exact linked debit through one immutable reversal and reverses/synchronizes every affected allocation/source atomically. Added shared balance-driven UI, focused regression tests, fresh migration verification, and a backup-verified exact-allowlist production migration workflow. Vendor AP and delivery cash custody remain intentionally excluded. |
+| 1.36 | 2026-11-17 | Recorded production release evidence for wallet governance and wallet tender: PR 31 merged at exact main commit `dfc455dd122cdfbd24446b37cc66af2cdd59a6bc`, push CI passed, the production workflow verified its backup and exact allowlisted migration, all application processes restarted on the supported Node.js runtime, host health/asset checks passed, and independent read-only CRM route checks returned HTTP 200. No synthetic production financial record was created. Corrected the application deploy footer so it no longer falsely implies that guarded pre-deploy migrations did not run. |
 
 ---
 
