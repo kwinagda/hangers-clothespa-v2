@@ -74,5 +74,7 @@ test('production workflow keeps the payment data migration explicitly gated and 
   assert.match(workflow, /trap 'rm -f "\\\$migration_script" "\\\$payment_migration_script" "\\\$deploy_script"' EXIT/);
   assert.match(deployScript, /pg_dump/);
   assert.match(deployScript, /pg_restore.*--list/);
+  assert.match(deployScript, /Payment recorded-time migration failed during \$\{phase\}/);
+  assert.doesNotMatch(deployScript, /error\.message/);
   assert.match(deployScript, /assertReleaseScope\(revision, currentMain, process\.env\.DATABASE_URL/);
 });

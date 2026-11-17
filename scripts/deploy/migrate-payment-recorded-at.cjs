@@ -11,6 +11,7 @@ const { execFileSync } = require('node:child_process');
 const root = '/opt/hangers';
 const migration = '20261117130000_payment_recorded_at';
 const reviewedChecksum = '375de262288c132bae0b4538e41945e62d6e33289af7d2cbe9e2855211ef85d1';
+let phase = 'startup';
 
 function assertReleaseScope(revision, currentMain, databaseUrl, history, expected) {
   if (!/^[a-f0-9]{40}$/.test(revision || '') || revision !== currentMain) throw new Error('Exact current-main revision required');
@@ -51,10 +52,12 @@ async function verifySchema(db) {
 
 async function main() {
   process.umask(0o077);
+  phase = 'validate migration approval input';
   if (process.argv[3] !== '--approved-payment-recorded-at') throw new Error('Explicit payment recorded-time migration approval required');
   const revision = process.argv[2];
   if (!/^[a-f0-9]{40}$/.test(revision || '')) throw new Error('An exact reviewed revision is required');
 
+  phase = 'load production database configuration';
   const backendRequire = createRequire(`${root}/hangers-backend/package.json`);
   backendRequire('dotenv').config({ path: `${root}/hangers-backend/.env` });
   const url = new URL(process.env.DATABASE_URL || '');
@@ -72,24 +75,32 @@ async function main() {
 
   let temp;
   try {
+    phase = 'verify current main revision';
     const currentMain = run('git', ['rev-parse', 'origin/main']).toString().trim();
     if (currentMain !== revision) throw new Error('Revision is not origin/main');
+
+    phase = 'verify production database identity';
     const identity = await db.$queryRaw`SELECT current_database() AS name`;
     if (identity[0]?.name !== 'hangers_prod') throw new Error('Connected database is not production');
 
+    phase = 'read production migration history';
     const history = await db.$queryRaw`SELECT migration_name, checksum, finished_at, rolled_back_at FROM "_prisma_migrations"`;
     const expected = run('git', ['ls-tree', '--name-only', `${revision}:hangers-backend/prisma/migrations`])
       .toString().trim().split('\n').filter(name => /^\d{14}_/.test(name));
+    phase = 'validate pending migration scope';
     const pending = assertReleaseScope(revision, currentMain, process.env.DATABASE_URL, history, expected);
     if (!pending.length) {
+      phase = 'verify already-applied migration schema';
       await verifySchema(db);
       console.log('PAYMENT_RECORDED_AT_MIGRATION_ALREADY_APPLIED');
       return;
     }
 
+    phase = 'verify migration column is absent';
     const existingColumn = await db.$queryRaw`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Payment' AND column_name = 'recordedAt'`;
     if (existingColumn.length) throw new Error('Payment recordedAt exists while the migration is pending');
 
+    phase = 'create pre-migration backup';
     const backupDir = '/var/backups/hangers';
     fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
     const backup = path.join(backupDir, `before-payment-recorded-at-${Date.now()}.dump`);
@@ -104,21 +115,27 @@ async function main() {
     };
     run('pg_dump', ['--format=custom', '--file', backup], { env: pgEnv });
     fs.chmodSync(backup, 0o600);
+    phase = 'verify pre-migration backup';
     if (fs.statSync(backup).size < 100) throw new Error('Backup is empty');
     run('pg_restore', ['--list', backup]);
     console.log(`Verified pre-migration backup: ${backup}`);
 
+    phase = 'extract reviewed migration files';
     temp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangers-payment-recorded-at-'));
     const archive = run('git', ['archive', revision, 'hangers-backend/prisma']);
     run('tar', ['-x', '-C', temp], { input: archive, stdio: ['pipe', 'pipe', 'pipe'] });
     const prismaDir = path.join(temp, 'hangers-backend/prisma');
     const sqlPath = path.join(prismaDir, 'migrations', migration, 'migration.sql');
+    phase = 'verify reviewed migration checksum';
     verifyReviewedSql(fs.readFileSync(sqlPath));
+    phase = 'apply reviewed payment timestamp migration';
     run(process.execPath, [backendRequire.resolve('prisma/build/index.js'), 'migrate', 'deploy', '--schema', path.join(prismaDir, 'schema.prisma')], {
       env: { ...process.env, PGOPTIONS: '-c lock_timeout=10000 -c statement_timeout=120000' },
     });
 
+    phase = 'verify migrated schema';
     await verifySchema(db);
+    phase = 'verify migration completion history';
     const afterHistory = await db.$queryRaw`SELECT migration_name, checksum, finished_at, rolled_back_at FROM "_prisma_migrations"`;
     if (assertReleaseScope(revision, currentMain, process.env.DATABASE_URL, afterHistory, expected).length) {
       throw new Error('Payment recorded-time migration remains pending');
@@ -134,6 +151,6 @@ module.exports = { assertReleaseScope, migration, reviewedChecksum, verifyReview
 
 if (require.main === module) main().catch(error => {
   const safeDetail = error.status !== undefined ? `command exited ${error.status}` : error.code || error.name || 'unexpected error';
-  console.error('Payment recorded-time migration failed:', safeDetail);
+  console.error(`Payment recorded-time migration failed during ${phase}:`, safeDetail);
   process.exitCode = 1;
 });
