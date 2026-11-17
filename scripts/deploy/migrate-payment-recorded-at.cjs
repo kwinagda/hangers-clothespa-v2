@@ -13,10 +13,16 @@ const migration = '20261117130000_payment_recorded_at';
 const reviewedChecksum = '375de262288c132bae0b4538e41945e62d6e33289af7d2cbe9e2855211ef85d1';
 let phase = 'startup';
 
-function reject(code) {
+function reject(code, safeContext) {
   const error = new Error('Payment recorded-time migration preflight rejected');
   error.code = code;
+  if (safeContext) error.safeContext = safeContext;
   throw error;
+}
+
+function migrationNameSummary(rows) {
+  const names = rows.map(row => row.migration_name).filter(name => typeof name === 'string' && /^\d{14}_[a-z0-9_]+$/.test(name));
+  return `count=${rows.length};names=${names.slice(0, 20).join(',') || 'unavailable'}`;
 }
 
 function assertReleaseScope(revision, currentMain, databaseUrl, history, expected) {
@@ -30,11 +36,13 @@ function assertReleaseScope(revision, currentMain, databaseUrl, history, expecte
   if (url.protocol !== 'postgresql:' || url.hostname !== 'localhost' || url.pathname !== '/hangers_prod') {
     reject('DATABASE_TARGET_NOT_EXPECTED');
   }
-  if (history.some(row => !row.finished_at && !row.rolled_back_at)) reject('FAILED_MIGRATION_NEEDS_RESOLUTION');
+  const unresolved = history.filter(row => !row.finished_at && !row.rolled_back_at);
+  if (unresolved.length) reject('FAILED_MIGRATION_NEEDS_RESOLUTION', migrationNameSummary(unresolved));
   if (!expected.includes(migration)) reject('REVIEWED_MIGRATION_MISSING_FROM_REVISION');
   const expectedNames = new Set(expected);
-  if (history.some(row => row.finished_at && !row.rolled_back_at && !expectedNames.has(row.migration_name))) {
-    reject('DATABASE_HAS_UNEXPECTED_APPLIED_MIGRATION');
+  const unexpectedApplied = history.filter(row => row.finished_at && !row.rolled_back_at && !expectedNames.has(row.migration_name));
+  if (unexpectedApplied.length) {
+    reject('DATABASE_HAS_UNEXPECTED_APPLIED_MIGRATION', migrationNameSummary(unexpectedApplied));
   }
 
   const completed = new Map(history
@@ -44,7 +52,8 @@ function assertReleaseScope(revision, currentMain, databaseUrl, history, expecte
     reject('APPLIED_MIGRATION_CHECKSUM_MISMATCH');
   }
   const pending = expected.filter(name => !completed.has(name));
-  if (pending.some(name => name !== migration)) reject('OTHER_MIGRATIONS_PENDING');
+  const otherPending = pending.filter(name => name !== migration);
+  if (otherPending.length) reject('OTHER_MIGRATIONS_PENDING', migrationNameSummary(otherPending.map(migration_name => ({ migration_name }))));
   return pending;
 }
 
@@ -162,6 +171,9 @@ module.exports = { assertReleaseScope, migration, reviewedChecksum, verifyReview
 
 if (require.main === module) main().catch(error => {
   const safeDetail = error.status !== undefined ? `command exited ${error.status}` : error.code || error.name || 'unexpected error';
-  console.error(`Payment recorded-time migration failed during ${phase}:`, safeDetail);
+  const safeContext = typeof error.safeContext === 'string' && /^count=\d+;names=[\d_a-z,]+$/.test(error.safeContext)
+    ? ` ${error.safeContext}`
+    : '';
+  console.error(`Payment recorded-time migration failed during ${phase}: ${safeDetail}${safeContext}`);
   process.exitCode = 1;
 });
