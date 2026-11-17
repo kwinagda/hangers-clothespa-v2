@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import { format, subDays } from 'date-fns'
 import toast from 'react-hot-toast'
 import { AlertTriangle, BarChart3, CalendarDays, CheckCircle2, ChevronDown, ChevronUp, CreditCard, FileSpreadsheet, Landmark, Loader2, MessageCircle, RefreshCw, Smartphone, Tag, Upload, WalletCards, Webhook } from 'lucide-react'
 import api, { authAPI, idempotencyConfig, metadataAPI, paymentsAPI, ironAPI, serviceAppointmentsAPI } from '@/lib/api'
@@ -9,6 +8,7 @@ import { PaginationControls } from '@/components/ui/PaginationControls'
 import { ResponsiveDialog } from '@/components/ui/ResponsiveDialog'
 import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
 import WalletTenderInput from '@/components/WalletTenderInput'
+import { addBusinessDays, businessDateTimeToIso, businessDateToEffectiveIso, currentBusinessDateKey, formatBusinessDate, formatBusinessDateTime, formatBusinessTime } from '@/lib/businessTime'
 
 const METHOD_ICON = {CASH:Landmark,UPI:Smartphone,CARD:CreditCard,RAZORPAY:WalletCards,ONLINE:WalletCards,COD:Landmark,WALLET:WalletCards,OTHER:Tag,ALL:BarChart3}
 const METHOD_COLOR: Record<string,string> = {CASH:'#22c55e',UPI:'#3b82f6',CARD:'#8b5cf6',RAZORPAY:'#f97316',ONLINE:'#0ea5e9',COD:'#14b8a6',WALLET:'#6366f1',OTHER:'#6b7fa3'}
@@ -81,7 +81,7 @@ const providerMethodLabel = (payment: any) => {
 
 export default function FinancePage() {
   const [tab, setTab] = useState<'daily'|'receivables'|'webhooks'>('daily')
-  const [date, setDate] = useState(format(new Date(),'yyyy-MM-dd'))
+  const [date, setDate] = useState(currentBusinessDateKey())
   const [summary, setSummary] = useState<any>(null)
   const [payments, setPayments] = useState<any[]>([])
   const [receivables, setReceivables] = useState<any[]>([])
@@ -115,15 +115,15 @@ export default function FinancePage() {
   const [checkoutAttempts, setCheckoutAttempts] = useState<any[]>([])
   const [checkoutMethodOutcomes, setCheckoutMethodOutcomes] = useState<any[]>([])
   const [checkoutExperimentReport, setCheckoutExperimentReport] = useState<any>(null)
-  const [checkoutAnalyticsFrom, setCheckoutAnalyticsFrom] = useState(format(subDays(new Date(), 29), 'yyyy-MM-dd'))
-  const [checkoutAnalyticsTo, setCheckoutAnalyticsTo] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [checkoutAnalyticsFrom, setCheckoutAnalyticsFrom] = useState(addBusinessDays(currentBusinessDateKey(), -29))
+  const [checkoutAnalyticsTo, setCheckoutAnalyticsTo] = useState(currentBusinessDateKey())
   const [reconciliationRuns, setReconciliationRuns] = useState<any[]>([])
   const [settlementReconLines, setSettlementReconLines] = useState<any[]>([])
-  const [settlementReconDate, setSettlementReconDate] = useState(format(new Date(),'yyyy-MM-dd'))
+  const [settlementReconDate, setSettlementReconDate] = useState(currentBusinessDateKey())
   const [settlementReconBusy, setSettlementReconBusy] = useState(false)
   const [settlementSummaries, setSettlementSummaries] = useState<any[]>([])
-  const [settlementSummaryFrom, setSettlementSummaryFrom] = useState(() => { const date = new Date(); date.setDate(date.getDate() - 14); return format(date, 'yyyy-MM-dd') })
-  const [settlementSummaryTo, setSettlementSummaryTo] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [settlementSummaryFrom, setSettlementSummaryFrom] = useState(addBusinessDays(currentBusinessDateKey(), -14))
+  const [settlementSummaryTo, setSettlementSummaryTo] = useState(currentBusinessDateKey())
   const [settlementSummaryBusy, setSettlementSummaryBusy] = useState(false)
   const [settlementReportMode, setSettlementReportMode] = useState<'LIVE' | 'TEST'>('LIVE')
   const [settlementSummaryReport, setSettlementSummaryReport] = useState<any>(null)
@@ -143,8 +143,8 @@ export default function FinancePage() {
   const [disputeSyncTo, setDisputeSyncTo] = useState<number | null>(null)
   const [webhookBusyId, setWebhookBusyId] = useState<string | null>(null)
   const [providerReconciliationBusy, setProviderReconciliationBusy] = useState(false)
-  const [orderInventoryFrom, setOrderInventoryFrom] = useState(format(subDays(new Date(), 6), 'yyyy-MM-dd'))
-  const [orderInventoryTo, setOrderInventoryTo] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [orderInventoryFrom, setOrderInventoryFrom] = useState(addBusinessDays(currentBusinessDateKey(), -6))
+  const [orderInventoryTo, setOrderInventoryTo] = useState(currentBusinessDateKey())
   const [orderInventoryBusy, setOrderInventoryBusy] = useState(false)
   const [orderInventoryPreview, setOrderInventoryPreview] = useState<any>(null)
   const [orderInventoryError, setOrderInventoryError] = useState('')
@@ -286,7 +286,7 @@ export default function FinancePage() {
   const submitArBulkPayment = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!arBulkPayment || arBulkBusy || !canCollect) return
-    if (!arBulkPayment.date || arBulkPayment.date > format(new Date(), 'yyyy-MM-dd')) {
+    if (!arBulkPayment.date || arBulkPayment.date > currentBusinessDateKey()) {
       setArBulkError('Select a payment date no later than today')
       return
     }
@@ -306,7 +306,7 @@ export default function FinancePage() {
       await api.post('/payments/receivables/payments', {
         customerId: arBulkPayment.customerId, invoiceIds: arBulkPayment.invoices.map((invoice: any) => invoice.invoiceId), amount, walletAmount,
         ...(amount > 0 ? { method: arBulkPayment.method } : {}),
-        effectiveAt: `${arBulkPayment.date}T00:00:00+05:30`, reference: arBulkPayment.reference || undefined,
+        effectiveAt: businessDateToEffectiveIso(arBulkPayment.date) || undefined, reference: arBulkPayment.reference || undefined,
       }, idempotencyConfig('ar-bulk-payment'))
       toast.success('Payment recorded against selected invoices')
       setArBulkPayment(null)
@@ -324,7 +324,7 @@ export default function FinancePage() {
     const settlementAmount = amount + walletAmount
     if (![amount, walletAmount].every((value) => Number.isFinite(value) && value >= 0 && Math.abs(value * 100 - Math.round(value * 100)) <= 0.000001)
       || settlementAmount <= 0 || settlementAmount > Number(arPayment.invoice.balanceDue) || walletAmount > Number(arPayment.walletBalance || 0)
-      || !arPayment.date || arPayment.date > format(new Date(), 'yyyy-MM-dd')) {
+      || !arPayment.date || arPayment.date > currentBusinessDateKey()) {
       setArPaymentError('Enter external and wallet amounts within the outstanding and available balances, with a valid payment date.')
       return
     }
@@ -333,7 +333,7 @@ export default function FinancePage() {
     setArPaymentError('')
     try {
       const invoice = arPayment.invoice
-      const data = { amount, walletAmount, reference: arPayment.reference || undefined, effectiveAt: `${arPayment.date}T00:00:00+05:30` }
+      const data = { amount, walletAmount, reference: arPayment.reference || undefined, effectiveAt: businessDateToEffectiveIso(arPayment.date) || undefined }
       if (invoice.orderId) await paymentsAPI.record({ ...data, orderId: invoice.orderId, ...(amount > 0 ? { method: arPayment.method } : {}) })
       else if (invoice.ironBillId) await ironAPI.recordPayment(invoice.ironBillId, { ...data, ...(amount > 0 ? { paymentMethod: arPayment.method } : {}) })
       else if (invoice.serviceAppointmentId) await serviceAppointmentsAPI.pay(invoice.serviceAppointmentId, { ...data, ...(amount > 0 ? { paymentMethod: arPayment.method } : {}) })
@@ -644,8 +644,10 @@ export default function FinancePage() {
     } finally { setSettlementReconBusy(false) }
   }
   const queueSettlementSummaryReconciliation = async () => {
-    const from = Math.floor(new Date(`${settlementSummaryFrom}T00:00:00+05:30`).getTime() / 1000)
-    const to = Math.floor(new Date(`${settlementSummaryTo}T23:59:59+05:30`).getTime() / 1000)
+    const fromIso = businessDateTimeToIso(settlementSummaryFrom, '00:00')
+    const toIso = businessDateTimeToIso(settlementSummaryTo, '23:59:59')
+    const from = fromIso ? Math.floor(new Date(fromIso).getTime() / 1000) : NaN
+    const to = toIso ? Math.floor(new Date(toIso).getTime() / 1000) : NaN
     if (!settlementSummaryFrom || !settlementSummaryTo || !Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from >= to) {
       toast.error('Choose a valid settlement date range')
       return
@@ -837,7 +839,7 @@ export default function FinancePage() {
                 :!filtered.length?<tr><td colSpan={8} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>No transactions for this date.</td></tr>
                 :pagedPayments.map((p:any)=>(
                   <tr key={p.id} style={{borderBottom:'1px solid #eef4f8'}}>
-                    <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{format(new Date(p.createdAt),'h:mm a')}</td>
+                    <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{formatBusinessTime(p.createdAt)}</td>
                     <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>{paymentSourceNumber(p)}</td>
                     <td style={{padding:'13px 18px',fontSize:13.5}}>{paymentCustomerName(p)}</td>
                     <td style={{padding:'11px 16px'}}>
@@ -867,7 +869,7 @@ export default function FinancePage() {
               )}
             </table>
             <div className="finance-mobile-transactions">
-              {loading ? Array.from({length:5},(_,index)=><div className="finance-mobile-skeleton" key={index}><i/><span/><b/></div>) : !filtered.length ? <div className="finance-mobile-empty">No transactions for this date.</div> : pagedPayments.map((p:any)=>{const Icon=METHOD_ICON[(p.method||'OTHER') as keyof typeof METHOD_ICON]||Tag;const invoice=p.allocations?.[0]?.invoice;return <article key={p.id}><div><strong>{paymentCustomerName(p)}</strong><small>{paymentSourceNumber(p)} · {format(new Date(p.createdAt),'h:mm a')}</small></div><span><b style={{color:signedPaymentAmount(p)<0?'#b91c1c':'inherit'}}>{signedPaymentLabel(p)}</b><small><Icon size={11}/>{methodLabels[p.method]||p.method}</small>{p.kind==='REFUND'&&<small style={{color:'#b91c1c',fontWeight:700}}>Refund</small>}{providerMethodLabel(p)&&<small>{providerMethodLabel(p)}</small>}{paymentModeLabel(p)&&<small style={{fontWeight:700,color:p.mode === 'TEST' ? '#92400e' : p.mode === 'LIVE' ? '#166534' : '#475569'}}>{paymentModeLabel(p)}</small>}</span>{paymentReference(p) !== '—'&&<p>{p.method === 'RAZORPAY' ? 'Razorpay payment: ' : 'Reference: '}{paymentReference(p)}</p>}{p.method === 'RAZORPAY' && p.razorpayOrderId && <p>Razorpay order: {p.razorpayOrderId}</p>}<em>Collected by {p.collectedByStaff?.name||'—'}</em>{invoice?.id&&<div style={{display:'flex',gap:7,flexWrap:'wrap'}}><button type="button" onClick={()=>viewInvoicePdf(invoice.id).catch((error)=>toast.error(error.message))}>View / Print Invoice</button><button type="button" onClick={()=>downloadInvoicePdf(invoice.id,invoice.invoiceNumber).catch((error)=>toast.error(error.message))}>Download PDF</button></div>}</article>})}
+              {loading ? Array.from({length:5},(_,index)=><div className="finance-mobile-skeleton" key={index}><i/><span/><b/></div>) : !filtered.length ? <div className="finance-mobile-empty">No transactions for this date.</div> : pagedPayments.map((p:any)=>{const Icon=METHOD_ICON[(p.method||'OTHER') as keyof typeof METHOD_ICON]||Tag;const invoice=p.allocations?.[0]?.invoice;return <article key={p.id}><div><strong>{paymentCustomerName(p)}</strong><small>{paymentSourceNumber(p)} · {formatBusinessTime(p.createdAt)}</small></div><span><b style={{color:signedPaymentAmount(p)<0?'#b91c1c':'inherit'}}>{signedPaymentLabel(p)}</b><small><Icon size={11}/>{methodLabels[p.method]||p.method}</small>{p.kind==='REFUND'&&<small style={{color:'#b91c1c',fontWeight:700}}>Refund</small>}{providerMethodLabel(p)&&<small>{providerMethodLabel(p)}</small>}{paymentModeLabel(p)&&<small style={{fontWeight:700,color:p.mode === 'TEST' ? '#92400e' : p.mode === 'LIVE' ? '#166534' : '#475569'}}>{paymentModeLabel(p)}</small>}</span>{paymentReference(p) !== '—'&&<p>{p.method === 'RAZORPAY' ? 'Razorpay payment: ' : 'Reference: '}{paymentReference(p)}</p>}{p.method === 'RAZORPAY' && p.razorpayOrderId && <p>Razorpay order: {p.razorpayOrderId}</p>}<em>Collected by {p.collectedByStaff?.name||'—'}</em>{invoice?.id&&<div style={{display:'flex',gap:7,flexWrap:'wrap'}}><button type="button" onClick={()=>viewInvoicePdf(invoice.id).catch((error)=>toast.error(error.message))}>View / Print Invoice</button><button type="button" onClick={()=>downloadInvoicePdf(invoice.id,invoice.invoiceNumber).catch((error)=>toast.error(error.message))}>Download PDF</button></div>}</article>})}
             </div>
           </div>
           <PaginationControls
@@ -894,7 +896,7 @@ export default function FinancePage() {
                 <select required={Number(arPayment.amount || 0) > 0} disabled={arPaymentBusy || Number(arPayment.amount || 0) <= 0} value={arPayment.method} onChange={(e) => setArPayment({...arPayment,method:e.target.value})} style={{padding:10,border:'1px solid #c9ddea',borderRadius:8}}>{methodOptions.filter((method) => !['RAZORPAY','WALLET','SPLIT'].includes(method.value)).map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select>
               </label>
               <label style={{display:'grid',gap:6}}>Payment date
-                <input type="date" required disabled={arPaymentBusy} max={format(new Date(), 'yyyy-MM-dd')} value={arPayment.date} onChange={(e) => setArPayment({...arPayment,date:e.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
+                <input type="date" required disabled={arPaymentBusy} max={currentBusinessDateKey()} value={arPayment.date} onChange={(e) => setArPayment({...arPayment,date:e.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
               </label>
               <label style={{display:'grid',gap:6}}>Reference (optional)
                 <input maxLength={120} disabled={arPaymentBusy} value={arPayment.reference} onChange={(e) => setArPayment({...arPayment,reference:e.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
@@ -920,7 +922,7 @@ export default function FinancePage() {
                 <select required={Number(arBulkPayment.amount || 0) > 0} disabled={arBulkBusy || Number(arBulkPayment.amount || 0) <= 0} value={arBulkPayment.method} onChange={(event) => setArBulkPayment({...arBulkPayment,method:event.target.value})} style={{padding:10,border:'1px solid #c9ddea',borderRadius:8}}>{methodOptions.filter((method) => !['RAZORPAY','WALLET','SPLIT'].includes(method.value)).map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select>
               </label>
               <label style={{display:'grid',gap:6}}>Payment date
-                <input type="date" required disabled={arBulkBusy} max={format(new Date(), 'yyyy-MM-dd')} value={arBulkPayment.date} onChange={(event) => setArBulkPayment({...arBulkPayment,date:event.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
+                <input type="date" required disabled={arBulkBusy} max={currentBusinessDateKey()} value={arBulkPayment.date} onChange={(event) => setArBulkPayment({...arBulkPayment,date:event.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
               </label>
               <label style={{display:'grid',gap:6}}>Reference (optional)
                 <input maxLength={120} disabled={arBulkBusy} value={arBulkPayment.reference} onChange={(event) => setArBulkPayment({...arBulkPayment,reference:event.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
@@ -971,7 +973,7 @@ export default function FinancePage() {
                       setArBulkPayment({ customerId: group.customer.id, customerName: group.customer.name,
                         invoices: group.receivables.filter((invoice: any) => selectedIds.includes(invoice.invoiceId)).sort((a: any, b: any) => new Date(a.issueDate).getTime() - new Date(b.issueDate).getTime() || new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime() || a.invoiceId.localeCompare(b.invoiceId)),
                         amount: String(selectedTotalForGroup(group)), walletAmount: '', walletBalance: Number(group.customer?.walletBalance || 0),
-                        method: methodOptions.filter((item) => !['RAZORPAY','WALLET','SPLIT'].includes(item.value))[0]?.value || '', date: format(new Date(), 'yyyy-MM-dd'), reference: '' })
+                        method: methodOptions.filter((item) => !['RAZORPAY','WALLET','SPLIT'].includes(item.value))[0]?.value || '', date: currentBusinessDateKey(), reference: '' })
                     }} style={{display:'inline-flex',margin:'0 0 8px 12px',padding:'8px 11px',border:0,borderRadius:7,background:'#023c62',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer'}}>Record selected payment · {selectedIds.length} invoices</button>}
                     <div style={{display:'grid',gap:7}}>
                       {(group.receivables || []).map((o: any) => {
@@ -983,7 +985,7 @@ export default function FinancePage() {
                               <div style={{fontFamily:"var(--crm-font-mono)",fontWeight:800,color:'#023c62',fontSize:13}}>{o.invoiceNumber || o.orderNumber}</div>
                               <div style={{fontSize:11,color:'#7b8ca8',marginTop:2}}>{o.orderNumber || o.sourceNumber}</div>
                               <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
-                                {canCollect && <button type="button" onClick={() => { setArPaymentError(''); setArPayment({ invoice: o, customerName: group.customer?.name, amount: String(o.balanceDue), walletAmount: '', walletBalance: Number(group.customer?.walletBalance || 0), method: methodOptions.filter((item) => !['RAZORPAY','WALLET','SPLIT'].includes(item.value))[0]?.value || '', reference: '', date: format(new Date(), 'yyyy-MM-dd') }) }} style={{border:0,background:'#023c62',color:'#fff',borderRadius:7,padding:'8px 10px',fontSize:12,fontWeight:600,cursor:'pointer'}}>Record payment</button>}
+                                {canCollect && <button type="button" onClick={() => { setArPaymentError(''); setArPayment({ invoice: o, customerName: group.customer?.name, amount: String(o.balanceDue), walletAmount: '', walletBalance: Number(group.customer?.walletBalance || 0), method: methodOptions.filter((item) => !['RAZORPAY','WALLET','SPLIT'].includes(item.value))[0]?.value || '', reference: '', date: currentBusinessDateKey() }) }} style={{border:0,background:'#023c62',color:'#fff',borderRadius:7,padding:'8px 10px',fontSize:12,fontWeight:600,cursor:'pointer'}}>Record payment</button>}
                                 <button type="button" disabled={invoiceLinkBusy===o.invoiceId} onClick={() => openInvoice(o.invoiceId, 'open')} style={{border:'1px solid #c9ddea',background:'#fff',color:'#023c62',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>Open invoice</button>
                                 <button type="button" disabled={invoiceLinkBusy===o.invoiceId} onClick={() => openInvoice(o.invoiceId, 'copy')} style={{border:'1px solid #c9ddea',background:'#f7fbff',color:'#356b8e',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>Copy link</button>
                                 <button type="button" onClick={() => viewInvoicePdf(o.invoiceId).catch((error) => toast.error(error.message))} style={{border:'1px solid #c9ddea',background:'#fff',color:'#023c62',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>View / Print PDF</button>
@@ -1155,7 +1157,7 @@ export default function FinancePage() {
               <input type="date" value={checkoutAnalyticsFrom} max={checkoutAnalyticsTo} onChange={(event) => setCheckoutAnalyticsFrom(event.target.value)} style={{height:36,padding:'0 9px',border:'1px solid #c9ddea',borderRadius:7,color:'#19324a',fontSize:12}} />
             </label>
             <label style={{display:'grid',gap:4,fontSize:10,fontWeight:800,color:'#52647e'}}>To
-              <input type="date" value={checkoutAnalyticsTo} min={checkoutAnalyticsFrom} max={format(new Date(),'yyyy-MM-dd')} onChange={(event) => setCheckoutAnalyticsTo(event.target.value)} style={{height:36,padding:'0 9px',border:'1px solid #c9ddea',borderRadius:7,color:'#19324a',fontSize:12}} />
+              <input type="date" value={checkoutAnalyticsTo} min={checkoutAnalyticsFrom} max={currentBusinessDateKey()} onChange={(event) => setCheckoutAnalyticsTo(event.target.value)} style={{height:36,padding:'0 9px',border:'1px solid #c9ddea',borderRadius:7,color:'#19324a',fontSize:12}} />
             </label>
           </div>
           {webhookLoading ? <div style={{padding:20,textAlign:'center',fontSize:12,color:'#6b7fa3'}}>Loading method outcomes…</div>
@@ -1207,7 +1209,7 @@ export default function FinancePage() {
               </div>}
               <div style={{fontFamily:'var(--crm-font-mono)',fontSize:10,color:'#71839d',overflowWrap:'anywhere'}}>
                 {attempt.razorpayOrderId ? `Order ${attempt.razorpayOrderId}` : 'No provider order ID'}{attempt.razorpayPaymentId ? ` · Payment ${attempt.razorpayPaymentId}` : ''}{attempt.requestId ? ` · Request ${attempt.requestId}` : ''}
-                {' · Updated '}{attempt.updatedAt ? format(new Date(attempt.updatedAt),'dd MMM yyyy, h:mm a') : '—'}
+                {' · Updated '}{attempt.updatedAt ? formatBusinessDateTime(attempt.updatedAt) : '—'}
               </div>
               {canReconcile && attempt.status === 'REVIEW' && !attempt.razorpayOrderId && attempt.failureCode !== 'OVERPAYMENT_NOT_ALLOWED' && <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
                 <button type="button" onClick={() => reconcileCheckoutAttempt(attempt)} disabled={checkoutAttemptReconcileBusy !== null} style={{display:'inline-flex',alignItems:'center',gap:7,padding:'8px 11px',border:0,borderRadius:7,background:checkoutAttemptReconcileBusy===attempt.id?'#91a8b8':'#023c62',color:'#fff',fontSize:11,fontWeight:800,cursor:checkoutAttemptReconcileBusy?'wait':'pointer'}}>
@@ -1228,7 +1230,7 @@ export default function FinancePage() {
               <input type="date" value={settlementSummaryFrom} max={settlementSummaryTo} onChange={(event) => setSettlementSummaryFrom(event.target.value)} style={{height:36,padding:'0 9px',border:'1px solid #c9ddea',borderRadius:7,color:'#19324a',fontSize:12}} />
             </label>
             <label style={{display:'grid',gap:4,fontSize:10,fontWeight:800,color:'#52647e'}}>To
-              <input type="date" value={settlementSummaryTo} min={settlementSummaryFrom} max={format(new Date(),'yyyy-MM-dd')} onChange={(event) => setSettlementSummaryTo(event.target.value)} style={{height:36,padding:'0 9px',border:'1px solid #c9ddea',borderRadius:7,color:'#19324a',fontSize:12}} />
+              <input type="date" value={settlementSummaryTo} min={settlementSummaryFrom} max={currentBusinessDateKey()} onChange={(event) => setSettlementSummaryTo(event.target.value)} style={{height:36,padding:'0 9px',border:'1px solid #c9ddea',borderRadius:7,color:'#19324a',fontSize:12}} />
             </label>
             <button type="button" onClick={queueSettlementSummaryReconciliation} disabled={settlementSummaryBusy} style={{display:'inline-flex',alignItems:'center',gap:7,padding:'9px 13px',border:0,borderRadius:9,background:settlementSummaryBusy?'#91a8b8':'#023c62',color:'#fff',fontSize:12,fontWeight:800,cursor:settlementSummaryBusy?'wait':'pointer'}}>
               {settlementSummaryBusy ? <Loader2 className="crm-spin" size={14}/> : <RefreshCw size={14}/>} {settlementSummaryBusy ? 'Queueing…' : 'Sync settlement status'}
@@ -1242,7 +1244,7 @@ export default function FinancePage() {
                 <strong style={{fontFamily:'var(--crm-font-mono)',fontSize:11,color:'#023c62'}}>{item.providerSettlementId}</strong>
                 <span style={{fontSize:10,fontWeight:900,color:statusColor}}>{item.status.toUpperCase()}</span>
                 <span style={{fontSize:10,color:'#71839d'}}>{item.mode} mode</span>
-                <span style={{fontSize:11,color:'#71839d'}}>{format(new Date(item.providerCreatedAt),'dd MMM yyyy, h:mm a')}</span>
+                <span style={{fontSize:11,color:'#71839d'}}>{formatBusinessDateTime(item.providerCreatedAt)}</span>
               </div>
               <div style={{display:'flex',gap:14,flexWrap:'wrap',fontSize:11,color:'#334155'}}>
                 <span>Settlement amount <strong>₹{moneyFromPaise(item.amountPaise)}</strong></span>
@@ -1310,12 +1312,12 @@ export default function FinancePage() {
                         {line.entityType === 'payment' && !line.crmPayments?.length && <div style={{paddingLeft:8,color:'#b45309'}}>No same-mode CRM payment reference matched.</div>}
                         {line.crmPayments?.map((payment: any) => <div key={payment.id} style={{display:'flex',gap:8,flexWrap:'wrap',paddingLeft:8,color:'#047857'}}><span>CRM payment {payment.id}</span><span>{payment.method}</span><span>₹{payment.amount}</span>{payment.orderId && <a href={`/dashboard/orders/${encodeURIComponent(payment.orderId)}`} style={{color:'#0369a1',fontWeight:700,textDecoration:'underline'}}>Open {payment.orderNumber ? `order ${payment.orderNumber}` : 'CRM order'}</a>}{payment.invoices?.map((invoice: any) => <span key={invoice.id}>Invoice {invoice.invoiceNumber}</span>)}</div>)}
                       </div>)}
-                      {batch.bankMatches?.map((bankMatch: any) => <div key={bankMatch.id} style={{fontSize:10,color:'#047857',overflowWrap:'anywhere'}}>Matched bank credit ₹{moneyFromPaise(bankMatch.statementAmountPaise)} · {bankMatch.accountLabel} · {bankMatch.statementDate ? format(new Date(bankMatch.statementDate),'dd MMM yyyy') : 'date unavailable'} · {bankMatch.statementReference || 'no reference'} · variance ₹{moneyFromPaise(bankMatch.variancePaise)}</div>)}
+                      {batch.bankMatches?.map((bankMatch: any) => <div key={bankMatch.id} style={{fontSize:10,color:'#047857',overflowWrap:'anywhere'}}>Matched bank credit ₹{moneyFromPaise(bankMatch.statementAmountPaise)} · {bankMatch.accountLabel} · {bankMatch.statementDate ? formatBusinessDate(bankMatch.statementDate) : 'date unavailable'} · {bankMatch.statementReference || 'no reference'} · variance ₹{moneyFromPaise(bankMatch.variancePaise)}</div>)}
                     </div>
                   </details>)}
                 </div>}
                 {settlementSummaryReport.unassignedReport && <div style={{padding:10,borderRadius:8,background:'#fff8eb',fontSize:11,color:'#92400e'}}>Unassigned report lines: {settlementSummaryReport.unassignedReport.lineCount}. These lines have no provider settlement ID and are excluded from batch matching.</div>}
-                {!!settlementSummaryReport.unmatchedBankRows?.length && <div style={{display:'grid',gap:6}}><strong style={{fontSize:12,color:'#023c62'}}>Unmatched bank credits</strong>{settlementSummaryReport.unmatchedBankRows.map((row: any) => <div key={row.id} style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:10,color:'#52647e',borderTop:'1px solid #eef4f8',paddingTop:6}}><span>{row.accountLabel}</span><span>Import row {row.rowNumber}</span><span>{row.transactionDate ? format(new Date(row.transactionDate),'dd MMM yyyy') : 'date unavailable'}</span><strong>₹{moneyFromPaise(row.amountPaise)}</strong><span style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{row.reference || 'No reference'}</span></div>)}</div>}
+                {!!settlementSummaryReport.unmatchedBankRows?.length && <div style={{display:'grid',gap:6}}><strong style={{fontSize:12,color:'#023c62'}}>Unmatched bank credits</strong>{settlementSummaryReport.unmatchedBankRows.map((row: any) => <div key={row.id} style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:10,color:'#52647e',borderTop:'1px solid #eef4f8',paddingTop:6}}><span>{row.accountLabel}</span><span>Import row {row.rowNumber}</span><span>{row.transactionDate ? formatBusinessDate(row.transactionDate) : 'date unavailable'}</span><strong>₹{moneyFromPaise(row.amountPaise)}</strong><span style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{row.reference || 'No reference'}</span></div>)}</div>}
               </>
             })()}
           </div>}
@@ -1338,7 +1340,7 @@ export default function FinancePage() {
               <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                 <strong style={{fontSize:12,color:'#023c62'}}>{run.mode || (run.runType.endsWith('_TEST') ? 'TEST' : 'LIVE')} mode</strong>
                 <span style={{fontSize:10,fontWeight:900,color:statusColor}}>{run.status}</span>
-                <span style={{fontSize:11,color:'#71839d'}}>{run.startedAt ? format(new Date(run.startedAt),'dd MMM yyyy, h:mm a') : 'Queued'}</span>
+                <span style={{fontSize:11,color:'#71839d'}}>{run.startedAt ? formatBusinessDateTime(run.startedAt) : 'Queued'}</span>
               </div>
               {String(run.runType || '').startsWith('RAZORPAY_PAYMENTS_') && summary.scanned != null && <div style={{fontSize:11,color:'#52647e'}}>{summary.scanned} scanned · {summary.recoveredCaptures || 0} recovered · {summary.alreadySettled || 0} already settled · {summary.reviewRequired || 0} review · {summary.captureWebhookNotProcessed || 0} capture webhook missing/not processed</div>}
               {String(run.runType || '').startsWith('RAZORPAY_SETTLEMENTS_') && <div style={{fontSize:11,color:'#52647e'}}>Settlement received {summary.request?.year || summary.year}-{String(summary.request?.month || summary.month || '').padStart(2,'0')}-{String(summary.request?.day || summary.day || '').padStart(2,'0')} · {summary.rows ?? '—'} report lines · {summary.inserted ?? 0} new · {summary.updated ?? 0} refreshed</div>}
@@ -1377,7 +1379,7 @@ export default function FinancePage() {
                 <span>Settlement <strong>{line.providerSettlementId || '—'}</strong></span>
                 <span>UTR <strong>{line.settlementUtr || '—'}</strong></span>
                 {line.method && <span>Method <strong>{line.method}</strong></span>}
-                {line.providerSettledAt && <span>Received <strong>{format(new Date(line.providerSettledAt),'dd MMM yyyy, h:mm a')}</strong></span>}
+                {line.providerSettledAt && <span>Received <strong>{formatBusinessDateTime(line.providerSettledAt)}</strong></span>}
               </div>
               <div style={{display:'flex',gap:14,flexWrap:'wrap',fontSize:11,color:'#334155'}}>
                 <span>Amount <strong>{line.currency} {moneyFromPaise(line.amountPaise)}</strong></span>
@@ -1421,7 +1423,7 @@ export default function FinancePage() {
                 <span style={{color:'#047857'}}>{bankStatementPreview.acceptedRows} valid</span>
                 <span style={{color:bankStatementPreview.rejectedRows?'#b91c1c':'#64748b'}}>{bankStatementPreview.rejectedRows} rejected</span>
               </div>
-              {bankStatementPreview.preview?.length > 0 && <div style={{display:'grid',gap:5}}>{bankStatementPreview.preview.slice(0,5).map((row: any) => <div key={row.rowNumber} style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:11,color:'#52647e'}}><span>Row {row.rowNumber}</span><span>{format(new Date(row.transactionDate),'dd MMM yyyy')}</span><span>{row.direction}</span><strong>₹{moneyFromPaise(row.amountPaise)}</strong><span style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{row.reference}</span></div>)}</div>}
+              {bankStatementPreview.preview?.length > 0 && <div style={{display:'grid',gap:5}}>{bankStatementPreview.preview.slice(0,5).map((row: any) => <div key={row.rowNumber} style={{display:'flex',gap:10,flexWrap:'wrap',fontSize:11,color:'#52647e'}}><span>Row {row.rowNumber}</span><span>{formatBusinessDate(row.transactionDate)}</span><span>{row.direction}</span><strong>₹{moneyFromPaise(row.amountPaise)}</strong><span style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{row.reference}</span></div>)}</div>}
               {bankStatementPreview.errors?.length > 0 && <div style={{maxHeight:130,overflowY:'auto',fontSize:10,color:'#b91c1c'}}>Rejected rows: {bankStatementPreview.errors.map((item: any) => `#${item.rowNumber} ${item.errorCode}`).join(' · ')}</div>}
               <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                 <button type="button" onClick={importBankStatement} disabled={bankStatementBusy || !bankStatementLabel.trim()} style={{height:38,display:'inline-flex',alignItems:'center',justifyContent:'center',gap:7,padding:'0 13px',border:0,borderRadius:8,background:bankStatementBusy || !bankStatementLabel.trim()?'#91a8b8':'#023c62',color:'#fff',fontSize:12,fontWeight:800,cursor:bankStatementBusy || !bankStatementLabel.trim()?'not-allowed':'pointer'}}>
@@ -1437,7 +1439,7 @@ export default function FinancePage() {
                 <strong style={{color:'#023c62'}}>{item.accountLabel}</strong><span>{item.fileName}</span>
                 <span style={{fontWeight:900,color:item.status==='IMPORTED'?'#047857':item.status==='PARTIAL'?'#b45309':'#b91c1c'}}>{item.status}</span>
                 <span>{item.acceptedRows} valid · {item.rejectedRows} rejected</span>
-                <span style={{marginLeft:'auto'}}>{format(new Date(item.importedAt),'dd MMM yyyy, h:mm a')}</span>
+                <span style={{marginLeft:'auto'}}>{formatBusinessDateTime(item.importedAt)}</span>
                 <button type="button" onClick={() => toggleBankMatchReview(item.id)} disabled={bankMatchBusy && bankMatchImportId === item.id} style={{height:34,padding:'0 10px',display:'inline-flex',alignItems:'center',gap:6,border:'1px solid #c9ddea',borderRadius:8,background:'#f7fbff',color:'#023c62',fontSize:11,fontWeight:800,cursor:'pointer'}}>
                   {bankMatchImportId === item.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>} {bankMatchImportId === item.id ? 'Hide matching' : 'Review bank matches'}
                 </button>
@@ -1448,7 +1450,7 @@ export default function FinancePage() {
                 : !bankMatchRows.length ? <div style={{padding:12,fontSize:11,color:'#6b7fa3'}}>No eligible INR credit rows in this statement.</div>
                 : bankMatchRows.map((row: any) => <div key={row.id} style={{padding:12,display:'grid',gap:9,border:'1px solid #dce9f2',borderRadius:9,background:'#fff',minWidth:0}}>
                   <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',fontSize:11,color:'#334155'}}>
-                    <strong>Row {row.rowNumber}</strong><span>{row.transactionDate ? format(new Date(row.transactionDate),'dd MMM yyyy') : 'Date unavailable'}</span>
+                    <strong>Row {row.rowNumber}</strong><span>{row.transactionDate ? formatBusinessDate(row.transactionDate) : 'Date unavailable'}</span>
                     <strong>Credit ₹{moneyFromPaise(row.amountPaise)}</strong><span>Ref: <span style={{fontFamily:'var(--crm-font-mono)',overflowWrap:'anywhere'}}>{row.reference || '—'}</span></span>
                   </div>
                   {row.activeMatch ? <div style={{display:'grid',gap:8,padding:10,borderRadius:8,background:'#ecfdf5',fontSize:11,color:'#166534'}}>
@@ -1460,7 +1462,7 @@ export default function FinancePage() {
                   </div> : !row.candidates.length ? <div style={{fontSize:11,color:'#6b7fa3'}}>No matching LIVE settlement candidates found by UTR or amount.</div>
                   : <>
                     {row.candidates.map((candidate: any) => <div key={candidate.id} style={{display:'grid',gap:6,padding:10,border:'1px solid #e2eaf0',borderRadius:8,background:'#fff',fontSize:11,color:'#52647e'}}>
-                      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}><strong style={{color:'#023c62'}}>{candidate.providerSettlementId}</strong><span>{candidate.exact ? 'EXACT EVIDENCE' : 'REVIEW REQUIRED'}</span><span>{candidate.providerCreatedAt ? format(new Date(candidate.providerCreatedAt),'dd MMM yyyy') : ''}</span></div>
+                      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}><strong style={{color:'#023c62'}}>{candidate.providerSettlementId}</strong><span>{candidate.exact ? 'EXACT EVIDENCE' : 'REVIEW REQUIRED'}</span><span>{candidate.providerCreatedAt ? formatBusinessDate(candidate.providerCreatedAt) : ''}</span></div>
                       <div>UTR {candidate.settlementUtr || '—'} · settlement ₹{moneyFromPaise(candidate.amountPaise)} · report net ₹{moneyFromPaise(candidate.reportNetPaise)} · variance ₹{moneyFromPaise(candidate.variancePaise)}</div>
                       <div style={{color:candidate.eligible?'#52647e':'#b91c1c'}}>{candidate.reason}</div>
                       {!candidate.exact && <input aria-label={`Manager match reason for row ${row.rowNumber}`} value={bankMatchReasons[row.id] || ''} onChange={(event) => setBankMatchReasons((current) => ({...current,[row.id]:event.target.value}))} maxLength={500} placeholder="Manager review reason (minimum 12 characters)" style={{height:36,padding:'0 9px',border:'1px solid #c9ddea',borderRadius:7,fontSize:11,color:'#19324a'}} />}
@@ -1497,7 +1499,7 @@ export default function FinancePage() {
               <div style={{display:'flex',gap:18,flexWrap:'wrap',fontSize:12,color:'#334155'}}>
                 <span>Disputed <strong>{dispute.currency} {(Number(dispute.amountPaise) / 100).toFixed(2)}</strong></span>
                 <span>Provider deduction <strong>{dispute.currency} {(Number(dispute.amountDeductedPaise) / 100).toFixed(2)}</strong></span>
-                {dispute.respondBy && <span>Respond by <strong>{format(new Date(dispute.respondBy),'dd MMM yyyy, h:mm a')}</strong></span>}
+                {dispute.respondBy && <span>Respond by <strong>{formatBusinessDateTime(dispute.respondBy)}</strong></span>}
                 {dispute.reasonCode && <span>Reason code <strong>{dispute.reasonCode}</strong></span>}
               </div>
             </article>
@@ -1522,7 +1524,7 @@ export default function FinancePage() {
                   <span style={{fontSize:11,color:'#71839d'}}>Attempt {event.attempts}</span>
                 </div>
                 <div style={{fontFamily:'var(--crm-font-mono)',fontSize:11,color:'#52647e',marginTop:5,overflowWrap:'anywhere'}}>Event {event.eventId}{event.paymentId ? ` · Payment ${event.paymentId}` : ''}{event.orderId ? ` · Order ${event.orderId}` : ''}{event.refundId ? ` · Refund ${event.refundId}` : ''}{event.disputeId ? ` · Dispute ${event.disputeId}` : ''}</div>
-                <div style={{fontSize:11,color:'#9a3412',marginTop:4}}>Last error: {event.error || 'Not available'} · Updated {event.updatedAt ? format(new Date(event.updatedAt),'dd MMM yyyy, h:mm a') : '—'}</div>
+                <div style={{fontSize:11,color:'#9a3412',marginTop:4}}>Last error: {event.error || 'Not available'} · Updated {event.updatedAt ? formatBusinessDateTime(event.updatedAt) : '—'}</div>
               </div>
               <button type="button" onClick={() => setReplayDialog({ event, reason: '' })} disabled={webhookBusyId === event.id} style={{display:'inline-flex',alignItems:'center',gap:7,padding:'8px 11px',border:0,borderRadius:9,background:'#023c62',color:'#fff',fontSize:11,fontWeight:800,cursor:'pointer',whiteSpace:'nowrap'}}><RefreshCw size={13}/> Queue replay</button>
             </article>

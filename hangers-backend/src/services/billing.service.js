@@ -1,6 +1,7 @@
 const { nextDocumentNumber } = require('./document-number.service');
 const { getFieldServiceWorkflow } = require('./masterData.service');
 const { roundMoney } = require('../utils/line-pricing');
+const { businessDateKey } = require('../utils/business-time');
 
 const CAPTURED_PAYMENT_STATUSES = ['CAPTURED', 'SUCCESS', 'PAID'];
 const DEFAULT_PAYMENT_TERMS_DAYS = 7;
@@ -55,7 +56,7 @@ const orderLineData = (item) => ({
 
 const ironLineData = (log) => ({
   lineType: 'DAILY_IRON_USAGE',
-  description: `${log.service?.name || 'Daily Iron'} - ${new Date(log.date).toISOString().slice(0, 10)}`,
+  description: `${log.service?.name || 'Daily Iron'} - ${businessDateKey(log.date)}`,
   quantity: log.pieces,
   unitPrice: Number(log.ratePerPiece || 0),
   discountAmount: 0,

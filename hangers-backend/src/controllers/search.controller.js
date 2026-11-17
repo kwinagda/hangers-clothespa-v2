@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const { badRequest, error } = require('../utils/response');
 const { advancedSearchQuerySchema } = require('../validation/search.schemas');
 const { buildOrderSearchOr } = require('../utils/order-search');
+const { parseBusinessDateBoundary } = require('../utils/business-time');
 
 const advancedSearch = async (req, res) => {
   try {
@@ -43,13 +44,13 @@ const advancedSearch = async (req, res) => {
       }
       if (from || to) where.createdAt = {};
       if (from) {
-        const parsedFrom = new Date(from);
-        if (Number.isNaN(parsedFrom.getTime())) return badRequest(res, 'Invalid from date');
+        const parsedFrom = parseBusinessDateBoundary(from, 'start');
+        if (!parsedFrom) return badRequest(res, 'Invalid from date');
         where.createdAt.gte = parsedFrom;
       }
       if (to) {
-        const parsedTo = new Date(`${to}T23:59:59.999Z`);
-        if (Number.isNaN(parsedTo.getTime())) return badRequest(res, 'Invalid to date');
+        const parsedTo = parseBusinessDateBoundary(to, 'end');
+        if (!parsedTo) return badRequest(res, 'Invalid to date');
         where.createdAt.lte = parsedTo;
       }
       if (minAmount) where.totalAmount = { gte: minAmount };

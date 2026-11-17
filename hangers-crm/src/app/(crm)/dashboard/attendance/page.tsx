@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { attendanceAPI, staffListAPI } from '@/lib/api'
 import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import { currentBusinessDateKey, formatBusinessDate, formatBusinessTime } from '@/lib/businessTime'
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -15,8 +16,8 @@ export default function AttendancePage() {
   const [records,setRecords] = useState<any[]>([])
   const [staff,setStaff] = useState<any[]>([])
   const [selectedStaff,setSelectedStaff] = useState('')
-  const [month,setMonth] = useState(new Date().getMonth()+1)
-  const [year,setYear] = useState(new Date().getFullYear())
+  const [month,setMonth] = useState(Number(currentBusinessDateKey().slice(5, 7)))
+  const [year,setYear] = useState(Number(currentBusinessDateKey().slice(0, 4)))
   const [msg,setMsg] = useState('')
   const [loading,setLoading] = useState(false)
   const [page,setPage] = useState(1)
@@ -71,10 +72,10 @@ export default function AttendancePage() {
         <table style={{width:'100%',borderCollapse:'collapse'}}>
           <thead><tr style={{background:'#f8fafc'}}>{['Date','Staff','Clock In','Clock Out','Hours'].map(h=><th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase' as const,letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>)}</tr></thead>
           <tbody>{pagedRecords.map((r:any)=><tr key={r.id} style={{borderBottom:'1px solid #eef4f8'}}>
-            <td style={{padding:'13px 18px',fontSize:13.5,color:'#1a2332'}}>{new Date(r.date).toLocaleDateString('en-IN')}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5,color:'#1a2332'}}>{formatBusinessDate(r.date)}</td>
             <td style={{padding:'13px 18px',fontSize:13.5,color:'#1a2332'}}>{staff.find((s:any)=>s.id===r.staffId)?.name||r.staffId}</td>
-            <td style={{padding:'13px 18px',fontSize:13.5,fontFamily:"var(--crm-font-mono)",color:'#023c62'}}>{r.clockIn?new Date(r.clockIn).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'—'}</td>
-            <td style={{padding:'13px 18px',fontSize:13.5,fontFamily:"var(--crm-font-mono)",color:'#6b7fa3'}}>{r.clockOut?new Date(r.clockOut).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'—'}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5,fontFamily:"var(--crm-font-mono)",color:'#023c62'}}>{r.clockIn?formatBusinessTime(r.clockIn,{hour:'2-digit'}):'—'}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5,fontFamily:"var(--crm-font-mono)",color:'#6b7fa3'}}>{r.clockOut?formatBusinessTime(r.clockOut,{hour:'2-digit'}):'—'}</td>
             <td style={{padding:'13px 18px',fontWeight:700,fontFamily:"var(--crm-font-mono)",color:'#023c62'}}>{r.hoursWorked?`${r.hoursWorked}h`:'—'}</td>
           </tr>)}</tbody>
         </table>}

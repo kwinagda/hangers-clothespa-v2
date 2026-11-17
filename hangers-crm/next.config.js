@@ -20,6 +20,9 @@ const stagingApiProxyUrl = () => {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR || '.next',
+  env: {
+    NEXT_PUBLIC_BUSINESS_TIMEZONE: process.env.NEXT_PUBLIC_BUSINESS_TIMEZONE || process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata',
+  },
   outputFileTracingRoot: path.join(__dirname),
   experimental: { cpus: 1 },
   async headers() {

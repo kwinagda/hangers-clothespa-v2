@@ -5,6 +5,7 @@ import { Plus } from 'lucide-react'
 import { PageHeader, Button } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import toast from 'react-hot-toast'
+import { formatBusinessDate } from '@/lib/businessTime'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -111,7 +112,7 @@ export default function RecurringPage() {
             <td style={{padding:'13px 18px',fontSize:13.5}}><span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:'#dbeafe',color:'#1e40af'}}>{p.frequency}</span></td>
             <td style={{padding:'13px 18px',fontSize:13.5}}>{pickupScheduleLabel(p)}</td>
             <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' as const}}>{p.address}</td>
-            <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{p.nextPickup?new Date(p.nextPickup).toLocaleDateString('en-IN'):'—'}</td>
+            <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{p.nextPickup?formatBusinessDate(p.nextPickup):'—'}</td>
             <td style={{padding:'13px 18px',fontSize:13.5}}><span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:p.isActive?'#dcfce7':'#f3f4f6',color:p.isActive?'#166534':'#6b7280'}}>{p.isActive?'Active':'Paused'}</span></td>
             <td style={{padding:'13px 18px',fontSize:13.5}}><button onClick={async()=>{if(!canUseRecurring('toggle')){toast.error(recurringDisabledReason);return} try{await recurringAPI.toggle(p.id);setPickups(pickups.map(x=>x.id===p.id?{...x,isActive:!x.isActive}:x));toast.success(p.isActive?'Recurring pickup paused':'Recurring pickup resumed')}catch(e:any){toast.error(e.message || 'Failed to update recurring pickup')}}} disabled={!canUseRecurring('toggle')} title={!canUseRecurring('toggle') ? recurringDisabledReason : undefined} style={{fontSize:12,color:'#023c62',background:'none',border:'none',cursor:canUseRecurring('toggle')?'pointer':'not-allowed',opacity:canUseRecurring('toggle')?1:0.45}}>{p.isActive?'Pause':'Resume'}</button></td>
           </tr>)}</tbody>

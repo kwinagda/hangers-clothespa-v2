@@ -1,13 +1,13 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { ironAPI } from '@/lib/api'
 import IronSectionTabs from '../_components/IronSectionTabs'
 import { PageHeader } from '@/components/ui'
 import { InlineLoader, SkeletonCard, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import { currentBusinessDateKey, formatBusinessDate, formatBusinessTime } from '@/lib/businessTime'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -20,7 +20,7 @@ const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFract
 
 export default function IronLogsPage() {
   const [loading, setLoading] = useState(true)
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10))
+  const [selectedDate, setSelectedDate] = useState(currentBusinessDateKey())
   const [payload, setPayload] = useState<any>(null)
   const [summaryPage, setSummaryPage] = useState(1)
   const [logPage, setLogPage] = useState(1)
@@ -130,7 +130,7 @@ export default function IronLogsPage() {
           <div className="iron-logs-section-head" style={{ padding:'18px 20px', borderBottom:'1px solid #e8f0f7', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <div>
               <div style={{ fontWeight:700, color:'#023c62' }}>Customer Summary</div>
-              <div style={{ fontSize:12, color:'#6b7fa3', marginTop:3 }}>Per-customer daily totals for {format(new Date(selectedDate), 'dd MMM yyyy')}.</div>
+              <div style={{ fontSize:12, color:'#6b7fa3', marginTop:3 }}>Per-customer daily totals for {formatBusinessDate(selectedDate)}.</div>
             </div>
             <Link href="/dashboard/customers" style={{ fontSize:12, color:'#035a8f', fontWeight:600, textDecoration:'none' }}>Open customers →</Link>
           </div>
@@ -179,7 +179,7 @@ export default function IronLogsPage() {
         <div style={{ background:'#fff', border:'1px solid #e3edf6', borderRadius:14, overflow:'hidden' }}>
           <div style={{ padding:'18px 20px', borderBottom:'1px solid #e8f0f7' }}>
             <div style={{ fontWeight:700, color:'#023c62' }}>Daily Log Feed</div>
-            <div style={{ fontSize:12, color:'#6b7fa3', marginTop:3 }}>Every Daily Iron log captured on {format(new Date(selectedDate), 'dd MMM yyyy')}.</div>
+            <div style={{ fontSize:12, color:'#6b7fa3', marginTop:3 }}>Every Daily Iron log captured on {formatBusinessDate(selectedDate)}.</div>
           </div>
           {loading ? (
             <TableLoader rows={6} columns={6} />
@@ -197,7 +197,7 @@ export default function IronLogsPage() {
               <tbody>
                 {pagedLogs.map((log: any) => (
                   <tr key={log.id} className="crm-table-row" style={{ borderBottom:'1px solid #eef4f8' }}>
-                    <td style={{ padding:'13px 18px', fontSize:13.5, color:'#6b7fa3' }}>{format(new Date(log.createdAt), 'h:mm a')}</td>
+                    <td style={{ padding:'13px 18px', fontSize:13.5, color:'#6b7fa3' }}>{formatBusinessTime(log.createdAt)}</td>
                     <td style={{ padding:'13px 18px', fontSize:13.5 }}>
                       <div style={{ fontSize:13, fontWeight:700, color:'#023c62' }}>{log.customer?.name || 'Unnamed Customer'}</div>
                       <div style={{ fontSize:11, color:'#9dafc8' }}>+91 {log.customer?.phone}</div>

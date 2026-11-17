@@ -6,6 +6,7 @@ import { AlertCircle, Check, ChevronRight, FileText, Loader2, MessageCircle, Rec
 import toast from 'react-hot-toast'
 import { ironAPI, metadataAPI, paymentsAPI } from '@/lib/api'
 import WalletTenderInput from '@/components/WalletTenderInput'
+import { businessDateKey, businessDateToEffectiveIso, formatBusinessMonth } from '@/lib/businessTime'
 
 type BulkAction = 'GENERATE' | 'SEND' | 'PAY' | 'REMIND'
 type Props = { month:string; rows:any[]; action?:BulkAction|null; onClose:()=>void; onChanged:()=>Promise<void>|void }
@@ -16,8 +17,8 @@ const asArray=(value:any,keys:string[]=[]):any[]=>{if(Array.isArray(value))retur
 const billBalance=(bill:any)=>Math.max(0,Number(bill?.invoice?.balanceDue??(Number(bill?.totalAmount||0)-Number(bill?.paidAmount||0))))
 const billVoid=(bill:any)=>String(bill?.status||'').toUpperCase()==='VOID'
 const billPaid=(bill:any)=>String(bill?.status||'').toUpperCase()==='PAID'||billBalance(bill)<=.005
-const periodLabel=(month:string)=>new Date(`${month}-01T00:00:00`).toLocaleDateString('en-IN',{month:'long',year:'numeric'})
-const localMonthKey=(value:any)=>{const date=value?new Date(value):null;return !date||Number.isNaN(date.getTime())?'':`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`}
+const periodLabel=(month:string)=>formatBusinessMonth(month)
+const localMonthKey=(value:any)=>businessDateKey(value)?.slice(0,7)||''
 
 export default function IronBillingWorkspace({month,rows,action,onClose,onChanged}:Props){
   const [workspaceRows,setWorkspaceRows]=useState(rows)
@@ -98,7 +99,7 @@ export default function IronBillingWorkspace({month,rows,action,onClose,onChange
     if(!(amount+walletAmount>0)||amount+walletAmount>billBalance(bill)+.005||walletAmount>Number(row?.customer?.walletBalance||0))return toast.error(`Enter external and wallet amounts within ${money(billBalance(bill))}`)
     if(amount>0&&!form.paymentMethod)return toast.error('Select a payment method')
     setBusy(`pay-${bill.id}`)
-    try{await ironAPI.recordPayment(bill.id,{amount,walletAmount,...(amount>0?{paymentMethod:form.paymentMethod}:{}),reference:form.reference||undefined,effectiveAt:form.effectiveAt||undefined});toast.success('Payment recorded');await refresh()}
+    try{await ironAPI.recordPayment(bill.id,{amount,walletAmount,...(amount>0?{paymentMethod:form.paymentMethod}:{}),reference:form.reference||undefined,effectiveAt:form.effectiveAt?businessDateToEffectiveIso(form.effectiveAt)||undefined:undefined});toast.success('Payment recorded');await refresh()}
     catch(error:any){toast.error(error.message||'Failed to record payment')}
     finally{setBusy('')}
   }
@@ -143,7 +144,7 @@ export default function IronBillingWorkspace({month,rows,action,onClose,onChange
           if(amount+walletAmount>billBalance(bill)+.005)throw new Error(`Settlement exceeds ${bill.billNumber} balance`)
           const customerWalletTotal=payableBills(row).reduce((sum:number,item:any)=>sum+Number(payment[item.id]?.walletAmount||0),0)
           if(customerWalletTotal>Number(row.customer.walletBalance||0)+.005)throw new Error(`Wallet allocations exceed ${row.customer.name}'s available balance`)
-          await ironAPI.recordPayment(bill.id,{amount,walletAmount,...(amount>0?{paymentMethod:form.paymentMethod}:{}),reference:form.reference||undefined,effectiveAt:form.effectiveAt||undefined})
+          await ironAPI.recordPayment(bill.id,{amount,walletAmount,...(amount>0?{paymentMethod:form.paymentMethod}:{}),reference:form.reference||undefined,effectiveAt:form.effectiveAt?businessDateToEffectiveIso(form.effectiveAt)||undefined:undefined})
         }
         if(action==='REMIND')await paymentsAPI.sendReceivablesReminder({customerId:row.customer.id,invoiceIds:payableBills(row).map((bill:any)=>bill.invoice?.id).filter(Boolean)})
         next.push({key:row.customer.id,name:row.customer.name,ok:true,message:action==='GENERATE'?'Bill generated':action==='SEND'?'Bill queued':action==='PAY'?'Payment recorded':'Reminder sent'})

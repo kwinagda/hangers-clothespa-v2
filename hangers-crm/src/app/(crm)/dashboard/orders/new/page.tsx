@@ -5,6 +5,7 @@ import api, { ordersAPI, quotationsAPI, customersAPI, servicesAPI, statsAPI, iro
 import toast from 'react-hot-toast'
 import { AlertTriangle, Check, ChevronLeft, GripVertical, Loader2, RotateCcw, Shirt, Trash2, User } from 'lucide-react'
 import { sanitizeDecimalInput, sanitizeIntegerInput, isStrictMoneyText, isStrictPositiveIntText } from '@/lib/numeric-input'
+import { addBusinessDays, currentBusinessDateKey, formatBusinessDate } from '@/lib/businessTime'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -335,10 +336,8 @@ function NewOrderPageContent() {
     setCommercialReason('')
     setWalletSplit('')
     setNotes('')
-    setDailyIronDate(new Date().toISOString().slice(0, 10))
-    const next = new Date()
-    next.setDate(next.getDate() + 7)
-    setValidUntil(next.toISOString().slice(0, 10))
+    setDailyIronDate(currentBusinessDateKey())
+    setValidUntil(addBusinessDays(currentBusinessDateKey(), 7))
     setQuotationStatus('DRAFT')
     setShowPayment(false)
     setMobileStep(1)
@@ -1804,7 +1803,7 @@ function NewOrderPageContent() {
                   { label: 'Wallet', value: fmt(customer.walletBalance || 0) },
                   { label: 'Orders', value: customerStats.totalOrders },
                   { label: 'Points', value: customerStats.loyaltyPoints },
-                  { label: 'Last', value: customerStats.lastOrderDate ? new Date(customerStats.lastOrderDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—' },
+                  { label: 'Last', value: customerStats.lastOrderDate ? formatBusinessDate(customerStats.lastOrderDate, { day: 'numeric', year: undefined }) : '—' },
                 ].map(s => (
                   <div key={s.label} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 999, padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     <div style={{ fontSize: 10, opacity: 0.72 }}>{s.label}</div>
@@ -2211,7 +2210,7 @@ function NewOrderPageContent() {
                     style={{ width: '100%', border: '1px solid #f59e0b', background: '#fffbeb', borderRadius: 12, padding: '10px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box', resize: 'vertical', marginBottom: 8, fontFamily: 'var(--crm-font-ui)' }} />
                 )}
 
-                {pickupRequestDetails && <div style={{ border: '1px solid #cfe0ed', background: '#f3f8fc', borderRadius: 8, padding: '9px 11px', marginBottom: 8, color: '#36546c', fontSize: 11.5, lineHeight: 1.45 }}><strong style={{ color: '#023c62' }}>{pickupRequestDetails.requestNumber}</strong><div>{pickupRequestDetails.address}</div><div>{[pickupRequestDetails.preferredDate ? new Date(pickupRequestDetails.preferredDate).toLocaleDateString('en-IN') : '', pickupRequestDetails.preferredSlot].filter(Boolean).join(' · ') || 'Pickup timing not specified'}</div></div>}
+                {pickupRequestDetails && <div style={{ border: '1px solid #cfe0ed', background: '#f3f8fc', borderRadius: 8, padding: '9px 11px', marginBottom: 8, color: '#36546c', fontSize: 11.5, lineHeight: 1.45 }}><strong style={{ color: '#023c62' }}>{pickupRequestDetails.requestNumber}</strong><div>{pickupRequestDetails.address}</div><div>{[pickupRequestDetails.preferredDate ? formatBusinessDate(pickupRequestDetails.preferredDate) : '', pickupRequestDetails.preferredSlot].filter(Boolean).join(' · ') || 'Pickup timing not specified'}</div></div>}
                 <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
                   placeholder={isQuotationMode ? 'Quotation notes (optional)...' : isPureDailyIron ? 'Log notes (optional)...' : 'Order notes (optional)...'}
                   style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />

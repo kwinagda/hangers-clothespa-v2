@@ -66,14 +66,14 @@ const formatDate = (value) => {
   if (!value) return '';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric', timeZone: process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata' });
 };
 
 const formatMonth = (value) => {
   if (!value) return '';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata' });
 };
 
 const formatPaymentMethod = (method, providerMethod) => {

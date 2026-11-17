@@ -5,9 +5,9 @@ const fmtDate = (value) => new Date(value).toLocaleDateString('en-IN', {
   day: 'numeric',
   month: 'long',
   year: 'numeric',
-  timeZone: 'Asia/Kolkata',
+  timeZone: process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata',
 });
-const fmtShortDate = (value) => new Date(value).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
+const fmtShortDate = (value) => new Date(value).toLocaleDateString('en-IN', { timeZone: process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata' });
 
 const generateChallanHTML = (challan) => {
   const orders = challan.challanOrders || [];
@@ -149,7 +149,7 @@ ${challan.notes ? `<div style="margin-top:16px;background:#fefce8;border-radius:
 
 <div class="footer">
   <span>Mulund West, Mumbai &nbsp;·&nbsp; +91 7977417014</span>
-  <span>Generated: ${new Date().toLocaleString('en-IN')}</span>
+  <span>Generated: ${new Date().toLocaleString('en-IN', { timeZone: process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata' })}</span>
 </div>
 </body>
 </html>`;
@@ -157,7 +157,7 @@ ${challan.notes ? `<div style="margin-top:16px;background:#fefce8;border-radius:
 
 const generateVendorBillHTML = (bill) => {
   const challans = bill.challans || [];
-  const date     = new Date(bill.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  const date     = new Date(bill.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata' });
 
   const challanRows = challans.map((c, i) => `
     <tr>
@@ -208,7 +208,7 @@ const generateVendorBillHTML = (bill) => {
     <div class="doc-no">${bill.billNo}</div>
     <div style="font-size:11px;color:#6b7fa3">Date: ${date}</div>
     <div style="margin-top:8px;display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:600;background:${bill.status === 'PAID' ? '#dcfce7' : '#fef9c3'};color:${bill.status === 'PAID' ? '#166534' : '#854d0e'}">${bill.status}</div>
-    ${bill.paidAt ? `<div style="font-size:11px;color:#166534;margin-top:4px">Paid: ${new Date(bill.paidAt).toLocaleDateString('en-IN')}</div>` : ''}
+    ${bill.paidAt ? `<div style="font-size:11px;color:#166534;margin-top:4px">Paid: ${new Date(bill.paidAt).toLocaleDateString('en-IN', { timeZone: process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata' })}</div>` : ''}
   </div>
 </div>
 
@@ -246,7 +246,7 @@ ${bill.notes ? `<div style="margin-top:16px;background:#fefce8;border-radius:8px
 
 <div class="footer">
   <span>Mulund West, Mumbai &nbsp;·&nbsp; +91 7977417014</span>
-  <span>Generated: ${new Date().toLocaleString('en-IN')}</span>
+  <span>Generated: ${new Date().toLocaleString('en-IN', { timeZone: process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata' })}</span>
 </div>
 </body>
 </html>`;

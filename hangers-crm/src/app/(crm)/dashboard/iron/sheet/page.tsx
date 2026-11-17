@@ -5,11 +5,11 @@ import type { CSSProperties } from 'react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Loader2, Minus, Plus, Save, Search, SlidersHorizontal, X } from 'lucide-react'
-import { format } from 'date-fns'
 import { ironAPI, servicesAPI } from '@/lib/api'
 import { sanitizeDecimalInput, sanitizeIntegerInput } from '@/lib/numeric-input'
 import { PageHeader } from '@/components/ui'
 import IronSectionTabs from '../_components/IronSectionTabs'
+import { currentBusinessDateKey, formatBusinessDate, formatBusinessTime } from '@/lib/businessTime'
 
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -20,7 +20,7 @@ const asArray = (value: any, keys: string[] = []) => {
 }
 
 const fmt = (value: number) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
-const todayText = () => new Date().toISOString().slice(0, 10)
+const todayText = () => currentBusinessDateKey()
 const cellKey = (customerId: string, serviceId: string) => `${customerId}::${serviceId}`
 
 type ServiceItem = { id: string; name: string; price: number }
@@ -41,7 +41,7 @@ const parseMoney = (value: any) => {
 
 const parseDateOnly = (value: string) => {
   if (!value) return null
-  const date = new Date(`${value}T00:00:00`)
+  const date = new Date(`${value}T00:00:00.000Z`)
   return Number.isNaN(date.getTime()) ? null : date
 }
 
@@ -471,7 +471,7 @@ export default function DailyIronSheetPage() {
       </section>
 
       {mobileCustomer && <div className="iron-mobile-editor" role="dialog" aria-modal="true">
-        <header><button aria-label="Close entry" onClick={() => setMobileCustomerId(null)}><X size={20}/></button><div><small>{format(new Date(`${selectedDate}T00:00:00`), 'dd MMM yyyy')}</small><h2>{mobileCustomer.customer?.name || 'Customer'}</h2></div><span>{loggedByCustomer.get(mobileCustomer.customerId)?.pieces || 0}<small>saved</small></span></header>
+        <header><button aria-label="Close entry" onClick={() => setMobileCustomerId(null)}><X size={20}/></button><div><small>{formatBusinessDate(selectedDate)}</small><h2>{mobileCustomer.customer?.name || 'Customer'}</h2></div><span>{loggedByCustomer.get(mobileCustomer.customerId)?.pieces || 0}<small>saved</small></span></header>
         <div className="iron-mobile-editor-body">
           {selectedDateNeedsOverride && logRules?.canBackdateBeyondLimit && <div className="iron-mobile-backdate"><strong>Backdated entry</strong><span>Add a reason. This is recorded in the audit history.</span><input value={backdateReason} onChange={(event) => setBackdateReason(event.target.value)} placeholder="Reason for older entry"/></div>}
           <div className="iron-mobile-service-list">
@@ -700,7 +700,7 @@ export default function DailyIronSheetPage() {
                                   {event.title || 'Daily Iron event'}
                                 </div>
                                 <div style={{ color: tone.meta, fontSize: 10.5, marginTop: 2, overflowWrap: 'anywhere' as const, lineHeight: 1.35 }}>
-                                  {format(new Date(event.createdAt), 'h:mm a')}{event.eventType ? ` · ${event.eventType}` : ''}{event.actorName ? ` · ${event.actorName}` : ''}
+                                  {formatBusinessTime(event.createdAt)}{event.eventType ? ` · ${event.eventType}` : ''}{event.actorName ? ` · ${event.actorName}` : ''}
                                 </div>
                                 {event.notes && (
                                   <div style={{ color: '#6b7fa3', fontSize: 10.5, marginTop: 2, overflowWrap: 'anywhere' as const, lineHeight: 1.35 }}>
@@ -746,7 +746,7 @@ export default function DailyIronSheetPage() {
           </table>
         </div>
         <div style={{ padding: '11px 14px', background: '#f8fbfd', borderTop: '1px solid #e3edf6', color: '#6b7fa3', fontSize: 12, display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <span>{filteredSubscriptions.length} of {subscriptions.length} active customers shown for {format(new Date(selectedDate), 'dd MMM yyyy')}</span>
+          <span>{filteredSubscriptions.length} of {subscriptions.length} active customers shown for {formatBusinessDate(selectedDate)}</span>
           <span>Saved rows are locked first. Use Add more only when extra clothes come later for the same date.</span>
         </div>
       </div>

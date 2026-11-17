@@ -3,7 +3,6 @@ import { Suspense, useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import api, { authAPI, ordersAPI, challanAPI, metadataAPI, idempotencyConfig } from '@/lib/api'
-import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { CheckSquare, ChevronRight, ClipboardList, Ellipsis, Lock, MessageCircle, Package, Plus, Printer, Search, Square, X } from 'lucide-react'
 import { PageHeader } from '@/components/ui'
@@ -13,6 +12,7 @@ import MissingVendorRatesModal from '@/components/MissingVendorRatesModal'
 import { itemServiceCode } from '@/lib/serviceCode'
 import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
 import WalletTenderInput from '@/components/WalletTenderInput'
+import { businessDateToEffectiveIso, currentBusinessDateKey, formatBusinessDate } from '@/lib/businessTime'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -265,14 +265,14 @@ function OrdersPageContent() {
   // Bulk select state
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showChallanModal, setShowChallanModal] = useState(false)
-  const [challanForm, setChallanForm] = useState({ plant: '', challanDate: new Date().toISOString().slice(0, 10), driverName: '', vehicleNo: '' })
+  const [challanForm, setChallanForm] = useState({ plant: '', challanDate: currentBusinessDateKey(), driverName: '', vehicleNo: '' })
   const [creatingChallan, setCreatingChallan] = useState(false)
   const [missingRates, setMissingRates] = useState<{ plant: string; services: any[] } | null>(null)
   const [bulkUpdating, setBulkUpdating] = useState('')
   const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([])
   const [showBulkPayModal, setShowBulkPayModal] = useState(false)
   const [bulkPayBusy, setBulkPayBusy] = useState(false)
-  const [bulkPayForm, setBulkPayForm] = useState({ method: '', reference: '', notes: '', amount: '', walletAmount: '', paymentDate: format(new Date(), 'yyyy-MM-dd') })
+  const [bulkPayForm, setBulkPayForm] = useState({ method: '', reference: '', notes: '', amount: '', walletAmount: '', paymentDate: currentBusinessDateKey() })
   const [whatsAppModal, setWhatsAppModal] = useState<{ open: boolean; order: any | null; type: 'ORDER_DETAILS' | 'PAYMENT_REMINDER_ORDER' | 'PAYMENT_REMINDER_SUMMARY'; confirm: boolean }>({
     open: false,
     order: null,
@@ -427,7 +427,7 @@ function OrdersPageContent() {
       toast.success(`${selected.size} challan${selected.size > 1 ? 's' : ''} created — orders sent to plant`)
       setSelected(new Set())
       setShowChallanModal(false)
-      setChallanForm({ plant: plantPartners.find((p: any) => p.isDefault)?.value || plantPartners[0]?.value || '', challanDate: new Date().toISOString().slice(0, 10), driverName: '', vehicleNo: '' })
+      setChallanForm({ plant: plantPartners.find((p: any) => p.isDefault)?.value || plantPartners[0]?.value || '', challanDate: currentBusinessDateKey(), driverName: '', vehicleNo: '' })
       load()
     } catch(e:any) {
       if (e.details?.code === 'UNPRICED_VENDOR_SERVICES') {
@@ -516,7 +516,7 @@ function OrdersPageContent() {
       toast.error('Select payment method')
       return
     }
-    if (!bulkPayForm.paymentDate || bulkPayForm.paymentDate > format(new Date(), 'yyyy-MM-dd')) {
+    if (!bulkPayForm.paymentDate || bulkPayForm.paymentDate > currentBusinessDateKey()) {
       toast.error('Select a payment date no later than today')
       return
     }
@@ -529,7 +529,7 @@ function OrdersPageContent() {
         amount,
         walletAmount,
         ...(amount > 0 ? { method: bulkPayForm.method } : {}),
-        effectiveAt: `${bulkPayForm.paymentDate}T00:00:00+05:30`,
+        effectiveAt: businessDateToEffectiveIso(bulkPayForm.paymentDate),
         reference: bulkPayForm.reference || undefined,
         notes: bulkPayForm.notes || undefined,
       }, idempotencyConfig('orders-bulk-payment'))
@@ -677,7 +677,7 @@ function OrdersPageContent() {
                 <div className="crm-mobile-order-title"><strong>{order.orderNumber}</strong><span style={{background:statusStyle.bg,color:statusStyle.text,borderColor:statusStyle.border}}>{getStatusLabel(order.status, order.source, statusLabels)}</span></div>
                 <div className="crm-mobile-order-customer"><strong>{order.customer?.name || 'Unnamed customer'}</strong><span>{order.customer?.phone || 'No mobile'}</span></div>
                 <p>{orderItemSummaryText(order)}</p>
-                <div className="crm-mobile-order-meta"><span>{itemCount} pcs</span><span>{order.deliveryDate ? `Due ${format(new Date(order.deliveryDate), 'dd MMM')}` : 'No due date'}</span><strong>{formatCurrency(order.totalAmount || 0)}</strong><em>{order.paymentStatus || 'UNPAID'}</em></div>
+                <div className="crm-mobile-order-meta"><span>{itemCount} pcs</span><span>{order.deliveryDate ? `Due ${formatBusinessDate(order.deliveryDate, { day: '2-digit', year: undefined })}` : 'No due date'}</span><strong>{formatCurrency(order.totalAmount || 0)}</strong><em>{order.paymentStatus || 'UNPAID'}</em></div>
               </Link>
               <button className="crm-mobile-row-actions" onClick={() => setMobileActionOrder(order)} aria-label={`Actions for ${order.orderNumber}`}><Ellipsis size={21} /></button>
             </article>
@@ -818,7 +818,7 @@ function OrdersPageContent() {
                             {o.orderNumber}
                           </Link>
                           {isSentToPlant && <span style={{display:'block',fontSize:10,background:'#fef9c3',color:'#854d0e',padding:'2px 6px',borderRadius:4,marginTop:2,fontWeight:600,width:'fit-content'}}>AT PLANT</span>}
-                          <div style={{fontSize:11.5,color:'#9dafc8',marginTop:3}}>{o.createdAt ? format(new Date(o.createdAt),'dd MMM yy') : '—'}</div>
+                          <div style={{fontSize:11.5,color:'#9dafc8',marginTop:3}}>{o.createdAt ? formatBusinessDate(o.createdAt, { day: '2-digit', year: '2-digit' }) : '—'}</div>
                         </td>
                         {/* Customer */}
                         <td style={{padding:'13px 18px',minWidth:140}}>
@@ -845,8 +845,7 @@ function OrdersPageContent() {
                         <td style={{padding:'13px 18px',minWidth:110}}>
                           {o.deliveryDate ? (
                             <>
-                              <div style={{fontSize:13.5,color:'#1a2332',fontWeight:600}}>{format(new Date(o.deliveryDate),'dd MMM')}</div>
-                              <div style={{fontSize:11.5,color:'#9dafc8',marginTop:3}}>{format(new Date(o.deliveryDate),'h:mm a')}</div>
+                              <div style={{fontSize:13.5,color:'#1a2332',fontWeight:600}}>{formatBusinessDate(o.deliveryDate, { day: '2-digit', year: undefined })}</div>
                             </>
                           ) : <span style={{color:'#c3ccd8'}}>—</span>}
                         </td>
@@ -1047,7 +1046,7 @@ function OrdersPageContent() {
                     placeholder="Optional" style={{width:'100%',border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',boxSizing:'border-box'}} />
                 </div>
                 <label style={{fontSize:12,color:'#6b7fa3',display:'grid',gap:6}}>Payment date
-                  <input aria-label="Bulk payment date" type="date" required max={format(new Date(), 'yyyy-MM-dd')} value={bulkPayForm.paymentDate} onChange={(e)=>setBulkPayForm((prev)=>({...prev,paymentDate:e.target.value}))} style={{width:'100%',minWidth:0,border:'1px solid #dce8f0',borderRadius:8,padding:'10px 12px',boxSizing:'border-box'}} />
+                  <input aria-label="Bulk payment date" type="date" required max={currentBusinessDateKey()} value={bulkPayForm.paymentDate} onChange={(e)=>setBulkPayForm((prev)=>({...prev,paymentDate:e.target.value}))} style={{width:'100%',minWidth:0,border:'1px solid #dce8f0',borderRadius:8,padding:'10px 12px',boxSizing:'border-box'}} />
                 </label>
                 <div>
                   <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Notes</label>
@@ -1136,7 +1135,7 @@ function OrdersPageContent() {
                   </div>
                   <div>
                     <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6,fontWeight:800}}>Challan Date *</label>
-                    <input type="date" value={challanForm.challanDate} max={new Date().toISOString().slice(0, 10)}
+                    <input type="date" value={challanForm.challanDate} max={currentBusinessDateKey()}
                       onChange={(e:any)=>setChallanForm({...challanForm,challanDate:e.target.value})}
                       style={{width:'100%',border:'1px solid #dce8f0',borderRadius:9,padding:'9px 11px',fontSize:13,boxSizing:'border-box' as const,background:'#fff'}}/>
                   </div>

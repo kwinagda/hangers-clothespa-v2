@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { metadataAPI, reportsAPI } from '@/lib/api'
 import { PageHeader } from '@/components/ui'
+import { addBusinessDays, currentBusinessDateKey } from '@/lib/businessTime'
 
 const HISTORY_START_DATE = '2025-01-01'
 const fmtCurrency = (n: number) => `₹${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -29,8 +30,8 @@ const formatDate = (value: Date) => {
   return `${y}-${m}-${d}`
 }
 const daysBetween = (from: string, to: string) => {
-  const start = new Date(`${from}T00:00:00`)
-  const end = new Date(`${to}T00:00:00`)
+  const start = new Date(`${from}T00:00:00.000Z`)
+  const end = new Date(`${to}T00:00:00.000Z`)
   return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1)
 }
 const previousRange = (from: string, to: string) => {
@@ -88,7 +89,7 @@ const QUICK_RANGES = [
   {
     label: 'Today',
     range: () => {
-      const today = formatDate(new Date())
+      const today = currentBusinessDateKey()
       return { from: today, to: today }
     },
   },
@@ -101,7 +102,7 @@ const QUICK_RANGES = [
   },
   {
     label: 'All History',
-    range: () => ({ from: HISTORY_START_DATE, to: formatDate(new Date()) }),
+    range: () => ({ from: HISTORY_START_DATE, to: currentBusinessDateKey() }),
   },
 ]
 

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import {
   ClipboardList,
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react'
 import { ironAPI, metadataAPI, ordersAPI } from '@/lib/api'
 import { PageHeader } from '@/components/ui'
+import { currentBusinessDateKey, formatBusinessDate, formatBusinessDateTime } from '@/lib/businessTime'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -138,7 +138,7 @@ export default function DashboardPage() {
             const subscriptions = asArray(all?.data, ['subscriptions', 'items'])
             const active = subscriptions.filter((sub: any) => sub.applicationStatus === 'ACTIVE')
             const pending = subscriptions.filter((sub: any) => sub.applicationStatus === 'PENDING_REVIEW')
-            const today = new Date().toISOString().slice(0, 10)
+            const today = currentBusinessDateKey()
 
             const [logResponses, billResponses] = await Promise.all([
               Promise.all(
@@ -286,7 +286,7 @@ export default function DashboardPage() {
                     <span className={`status-badge status-${order.status}`}>{statusLabels[order.status] || order.status}</span>
                   </td>
                   <td style={{ padding:'13px 18px', fontFamily:'var(--crm-font-mono)', fontWeight:700, color:'#023c62', fontSize:13.5 }}>₹{order.totalAmount?.toLocaleString('en-IN')}</td>
-                  <td style={{ padding:'13px 18px', fontSize:13.5, color:'#6b7fa3' }}>{format(new Date(order.createdAt), 'dd MMM, h:mm a')}</td>
+                  <td style={{ padding:'13px 18px', fontSize:13.5, color:'#6b7fa3' }}>{formatBusinessDateTime(order.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

@@ -21,6 +21,7 @@ const { getRazorpayTestContact } = require('../utils/razorpay-test-contact');
 const { ALLOWED_EVENTS: RAZORPAY_EXPERIMENT_EVENTS, EXPERIMENT_ID: RAZORPAY_EXPERIMENT_ID, assignVariant: assignRazorpayVariant, getExperimentConfig: getRazorpayExperimentConfig, hashVisitorId: hashRazorpayExperimentVisitor, normalizeVisitorId: normalizeRazorpayExperimentVisitor } = require('../utils/razorpay-checkout-experiment');
 const { paymentApiError } = require('../utils/payment-api-error');
 const { razorpayErrorSummary } = require('../utils/redact');
+const { businessDateKey, currentBusinessDateKey, parseBusinessDateTime, parseBusinessMonthBoundary } = require('../utils/business-time');
 
 const PUBLIC_SITE_PROFILE_KEY = 'public_site_profile';
 
@@ -155,7 +156,8 @@ const loadPickupRequestConfig = async () => {
 const preparePickupRequestData = ({ input, siteProfile, pickupStatuses, pickupTimeSlots }) => {
   const name = normalizeCustomerName(input.name);
   const phone = normalizeCustomerPhone(input.phone);
-  const preferredDate = input.preferredDate ? new Date(`${input.preferredDate}T12:00:00+05:30`) : null;
+  const preferredDateKey = input.preferredDate ? String(input.preferredDate) : null;
+  const preferredDate = preferredDateKey ? parseBusinessDateTime(preferredDateKey, '12:00:00') : null;
   const preferredSlot = normalizeNullableText(input.preferredSlot);
   const notes = normalizeNullableText(input.notes);
   const initialStatus = pickupStatuses.find((item) => item.initial)?.value;
@@ -163,7 +165,8 @@ const preparePickupRequestData = ({ input, siteProfile, pickupStatuses, pickupTi
   if (!initialStatus) throw new PublicPickupInputError('Pickup request workflow is not configured. Please call or WhatsApp the store.', 500);
   if (!name || !phone) throw new PublicPickupInputError('Please enter a valid name and 10-digit Indian mobile number');
   if (preferredSlot && !allowedSlots.has(preferredSlot)) throw new PublicPickupInputError('Select a valid pickup time');
-  if (preferredDate && preferredDate < new Date(new Date().toDateString())) throw new PublicPickupInputError('Pickup date cannot be in the past');
+  if (preferredDateKey && !preferredDate) throw new PublicPickupInputError('Select a valid pickup date');
+  if (preferredDateKey && preferredDateKey < currentBusinessDateKey()) throw new PublicPickupInputError('Pickup date cannot be in the past');
   const services = new Map((siteProfile.featuredServices || []).map((service) => [service.key, service]));
   const items = input.items.map((item) => ({ serviceKey: item.serviceKey, serviceName: services.get(item.serviceKey)?.name, quantity: item.quantity }));
   if (items.some((item) => !item.serviceName)) throw new PublicPickupInputError('One or more selected pickup services are unavailable');
@@ -541,12 +544,14 @@ const getPublicPaymentSummary = async (customerId, legalTerms) => {
   };
 };
 
-const startOfMonth = (value) => new Date(value.getFullYear(), value.getMonth(), 1);
+const startOfMonth = (value) => {
+  const dateKey = businessDateKey(value);
+  return dateKey ? parseBusinessMonthBoundary(dateKey.slice(0, 4), dateKey.slice(5, 7), 'start') : null;
+};
 
 const endOfMonth = (value) => {
-  const date = new Date(value.getFullYear(), value.getMonth() + 1, 0);
-  date.setHours(23, 59, 59, 999);
-  return date;
+  const dateKey = businessDateKey(value);
+  return dateKey ? parseBusinessMonthBoundary(dateKey.slice(0, 4), dateKey.slice(5, 7), 'end') : null;
 };
 
 const getPublicDailyIronLogs = async (req, res) => {
@@ -578,7 +583,7 @@ const getPublicDailyIronLogs = async (req, res) => {
       && requestedYear <= 2100;
     let periodStart;
     if (hasRequestedPeriod) {
-      periodStart = new Date(requestedYear, requestedMonth - 1, 1);
+      periodStart = parseBusinessMonthBoundary(requestedYear, requestedMonth, 'start');
     } else {
       const latestLog = await prisma.ironLog.findFirst({
         where: { customerId: subscription.customerId, status: 'ACTIVE' },
@@ -587,7 +592,7 @@ const getPublicDailyIronLogs = async (req, res) => {
       });
       periodStart = startOfMonth(latestLog?.date || new Date());
     }
-    if (Number.isNaN(periodStart.getTime())) return notFound(res, 'Daily Iron account not found');
+    if (!periodStart || Number.isNaN(periodStart.getTime())) return notFound(res, 'Daily Iron account not found');
     const periodEnd = endOfMonth(periodStart);
 
     const [logs, bills] = await Promise.all([
@@ -650,8 +655,8 @@ const getPublicDailyIronLogs = async (req, res) => {
         period: {
           start: periodStart,
           end: periodEnd,
-          month: periodStart.getMonth() + 1,
-          year: periodStart.getFullYear(),
+          month: Number(businessDateKey(periodStart).slice(5, 7)),
+          year: Number(businessDateKey(periodStart).slice(0, 4)),
         },
         logs,
         totals: {

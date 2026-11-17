@@ -12,6 +12,7 @@ const { PaymentRuleError, recordInvoiceSettlement, reverseInvoicePaymentCorrecti
 const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
 const { resolveDailyIronBillMode } = require('../utils/daily-iron-billing');
+const { addBusinessDateDays, businessDateKey, currentBusinessDateKey, parseBusinessDateBoundary, parseBusinessMonthBoundary } = require('../utils/business-time');
 
 const toDate = (value) => {
   const date = value ? new Date(value) : null;
@@ -19,27 +20,23 @@ const toDate = (value) => {
 };
 
 const startOfDay = (value) => {
-  const date = new Date(value);
-  date.setHours(0, 0, 0, 0);
-  return date;
+  const dateKey = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : businessDateKey(value);
+  return dateKey ? parseBusinessDateBoundary(dateKey, 'start') : null;
 };
 
 const endOfDay = (value) => {
-  const date = new Date(value);
-  date.setHours(23, 59, 59, 999);
-  return date;
+  const dateKey = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : businessDateKey(value);
+  return dateKey ? parseBusinessDateBoundary(dateKey, 'end') : null;
 };
 
 const startOfMonth = (value) => {
-  const date = new Date(value.getFullYear(), value.getMonth(), 1);
-  date.setHours(0, 0, 0, 0);
-  return date;
+  const dateKey = businessDateKey(value);
+  return dateKey ? parseBusinessMonthBoundary(dateKey.slice(0, 4), dateKey.slice(5, 7), 'start') : null;
 };
 
 const endOfMonth = (value) => {
-  const date = new Date(value.getFullYear(), value.getMonth() + 1, 0);
-  date.setHours(23, 59, 59, 999);
-  return date;
+  const dateKey = businessDateKey(value);
+  return dateKey ? parseBusinessMonthBoundary(dateKey.slice(0, 4), dateKey.slice(5, 7), 'end') : null;
 };
 
 const syncCustomerSubscriptionStatus = async (tx, customerId, applicationStatus) => {
@@ -179,9 +176,9 @@ const normalizeBackdateReason = (value) => String(value || '').trim();
 const normalizeIronServiceDate = (value) => startOfDay(value);
 const validateIronServiceDate = (value, options = {}) => {
   const serviceDate = normalizeIronServiceDate(value);
-  const today = startOfDay(new Date());
-  const earliest = new Date(today);
-  earliest.setDate(earliest.getDate() - getIronBackdateDays());
+  const todayKey = currentBusinessDateKey();
+  const today = parseBusinessDateBoundary(todayKey, 'start');
+  const earliest = parseBusinessDateBoundary(addBusinessDateDays(todayKey, -getIronBackdateDays()), 'start');
   if (serviceDate > today) throw new Error('FUTURE_IRON_LOG_DATE');
   if (serviceDate < earliest) {
     if (!canOverrideIronBackdateLimit(options.staff)) throw new Error('IRON_LOG_BACKDATE_LIMIT');
@@ -194,9 +191,8 @@ const validateIronServiceDate = (value, options = {}) => {
 
 const isBeyondIronBackdateLimit = (value) => {
   const serviceDate = normalizeIronServiceDate(value);
-  const today = startOfDay(new Date());
-  const earliest = new Date(today);
-  earliest.setDate(earliest.getDate() - getIronBackdateDays());
+  const todayKey = currentBusinessDateKey();
+  const earliest = parseBusinessDateBoundary(addBusinessDateDays(todayKey, -getIronBackdateDays()), 'start');
   return serviceDate < earliest;
 };
 
@@ -597,6 +593,7 @@ const getMonthlySummary = async (req, res) => {
   const periodEnd = endOfMonth(periodStart);
 
   try {
+  const daysInMonth = new Date(Date.UTC(monthYear, monthNumber, 0)).getUTCDate();
     const [subscriptions, logs, bills] = await Promise.all([
       prisma.ironSubscription.findMany({
         where: { applicationStatus: 'ACTIVE' },
@@ -627,7 +624,7 @@ const getMonthlySummary = async (req, res) => {
     for (const log of logs) {
       if (!byCustomer.has(log.customerId)) continue;
       const row = byCustomer.get(log.customerId);
-      const day = new Date(log.date).getDate();
+      const day = Number(businessDateKey(log.date).slice(8, 10));
       row.logs.push(log);
       if (log.status !== 'ACTIVE') continue;
       row.totalPieces += log.pieces;
@@ -1422,7 +1419,7 @@ const deleteLog = async (req, res) => {
       await writeAuditEvent(tx, {
         actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
         action: 'DAILY_IRON_LOG_VOIDED', resource: 'iron_log', resourceId: voided.id,
-        description: `${voided.serviceName} x${voided.pieces} voided for ${new Date(voided.date).toISOString().slice(0, 10)}`,
+        description: `${voided.serviceName} x${voided.pieces} voided for ${businessDateKey(voided.date)}`,
         metadata: { customerId: voided.customerId, serviceId: voided.serviceId, amount: voided.amount, reason },
         ...getRequestMeta(req),
       });
@@ -1558,7 +1555,7 @@ const correctLog = async (req, res) => {
 };
 
 const getLogRules = async (req, res) => success(res, {
-  today: startOfDay(new Date()),
+  today: currentBusinessDateKey(),
   backdateDays: getIronBackdateDays(),
   futureDatesAllowed: false,
   canBackdateBeyondLimit: canOverrideIronBackdateLimit(req.staff),
@@ -2102,7 +2099,7 @@ const getOwnLogsByMonth = async (req, res) => {
   if (!Number.isInteger(year) || year < 2000 || year > 2100) return badRequest(res, 'year must be valid');
 
   try {
-    const start = new Date(year, month - 1, 1);
+    const start = parseBusinessMonthBoundary(year, month, 'start');
     const end = endOfMonth(start);
     const logs = await prisma.ironLog.findMany({
       where: buildLogWhere(req.customer.id, start, end),

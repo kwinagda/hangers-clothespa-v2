@@ -117,7 +117,7 @@ const getReport = async (req, res) => {
       : parseBusinessDateBoundary(`${businessDateKey(new Date()).slice(0, 7)}-01`, 'start');
     const end = to ? parseBusinessDateBoundary(to, 'end') : new Date();
 
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return badRequest(res, 'Invalid report date range');
+    if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return badRequest(res, 'Invalid report date range');
     if (end < start) return badRequest(res, 'Report end date must be on or after start date');
 
     const dateFilter = { createdAt: { gte: start, lte: end } };

@@ -16,7 +16,7 @@ const stableTokenFor = ({ resourceType, resourceId, purpose }) => {
 
 const addDays = (days) => {
   const date = new Date();
-  date.setDate(date.getDate() + Number(days || DEFAULT_TTL_DAYS));
+  date.setUTCDate(date.getUTCDate() + Number(days || DEFAULT_TTL_DAYS));
   return date;
 };
 

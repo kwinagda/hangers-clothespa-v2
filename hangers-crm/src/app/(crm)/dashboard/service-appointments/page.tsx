@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { format } from 'date-fns'
 import { CalendarClock, CreditCard, Loader2, Plus, Search, Trash2, UserPlus, X, XCircle } from 'lucide-react'
 import { customersAPI, ironAPI, metadataAPI, serviceAppointmentsAPI, servicesAPI, staffAPI, statsAPI } from '@/lib/api'
 import { isStrictMoneyText, sanitizeDecimalInput, sanitizeIntegerInput } from '@/lib/numeric-input'
 import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
 import WalletTenderInput from '@/components/WalletTenderInput'
+import { businessDateTimeLocalToIso, currentBusinessDateTimeLocal, formatBusinessDateTime } from '@/lib/businessTime'
 
 type Address = { id: string; label?: string; addressLine1?: string; addressLine2?: string | null; landmark?: string | null; city?: string | null; pincode?: string | null; isDefault?: boolean }
 type Customer = { id: string; name?: string; phone: string; walletBalance?: number; ordersDue?: number; loyaltyPoints?: number; addresses?: Address[] }
@@ -87,7 +87,7 @@ export default function ServiceAppointmentsPage() {
   const [creatingCustomer, setCreatingCustomer] = useState(false)
   const searchTimeout = useRef<any>(null)
 
-  const [scheduledAt, setScheduledAt] = useState(new Date().toISOString().slice(0, 16))
+  const [scheduledAt, setScheduledAt] = useState(currentBusinessDateTimeLocal())
   const [assignedToId, setAssignedToId] = useState('')
   const [address, setAddress] = useState('')
   const [selectedAddressId, setSelectedAddressId] = useState('')
@@ -367,6 +367,8 @@ export default function ServiceAppointmentsPage() {
   const createAppointment = async () => {
     if (!customer?.id) return toast.error('Select customer first')
     if (!scheduledAt) return toast.error('Schedule date and time is required')
+    const scheduledAtIso = businessDateTimeLocalToIso(scheduledAt)
+    if (!scheduledAtIso) return toast.error('Enter a valid schedule date and time')
     if (!selectedAddressId) return toast.error('Select or save a customer address before scheduling')
     if (!cart.length) return toast.error('Add at least one sofa cleaning item')
     const items = cart.map((line) => ({
@@ -777,7 +779,7 @@ function AppointmentRow({ appointment, services, statusMeta, workflow, staff, bu
         <div><b style={apptNo}>{appointment.appointmentNumber}</b><span style={{ ...pill, color: meta.color, background: meta.bg }}>{meta.label}</span></div>
         <div>
           <b>{appointment.customer?.name || appointment.customer?.phone}</b>
-          <div style={muted}>{appointment.customer?.phone} · {format(new Date(appointment.scheduledAt), 'dd MMM, h:mm a')}</div>
+          <div style={muted}>{appointment.customer?.phone} · {formatBusinessDateTime(appointment.scheduledAt)}</div>
           {serviceAddress && <div style={appointmentAddress}>{serviceAddress}</div>}
           <div style={lineSummary}>{(appointment.lines || []).map((line: any) => `${Number(line.quantity)} x ${line.description}`).join(', ') || appointment.serviceName}</div>
         </div>
