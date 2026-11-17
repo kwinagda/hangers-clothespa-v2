@@ -46,6 +46,22 @@ test('release policy allows only this migration on the exact main production tar
     [revision, 'postgresql://localhost/hangers_prod', [...baseHistory, { migration_name: migration, checksum: 'c'.repeat(64), finished_at: new Date(), rolled_back_at: null }], migrationNames],
     [revision, 'postgresql://localhost/hangers_prod', baseHistory, migrationNames.filter(name => name !== migration)],
   ]) assert.throws(() => assertReleaseScope(revision, main, url, history, expected));
+
+  assert.throws(
+    () => assertReleaseScope(revision, revision, 'postgresql://localhost/hangers_prod', baseHistory.slice(1), migrationNames),
+    { code: 'OTHER_MIGRATIONS_PENDING' },
+  );
+  assert.throws(
+    () => assertReleaseScope(revision, revision, 'postgresql://localhost/hangers_prod', [
+      ...baseHistory,
+      { migration_name: 'untracked_applied_migration', checksum: 'd'.repeat(64), finished_at: new Date(), rolled_back_at: null },
+    ], migrationNames),
+    { code: 'DATABASE_HAS_UNEXPECTED_APPLIED_MIGRATION' },
+  );
+  assert.throws(
+    () => assertReleaseScope(revision, revision, 'postgresql://remote/hangers_prod', baseHistory, migrationNames),
+    { code: 'DATABASE_TARGET_NOT_EXPECTED' },
+  );
 });
 
 test('data SQL preserves effective dates and leaves non-unique audit evidence unknown', () => {
