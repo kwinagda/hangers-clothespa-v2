@@ -235,5 +235,5 @@ install -m 0755 "$REPO_ROOT/scripts/deploy/deploy-ec2-code.sh" \
   /usr/local/sbin/hangers-deploy-code
 
 echo "DEPLOYMENT_COMPLETE commit=$deployed_commit"
-echo "No database migration, seed, restore, or data sync was run."
+echo "The application deploy script did not run a database migration, seed, restore, or data sync; guarded workflow pre-deploy steps may have run separately."
 echo "$(date -Is) complete commit=${deployed_commit}" >>"$DEPLOY_LOG" 2>/dev/null || true
