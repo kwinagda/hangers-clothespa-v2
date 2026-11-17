@@ -353,6 +353,20 @@ The final CRM must own these records and expose them to future channels:
 10. Current launch policy is permission-authorized immediate posting for Manager/Accounts/Super Admin access resolved from DB-backed role and staff permission tables. A future maker-checker threshold must introduce a real pending request/approval state; `approvedById` must not be populated with the maker merely to simulate approval.
 | PAY-017 | P1 | In Progress | Every allocated captured receipt receives an immutable numbered Receipt with allocation/invoice/customer snapshot and reissue/print metadata. | Remaining work: CRM reprint audit, receipt void/reissue workflow, and customer sharing. |
 | PAY-018 | P1 | In Progress | Scheduled and on-demand reconciliation now checks orders, invoices, receipts, refunds, wallet, write-offs, vendor AP, garment custody, delivery assignments, outbox, and idempotency locks and stores each run. | Remaining work: production worker deployment and a complete CRM exception-resolution screen/day-close gate. |
+| PAY-019 | P1 | Complete | Wallet value was not available as a tender in every customer receivable collection flow, multi-invoice settlement accepted only one external tender, and voiding a mistaken WALLET payment reopened the invoice without restoring the customer's stored value. | All eligible CRM collection surfaces now submit separate external and wallet amounts to the central payment service. The backend locks sources, validates customer/currency/balance, atomically debits wallet plus posts immutable payment/allocation/receipt evidence, and rejects negative balance or over-collection. Voiding a WALLET receipt requires the exact idempotency-linked debit, posts one unique opposite wallet entry, reverses every allocation in that payment, and synchronizes every affected invoice/order in the same transaction. |
+
+### 12.2 Wallet tender operating rules (implemented 17 November 2026)
+
+1. Wallet is a tender, not a discount. A settlement may be wallet-only or wallet plus one DB/master-data-approved external tender; the two amounts remain separate Payment and allocation evidence.
+2. The backend is authoritative for fixed precision, customer ownership, currency, open-source eligibility, invoice balance, wallet availability, overpayment, permissions, locking, idempotency, allocation, receipt creation, audit, and cached balance synchronization. UI maximums are guidance only.
+3. Wallet tender is available in CRM order detail, Orders single/bulk pay, Finance single/bulk receivables, Daily Iron customer billing, Daily Iron monthly single/bulk billing, field-service appointments, and CRM new-order checkout.
+4. Wallet is never auto-applied. Staff explicitly enter the amount, and bulk Daily Iron validates the aggregate wallet allocation for each customer before posting sequential bill settlements.
+5. External payment method options and defaults come from the metadata API. Wallet is a separate amount field and cannot be disguised as an external `WALLET` method.
+6. A multi-invoice payment allocates the combined settlement oldest-first, applies the wallet portion first for deterministic evidence, then posts the external portion. Both payments and all allocations commit or roll back together.
+7. Insufficient wallet balance is a stable conflict response, not a generic server error. Concurrent requests cannot make the balance negative because the debit is a conditional database update inside the settlement transaction.
+8. A mistaken wallet receipt correction never edits history. It derives the exact wallet debit key from the immutable payment idempotency key, verifies customer and amount equality, creates one linked `PAYMENT_CORRECTION` credit, voids the receipt, reverses all its posted allocations, and resynchronizes affected sources atomically. Missing or mismatched links fail closed for finance review.
+9. Vendor-bill payments are excluded because a customer wallet cannot settle company payables. Delivery cash handover remains cash-only because it records physical custody already collected, not a new customer tender choice.
+10. The wallet origin/reversal constraint migration is deployed only through the dedicated production workflow input. The gate verifies the exact reviewed main commit and SQL, production DB identity, absence of unrelated pending migrations, a non-empty restorable backup, applied schema/index state, and complete origin backfill before application restart.
 
 ---
 
@@ -897,10 +911,15 @@ Latest local remediation verification on 13 July 2026:
 Wallet remediation verification on 17 November 2026:
 
 - Prisma schema validation passed with the new wallet origin and single-reversal constraint.
-- Focused finance schema and wallet reversal suites passed: 7 tests, 0 failed.
-- CRM TypeScript check and optimized production build passed; the customer Wallet route compiled successfully.
-- The wider backend run with safe test environment values reached 214 passing tests, 103 skipped DB/provider cases, and one unrelated toolchain failure: the host is Node 26 while production is pinned to Node 24.
-- No production database migration or deployment was performed in this wallet session.
+- Initial adjustment-focused finance schema and wallet reversal suites passed: 7 tests, 0 failed.
+- Wallet tender/correction/migration-gate focused suites passed: 23 tests, 0 failed.
+- The complete non-DB backend run reached 219 passing tests and 103 skipped DB/provider cases. Its only failure is the intentional runtime contract: the host is Node 26 while CI/production require Node 24 >=24.11.0.
+- Prisma schema validation passed with a loopback-only placeholder URL.
+- Fresh-install migration rehearsal passed with exact schema parity, including `20261117123000_wallet_adjustment_origin`.
+- Legacy-upgrade rehearsal stopped on unrelated local-source Razorpay tables/columns that are ahead of this branch schema; no wallet-origin or wallet-reversal drift was reported and the disposable target was removed.
+- CRM optimized production build and TypeScript validation passed after every wallet tender surface was connected; all 69 routes compiled/generated. The build retained a non-fatal pre-existing remote landing-image warning.
+- Production workflow YAML parsed successfully. The dedicated wallet migration gate has automated contract coverage for exact allowlisting, backup/list verification, production identity checking, and explicit workflow opt-in.
+- Production deployment remains pending merge and successful push-triggered CI; no production data was mutated by local verification.
 
 ---
 
@@ -955,6 +974,7 @@ Wallet remediation verification on 17 November 2026:
 | 1.32 | 2026-11-16 | Invoice documents were made durable for every existing random share token while explicit revocation remains enforced and expired checkout authorization stays closed. Added canonical invoice payment evidence for Cash, UPI, Card, Razorpay and other captured methods; public and authenticated PDF/print/download endpoints; CRM invoice actions across Orders, Finance, Customers, Daily Iron, and Service Appointments; future share provenance; regression tests; and a guarded production migration/deployment path. |
 | 1.33 | 2026-11-17 | Corrected invoice document rendering so CRM view/print/download and public PDF reuse the exact customer invoice page sent through WhatsApp instead of a second backend HTML design. Payment allocation evidence remains part of the canonical page and PDF. Print/PDF actions were moved into the blue invoice header as compact controls and are excluded from printed output. WhatsApp provider-template domain replacement is explicitly deferred. |
 | 1.34 | 2026-11-17 | Implemented the governed CRM wallet correction flow. Wallet adjustment reasons are DB/master-data and metadata-API backed; CRM exposes one permission-aware Adjust Wallet dialog and contextual reversal only for manual entries; ledger rows show before/after balance, origin/actor, structured reason, order and reversal evidence. Backend posts immutable, idempotent, serializable credit/debit entries, prevents negative balance and duplicate reversal, and uses a unique linked opposite entry instead of editing history. Referral and customer-app order balance mutations now use the same central ledger service. |
+| 1.35 | 2026-11-17 | Implemented wallet as an explicit API/DB-backed customer tender across every eligible CRM collection surface: order detail, Orders single/bulk pay, Finance single/bulk receivables, Daily Iron customer/monthly/bulk, field service, and existing new-order checkout. Central settlement now supports wallet-only or wallet plus one metadata-approved external tender, deterministic multi-invoice allocation, stable insufficient-balance errors, and complete audit/outbox evidence. Correcting a wallet receipt restores the exact linked debit through one immutable reversal and reverses/synchronizes every affected allocation/source atomically. Added shared balance-driven UI, focused regression tests, fresh migration verification, and a backup-verified exact-allowlist production migration workflow. Vendor AP and delivery cash custody remain intentionally excluded. |
 
 ---
 

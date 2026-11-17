@@ -34,6 +34,26 @@ const paymentReferenceFingerprint = (method, reference) => {
   return crypto.createHash('sha256').update(`${method}:${normalized}`).digest('hex');
 };
 
+const settlementMoney = (value, label) => {
+  const amount = Number(value || 0);
+  const paise = Math.round(amount * 100);
+  if (!Number.isFinite(amount) || amount < 0 || !Number.isSafeInteger(paise) || Math.abs(amount * 100 - paise) > 0.000001) {
+    throw new PaymentRuleError('INVALID_SETTLEMENT_AMOUNT', `${label} must be a non-negative amount with at most two decimal places`);
+  }
+  return paise / 100;
+};
+
+const debitSettlementWallet = async (customerId, amount, reason, options) => {
+  try {
+    return await debitWallet(customerId, amount, reason, options);
+  } catch (error) {
+    if (error?.message === 'Insufficient wallet balance') {
+      throw new PaymentRuleError('INSUFFICIENT_WALLET_BALANCE', 'Customer wallet balance is insufficient. Refresh and enter an available amount.', 409);
+    }
+    throw error;
+  }
+};
+
 const lockOrder = async (tx, orderId) => {
   const rows = await tx.$queryRaw`
     SELECT "id"
@@ -196,6 +216,7 @@ const recordInvoiceAllocationsSettlement = async (tx, {
   expectedCustomerId,
   expectedCurrency,
   amount,
+  walletAmount = 0,
   method,
   reference,
   notes,
@@ -207,14 +228,17 @@ const recordInvoiceAllocationsSettlement = async (tx, {
   mode,
   providerCaptureVerified = false,
 }) => {
-  assertSettlementMethodAllowed(method, { providerCaptureVerified });
+  const externalAmount = settlementMoney(amount, 'Payment amount');
+  const storedValueAmount = settlementMoney(walletAmount, 'Wallet amount');
+  if (externalAmount > 0) assertSettlementMethodAllowed(method, { providerCaptureVerified });
   if (!Array.isArray(allocations) || allocations.length < 1) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'At least one invoice allocation is required');
   const normalized = allocations.map((item) => ({ invoiceId: String(item.invoiceId), amount: roundMoney(Number(item.amount)) }));
   if (new Set(normalized.map((item) => item.invoiceId)).size !== normalized.length || normalized.some((item) => !Number.isFinite(item.amount) || item.amount <= 0)) {
     throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'The invoice allocation plan is invalid');
   }
   const expectedTotal = roundMoney(normalized.reduce((sum, item) => sum + item.amount, 0));
-  if (expectedTotal !== roundMoney(Number(amount))) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Allocation total does not match the captured payment');
+  if (expectedTotal !== roundMoney(externalAmount + storedValueAmount)) throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', 'Allocation total does not match the settlement');
+  if (externalAmount > 0 && !method) throw new PaymentRuleError('PAYMENT_METHOD_REQUIRED', 'Payment method is required');
 
   const ids = normalized.map((item) => item.invoiceId).sort();
   const initialRows = await tx.invoice.findMany({ where: { id: { in: ids } }, select: { id: true, orderId: true } });
@@ -257,23 +281,53 @@ const recordInvoiceAllocationsSettlement = async (tx, {
     }
   }
 
-  const payment = await createCapturedPayment(tx, {
+  const takeAllocations = (targetAmount, source) => {
+    let remaining = Math.round(targetAmount * 100);
+    return source.flatMap((item) => {
+      if (remaining <= 0) return [];
+      const available = Math.round(Number(item.amount) * 100);
+      const applied = Math.min(remaining, available);
+      remaining -= applied;
+      return applied > 0 ? [{ invoiceId: item.invoiceId, orderId: byId.get(item.invoiceId).orderId || null, amount: applied / 100 }] : [];
+    });
+  };
+  const walletAllocations = takeAllocations(storedValueAmount, normalized);
+  const walletAppliedByInvoice = new Map(walletAllocations.map((item) => [item.invoiceId, item.amount]));
+  const remainingAllocations = normalized.map((item) => ({ ...item, amount: roundMoney(item.amount - Number(walletAppliedByInvoice.get(item.invoiceId) || 0)) })).filter((item) => item.amount > 0);
+  const externalAllocations = takeAllocations(externalAmount, remainingAllocations);
+  const payments = [];
+  if (storedValueAmount > 0) {
+    await debitSettlementWallet(customerId, storedValueAmount, `Applied across ${normalized.length} invoice${normalized.length === 1 ? '' : 's'}`, {
+      tx,
+      actorId: staff?.id,
+      origin: 'PAYMENT_SETTLEMENT',
+      reasonCode: 'INVOICE_PAYMENT',
+      idempotencyKey: idempotencyKey ? `${idempotencyKey}:wallet-debit` : null,
+    });
+    payments.push(await createCapturedPayment(tx, {
+      customerId, staffId: staff?.id, effectiveAt, invoiceId: walletAllocations[0].invoiceId,
+      amount: storedValueAmount, method: 'WALLET', notes: notes || 'Wallet payment',
+      idempotencyKey: idempotencyKey ? `${idempotencyKey}:wallet-payment` : null,
+      allocations: walletAllocations,
+    }));
+  }
+  if (externalAmount > 0) payments.push(await createCapturedPayment(tx, {
     customerId,
     staffId: staff?.id,
     effectiveAt,
-    invoiceId: normalized[0].invoiceId,
-    amount: expectedTotal,
+    invoiceId: externalAllocations[0].invoiceId,
+    amount: externalAmount,
     method,
     reference,
     notes,
-    idempotencyKey,
+    idempotencyKey: idempotencyKey ? `${idempotencyKey}:payment` : null,
     razorpayOrderId,
     razorpayPaymentId,
     providerMethod,
     providerMethodDetail,
     mode,
-    allocations: normalized.map((item) => ({ ...item, orderId: byId.get(item.invoiceId).orderId || null })),
-  });
+    allocations: externalAllocations,
+  }));
   const syncedInvoices = [];
   for (const orderId of [...orderIds].sort()) {
     const synced = await syncOrderPaymentState(tx, orderId);
@@ -283,7 +337,7 @@ const recordInvoiceAllocationsSettlement = async (tx, {
     const invoice = byId.get(allocation.invoiceId);
     if (!invoice.orderId) syncedInvoices.push(await syncInvoiceBalance(tx, invoice.id));
   }
-  return { payment, invoice: syncedInvoices.find((invoice) => invoice.id === normalized[0].invoiceId) || await tx.invoice.findUnique({ where: { id: normalized[0].invoiceId } }), invoices: syncedInvoices };
+  return { payment: payments[0] || null, payments, invoice: syncedInvoices.find((invoice) => invoice.id === normalized[0].invoiceId) || await tx.invoice.findUnique({ where: { id: normalized[0].invoiceId } }), invoices: syncedInvoices };
 };
 
 const recordOrderSettlement = async (tx, {
@@ -313,9 +367,9 @@ const recordOrderSettlement = async (tx, {
     throw new PaymentRuleError('ORDER_NOT_COLLECTIBLE', `Payments cannot be recorded against a ${before.order.status.toLowerCase()} order`);
   }
 
-  const externalAmount = roundMoney(Number(amount || 0));
-  const storedValueAmount = roundMoney(Number(walletAmount || 0));
-  const writeOff = roundMoney(Number(writeOffAmount || 0));
+  const externalAmount = settlementMoney(amount, 'Payment amount');
+  const storedValueAmount = settlementMoney(walletAmount, 'Wallet amount');
+  const writeOff = settlementMoney(writeOffAmount, 'Write-off amount');
   const requestedSettlement = roundMoney(externalAmount + storedValueAmount + writeOff);
   if (!(requestedSettlement > 0)) {
     throw new PaymentRuleError('EMPTY_SETTLEMENT', 'A payment, wallet amount, or write-off is required');
@@ -341,7 +395,7 @@ const recordOrderSettlement = async (tx, {
 
   const payments = [];
   if (storedValueAmount > 0) {
-    await debitWallet(
+    await debitSettlementWallet(
       before.order.customerId,
       storedValueAmount,
       `Applied to order ${before.order.orderNumber}`,
@@ -349,6 +403,7 @@ const recordOrderSettlement = async (tx, {
         tx,
         orderId,
         actorId: staff?.id,
+        origin: 'PAYMENT_SETTLEMENT',
         reasonCode: 'ORDER_PAYMENT',
         idempotencyKey: idempotencyKey ? `${idempotencyKey}:wallet-debit` : null,
       }
@@ -462,9 +517,9 @@ const recordInvoiceSettlement = async (tx, {
   if (!invoice || invoice.voidedAt || invoice.status === 'VOID') {
     throw new PaymentRuleError('INVOICE_NOT_COLLECTIBLE', 'This invoice cannot accept payments');
   }
-  const externalAmount = roundMoney(Number(amount || 0));
-  const storedValueAmount = roundMoney(Number(walletAmount || 0));
-  const writeOff = roundMoney(Number(writeOffAmount || 0));
+  const externalAmount = settlementMoney(amount, 'Payment amount');
+  const storedValueAmount = settlementMoney(walletAmount, 'Wallet amount');
+  const writeOff = settlementMoney(writeOffAmount, 'Write-off amount');
   const requestedSettlement = roundMoney(externalAmount + storedValueAmount + writeOff);
   if (!(requestedSettlement > 0)) {
     throw new PaymentRuleError('EMPTY_SETTLEMENT', 'A payment, wallet amount, or write-off is required');
@@ -488,7 +543,7 @@ const recordInvoiceSettlement = async (tx, {
 
   const payments = [];
   if (storedValueAmount > 0) {
-    await debitWallet(
+    await debitSettlementWallet(
       invoice.customerId,
       storedValueAmount,
       `Applied to invoice ${invoice.invoiceNumber}`,
@@ -496,6 +551,7 @@ const recordInvoiceSettlement = async (tx, {
         tx,
         orderId: invoice.orderId || null,
         actorId: staff?.id,
+        origin: 'PAYMENT_SETTLEMENT',
         reasonCode: 'INVOICE_PAYMENT',
         idempotencyKey: idempotencyKey ? `${idempotencyKey}:wallet-debit` : null,
       }
@@ -742,6 +798,50 @@ const recordOrderRefund = async (tx, {
   return { refundPayment, creditNote, ...synced };
 };
 
+const restoreWalletPaymentCorrection = async (tx, payment, staff, reason) => {
+  if (normalizePaymentMethod(payment.method) !== 'WALLET') return null;
+  const paymentKey = String(payment.idempotencyKey || '');
+  if (!paymentKey.endsWith(':wallet-payment')) {
+    throw new PaymentRuleError(
+      'WALLET_LEDGER_LINK_REQUIRED',
+      'This wallet payment has no verified ledger link and cannot be voided automatically. Finance review is required.',
+      409
+    );
+  }
+  const debitKey = paymentKey.replace(/:wallet-payment$/, ':wallet-debit');
+  const original = await tx.walletTransaction.findUnique({
+    where: { idempotencyKey: debitKey },
+    include: { reversals: { select: { id: true } } },
+  });
+  const paymentAmount = roundMoney(Number(payment.amount || 0));
+  if (!original
+    || original.type !== 'DEBIT'
+    || original.customerId !== payment.customerId
+    || roundMoney(Number(original.amount || 0)) !== paymentAmount
+    || original.reversalOfId) {
+    throw new PaymentRuleError(
+      'WALLET_LEDGER_LINK_INVALID',
+      'The wallet ledger does not match this payment. Finance review is required before correction.',
+      409
+    );
+  }
+  if (original.reversals.length) {
+    throw new PaymentRuleError('WALLET_PAYMENT_ALREADY_RESTORED', 'This wallet payment has already been restored', 409);
+  }
+  return creditWallet(payment.customerId, paymentAmount, `Payment correction: ${reason}`, {
+    tx,
+    orderId: payment.orderId || original.orderId || null,
+    actorId: staff?.id,
+    approvedById: staff?.id,
+    origin: 'PAYMENT_CORRECTION',
+    reasonCode: 'PAYMENT_REVERSAL',
+    idempotencyKey: `payment-correction:${payment.id}:wallet-restore`,
+    reversalOfId: original.id,
+    externalReference: payment.id,
+    returnTransaction: true,
+  });
+};
+
 const reverseOrderPaymentCorrection = async (tx, {
   orderId,
   paymentId,
@@ -783,6 +883,7 @@ const reverseOrderPaymentCorrection = async (tx, {
   }
 
   const trimmedReason = String(reason).trim();
+  const walletRestoration = await restoreWalletPaymentCorrection(tx, payment, staff, trimmedReason);
   const now = new Date();
   await tx.paymentAllocation.updateMany({
     where: { paymentId, status: 'POSTED' },
@@ -818,14 +919,15 @@ const reverseOrderPaymentCorrection = async (tx, {
       stage: 'PAYMENT_ENTRY_VOIDED',
       eventType: 'FINANCIAL_CORRECTION',
       reasonCode: 'MISTAKEN_PAYMENT_ENTRY_VOIDED',
-      notes: `Mistaken payment entry voided: Rs ${Number(payment.amount).toFixed(2)} ${payment.method}. No customer refund issued; order balance restored. ${trimmedReason}`,
+      notes: `Mistaken payment entry voided: Rs ${Number(payment.amount).toFixed(2)} ${payment.method}. ${walletRestoration ? 'Customer wallet restored; order balance restored.' : 'No customer refund issued; order balance restored.'} ${trimmedReason}`,
       changedById: staff?.id || null,
       metadata: {
         paymentId,
         method: payment.method,
         amount: Number(payment.amount || 0),
         correctionType: 'INTERNAL_ENTRY_VOID',
-        customerMoneyMovement: 'NONE',
+        customerMoneyMovement: walletRestoration ? 'WALLET_RESTORED' : 'NONE',
+        walletRestorationTransactionId: walletRestoration?.transaction?.id || null,
         beforeStatus: payment.status,
         afterStatus: reversedPayment.status,
       },
@@ -864,7 +966,7 @@ const reverseInvoicePaymentCorrection = async (tx, {
       allocations: { some: { invoiceId, status: 'POSTED' } },
     },
     include: {
-      allocations: { where: { invoiceId, status: 'POSTED' } },
+      allocations: { where: { status: 'POSTED' } },
       receipt: true,
     },
   });
@@ -882,9 +984,12 @@ const reverseInvoicePaymentCorrection = async (tx, {
   }
 
   const trimmedReason = String(reason).trim();
+  const walletRestoration = await restoreWalletPaymentCorrection(tx, payment, staff, trimmedReason);
+  const affectedInvoiceIds = [...new Set(payment.allocations.map((allocation) => allocation.invoiceId).filter(Boolean))];
+  const affectedOrderIds = [...new Set(payment.allocations.map((allocation) => allocation.orderId).filter(Boolean))];
   const now = new Date();
   await tx.paymentAllocation.updateMany({
-    where: { paymentId, invoiceId, status: 'POSTED' },
+    where: { paymentId, status: 'POSTED' },
     data: {
       status: 'REVERSED',
       reversedAt: now,
@@ -910,14 +1015,20 @@ const reverseInvoicePaymentCorrection = async (tx, {
     });
   }
 
-  const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
-  const synced = invoice?.orderId
-    ? await syncOrderPaymentState(tx, invoice.orderId)
-    : { invoice: await syncInvoiceBalance(tx, invoiceId) };
+  const syncedOrders = [];
+  for (const orderId of affectedOrderIds.sort()) syncedOrders.push(await syncOrderPaymentState(tx, orderId));
+  const orderInvoiceIds = new Set(syncedOrders.map((item) => item.invoice?.id).filter(Boolean));
+  const syncedInvoices = syncedOrders.map((item) => item.invoice).filter(Boolean);
+  for (const affectedInvoiceId of affectedInvoiceIds.sort()) {
+    if (!orderInvoiceIds.has(affectedInvoiceId)) syncedInvoices.push(await syncInvoiceBalance(tx, affectedInvoiceId));
+  }
+  const synced = syncedOrders.find((item) => item.invoice?.id === invoiceId);
   return {
     payment: reversedPayment,
-    invoice: synced.invoice,
-    ...(synced.order ? { order: synced.order } : {}),
+    walletRestoration,
+    invoice: syncedInvoices.find((item) => item.id === invoiceId) || null,
+    invoices: syncedInvoices,
+    ...(synced?.order ? { order: synced.order } : {}),
   };
 };
 
@@ -945,6 +1056,7 @@ module.exports = {
   recordInvoiceAllocationsSettlement,
   recordInvoiceSettlement,
   recordOrderRefund,
+  restoreWalletPaymentCorrection,
   reverseInvoicePaymentCorrection,
   reverseOrderPaymentCorrection,
   recordOrderSettlement,

@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      migrate_wallet_governance:
+        description: Apply only the reviewed wallet origin and reversal uniqueness migration after a verified production backup
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -189,6 +194,14 @@ jobs:
             install -d -m 0700 -o ubuntu -g ubuntu /var/backups/hangers
             migration_script=\$(mktemp /tmp/hangers-public-document-provenance-migration.XXXXXX.cjs)
             runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/migrate-public-document-provenance.cjs' > "\$migration_script"
+            chmod 0644 "\$migration_script"
+            flock -n /var/lock/hangers-code-deploy.lock runuser -u ubuntu -- node "\$migration_script" '$COMMIT'
+            rm -f "\$migration_script"
+          fi
+          if [[ '${{ inputs.migrate_wallet_governance }}' == 'true' ]]; then
+            install -d -m 0700 -o ubuntu -g ubuntu /var/backups/hangers
+            migration_script=\$(mktemp /tmp/hangers-wallet-governance-migration.XXXXXX.cjs)
+            runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/migrate-wallet-governance.cjs' > "\$migration_script"
             chmod 0644 "\$migration_script"
             flock -n /var/lock/hangers-code-deploy.lock runuser -u ubuntu -- node "\$migration_script" '$COMMIT'
             rm -f "\$migration_script"

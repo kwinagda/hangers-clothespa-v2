@@ -1,6 +1,7 @@
 const { z } = require('zod');
 
 const positiveMoneySchema = z.coerce.number().finite().positive();
+const moneySchema = z.coerce.number().finite().min(0);
 
 const checkoutCouponSchema = z.object({
   code: z.string().trim().min(1).max(64),
@@ -14,14 +15,19 @@ const checkoutLoyaltySchema = z.object({
   orderTotal: z.coerce.number().finite().min(0),
 }).strict();
 
-const recordPaymentSchema = z.object({
-  orderId: z.string().trim().min(1),
-  amount: positiveMoneySchema,
-  method: z.string().trim().min(1).max(64),
+const paymentFields = {
+  amount: moneySchema.default(0),
+  walletAmount: moneySchema.optional(),
+  method: z.string().trim().min(1).max(64).optional().nullable(),
   reference: z.string().trim().max(120).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
   effectiveAt: z.coerce.date().refine((date) => date <= new Date(), 'Payment date cannot be in the future').optional(),
-}).strict();
+};
+
+const recordPaymentSchema = z.object({
+  orderId: z.string().trim().min(1),
+  ...paymentFields,
+}).strict().refine((data) => data.amount > 0 || Number(data.walletAmount || 0) > 0, 'A payment or wallet amount is required');
 
 const walletAdjustmentSchema = z.object({
   amount: positiveMoneySchema,
@@ -40,11 +46,13 @@ const walletApplySchema = z.object({
 }).strict();
 
 module.exports = {
-  recordReceivablesPaymentSchema: recordPaymentSchema.omit({ orderId: true }).extend({
+  recordReceivablesPaymentSchema: z.object({
+    ...paymentFields,
     customerId: z.string().trim().min(1),
     invoiceIds: z.array(z.string().trim().min(1)).min(1).max(100).optional(),
     orderIds: z.array(z.string().trim().min(1)).min(1).max(100).optional(),
-  }).refine((data) => Boolean(data.invoiceIds?.length) !== Boolean(data.orderIds?.length), 'Select invoices or orders')
+  }).strict().refine((data) => data.amount > 0 || Number(data.walletAmount || 0) > 0, 'A payment or wallet amount is required')
+    .refine((data) => Boolean(data.invoiceIds?.length) !== Boolean(data.orderIds?.length), 'Select invoices or orders')
     .refine((data) => {
       const ids = data.invoiceIds || data.orderIds || [];
       return new Set(ids).size === ids.length;

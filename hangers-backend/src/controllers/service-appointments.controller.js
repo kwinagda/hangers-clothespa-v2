@@ -24,7 +24,7 @@ const addressSnapshot = (address) => address ? {
 } : null;
 
 const includeAppointment = {
-  customer: { select: { id: true, name: true, phone: true } },
+  customer: { select: { id: true, name: true, phone: true, walletBalance: true } },
   serviceAddress: true,
   service: { select: { id: true, name: true, category: true, basePrice: true } },
   lines: { orderBy: { createdAt: 'asc' }, include: { service: { select: { id: true, name: true, category: true, basePrice: true } } } },
@@ -524,11 +524,12 @@ const invoiceAppointment = async (req, res) => {
 };
 
 const recordAppointmentPayment = async (req, res) => {
-  const { amount = 0, paymentMethod, reference, notes, writeOffAmount = 0, writeOffReason, effectiveAt } = req.body || {};
+  const { amount = 0, walletAmount = 0, paymentMethod, reference, notes, writeOffAmount = 0, writeOffReason, effectiveAt } = req.body || {};
   const paymentAmount = Number(amount || 0);
+  const walletPaymentAmount = Number(walletAmount || 0);
   const writeOff = Number(writeOffAmount || 0);
-  if (!(paymentAmount > 0 || writeOff > 0)) return badRequest(res, 'payment or write-off amount is required');
-  const normalizedMethod = paymentAmount > 0 ? normalizePaymentMethod(paymentMethod || 'CASH') : null;
+  if (!(paymentAmount > 0 || walletPaymentAmount > 0 || writeOff > 0)) return badRequest(res, 'payment, wallet, or write-off amount is required');
+  const normalizedMethod = paymentAmount > 0 ? normalizePaymentMethod(paymentMethod) : null;
   const corePaymentMethods = await getCorePaymentMethods();
   if (paymentAmount > 0 && !corePaymentMethods.includes(normalizedMethod)) {
     return badRequest(res, `paymentMethod must be one of: ${corePaymentMethods.join(', ')}`);
@@ -540,6 +541,7 @@ const recordAppointmentPayment = async (req, res) => {
       const settlement = await recordInvoiceSettlement(tx, {
         invoiceId: invoice.id,
         amount: paymentAmount,
+        walletAmount: walletPaymentAmount,
         method: normalizedMethod,
         reference,
         notes,
@@ -551,11 +553,12 @@ const recordAppointmentPayment = async (req, res) => {
       });
       const appointment = await tx.serviceAppointment.findUnique({ where: { id: req.params.id } });
       await logAppointmentEvent(tx, appointment, {
-        eventType: paymentAmount > 0 ? 'FIELD_SERVICE_PAYMENT_RECORDED' : 'FIELD_SERVICE_WRITE_OFF_RECORDED',
-        notes: paymentAmount > 0 ? `Rs ${paymentAmount.toFixed(2)} collected` : `Rs ${writeOff.toFixed(2)} written off`,
+        eventType: paymentAmount > 0 || walletPaymentAmount > 0 ? 'FIELD_SERVICE_PAYMENT_RECORDED' : 'FIELD_SERVICE_WRITE_OFF_RECORDED',
+        notes: paymentAmount > 0 || walletPaymentAmount > 0 ? `Rs ${(paymentAmount + walletPaymentAmount).toFixed(2)} settled` : `Rs ${writeOff.toFixed(2)} written off`,
         metadata: {
           invoiceId: invoice.id,
-          paymentId: settlement.payment?.id || null,
+          paymentIds: settlement.payments.map((payment) => payment.id),
+          walletAmount: walletPaymentAmount,
           adjustmentId: settlement.adjustment?.id || null,
           balanceDue: settlement.balanceDue,
         },

@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { CreditCard, Info, IndianRupee, MapPin, PackageCheck, Sparkles, Wallet } from 'lucide-react'
 import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
+import WalletTenderInput from '@/components/WalletTenderInput'
 
 const TAG_COLORS: Record<string, { bg: string; color: string }> = {
   VIP:       { bg: '#fef9c3', color: '#854d0e' },
@@ -149,7 +150,7 @@ export default function CustomerProfilePage() {
   const [ironBusy, setIronBusy]                 = useState<string | null>(null)
   const [ironForm, setIronForm]                 = useState({ date: new Date().toISOString().slice(0, 10), serviceId: '', pieces: '', notes: '' })
   const [billForm, setBillForm]                 = useState({ billingPeriodStart: new Date().toISOString().slice(0, 10), carryForwardNotes: '', notes: '' })
-  const [paymentForm, setPaymentForm]           = useState<Record<string, { amount: string; paymentMethod: string }>>({})
+  const [paymentForm, setPaymentForm]           = useState<Record<string, { amount: string; walletAmount: string; paymentMethod: string }>>({})
 
   const languageLabel = useCallback((value?: string | null) => {
     if (!value) return 'English'
@@ -481,15 +482,20 @@ export default function CustomerProfilePage() {
 
   const recordIronPayment = async (billId: string) => {
     const form = paymentForm[billId]
-    if (!form?.amount || Number(form.amount) <= 0) {
-      toast.error('Enter a valid payment amount')
+    const amount = Number(form?.amount || 0)
+    const walletAmount = Number(form?.walletAmount || 0)
+    const bill = ironBills.find((item) => item.id === billId)
+    const balance = Number(bill?.invoice?.balanceDue ?? (Number(bill?.totalAmount || 0) - Number(bill?.paidAmount || 0)))
+    if (!(amount + walletAmount > 0) || amount + walletAmount > balance || walletAmount > Number(customer?.walletBalance || 0)) {
+      toast.error('Enter external and wallet amounts within the available balances')
       return
     }
+    if (amount > 0 && !form?.paymentMethod) { toast.error('Select a payment method'); return }
     setIronBusy(`bill-pay-${billId}`)
     try {
-      await ironAPI.recordPayment(billId, { amount: Number(form.amount), paymentMethod: form.paymentMethod || 'CASH' })
+      await ironAPI.recordPayment(billId, { amount, walletAmount, ...(amount > 0 ? { paymentMethod: form.paymentMethod } : {}) })
       toast.success('Payment recorded')
-      setPaymentForm((prev) => ({ ...prev, [billId]: { amount: '', paymentMethod: prev[billId]?.paymentMethod || 'CASH' } }))
+      setPaymentForm((prev) => ({ ...prev, [billId]: { amount: '', walletAmount: '', paymentMethod: prev[billId]?.paymentMethod || paymentMethods[0]?.value || '' } }))
       await loadIron()
     } catch (e: any) {
       toast.error(e.message || 'Failed to record payment')
@@ -1281,16 +1287,19 @@ export default function CustomerProfilePage() {
                             {bill.paidAt && <span style={{ fontWeight: 600, color: '#15803d' }}>{format(new Date(bill.paidAt), 'dd MMM yyyy')}</span>}
                           </div>
                         ) : (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px auto', gap: 8 }}>
-                            <input type="number" max={billBalance} value={paymentForm[bill.id]?.amount || ''} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: e.target.value, paymentMethod: paymentForm[bill.id]?.paymentMethod || 'CASH' } })} placeholder={`Balance ${fmt(billBalance)}`}
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 130px auto', gap:8 }}>
+                            <input type="number" min="0" step="0.01" max={Math.max(0, billBalance - Number(paymentForm[bill.id]?.walletAmount || 0))} value={paymentForm[bill.id]?.amount || ''} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: e.target.value, walletAmount: paymentForm[bill.id]?.walletAmount || '', paymentMethod: paymentForm[bill.id]?.paymentMethod || paymentMethods[0]?.value || '' } })} placeholder={`Balance ${fmt(billBalance)}`}
                               style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
-                            <select value={paymentForm[bill.id]?.paymentMethod || 'CASH'} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: paymentForm[bill.id]?.amount || '', paymentMethod: e.target.value } })}
+                            <select disabled={Number(paymentForm[bill.id]?.amount || 0) <= 0} value={paymentForm[bill.id]?.paymentMethod || paymentMethods[0]?.value || ''} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: paymentForm[bill.id]?.amount || '', walletAmount: paymentForm[bill.id]?.walletAmount || '', paymentMethod: e.target.value } })}
                               style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
                               {paymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
                             </select>
                             <button onClick={() => recordIronPayment(bill.id)} disabled={ironBusy === `bill-pay-${bill.id}`} style={{ padding: '8px 12px', background: '#166534', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                               {ironBusy === `bill-pay-${bill.id}` ? 'Saving…' : 'Record Pay'}
                             </button>
+                            </div>
+                            <WalletTenderInput availableBalance={Number(customer?.walletBalance || 0)} outstandingBalance={billBalance} externalAmount={Number(paymentForm[bill.id]?.amount || 0)} onExternalAmountChange={(amount) => setPaymentForm((current) => ({ ...current, [bill.id]: { ...current[bill.id], amount } }))} value={paymentForm[bill.id]?.walletAmount || ''} onChange={(walletAmount) => setPaymentForm({ ...paymentForm, [bill.id]: { amount: paymentForm[bill.id]?.amount || '', walletAmount, paymentMethod: paymentForm[bill.id]?.paymentMethod || paymentMethods[0]?.value || '' } })} disabled={Boolean(ironBusy)} />
                           </div>
                         )}
                         {!isBillPaid && billBalance > 0.005 && (

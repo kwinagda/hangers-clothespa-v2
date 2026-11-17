@@ -7,9 +7,10 @@ import { CalendarClock, CreditCard, Loader2, Plus, Search, Trash2, UserPlus, X, 
 import { customersAPI, ironAPI, metadataAPI, serviceAppointmentsAPI, servicesAPI, staffAPI, statsAPI } from '@/lib/api'
 import { isStrictMoneyText, sanitizeDecimalInput, sanitizeIntegerInput } from '@/lib/numeric-input'
 import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
+import WalletTenderInput from '@/components/WalletTenderInput'
 
 type Address = { id: string; label?: string; addressLine1?: string; addressLine2?: string | null; landmark?: string | null; city?: string | null; pincode?: string | null; isDefault?: boolean }
-type Customer = { id: string; name?: string; phone: string; ordersDue?: number; loyaltyPoints?: number; addresses?: Address[] }
+type Customer = { id: string; name?: string; phone: string; walletBalance?: number; ordersDue?: number; loyaltyPoints?: number; addresses?: Address[] }
 type ServiceItem = { id: string; name: string; basePrice: number; category: string; catalogName: string }
 type LineDiscountType = 'flat' | 'percent'
 type Line = {
@@ -105,7 +106,7 @@ export default function ServiceAppointmentsPage() {
   const [customDescription, setCustomDescription] = useState('')
   const [customQty, setCustomQty] = useState('1')
   const [customRate, setCustomRate] = useState('')
-  const [paymentForm, setPaymentForm] = useState<Record<string, { amount: string; paymentMethod: string }>>({})
+  const [paymentForm, setPaymentForm] = useState<Record<string, { amount: string; walletAmount: string; paymentMethod: string }>>({})
   const [mobileScheduling, setMobileScheduling] = useState(false)
 
   const sofaServices = useMemo(() => services.filter((item) => item.category === 'SOFA CLEANING'), [services])
@@ -117,7 +118,7 @@ export default function ServiceAppointmentsPage() {
   const subtotal = cart.reduce((sum, line) => sum + money(line.quantity) * money(line.unitPrice), 0)
   const discount = cart.reduce((sum, line) => sum + getLineDiscountAmount(line), 0)
   const total = cart.reduce((sum, line) => sum + lineTotal(line), 0)
-  const defaultPaymentMethod = paymentMethods[0]?.value || 'CASH'
+  const defaultPaymentMethod = paymentMethods[0]?.value || ''
   const customerAddresses = customer?.addresses || []
 
   const load = async () => {
@@ -437,11 +438,14 @@ export default function ServiceAppointmentsPage() {
   const pay = async (appointment: any) => {
     const current = paymentForm[appointment.id]
     const amount = money(current?.amount)
-    if (!(amount > 0)) return toast.error('Enter payment amount')
+    const walletAmount = money(current?.walletAmount)
+    const balance = Number(appointment.invoice?.balanceDue || 0)
+    if (!(amount + walletAmount > 0) || amount + walletAmount > balance || walletAmount > Number(appointment.customer?.walletBalance || 0)) return toast.error('Enter external and wallet amounts within the available balances')
+    if (amount > 0 && !current?.paymentMethod) return toast.error('Select a payment method')
     setBusy(`${appointment.id}-pay`)
     try {
-      await serviceAppointmentsAPI.pay(appointment.id, { amount, paymentMethod: current?.paymentMethod || defaultPaymentMethod })
-      setPaymentForm((prev) => ({ ...prev, [appointment.id]: { amount: '', paymentMethod: current?.paymentMethod || defaultPaymentMethod } }))
+      await serviceAppointmentsAPI.pay(appointment.id, { amount, walletAmount, ...(amount > 0 ? { paymentMethod: current?.paymentMethod } : {}) })
+      setPaymentForm((prev) => ({ ...prev, [appointment.id]: { amount: '', walletAmount: '', paymentMethod: current?.paymentMethod || defaultPaymentMethod } }))
       await load()
       toast.success('Payment recorded')
     } catch (e: any) {
@@ -804,12 +808,13 @@ function AppointmentRow({ appointment, services, statusMeta, workflow, staff, bu
       {editing && <ServiceAppointmentEditor appointment={appointment} services={services} onCancel={() => setEditing(false)} onSaved={onSaved} />}
       {invoice && balance > 0.005 && (
         <div className="field-payment-row" style={payRow}>
-          <input inputMode="decimal" value={paymentForm[appointment.id]?.amount || ''} onChange={(e) => setPaymentForm({ ...paymentForm, [appointment.id]: { amount: sanitizeDecimalInput(e.target.value), paymentMethod: paymentForm[appointment.id]?.paymentMethod || defaultPaymentMethod } })} placeholder={`Collect ${fmt(balance)}`} style={input} />
-          <select value={paymentForm[appointment.id]?.paymentMethod || defaultPaymentMethod} onChange={(e) => setPaymentForm({ ...paymentForm, [appointment.id]: { amount: paymentForm[appointment.id]?.amount || '', paymentMethod: e.target.value } })} style={input}>
+          <input inputMode="decimal" value={paymentForm[appointment.id]?.amount || ''} onChange={(e) => setPaymentForm({ ...paymentForm, [appointment.id]: { amount: sanitizeDecimalInput(e.target.value), walletAmount: paymentForm[appointment.id]?.walletAmount || '', paymentMethod: paymentForm[appointment.id]?.paymentMethod || defaultPaymentMethod } })} placeholder={`Collect ${fmt(balance)}`} style={input} />
+          <select disabled={Number(paymentForm[appointment.id]?.amount || 0) <= 0} value={paymentForm[appointment.id]?.paymentMethod || defaultPaymentMethod} onChange={(e) => setPaymentForm({ ...paymentForm, [appointment.id]: { amount: paymentForm[appointment.id]?.amount || '', walletAmount: paymentForm[appointment.id]?.walletAmount || '', paymentMethod: e.target.value } })} style={input}>
             {paymentMethods.map((method: any) => <option key={method.value} value={method.value}>{method.label}</option>)}
           </select>
           <button onClick={() => pay(appointment)} style={primaryBtn}><CreditCard size={14} /> Record Pay</button>
           <button onClick={() => writeOff(appointment, balance)} style={ghostBtn}>Write Off</button>
+          <div style={{flexBasis:'100%'}}><WalletTenderInput availableBalance={Number(appointment.customer?.walletBalance || 0)} outstandingBalance={balance} externalAmount={Number(paymentForm[appointment.id]?.amount || 0)} onExternalAmountChange={(amount) => setPaymentForm((current: any) => ({ ...current, [appointment.id]: { ...current[appointment.id], amount } }))} value={paymentForm[appointment.id]?.walletAmount || ''} onChange={(walletAmount) => setPaymentForm({ ...paymentForm, [appointment.id]: { amount: paymentForm[appointment.id]?.amount || '', walletAmount, paymentMethod: paymentForm[appointment.id]?.paymentMethod || defaultPaymentMethod } })} disabled={Boolean(busy)} /></div>
         </div>
       )}
       {payments.length > 0 && <div style={{ display: 'grid', gap: 5 }}>{payments.map((payment: any) => {

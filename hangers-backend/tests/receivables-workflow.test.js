@@ -30,6 +30,8 @@ test('selected invoice payments require one customer, unique invoice IDs and pos
   assert.equal(recordReceivablesPaymentSchema.safeParse({ ...base, invoiceIds: undefined, orderIds: ['order-1'] }).success, true);
   assert.equal(recordReceivablesPaymentSchema.safeParse({ ...base, orderIds: ['order-1'] }).success, false);
   assert.equal(recordReceivablesPaymentSchema.safeParse({ ...base, amount: 0 }).success, false);
+  assert.equal(recordReceivablesPaymentSchema.safeParse({ ...base, amount: 0, method: undefined, walletAmount: 20 }).success, true);
+  assert.equal(recordReceivablesPaymentSchema.safeParse({ ...base, amount: 10, walletAmount: 10 }).success, true);
 });
 
 test('FIFO allocations pay the oldest invoice first and leave later balances open', () => {

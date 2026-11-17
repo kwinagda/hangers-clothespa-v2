@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import { ResponsiveDialog } from '@/components/ui/ResponsiveDialog'
 import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
+import WalletTenderInput from '@/components/WalletTenderInput'
 
 const METHOD_ICON = {CASH:Landmark,UPI:Smartphone,CARD:CreditCard,RAZORPAY:WalletCards,ONLINE:WalletCards,COD:Landmark,WALLET:WalletCards,OTHER:Tag,ALL:BarChart3}
 const METHOD_COLOR: Record<string,string> = {CASH:'#22c55e',UPI:'#3b82f6',CARD:'#8b5cf6',RAZORPAY:'#f97316',ONLINE:'#0ea5e9',COD:'#14b8a6',WALLET:'#6366f1',OTHER:'#6b7fa3'}
@@ -290,16 +291,21 @@ export default function FinancePage() {
       return
     }
     const amount = Number(arBulkPayment.amount)
+    const walletAmount = Number(arBulkPayment.walletAmount || 0)
+    const settlementAmount = amount + walletAmount
     const totalDue = arBulkPayment.invoices.reduce((sum: number, invoice: any) => sum + Number(invoice.balanceDue), 0)
-    if (!Number.isFinite(amount) || amount <= 0 || amount > Math.round(totalDue * 100) / 100 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) {
-      setArBulkError('Enter an amount within the selected balance, with at most two decimal places')
+    if (![amount, walletAmount].every((value) => Number.isFinite(value) && value >= 0 && Math.abs(value * 100 - Math.round(value * 100)) <= 0.000001)
+      || settlementAmount <= 0 || settlementAmount > Math.round(totalDue * 100) / 100 || walletAmount > Number(arBulkPayment.walletBalance || 0)) {
+      setArBulkError('Enter external and wallet amounts within the selected and available balances')
       return
     }
+    if (amount > 0 && !arBulkPayment.method) { setArBulkError('Select a payment method'); return }
     setArBulkBusy(true)
     setArBulkError('')
     try {
       await api.post('/payments/receivables/payments', {
-        customerId: arBulkPayment.customerId, invoiceIds: arBulkPayment.invoices.map((invoice: any) => invoice.invoiceId), amount, method: arBulkPayment.method,
+        customerId: arBulkPayment.customerId, invoiceIds: arBulkPayment.invoices.map((invoice: any) => invoice.invoiceId), amount, walletAmount,
+        ...(amount > 0 ? { method: arBulkPayment.method } : {}),
         effectiveAt: `${arBulkPayment.date}T00:00:00+05:30`, reference: arBulkPayment.reference || undefined,
       }, idempotencyConfig('ar-bulk-payment'))
       toast.success('Payment recorded against selected invoices')
@@ -314,18 +320,23 @@ export default function FinancePage() {
     event.preventDefault()
     if (!arPayment || arPaymentBusy || !canCollect) return
     const amount = Number(arPayment.amount)
-    if (!Number.isFinite(amount) || amount <= 0 || amount > Number(arPayment.invoice.balanceDue) || !arPayment.date || arPayment.date > format(new Date(), 'yyyy-MM-dd')) {
-      setArPaymentError('Enter an amount within the outstanding balance and a payment date no later than today.')
+    const walletAmount = Number(arPayment.walletAmount || 0)
+    const settlementAmount = amount + walletAmount
+    if (![amount, walletAmount].every((value) => Number.isFinite(value) && value >= 0 && Math.abs(value * 100 - Math.round(value * 100)) <= 0.000001)
+      || settlementAmount <= 0 || settlementAmount > Number(arPayment.invoice.balanceDue) || walletAmount > Number(arPayment.walletBalance || 0)
+      || !arPayment.date || arPayment.date > format(new Date(), 'yyyy-MM-dd')) {
+      setArPaymentError('Enter external and wallet amounts within the outstanding and available balances, with a valid payment date.')
       return
     }
+    if (amount > 0 && !arPayment.method) { setArPaymentError('Select a payment method'); return }
     setArPaymentBusy(true)
     setArPaymentError('')
     try {
       const invoice = arPayment.invoice
-      const data = { amount, reference: arPayment.reference || undefined, effectiveAt: `${arPayment.date}T00:00:00+05:30` }
-      if (invoice.orderId) await paymentsAPI.record({ ...data, orderId: invoice.orderId, method: arPayment.method })
-      else if (invoice.ironBillId) await ironAPI.recordPayment(invoice.ironBillId, { ...data, paymentMethod: arPayment.method })
-      else if (invoice.serviceAppointmentId) await serviceAppointmentsAPI.pay(invoice.serviceAppointmentId, { ...data, paymentMethod: arPayment.method })
+      const data = { amount, walletAmount, reference: arPayment.reference || undefined, effectiveAt: `${arPayment.date}T00:00:00+05:30` }
+      if (invoice.orderId) await paymentsAPI.record({ ...data, orderId: invoice.orderId, ...(amount > 0 ? { method: arPayment.method } : {}) })
+      else if (invoice.ironBillId) await ironAPI.recordPayment(invoice.ironBillId, { ...data, ...(amount > 0 ? { paymentMethod: arPayment.method } : {}) })
+      else if (invoice.serviceAppointmentId) await serviceAppointmentsAPI.pay(invoice.serviceAppointmentId, { ...data, ...(amount > 0 ? { paymentMethod: arPayment.method } : {}) })
       else throw new Error('This invoice has no supported payment source')
       toast.success('Payment recorded')
       setArPayment(null)
@@ -876,10 +887,11 @@ export default function FinancePage() {
           <ResponsiveDialog open={Boolean(arPayment)} title="Record payment" description={arPayment ? `${arPayment.customerName} · ${arPayment.invoice.invoiceNumber} · Outstanding ${S(arPayment.invoice.balanceDue)}` : ''} onClose={() => { if (!arPaymentBusy) setArPayment(null) }} size="sm" closeOnBackdrop={!arPaymentBusy} footer={<button type="submit" form="ar-record-payment" disabled={arPaymentBusy} style={{padding:'12px 18px',border:0,borderRadius:8,background:'#023c62',color:'#fff',fontWeight:600}}>{arPaymentBusy ? 'Recording...' : 'Record payment'}</button>}>
             {arPayment && <form id="ar-record-payment" onSubmit={submitArPayment} style={{display:'grid',gap:14}}>
               <label style={{display:'grid',gap:6}}>Amount received
-                <input aria-label="Amount received" type="number" inputMode="decimal" min="0.01" step="0.01" max={arPayment.invoice.balanceDue} required disabled={arPaymentBusy} value={arPayment.amount} onChange={(e) => setArPayment({...arPayment,amount:e.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
+                <input aria-label="Amount received" type="number" inputMode="decimal" min="0" step="0.01" max={Math.max(0, Number(arPayment.invoice.balanceDue) - Number(arPayment.walletAmount || 0))} disabled={arPaymentBusy} value={arPayment.amount} onChange={(e) => setArPayment({...arPayment,amount:e.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
               </label>
+              <WalletTenderInput availableBalance={arPayment.walletBalance} outstandingBalance={Number(arPayment.invoice.balanceDue)} externalAmount={Number(arPayment.amount || 0)} onExternalAmountChange={(amount) => setArPayment((current: any) => ({...current,amount}))} value={arPayment.walletAmount} onChange={(walletAmount) => setArPayment({...arPayment,walletAmount})} disabled={arPaymentBusy} />
               <label style={{display:'grid',gap:6}}>Payment method
-                <select required disabled={arPaymentBusy} value={arPayment.method} onChange={(e) => setArPayment({...arPayment,method:e.target.value})} style={{padding:10,border:'1px solid #c9ddea',borderRadius:8}}>{methodOptions.filter((method) => !['RAZORPAY','WALLET','SPLIT'].includes(method.value)).map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select>
+                <select required={Number(arPayment.amount || 0) > 0} disabled={arPaymentBusy || Number(arPayment.amount || 0) <= 0} value={arPayment.method} onChange={(e) => setArPayment({...arPayment,method:e.target.value})} style={{padding:10,border:'1px solid #c9ddea',borderRadius:8}}>{methodOptions.filter((method) => !['RAZORPAY','WALLET','SPLIT'].includes(method.value)).map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select>
               </label>
               <label style={{display:'grid',gap:6}}>Payment date
                 <input type="date" required disabled={arPaymentBusy} max={format(new Date(), 'yyyy-MM-dd')} value={arPayment.date} onChange={(e) => setArPayment({...arPayment,date:e.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
@@ -893,10 +905,11 @@ export default function FinancePage() {
           <ResponsiveDialog open={Boolean(arBulkPayment)} title="Record selected invoices" description={arBulkPayment ? `${arBulkPayment.customerName} · ${arBulkPayment.invoices.length} invoices` : ''} onClose={() => { if (!arBulkBusy) setArBulkPayment(null) }} size="sm" closeOnBackdrop={!arBulkBusy} footer={<button type="submit" form="ar-bulk-payment" disabled={arBulkBusy} style={{padding:'12px 18px',border:0,borderRadius:8,background:'#023c62',color:'#fff',fontWeight:600}}>{arBulkBusy ? 'Recording...' : 'Record payment'}</button>}>
             {arBulkPayment && <form id="ar-bulk-payment" onSubmit={submitArBulkPayment} style={{display:'grid',gap:14}}>
               <label style={{display:'grid',gap:6}}>Amount received
-                <input aria-label="Amount received for selected invoices" type="number" inputMode="decimal" min="0.01" step="0.01" max={arBulkPayment.invoices.reduce((sum: number, invoice: any) => sum + Number(invoice.balanceDue), 0)} required disabled={arBulkBusy} value={arBulkPayment.amount} onChange={(event) => setArBulkPayment({...arBulkPayment,amount:event.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
+                <input aria-label="Amount received for selected invoices" type="number" inputMode="decimal" min="0" step="0.01" max={Math.max(0, arBulkPayment.invoices.reduce((sum: number, invoice: any) => sum + Number(invoice.balanceDue), 0) - Number(arBulkPayment.walletAmount || 0))} disabled={arBulkBusy} value={arBulkPayment.amount} onChange={(event) => setArBulkPayment({...arBulkPayment,amount:event.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
               </label>
+              <WalletTenderInput availableBalance={arBulkPayment.walletBalance} outstandingBalance={arBulkPayment.invoices.reduce((sum: number, invoice: any) => sum + Number(invoice.balanceDue), 0)} externalAmount={Number(arBulkPayment.amount || 0)} onExternalAmountChange={(amount) => setArBulkPayment((current: any) => ({...current,amount}))} value={arBulkPayment.walletAmount} onChange={(walletAmount) => setArBulkPayment({...arBulkPayment,walletAmount})} disabled={arBulkBusy} />
               <div style={{fontSize:12,color:'#52647e'}}>Applied to oldest invoices first. Any unpaid balance stays open.</div>
-              <div style={{display:'grid',gap:8,maxHeight:220,overflowY:'auto'}}>{previewFifoAllocation(arBulkPayment.invoices, Number(arBulkPayment.amount || 0)).map((invoice: any) =>
+              <div style={{display:'grid',gap:8,maxHeight:220,overflowY:'auto'}}>{previewFifoAllocation(arBulkPayment.invoices, Number(arBulkPayment.amount || 0) + Number(arBulkPayment.walletAmount || 0)).map((invoice: any) =>
                 <div key={invoice.invoiceId} style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',alignItems:'center',gap:8,fontSize:13}}>
                   <span style={{overflowWrap:'anywhere'}}>{invoice.invoiceNumber} <small>Due {S(Number(invoice.balanceDue))}</small></span>
                   <strong>{S(invoice.applied)}</strong>
@@ -904,7 +917,7 @@ export default function FinancePage() {
               </div>
               <strong>Selected outstanding {S(arBulkPayment.invoices.reduce((sum: number, invoice: any) => sum + Number(invoice.balanceDue), 0))}</strong>
               <label style={{display:'grid',gap:6}}>Payment method
-                <select required disabled={arBulkBusy} value={arBulkPayment.method} onChange={(event) => setArBulkPayment({...arBulkPayment,method:event.target.value})} style={{padding:10,border:'1px solid #c9ddea',borderRadius:8}}>{methodOptions.filter((method) => !['RAZORPAY','WALLET','SPLIT'].includes(method.value)).map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select>
+                <select required={Number(arBulkPayment.amount || 0) > 0} disabled={arBulkBusy || Number(arBulkPayment.amount || 0) <= 0} value={arBulkPayment.method} onChange={(event) => setArBulkPayment({...arBulkPayment,method:event.target.value})} style={{padding:10,border:'1px solid #c9ddea',borderRadius:8}}>{methodOptions.filter((method) => !['RAZORPAY','WALLET','SPLIT'].includes(method.value)).map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}</select>
               </label>
               <label style={{display:'grid',gap:6}}>Payment date
                 <input type="date" required disabled={arBulkBusy} max={format(new Date(), 'yyyy-MM-dd')} value={arBulkPayment.date} onChange={(event) => setArBulkPayment({...arBulkPayment,date:event.target.value})} style={{padding:10,minWidth:0,border:'1px solid #c9ddea',borderRadius:8}} />
@@ -957,8 +970,8 @@ export default function FinancePage() {
                       setArBulkError('')
                       setArBulkPayment({ customerId: group.customer.id, customerName: group.customer.name,
                         invoices: group.receivables.filter((invoice: any) => selectedIds.includes(invoice.invoiceId)).sort((a: any, b: any) => new Date(a.issueDate).getTime() - new Date(b.issueDate).getTime() || new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime() || a.invoiceId.localeCompare(b.invoiceId)),
-                        amount: String(selectedTotalForGroup(group)),
-                        method: 'CASH', date: format(new Date(), 'yyyy-MM-dd'), reference: '' })
+                        amount: String(selectedTotalForGroup(group)), walletAmount: '', walletBalance: Number(group.customer?.walletBalance || 0),
+                        method: methodOptions.filter((item) => !['RAZORPAY','WALLET','SPLIT'].includes(item.value))[0]?.value || '', date: format(new Date(), 'yyyy-MM-dd'), reference: '' })
                     }} style={{display:'inline-flex',margin:'0 0 8px 12px',padding:'8px 11px',border:0,borderRadius:7,background:'#023c62',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer'}}>Record selected payment · {selectedIds.length} invoices</button>}
                     <div style={{display:'grid',gap:7}}>
                       {(group.receivables || []).map((o: any) => {
@@ -970,7 +983,7 @@ export default function FinancePage() {
                               <div style={{fontFamily:"var(--crm-font-mono)",fontWeight:800,color:'#023c62',fontSize:13}}>{o.invoiceNumber || o.orderNumber}</div>
                               <div style={{fontSize:11,color:'#7b8ca8',marginTop:2}}>{o.orderNumber || o.sourceNumber}</div>
                               <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
-                                {canCollect && <button type="button" onClick={() => { setArPaymentError(''); setArPayment({ invoice: o, customerName: group.customer?.name, amount: String(o.balanceDue), method: 'CASH', reference: '', date: format(new Date(), 'yyyy-MM-dd') }) }} style={{border:0,background:'#023c62',color:'#fff',borderRadius:7,padding:'8px 10px',fontSize:12,fontWeight:600,cursor:'pointer'}}>Record payment</button>}
+                                {canCollect && <button type="button" onClick={() => { setArPaymentError(''); setArPayment({ invoice: o, customerName: group.customer?.name, amount: String(o.balanceDue), walletAmount: '', walletBalance: Number(group.customer?.walletBalance || 0), method: methodOptions.filter((item) => !['RAZORPAY','WALLET','SPLIT'].includes(item.value))[0]?.value || '', reference: '', date: format(new Date(), 'yyyy-MM-dd') }) }} style={{border:0,background:'#023c62',color:'#fff',borderRadius:7,padding:'8px 10px',fontSize:12,fontWeight:600,cursor:'pointer'}}>Record payment</button>}
                                 <button type="button" disabled={invoiceLinkBusy===o.invoiceId} onClick={() => openInvoice(o.invoiceId, 'open')} style={{border:'1px solid #c9ddea',background:'#fff',color:'#023c62',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>Open invoice</button>
                                 <button type="button" disabled={invoiceLinkBusy===o.invoiceId} onClick={() => openInvoice(o.invoiceId, 'copy')} style={{border:'1px solid #c9ddea',background:'#f7fbff',color:'#356b8e',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>Copy link</button>
                                 <button type="button" onClick={() => viewInvoicePdf(o.invoiceId).catch((error) => toast.error(error.message))} style={{border:'1px solid #c9ddea',background:'#fff',color:'#023c62',borderRadius:7,padding:'4px 7px',fontSize:10.5,fontWeight:700,cursor:'pointer'}}>View / Print PDF</button>
