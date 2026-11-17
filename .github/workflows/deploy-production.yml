@@ -27,6 +27,11 @@ on:
         required: false
         default: false
         type: boolean
+      migrate_payment_recorded_at:
+        description: Apply only the audit-backed CRM-recorded timestamp migration after a verified production backup
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -61,6 +66,16 @@ jobs:
         with:
           ref: ${{ steps.revision.outputs.commit }}
           persist-credentials: false
+
+      - name: Require the payment timestamp migration gate
+        env:
+          MIGRATE_PAYMENT_RECORDED_AT: ${{ inputs.migrate_payment_recorded_at }}
+        run: |
+          migration='hangers-backend/prisma/migrations/20261117130000_payment_recorded_at/migration.sql'
+          if [[ -f "$migration" && "$MIGRATE_PAYMENT_RECORDED_AT" != 'true' ]]; then
+            echo "Refusing deployment: this revision requires the reviewed payment recorded-time migration. Enable migrate_payment_recorded_at; the migration helper will verify whether it is pending or already applied." >&2
+            exit 1
+          fi
 
       - name: Require current pushed main commit and successful CI
         env:
@@ -173,6 +188,10 @@ jobs:
           remote_script="$(cat <<EOF
           set -euo pipefail
           cd /opt/hangers
+          payment_migration_script=''
+          migration_script=''
+          deploy_script=''
+          trap 'rm -f "\$migration_script" "\$payment_migration_script" "\$deploy_script"' EXIT
           runuser -u ubuntu -- git fetch --prune origin main
           if [[ '${{ inputs.migrate_combined_checkout }}' == 'true' ]]; then
             install -d -m 0700 -o ubuntu -g ubuntu /var/backups/hangers
@@ -206,8 +225,16 @@ jobs:
             flock -n /var/lock/hangers-code-deploy.lock runuser -u ubuntu -- node "\$migration_script" '$COMMIT'
             rm -f "\$migration_script"
           fi
+          if [[ '${{ inputs.migrate_payment_recorded_at }}' == 'true' ]]; then
+            install -d -m 0700 -o ubuntu -g ubuntu /var/backups/hangers
+            payment_migration_script=\$(mktemp /tmp/hangers-payment-recorded-at-migration.XXXXXX.cjs)
+            runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/migrate-payment-recorded-at.cjs' > "\$payment_migration_script"
+            chmod 0644 "\$payment_migration_script"
+            flock -n /var/lock/hangers-code-deploy.lock runuser -u ubuntu -- node "\$payment_migration_script" '$COMMIT' --approved-payment-recorded-at
+            rm -f "\$payment_migration_script"
+            payment_migration_script=''
+          fi
           deploy_script=\$(mktemp /tmp/hangers-deploy-code.XXXXXX)
-          trap 'rm -f "\$deploy_script"' EXIT
           runuser -u ubuntu -- git show '$COMMIT:scripts/deploy/deploy-ec2-code.sh' > "\$deploy_script"
           chmod 0755 "\$deploy_script"
           "\$deploy_script" '$COMMIT'

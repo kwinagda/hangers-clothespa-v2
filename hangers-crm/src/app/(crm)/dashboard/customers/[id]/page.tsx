@@ -860,7 +860,8 @@ export default function CustomerProfilePage() {
                         </div>}
                       </div>
                       <div style={{ textAlign: 'right' as const }}>
-                        <div style={{ fontSize: 12, color: '#6b7fa3' }}>{payment.createdAt ? formatBusinessDateTime(payment.createdAt) : '—'}</div>
+                        <div style={{ fontSize: 12, color: '#6b7fa3' }}>Payment date {payment.createdAt ? formatBusinessDate(payment.createdAt) : '—'}</div>
+                        <div style={{ fontSize: 11, color: '#9dafc8', marginTop: 2 }}>CRM entry {payment.recordedAt ? formatBusinessDateTime(payment.recordedAt) : 'time not recorded'}</div>
                         <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: payment.status === 'FAILED' ? '#991b1b' : '#166534' }}>
                           {payment.status || 'RECORDED'}
                         </div>
