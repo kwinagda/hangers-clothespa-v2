@@ -16,6 +16,7 @@ const { findOpenReceivableInvoices, groupReceivablesByCustomer, openInvoiceWhere
 const { sendPaymentReminderMessage } = require('../services/whatomate.service');
 const { paymentApiError, validationFieldErrors } = require('../utils/payment-api-error');
 const { findInvoiceDocument } = require('../services/invoice-document.service');
+const { currentBusinessDateKey, parseBusinessDateBoundary } = require('../utils/business-time');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // ── POST /api/v1/payments — Record a payment for an order ─────────────────────
@@ -140,10 +141,10 @@ const getOrderPayments = async (req, res) => {
 const getDailySummary = async (req, res) => {
   try {
     const { date } = req.query;
-    const day   = date ? new Date(date) : new Date();
-    if (Number.isNaN(day.getTime())) return paymentApiError(res, { statusCode: 400, code: 'PAYMENT_REPORT_DATE_INVALID', message: 'date must be valid', requestId: req.id });
-    const start = new Date(day.setHours(0, 0, 0, 0));
-    const end   = new Date(day.setHours(23, 59, 59, 999));
+    const dateKey = date ? String(date) : currentBusinessDateKey();
+    const start = parseBusinessDateBoundary(dateKey, 'start');
+    const end = parseBusinessDateBoundary(dateKey, 'end');
+    if (!start || !end) return paymentApiError(res, { statusCode: 400, code: 'PAYMENT_REPORT_DATE_INVALID', message: 'date must be a valid YYYY-MM-DD business date', requestId: req.id });
 
     const capturedStatuses = await getCapturedPaymentStatusValues();
     const payments = await prisma.payment.findMany({

@@ -9,6 +9,7 @@ const { nextDocumentNumber } = require('../services/document-number.service');
 const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
 const { PlantPartnerError, requireActivePlantPartner } = require('../services/plant-partner.service');
 const { GarmentUnitError, syncOrderGarmentUnits } = require('../services/garment-unit.service');
+const { businessDateKey, currentBusinessDateKey, parseBusinessDateBoundary } = require('../utils/business-time');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 // ── Challan number generator ──────────────────────────────────────────────────
@@ -435,7 +436,7 @@ const createChallan = async (req, res) => {
             toStatus:    'SENT_TO_PLANT',
             reasonCode:  'PLANT_DISPATCH',
             changedById: req.staff?.id || null,
-            notes:       `Sent to ${partner.name} via challan ${challanNo} dated ${challanDate.toISOString().slice(0, 10)}`,
+            notes:       `Sent to ${partner.name} via challan ${challanNo} dated ${businessDateKey(challanDate)}`,
             metadata:    { challanId: c.id, challanNo, challanDate },
           },
         });

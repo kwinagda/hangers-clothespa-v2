@@ -1,10 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { customersAPI, settingsAPI } from '@/lib/api'
 import { PageHeader } from '@/components/ui'
+import { formatBusinessDate, formatBusinessDateTime } from '@/lib/businessTime'
 
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 
@@ -185,7 +185,7 @@ export default function ReferralsReportPage() {
                       {entry.referrer?.phone ? `+91 ${entry.referrer.phone}` : 'Phone unavailable'}{entry.referrer?.referralCode ? ` · ${entry.referrer.referralCode}` : ''}
                     </div>
                     <div style={{ fontSize: 12, color: '#6b7fa3', marginTop: 2 }}>
-                      Last referral {entry.lastReferralAt ? format(new Date(entry.lastReferralAt), 'dd MMM yyyy') : '—'}
+                      Last referral {entry.lastReferralAt ? formatBusinessDate(entry.lastReferralAt) : '—'}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
@@ -219,7 +219,7 @@ export default function ReferralsReportPage() {
                     {item.referrer?.phone ? `Referrer +91 ${item.referrer.phone}` : 'Referrer phone unavailable'} · {item.referred?.phone ? `Customer +91 ${item.referred.phone}` : 'Customer phone unavailable'}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 8, fontSize: 12 }}>
-                    <span style={{ color: '#6b7fa3' }}>{item.createdAt ? format(new Date(item.createdAt), 'dd MMM yyyy, h:mm a') : '—'}</span>
+                    <span style={{ color: '#6b7fa3' }}>{item.createdAt ? formatBusinessDateTime(item.createdAt) : '—'}</span>
                     <span style={{ fontWeight: 700, color: item.status === 'REWARDED' ? '#166534' : item.status === 'PENDING' ? '#b45309' : '#991b1b' }}>
                       {item.status === 'REWARDED' ? `+${fmt(item.creditAwarded || 0)}` : item.status}
                     </span>

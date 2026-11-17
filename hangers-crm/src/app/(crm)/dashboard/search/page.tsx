@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { metadataAPI, searchAPI } from '@/lib/api'
 import { Badge, PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import { formatBusinessDate } from '@/lib/businessTime'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -97,7 +98,7 @@ export default function SearchPage() {
             <tbody>{results.orders.map((o:any)=><tr key={o.id} className="crm-table-row">
               <td style={tdStyle}><Link href={`/dashboard/orders/${o.id}`} style={{color:'#023c62',fontFamily:'var(--crm-font-mono)',fontSize:12.5,fontWeight:700,textDecoration:'none'}}>{o.orderNumber}</Link></td>
               <td style={tdStyle}><div style={{fontWeight:700}}>{o.customer?.name}</div><div style={{fontSize:11.5,color:'#9dafc8',marginTop:3}}>{o.customer?.phone}</div></td>
-              <td style={{...tdStyle,color:'#6b7fa3'}}>{new Date(o.createdAt).toLocaleDateString('en-IN')}</td>
+              <td style={{...tdStyle,color:'#6b7fa3'}}>{formatBusinessDate(o.createdAt)}</td>
               <td style={tdStyle}><Badge label={String(o.status || '').replace(/_/g,' ')} status={o.status} size="sm" /></td>
               <td style={{...tdStyle,textAlign:'right',fontWeight:800,color:'#023c62',fontFamily:'var(--crm-font-mono)'}}>{fmt(o.totalAmount||o.total||0)}</td>
               <td style={{...tdStyle,textAlign:'right'}}>{(() => {
@@ -115,7 +116,7 @@ export default function SearchPage() {
               <td style={{...tdStyle,fontWeight:700}}>{c.name}</td>
               <td style={{...tdStyle,color:'#6b7fa3'}}>{c.phone}</td>
               <td style={tdStyle}><Badge label={c.tag||'REGULAR'} size="sm" /></td>
-              <td style={{...tdStyle,color:'#6b7fa3'}}>{new Date(c.createdAt).toLocaleDateString('en-IN')}</td>
+              <td style={{...tdStyle,color:'#6b7fa3'}}>{formatBusinessDate(c.createdAt)}</td>
               <td style={tdStyle}><Link href={`/dashboard/customers/${c.id}`} style={{fontSize:12.5,color:'#023c62',fontWeight:700,textDecoration:'none'}}>View</Link></td>
             </tr>)}</tbody>
           </table>}

@@ -22,6 +22,7 @@ const { AUTH_CHALLENGE_PURPOSE, createAuthChallenge, verifyAuthChallenge } = req
 const { enqueueNotification, NOTIFY_JOB } = require('../queues');
 const { OUTBOX_EVENT, enqueueOutboxEvent } = require('../services/outbox.service');
 const { PaymentRuleError, recordOrderSettlement } = require('../services/payment.service');
+const { currentBusinessDateKey, parseBusinessDateBoundary } = require('../utils/business-time');
 
 const isDeliveryManager = (staff) => DELIVERY_MANAGER_ROLES.includes(staff?.role);
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
@@ -40,7 +41,9 @@ const canAccessDeliveryOrder = (order, staff, orderWorkflow) => {
 // ── Dashboard — tasks today ───────────────────────────────────────────────────
 const getDeliveryDashboard = async (req, res) => {
   const riderId = req.staff.id;
-  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  const todayKey = currentBusinessDateKey();
+  const todayStart = parseBusinessDateBoundary(todayKey, 'start');
+  const todayEnd = parseBusinessDateBoundary(todayKey, 'end');
 
   try {
     // Delivery riders see orders assigned to them
@@ -601,7 +604,9 @@ const verifyDeliveryOtpController = async (req, res) => {
 // ── Daily Summary ─────────────────────────────────────────────────────────────
 const getDailySummary = async (req, res) => {
   const riderId = req.staff.id;
-  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  const todayKey = currentBusinessDateKey();
+  const todayStart = parseBusinessDateBoundary(todayKey, 'start');
+  const todayEnd = parseBusinessDateBoundary(todayKey, 'end');
 
   try {
     const [delivered, pickups, cashPayments] = await Promise.all([
@@ -629,7 +634,7 @@ const getDailySummary = async (req, res) => {
 
     return success(res, {
       summary: {
-        date:              todayStart.toISOString().split('T')[0],
+        date:              todayKey,
         deliveriesCompleted: delivered.length,
         pickupsCompleted:    pickups.length,
         cashCollected:       cashTotal,

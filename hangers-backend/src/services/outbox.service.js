@@ -17,6 +17,7 @@ const { formatDailyIronLogItems } = require('../utils/daily-iron-summary');
 const { writeAuditEvent } = require('./activity.service');
 const { classifyOutboxFailure } = require('../utils/outbox-retry');
 const { isRazorpayTestPayment } = require('../utils/razorpay-test-notification');
+const { businessDateKey, parseBusinessMonthBoundary } = require('../utils/business-time');
 
 const CAPTURED_PAYMENT_STATUSES = new Set(['CAPTURED', 'SUCCESS', 'PAID']);
 
@@ -443,10 +444,9 @@ const handleOutboxEvent = async (event) => {
         await logDailyIronWhatsAppAudit({ event, outcome: 'SKIPPED', error: 'customer WhatsApp disabled', extra: { customerId: log.customerId, logId: log.id } });
         return;
       }
-      const monthStart = new Date(log.date);
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
-      const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0, 23, 59, 59, 999);
+      const logDateKey = businessDateKey(log.date);
+      const monthStart = parseBusinessMonthBoundary(logDateKey.slice(0, 4), logDateKey.slice(5, 7), 'start');
+      const monthEnd = parseBusinessMonthBoundary(logDateKey.slice(0, 4), logDateKey.slice(5, 7), 'end');
       const totals = await prisma.ironLog.aggregate({
         where: { customerId: log.customerId, status: 'ACTIVE', date: { gte: monthStart, lte: monthEnd } },
         _sum: { pieces: true, amount: true },
@@ -480,10 +480,9 @@ const handleOutboxEvent = async (event) => {
         await logDailyIronWhatsAppAudit({ event, outcome: 'SKIPPED', error: 'customer WhatsApp disabled', extra: { customerId: firstLog.customerId, logIds } });
         return;
       }
-      const monthStart = new Date(firstLog.date);
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
-      const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0, 23, 59, 59, 999);
+      const logDateKey = businessDateKey(firstLog.date);
+      const monthStart = parseBusinessMonthBoundary(logDateKey.slice(0, 4), logDateKey.slice(5, 7), 'start');
+      const monthEnd = parseBusinessMonthBoundary(logDateKey.slice(0, 4), logDateKey.slice(5, 7), 'end');
       const totals = await prisma.ironLog.aggregate({
         where: { customerId: firstLog.customerId, status: 'ACTIVE', date: { gte: monthStart, lte: monthEnd } },
         _sum: { pieces: true, amount: true },

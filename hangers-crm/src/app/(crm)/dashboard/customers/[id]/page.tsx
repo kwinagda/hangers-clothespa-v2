@@ -4,10 +4,10 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { authAPI, customersAPI, statsAPI, ordersAPI, walletAPI, ironAPI, servicesAPI, metadataAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
-import { format } from 'date-fns'
 import { CreditCard, Info, IndianRupee, MapPin, PackageCheck, Sparkles, Wallet } from 'lucide-react'
 import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
 import WalletTenderInput from '@/components/WalletTenderInput'
+import { businessDateKey, currentBusinessDateKey, formatBusinessDate, formatBusinessDateTime } from '@/lib/businessTime'
 
 const TAG_COLORS: Record<string, { bg: string; color: string }> = {
   VIP:       { bg: '#fef9c3', color: '#854d0e' },
@@ -148,8 +148,8 @@ export default function CustomerProfilePage() {
   const [ironBills, setIronBills]               = useState<any[]>([])
   const [ironRates, setIronRates]               = useState<any[]>([])
   const [ironBusy, setIronBusy]                 = useState<string | null>(null)
-  const [ironForm, setIronForm]                 = useState({ date: new Date().toISOString().slice(0, 10), serviceId: '', pieces: '', notes: '' })
-  const [billForm, setBillForm]                 = useState({ billingPeriodStart: new Date().toISOString().slice(0, 10), carryForwardNotes: '', notes: '' })
+  const [ironForm, setIronForm]                 = useState({ date: currentBusinessDateKey(), serviceId: '', pieces: '', notes: '' })
+  const [billForm, setBillForm]                 = useState({ billingPeriodStart: currentBusinessDateKey(), carryForwardNotes: '', notes: '' })
   const [paymentForm, setPaymentForm]           = useState<Record<string, { amount: string; walletAmount: string; paymentMethod: string }>>({})
 
   const languageLabel = useCallback((value?: string | null) => {
@@ -225,7 +225,7 @@ export default function CustomerProfilePage() {
       }))
       setBillForm((prev) => ({
         ...prev,
-        billingPeriodStart: prev.billingPeriodStart || nextLogs[0]?.date?.split('T')[0] || new Date().toISOString().slice(0, 10),
+        billingPeriodStart: prev.billingPeriodStart || businessDateKey(nextLogs[0]?.date) || currentBusinessDateKey(),
       }))
       setIronLoaded(true)
     } catch {
@@ -567,9 +567,7 @@ export default function CustomerProfilePage() {
     return `${selected.getFullYear()}-${String(selected.getMonth() + 1).padStart(2, '0')}`
   })()
   const monthKey = (value: any) => {
-    const date = value ? new Date(value) : null
-    if (!date || Number.isNaN(date.getTime())) return ''
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    return businessDateKey(value)?.slice(0, 7) || ''
   }
   const lockedIronBillStatuses = new Set(['SENT', 'PARTIAL', 'PAID'])
   const periodBills = ironBills.filter((bill: any) => monthKey(bill.billingPeriodStart) === selectedBillMonthKey)
@@ -632,7 +630,7 @@ export default function CustomerProfilePage() {
           <div>
             <div style={{fontFamily:'var(--crm-font-display)',fontWeight:800,fontSize:22,color:'#023c62'}}>{customer.name || 'Unknown Customer'}</div>
             <div style={{fontSize:13,color:'#6b7fa3',marginTop:3,fontFamily:'var(--crm-font-mono)'}}>
-              +91 {customer.phone}{customer.createdAt ? ` · Customer since ${format(new Date(customer.createdAt),'d MMM yyyy')}` : ''}
+              +91 {customer.phone}{customer.createdAt ? ` · Customer since ${formatBusinessDate(customer.createdAt)}` : ''}
             </div>
           </div>
           <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' as const}}>
@@ -717,8 +715,8 @@ export default function CustomerProfilePage() {
               <>
                 {[
                   ['Phone', `+91 ${customer.phone}`],
-                  ['Date of Birth', customer.dob ? format(new Date(customer.dob), 'dd MMM yyyy') : '—'],
-                  ['Member Since', format(new Date(customer.createdAt), 'dd MMM yyyy')],
+                  ['Date of Birth', customer.dob ? formatBusinessDate(customer.dob) : '—'],
+                  ['Member Since', formatBusinessDate(customer.createdAt)],
                   ['Tag', customer.tag || 'REGULAR'],
                   ['WhatsApp Language', languageLabel(customer.preferredLanguage)],
                   ['Daily Iron Status', customer.ironSubStatus || 'Not enrolled'],
@@ -813,7 +811,7 @@ export default function CustomerProfilePage() {
                       <div>
                         <div style={{ fontWeight: 700, color: '#023c62', fontSize: 13 }}>{referral.referred?.name || 'Unnamed customer'}</div>
                         <div style={{ fontSize: 12, color: '#6b7fa3' }}>
-                          {referral.referred?.phone ? `+91 ${referral.referred.phone}` : 'Phone unavailable'} · Joined {referral.referred?.createdAt ? format(new Date(referral.referred.createdAt), 'dd MMM yyyy') : 'recently'}
+                          {referral.referred?.phone ? `+91 ${referral.referred.phone}` : 'Phone unavailable'} · Joined {referral.referred?.createdAt ? formatBusinessDate(referral.referred.createdAt) : 'recently'}
                         </div>
                       </div>
                       <div style={{ fontWeight: 700, color: referral.status === 'PENDING' ? '#b45309' : '#166534' }}>
@@ -862,7 +860,7 @@ export default function CustomerProfilePage() {
                         </div>}
                       </div>
                       <div style={{ textAlign: 'right' as const }}>
-                        <div style={{ fontSize: 12, color: '#6b7fa3' }}>{payment.createdAt ? format(new Date(payment.createdAt), 'dd MMM yyyy, h:mm a') : '—'}</div>
+                        <div style={{ fontSize: 12, color: '#6b7fa3' }}>{payment.createdAt ? formatBusinessDateTime(payment.createdAt) : '—'}</div>
                         <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: payment.status === 'FAILED' ? '#991b1b' : '#166534' }}>
                           {payment.status || 'RECORDED'}
                         </div>
@@ -903,7 +901,7 @@ export default function CustomerProfilePage() {
             </ProfileSection>
             {stats?.lastOrderDate && (
               <div style={{ background: '#eff6ff', borderRadius: 12, padding: 16, fontSize: 13, color: '#1d4ed8' }}>
-                Last order: <strong>{format(new Date(stats.lastOrderDate), 'dd MMM yyyy')}</strong>
+                Last order: <strong>{formatBusinessDate(stats.lastOrderDate)}</strong>
                 {stats.lastOrderStatus && <> — <strong>{stats.lastOrderStatus}</strong></>}
               </div>
             )}
@@ -939,7 +937,7 @@ export default function CustomerProfilePage() {
                 <tbody>
                   {wallet.transactions.map((t: any) => (
                     <tr key={t.id} style={{ borderBottom: '1px solid #f8fafc' }}>
-                      <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{format(new Date(t.createdAt), 'dd MMM yyyy, h:mm a')}</td>
+                      <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{formatBusinessDateTime(t.createdAt)}</td>
                       <td style={{ padding: '10px 16px' }}>
                         <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: t.type === 'CREDIT' ? '#dcfce7' : '#fee2e2', color: t.type === 'CREDIT' ? '#166534' : '#991b1b' }}>
                           {t.reversalOfId ? 'REVERSAL' : t.type}
@@ -1040,8 +1038,8 @@ export default function CustomerProfilePage() {
                   <>
                     <div className="customer-iron-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
                       {[
-                        { label: 'Applied', value: ironSubscription.appliedAt ? format(new Date(ironSubscription.appliedAt), 'dd MMM yy') : '—' },
-                        { label: 'Confirmed', value: ironSubscription.confirmedAt ? format(new Date(ironSubscription.confirmedAt), 'dd MMM yy') : '—' },
+                        { label: 'Applied', value: ironSubscription.appliedAt ? formatBusinessDate(ironSubscription.appliedAt, { year: '2-digit' }) : '—' },
+                        { label: 'Confirmed', value: ironSubscription.confirmedAt ? formatBusinessDate(ironSubscription.confirmedAt, { year: '2-digit' }) : '—' },
                         { label: 'Logs', value: ironLogs.length },
                         { label: 'Bills', value: ironBills.length },
                       ].map((item) => (
@@ -1115,7 +1113,7 @@ export default function CustomerProfilePage() {
                         const isVoid = String(log.status || '').toUpperCase() === 'VOID'
                         return (
                         <tr key={log.id} style={{ borderBottom: '1px solid #f8fafc', opacity: isVoid ? 0.68 : 1 }}>
-                          <td data-label="Date" style={{ padding: '10px 16px', color: '#6b7fa3' }}>{format(new Date(log.date), 'dd MMM yyyy')}</td>
+                          <td data-label="Date" style={{ padding: '10px 16px', color: '#6b7fa3' }}>{formatBusinessDate(log.date)}</td>
                           <td data-label="Garment" style={{ padding: '10px 16px', fontWeight: 600, color: '#023c62' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
                               <span style={{ textDecoration: isVoid ? 'line-through' : 'none' }}>{log.serviceName}</span>
@@ -1241,7 +1239,7 @@ export default function CustomerProfilePage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
                           <div>
                             <div style={{ fontWeight: 700, color: '#023c62', marginBottom: 2 }}>{bill.billNumber}</div>
-                            <div style={{ fontSize: 12, color: '#6b7fa3' }}>{format(new Date(bill.billingPeriodStart), 'dd MMM')} to {format(new Date(bill.billingPeriodEnd), 'dd MMM yyyy')}</div>
+                            <div style={{ fontSize: 12, color: '#6b7fa3' }}>{formatBusinessDate(bill.billingPeriodStart, { year: undefined })} to {formatBusinessDate(bill.billingPeriodEnd)}</div>
                           </div>
                           <span style={{ minHeight: 24, padding: '0 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: isBillVoid ? '#fee2e2' : isBillPaid ? '#dcfce7' : billStatus === 'SENT' ? '#dbeafe' : billStatus === 'PARTIAL' ? '#ede9fe' : '#fef3c7', color: isBillVoid ? '#991b1b' : isBillPaid ? '#166534' : billStatus === 'SENT' ? '#1d4ed8' : billStatus === 'PARTIAL' ? '#6d28d9' : '#92400e' }}>
                             {isBillVoid ? 'VOID' : isBillPaid ? 'PAID' : billStatus}
@@ -1284,7 +1282,7 @@ export default function CustomerProfilePage() {
                         ) : isBillPaid ? (
                           <div style={{ border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', borderRadius: 10, padding: '10px 12px', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                             <span>Bill settled. No further payment can be recorded.</span>
-                            {bill.paidAt && <span style={{ fontWeight: 600, color: '#15803d' }}>{format(new Date(bill.paidAt), 'dd MMM yyyy')}</span>}
+                            {bill.paidAt && <span style={{ fontWeight: 600, color: '#15803d' }}>{formatBusinessDate(bill.paidAt)}</span>}
                           </div>
                         ) : (
                           <div style={{ display: 'grid', gap: 8 }}>
@@ -1316,7 +1314,7 @@ export default function CustomerProfilePage() {
                                 <div key={payment.id} style={{ border: '1px solid #e8f0f7', background: isVoided ? '#f8fafc' : '#fff', borderRadius: 8, padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                                   <div style={{ minWidth: 0 }}>
                                     <div style={{ fontSize: 12, fontWeight: 800, color: isVoided ? '#64748b' : '#142033' }}>{fmt(Number(payment.amount || payment.allocatedAmount || 0))} · {payment.method}</div>
-                                    <div style={{ fontSize: 11, color: '#6b7fa3', marginTop: 2 }}>{payment.status} · {format(new Date(payment.createdAt), 'dd MMM yyyy')}</div>
+                                    <div style={{ fontSize: 11, color: '#6b7fa3', marginTop: 2 }}>{payment.status} · {formatBusinessDate(payment.createdAt)}</div>
                                     {payment.reversalReason && <div style={{ fontSize: 11, color: '#9a3412', marginTop: 2 }}>Correction: {payment.reversalReason}</div>}
                                   </div>
                                   {!isVoided && (
@@ -1357,7 +1355,7 @@ export default function CustomerProfilePage() {
                     <td style={{ padding: '10px 16px' }}>
                       <Link href={`/dashboard/orders/${o.id}`} style={{ color: '#023c62', fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>{o.orderNumber}</Link>
                     </td>
-                    <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{format(new Date(o.createdAt), 'dd MMM yy')}</td>
+                    <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{formatBusinessDate(o.createdAt, { year: '2-digit' })}</td>
                     <td style={{ padding: '10px 16px' }}><span style={{ padding: '3px 8px', background: '#f1f5f9', borderRadius: 4, fontSize: 11 }}>{o.status}</span></td>
                     <td style={{ padding: '10px 16px', fontWeight: 600 }}>{fmt(o.totalAmount || 0)}</td>
                     <td style={{ padding: '10px 16px' }}>

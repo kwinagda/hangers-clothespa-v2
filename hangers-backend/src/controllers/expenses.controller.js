@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const { success, badRequest, error, notFound } = require('../utils/response');
 const { expenseSchema, expenseDecisionSchema } = require('../validation/expenses.schemas');
 const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
+const { currentBusinessDateKey, parseBusinessDateBoundary, parseBusinessMonthBoundary } = require('../utils/business-time');
 
 const getExpenses = async (req, res) => {
   try {
@@ -36,8 +37,10 @@ const addExpense = async (req, res) => {
     const parsed = expenseSchema.safeParse(req.body);
     if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message || 'Invalid expense payload');
     const { category, description, amount, date, paidBy } = parsed.data;
-    const parsedDate = date ? new Date(date) : new Date();
-    if (Number.isNaN(parsedDate.getTime())) return badRequest(res, 'Expense date must be valid');
+    const parsedDate = date
+      ? (String(date).match(/^\d{4}-\d{2}-\d{2}$/) ? parseBusinessDateBoundary(String(date), 'start') : new Date(date))
+      : new Date();
+    if (!parsedDate || Number.isNaN(parsedDate.getTime())) return badRequest(res, 'Expense date must be valid');
     const expense = await prisma.$transaction(async (tx) => {
       const created = await tx.expense.create({
         data: {

@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { ironAPI, logsAPI } from '@/lib/api'
 import { collapseQueuedWhatsAppEvents } from '@/lib/notificationTimeline'
+import { formatBusinessDateTime } from '@/lib/businessTime'
 
 const filterOptions = [
   { key: 'ALL', label: 'All Logs', params: {} },
@@ -219,7 +219,7 @@ export default function LogsPage() {
                           : `${group.order?.customer?.name || 'Customer unavailable'}${group.order?.customer?.phone ? ` · ${group.order.customer.phone}` : ''}`}
                       </div>
                     </div>
-                    <div style={{ color: '#9dafc8', fontSize: 12 }}>{group.logs.length} log{group.logs.length > 1 ? 's' : ''} · Latest {format(new Date(group.latestAt), 'd MMM, h:mm a')}</div>
+                    <div style={{ color: '#9dafc8', fontSize: 12 }}>{group.logs.length} log{group.logs.length > 1 ? 's' : ''} · Latest {formatBusinessDateTime(group.latestAt, { year: undefined })}</div>
                   </div>
                   <div style={{ padding: '14px 16px 2px' }}>
                     {group.logs.map((log: any, index: number) => {
@@ -238,10 +238,10 @@ export default function LogsPage() {
                               <span style={{ display: 'inline-flex', border: `1px solid ${tone.border}`, background: tone.bg, color: tone.color, borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 900 }}>
                                 {stageLabel(log.stage)}
                               </span>
-                              <span style={{ color: '#6b7fa3', fontSize: 11.5 }}>{format(new Date(log.createdAt), 'd MMM, h:mm a')}</span>
+                              <span style={{ color: '#6b7fa3', fontSize: 11.5 }}>{formatBusinessDateTime(log.createdAt, { year: undefined })}</span>
                               <span style={{ color: '#9dafc8', fontSize: 11.5 }}>{log.eventType || 'EVENT'}</span>
                             </div>
-                            {log.notificationQueuedAt && <div style={{ marginTop: 6, color: '#6b7fa3', fontSize: 11.5 }}>Queued {format(new Date(log.notificationQueuedAt), 'd MMM, h:mm a')} · provider outcome recorded {format(new Date(log.createdAt), 'd MMM, h:mm a')}</div>}
+                            {log.notificationQueuedAt && <div style={{ marginTop: 6, color: '#6b7fa3', fontSize: 11.5 }}>Queued {formatBusinessDateTime(log.notificationQueuedAt, { year: undefined })} · provider outcome recorded {formatBusinessDateTime(log.createdAt, { year: undefined })}</div>}
                             <div style={{ marginTop: 6, color: '#142033', fontSize: 13, lineHeight: 1.45, overflowWrap: 'anywhere' }}>
                               {actionFailureDisplay?.message || log.notes || stageLabel(log.stage)}
                             </div>

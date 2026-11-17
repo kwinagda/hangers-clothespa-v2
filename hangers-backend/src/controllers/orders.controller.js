@@ -29,6 +29,7 @@ const { GarmentUnitError, syncOrderGarmentUnits } = require('../services/garment
 const { getDefaultPaymentAccount, getPaymentAccountQrMediaUrl } = require('../services/payment-account-settings.service');
 const { createRazorpayRefund, reconcileRazorpayRefundAttempt, serializeRefundAttempt } = require('../services/razorpay-refund.service');
 const { paymentApiError, validationFieldErrors } = require('../utils/payment-api-error');
+const { currentBusinessDateKey, parseBusinessDateBoundary } = require('../utils/business-time');
 
 const STATUS_CORRECTION_ROLES = ['SUPER_ADMIN', 'MANAGER'];
 const HIGH_RISK_STATUS_CORRECTION_ROLES = ['SUPER_ADMIN'];
@@ -304,13 +305,13 @@ const listOrders = async (req, res) => {
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) {
-        const parsedFrom = new Date(dateFrom);
-        if (Number.isNaN(parsedFrom.getTime())) return badRequest(res, 'dateFrom must be a valid date');
+        const parsedFrom = parseBusinessDateBoundary(String(dateFrom), 'start');
+        if (!parsedFrom) return badRequest(res, 'dateFrom must be a valid date');
         where.createdAt.gte = parsedFrom;
       }
       if (dateTo) {
-        const parsedTo = new Date(dateTo + 'T23:59:59Z');
-        if (Number.isNaN(parsedTo.getTime())) return badRequest(res, 'dateTo must be a valid date');
+        const parsedTo = parseBusinessDateBoundary(String(dateTo), 'end');
+        if (!parsedTo) return badRequest(res, 'dateTo must be a valid date');
         where.createdAt.lte = parsedTo;
       }
     }
@@ -353,10 +354,9 @@ const listOrders = async (req, res) => {
 // ── GET /api/v1/orders/stats ──────────────────────────────────────────────────
 const getOrderStats = async (req, res) => {
   try {
-    const today     = new Date();
-    const todayStart = new Date(today.setHours(0,0,0,0));
-    const todayEnd   = new Date(today.setHours(23,59,59,999));
-    today.setHours(0,0,0,0); // reset
+    const todayKey = currentBusinessDateKey();
+    const todayStart = parseBusinessDateBoundary(todayKey, 'start');
+    const todayEnd = parseBusinessDateBoundary(todayKey, 'end');
     const [orderWorkflow, capturedPaymentStatuses] = await Promise.all([
       getOrderWorkflow(),
       getCapturedPaymentStatusValues(),

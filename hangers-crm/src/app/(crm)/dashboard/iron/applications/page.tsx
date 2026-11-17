@@ -6,6 +6,7 @@ import { ironAPI, metadataAPI } from '@/lib/api'
 import { format } from 'date-fns'
 import IronSectionTabs from '../_components/IronSectionTabs'
 import { PageHeader } from '@/components/ui'
+import { formatBusinessDateTime } from '@/lib/businessTime'
 import { InlineLoader, SkeletonCard, TableLoader } from '@/components/ui/Feedback'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 const asArray = (value: any, keys: string[] = []) => {
@@ -125,7 +126,7 @@ export default function IronApplicationsPage() {
                   <div style={{ fontSize:12, color:'#6b7fa3' }}>+91 {sub.customer?.phone}</div>
                   <Link href={`/dashboard/customers/${sub.customerId}?tab=iron`} style={{ fontSize:12, color:'#035a8f', textDecoration:'none' }}>Open customer →</Link>
                 </td>
-                <td style={{ padding:'13px 18px', color:'#6b7fa3', fontSize:13.5 }}>{format(new Date(sub.appliedAt), 'dd MMM yyyy, h:mm a')}</td>
+                <td style={{ padding:'13px 18px', color:'#6b7fa3', fontSize:13.5 }}>{formatBusinessDateTime(sub.appliedAt)}</td>
                 <td style={{ padding:'13px 18px', fontSize:13.5 }}>{languageLabels[sub.customer?.preferredLanguage] || sub.customer?.preferredLanguage || 'English'}</td>
                 <td style={{ padding:'13px 18px', fontSize:13.5, color:'#6b7fa3', maxWidth:240 }}>{sub.notes || '—'}</td>
                 <td style={{ padding:'14px 18px' }}>

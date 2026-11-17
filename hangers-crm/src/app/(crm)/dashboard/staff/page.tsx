@@ -6,6 +6,7 @@ import { PaginationControls } from '@/components/ui/PaginationControls'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { formatBusinessDate } from '@/lib/businessTime'
 import {
   Ban,
   BriefcaseBusiness,
@@ -503,7 +504,7 @@ function StaffRow({ s, roles, onEdit, onDeactivate, onReactivate, onResetPin }:{
         />
       </td>
       <td style={{...tdStyle,color:'#6b7fa3',fontSize:13,whiteSpace:'nowrap'}}>
-        {new Date(s.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
+        {formatBusinessDate(s.createdAt, { day:'numeric', month:'short' })}
       </td>
       <td style={tdStyle}>
         <div style={{display:'flex',gap:2,justifyContent:'flex-end'}}>

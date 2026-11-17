@@ -3,6 +3,7 @@ const { success, badRequest, notFound, error } = require('../utils/response');
 const { writeAuditEvent, getRequestMeta } = require('../services/activity.service');
 const { getWebsitePickupRequestStatuses, getWebsitePickupTimeSlots, getWebsitePickupContactMethods } = require('../services/masterData.service');
 const { OUTBOX_EVENT } = require('../services/outbox.service');
+const { currentBusinessDateKey, getBusinessTimezone, parseBusinessDateTime } = require('../utils/business-time');
 
 const RETRYABLE_PICKUP_NOTIFICATION_TYPES = new Set([
   OUTBOX_EVENT.PICKUP_REQUEST_CREATED,
@@ -124,11 +125,11 @@ const updatePickupRequestStatus = async (req, res) => {
     const contact = contactMethods.find((item) => item.value === contactMethod);
     if (target.requiresContactMethod && !contact) return badRequest(res, 'Select how the customer was contacted');
     const slot = pickupTimeSlots.find((item) => item.value === preferredSlot);
-    const confirmedDate = requestedDate ? new Date(`${requestedDate}T12:00:00+05:30`) : null;
+    const confirmedDate = requestedDate ? parseBusinessDateTime(requestedDate, '12:00:00') : null;
     if (target.requiresSchedule && (!confirmedDate || Number.isNaN(confirmedDate.getTime()) || !slot)) {
       return badRequest(res, 'Select the confirmed pickup date and time');
     }
-    if (confirmedDate && confirmedDate < new Date(new Date().toDateString())) return badRequest(res, 'Pickup date cannot be in the past');
+    if (confirmedDate && requestedDate < currentBusinessDateKey()) return badRequest(res, 'Pickup date cannot be in the past');
     if (note.length > 500) return badRequest(res, 'Note must be 500 characters or fewer');
     const request = await prisma.$transaction(async (tx) => {
       const current = await tx.websitePickupRequest.findUnique({ where: { id: req.params.id } });
@@ -149,7 +150,7 @@ const updatePickupRequestStatus = async (req, res) => {
       const description = target.value === 'CONTACTED'
         ? `Customer contacted by ${contact.label}`
         : target.value === 'CONFIRMED'
-          ? `Pickup confirmed for ${confirmedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })}, ${slot.label}`
+          ? `Pickup confirmed for ${confirmedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: getBusinessTimezone() })}, ${slot.label}`
           : target.value === 'CANCELLED'
             ? `Pickup request cancelled: ${reason}`
             : `${current.requestNumber} changed from ${current.status} to ${status}`;

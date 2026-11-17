@@ -4,6 +4,7 @@ import { couponsAPI, loyaltyAPI, metadataAPI, upchargesAPI } from '@/lib/api'
 import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import toast from 'react-hot-toast'
+import { formatBusinessDate } from '@/lib/businessTime'
 type Tab = 'coupons'|'loyalty'|'upcharges'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
@@ -69,7 +70,7 @@ export default function PromotionsPage() {
               <td style={{padding:'10px 16px'}}>{c.type==='PERCENT'?`${c.value}%`:`₹${c.value}`}</td>
               <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{c.minOrderValue>0?`₹${c.minOrderValue}`:'—'}</td>
               <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{c.usedCount}{c.usageLimit?`/${c.usageLimit}`:''}</td>
-              <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{c.validUntil?new Date(c.validUntil).toLocaleDateString('en-IN'):'∞'}</td>
+              <td style={{padding:'10px 16px',color:'#6b7fa3'}}>{c.validUntil?formatBusinessDate(c.validUntil):'∞'}</td>
               <td style={{padding:'10px 16px'}}><span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,background:c.isActive?'#dcfce7':'#f3f4f6',color:c.isActive?'#166534':'#6b7280'}}>{c.isActive?'Active':'Inactive'}</span></td>
               <td style={{padding:'10px 16px'}}><button onClick={async()=>{try{await couponsAPI.toggle(c.id);setCoupons(coupons.map(x=>x.id===c.id?{...x,isActive:!x.isActive}:x));toast.success(c.isActive?'Coupon disabled':'Coupon enabled')}catch(e:any){toast.error(e.message || 'Failed to update coupon')}}} style={{fontSize:12,color:'#023c62',background:'none',border:'none',cursor:'pointer'}}>{c.isActive?'Disable':'Enable'}</button></td>
             </tr>)}</tbody>

@@ -4,6 +4,7 @@ import { expensesAPI, metadataAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { PageHeader, Button } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import { currentBusinessDateKey, formatBusinessDate } from '@/lib/businessTime'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -27,10 +28,10 @@ export default function ExpensesPage() {
   const [expenses, setExpenses]   = useState<any[]>([])
   const [total, setTotal]         = useState(0)
   const [byCategory, setByCategory] = useState<Record<string,number>>({})
-  const [month, setMonth]         = useState(new Date().getMonth() + 1)
-  const [year, setYear]           = useState(new Date().getFullYear())
+  const [month, setMonth]         = useState(Number(currentBusinessDateKey().slice(5, 7)))
+  const [year, setYear]           = useState(Number(currentBusinessDateKey().slice(0, 4)))
   const [showAdd, setShowAdd]     = useState(false)
-  const [form, setForm]           = useState({ category: 'SUPPLIES', description: '', amount: '', date: new Date().toISOString().split('T')[0], paidBy: '' })
+  const [form, setForm]           = useState({ category: 'SUPPLIES', description: '', amount: '', date: currentBusinessDateKey(), paidBy: '' })
   const [loading, setLoading]     = useState(false)
   const [page, setPage]           = useState(1)
   const [pageSize, setPageSize]   = useState(20)
@@ -68,7 +69,7 @@ export default function ExpensesPage() {
     try {
       await expensesAPI.add(form)
       setShowAdd(false)
-      setForm({ category: 'SUPPLIES', description: '', amount: '', date: new Date().toISOString().split('T')[0], paidBy: '' })
+      setForm({ category: 'SUPPLIES', description: '', amount: '', date: currentBusinessDateKey(), paidBy: '' })
       load()
     } catch (e:any) {
       toast.error(e.message || 'Failed to save expense')
@@ -151,7 +152,7 @@ export default function ExpensesPage() {
             <tbody>
               {pagedExpenses.map((e: any) => (
                 <tr key={e.id} style={{ borderBottom: '1px solid #eef4f8' }}>
-                  <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{new Date(e.date).toLocaleDateString('en-IN')}</td>
+                  <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{formatBusinessDate(e.date)}</td>
                   <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                     <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: CAT_STYLE[e.category]?.bg || '#f9fafb', color: CAT_STYLE[e.category]?.color || '#374151' }}>
                       {e.category}

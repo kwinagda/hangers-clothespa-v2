@@ -14,6 +14,7 @@ const { success, badRequest, error, notFound } = require('../utils/response');
 const { getOrderStatuses, getOrderWorkflow } = require('../services/masterData.service');
 const { nextDocumentNumber } = require('../services/document-number.service');
 const { syncOrderGarmentUnits } = require('../services/garment-unit.service');
+const { currentBusinessDateKey, parseBusinessDateBoundary } = require('../utils/business-time');
 
 const PLANT_ISSUE_TYPES = new Set(['MISSING_ITEM', 'DAMAGE', 'STAIN_NOT_REMOVED', 'WRONG_ITEM', 'OTHER']);
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
@@ -26,6 +27,9 @@ const plantStatusKeysFrom = (statuses, workflow) =>
 
 const getPlantDashboard = async (req, res) => {
   try {
+    const todayKey = currentBusinessDateKey();
+    const todayStart = parseBusinessDateBoundary(todayKey, 'start');
+    const todayEnd = parseBusinessDateBoundary(todayKey, 'end');
     const orderWorkflow = await getOrderWorkflow();
     const workflowViews = orderWorkflow.views || {};
     const inProcessStatuses = workflowViews.in_process?.statuses || [];

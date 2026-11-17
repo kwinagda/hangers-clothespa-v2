@@ -7,6 +7,7 @@ import { metadataAPI, quotationsAPI } from '@/lib/api'
 import { PageHeader, Button, Badge } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import { QuotationShareDialog } from '@/components/quotations/QuotationShareDialog'
+import { formatBusinessDate } from '@/lib/businessTime'
 
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 
@@ -152,14 +153,14 @@ export default function QuotationsPage() {
                   <tr key={quotation.id}>
                     <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8' }}>
                       <div style={{ fontWeight: 700, color: '#023c62' }}>{quotation.orderNumber}</div>
-                      <div style={{ fontSize: 11, color: '#8aa0ba' }}>{quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-IN') : '—'}</div>
+                      <div style={{ fontSize: 11, color: '#8aa0ba' }}>{quotation.createdAt ? formatBusinessDate(quotation.createdAt) : '—'}</div>
                     </td>
                     <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8' }}>
                       <div style={{ fontWeight: 600, color: '#182538' }}>{quotation.customer?.name || 'Unknown'}</div>
                       <div style={{ fontSize: 12, color: '#6b7fa3' }}>{quotation.customer?.phone}</div>
                     </td>
                     <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8', fontWeight: 700, color: '#182538' }}>{fmt(quotation.totalAmount)}</td>
-                    <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8', color: '#53657d' }}>{quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString('en-IN') : '—'}</td>
+                    <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8', color: '#53657d' }}>{quotation.validUntil ? formatBusinessDate(quotation.validUntil) : '—'}</td>
                     <td style={{ padding: '13px 18px', borderBottom: '1px solid #eef4f8' }}>
                       <select
                         value={quotation.quotationStatus || 'DRAFT'}

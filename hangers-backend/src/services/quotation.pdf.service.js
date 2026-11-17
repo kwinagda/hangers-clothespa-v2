@@ -10,7 +10,7 @@ const formatDate = (value) => {
   if (!value) return '—';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '—';
-  return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata' });
 };
 
 const escapeHtml = (value) => String(value ?? '')

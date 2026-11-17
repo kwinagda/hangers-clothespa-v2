@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import MissingVendorRatesModal from '@/components/MissingVendorRatesModal'
 import { deriveServiceCode } from '@/lib/serviceCode'
+import { currentBusinessDateKey, formatBusinessDate, formatBusinessDateTime } from '@/lib/businessTime'
 
 type Tab = 'challans' | 'transfers' | 'vendor-bills' | 'vendor-prices'
 
@@ -19,9 +20,9 @@ const SS: Record<string, { bg: string; color: string }> = {
   PAID:       { bg: '#dcfce7', color: '#166534' },
 }
 const fmt = (n: number) => `₹${(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
-const todayText = () => new Date().toISOString().slice(0, 10)
-const fmtDate = (value: any) => value ? new Date(value).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'
-const fmtDateTime = (value: any) => value ? new Date(value).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : '—'
+const todayText = () => currentBusinessDateKey()
+const fmtDate = (value: any) => value ? formatBusinessDate(value) : '—'
+const fmtDateTime = (value: any) => value ? formatBusinessDateTime(value) : '—'
 const isSameDay = (a: any, b: any) => {
   if (!a || !b) return true
   const da = new Date(a), db = new Date(b)
@@ -143,7 +144,7 @@ export default function ChallansPage() {
   const [selectedChallans, setSelectedChallans] = useState<Set<string>>(new Set())
   const [billNotes, setBillNotes]               = useState('')
   const [billVendorInvoiceNo, setBillVendorInvoiceNo] = useState('')
-  const [billInvoiceDate, setBillInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [billInvoiceDate, setBillInvoiceDate] = useState(() => currentBusinessDateKey())
   const [pdfBusyId, setPdfBusyId]               = useState('')
 
   // Vendor prices
@@ -649,7 +650,7 @@ export default function ChallansPage() {
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{b.plant}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{b.challans?.length || 0} challans</td>
                       <td style={{ padding: '10px 16px', fontWeight: 700, color: '#991b1b' }}>{fmt(b.totalAmount)}<div style={{fontSize:10,color:'#166534'}}>Paid {fmt(b.paidAmount || 0)}</div></td>
-                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{b.dueDate ? new Date(b.dueDate).toLocaleDateString('en-IN') : '—'}</td>
+                      <td style={{ padding: '13px 18px', fontSize: 13.5, color: '#6b7fa3' }}>{b.dueDate ? formatBusinessDate(b.dueDate) : '—'}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>{badge(b.status)}</td>
                       <td style={{ padding: '13px 18px', fontSize: 13.5 }}>
                         <div style={{ display: 'flex', gap: 8 }}>

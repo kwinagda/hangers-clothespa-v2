@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const { success, badRequest, error, forbidden } = require('../utils/response');
 const { attendanceActionSchema } = require('../validation/attendance.schemas');
+const { currentBusinessDateKey, parseBusinessDateBoundary, parseBusinessMonthBoundary } = require('../utils/business-time');
 
 const canManageAttendanceFor = (actor, targetStaffId) => {
   if (!actor || !targetStaffId) return false;
@@ -37,10 +38,11 @@ const clockIn = async (req, res) => {
     if (!canManageAttendanceFor(req.staff, staffId)) {
       return forbidden(res, 'You can only clock attendance for yourself');
     }
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const todayKey = currentBusinessDateKey();
+    const todayStart = parseBusinessDateBoundary(todayKey, 'start');
+    const todayEnd = parseBusinessDateBoundary(todayKey, 'end');
 
-    const existing = await prisma.attendance.findFirst({ where: { staffId, date: { gte: today } } });
+    const existing = await prisma.attendance.findFirst({ where: { staffId, date: { gte: todayStart, lte: todayEnd } } });
     if (existing?.clockIn) return badRequest(res, 'Already clocked in today');
 
     const record = existing
@@ -62,11 +64,12 @@ const clockOut = async (req, res) => {
     if (!canManageAttendanceFor(req.staff, staffId)) {
       return forbidden(res, 'You can only clock attendance for yourself');
     }
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const todayKey = currentBusinessDateKey();
+    const todayStart = parseBusinessDateBoundary(todayKey, 'start');
+    const todayEnd = parseBusinessDateBoundary(todayKey, 'end');
 
     const record = await prisma.attendance.findFirst({
-      where: { staffId, date: { gte: today }, clockIn: { not: null }, clockOut: null }
+      where: { staffId, date: { gte: todayStart, lte: todayEnd }, clockIn: { not: null }, clockOut: null }
     });
     if (!record) return badRequest(res, 'No open clock-in found for today');
 

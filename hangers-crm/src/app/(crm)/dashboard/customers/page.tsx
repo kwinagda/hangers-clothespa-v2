@@ -2,11 +2,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { customersAPI, ironAPI, metadataAPI } from '@/lib/api'
-import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { ArrowRight, ChevronRight, Plus, Search, UserPlus, X } from 'lucide-react'
 import { PageHeader, Button } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import { formatBusinessDate } from '@/lib/businessTime'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -74,7 +74,7 @@ export default function CustomersPage() {
         <div className="crm-mobile-customer-list">
           {loading ? <div className="crm-mobile-list-state">Loading customers…</div> : !customers.length ? <div className="crm-mobile-list-state"><UserPlus size={25}/><strong>No customers found</strong><span>Add a customer or change the search.</span></div> : customers.map((customer:any) => <Link key={customer.id} href={`/dashboard/customers/${customer.id}`}>
             <span className="crm-customer-avatar">{String(customer.name || 'C').trim().charAt(0).toUpperCase()}</span>
-            <span className="crm-customer-copy"><strong>{customer.name || 'Unnamed customer'}</strong><small>{customer.phone}</small><em>{customer._count?.orders || 0} orders{customer.orders?.[0] ? ` · Last ${format(new Date(customer.orders[0].createdAt),'dd MMM')}` : ''}</em></span>
+            <span className="crm-customer-copy"><strong>{customer.name || 'Unnamed customer'}</strong><small>{customer.phone}</small><em>{customer._count?.orders || 0} orders{customer.orders?.[0] ? ` · Last ${formatBusinessDate(customer.orders[0].createdAt, { year: undefined })}` : ''}</em></span>
             <ChevronRight size={19}/>
           </Link>)}
         </div>
@@ -164,11 +164,11 @@ export default function CustomersPage() {
                   {c.orders?.[0]?(
                     <div>
                       <div style={{fontSize:13,fontFamily:"var(--crm-font-mono)",color:'#023c62'}}>{c.orders[0].orderNumber}</div>
-                      <div style={{fontSize:11,color:'#9dafc8'}}>{format(new Date(c.orders[0].createdAt),'dd MMM yy')}</div>
+                      <div style={{fontSize:11,color:'#9dafc8'}}>{formatBusinessDate(c.orders[0].createdAt, { year: '2-digit' })}</div>
                     </div>
                   ):<span style={{fontSize:13,color:'#9dafc8'}}>—</span>}
                 </td>
-                <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{format(new Date(c.createdAt),'dd MMM yy')}</td>
+                <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{formatBusinessDate(c.createdAt, { year: '2-digit' })}</td>
                 <td style={{padding:'13px 18px'}}>
                   <Link href={`/dashboard/customers/${c.id}`} style={{fontSize:13,color:'#035a8f',fontWeight:500,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>View <ArrowRight size={14} /></Link>
                 </td>

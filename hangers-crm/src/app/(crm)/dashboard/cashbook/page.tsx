@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { cashBookAPI } from '@/lib/api'
 import { PageHeader, Button } from '@/components/ui'
 import { PaginationControls } from '@/components/ui/PaginationControls'
+import { currentBusinessDateKey, formatBusinessTime } from '@/lib/businessTime'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -23,7 +24,7 @@ const sourceLabel = (entry: any) => entry.source === 'PAYMENT' ? 'Order Payment'
 export default function CashBookPage() {
   const [entries, setEntries] = useState<any[]>([])
   const [summary, setSummary] = useState({ totalIn: 0, totalOut: 0, balance: 0 })
-  const [date, setDate]       = useState(new Date().toISOString().split('T')[0])
+  const [date, setDate]       = useState(currentBusinessDateKey())
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm]       = useState({ type: 'IN', amount: '', description: '' })
   const [loading, setLoading] = useState(false)
@@ -99,7 +100,7 @@ export default function CashBookPage() {
               {pagedEntries.map((e: any) => (
                 <tr key={e.id} style={{ borderBottom: '1px solid #f8fafc' }}>
                   <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>
-                    {new Date(e.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    {formatBusinessTime(e.date)}
                   </td>
                   <td style={{ padding: '10px 16px' }}>
                     <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: TYPE_STYLE[e.type]?.bg || '#f3f4f6', color: TYPE_STYLE[e.type]?.color || '#374151' }}>

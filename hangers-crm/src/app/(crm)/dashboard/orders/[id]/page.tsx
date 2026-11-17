@@ -9,12 +9,12 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { authAPI, deliveryAPI, metadataAPI, ordersAPI, staffAPI, servicesAPI } from '@/lib/api'
-import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import PaymentPanel from '@/components/PaymentPanel'
 import { itemServiceCode } from '@/lib/serviceCode'
 import { collapseQueuedWhatsAppEvents } from '@/lib/notificationTimeline'
 import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
+import { businessDateToEffectiveIso, currentBusinessDateKey, formatBusinessDate, formatBusinessDateTime } from '@/lib/businessTime'
 import { AlertTriangle, Bike, CalendarRange, ClipboardList, Clock3, IndianRupee, Lock, MapPin, MessageSquareText, PackageCheck, Printer, Receipt, RotateCcw, ScrollText, Shirt, Smartphone, Tag, User, XCircle } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -637,7 +637,7 @@ export default function OrderDetailPage() {
   const [loading,          setLoading]          = useState(true)
   const [updating,         setUpdating]         = useState(false)
   const [retryingStageId, setRetryingStageId] = useState('')
-  const [statusEffectiveDate, setStatusEffectiveDate] = useState(new Date().toISOString().slice(0, 10))
+  const [statusEffectiveDate, setStatusEffectiveDate] = useState(currentBusinessDateKey())
   const [timelineExpanded, setTimelineExpanded] = useState(false)
   const [showPaymentPanel, setShowPaymentPanel] = useState(false)
   const [showEditPanel, setShowEditPanel] = useState(false)
@@ -758,7 +758,7 @@ export default function OrderDetailPage() {
     }
     setUpdating(true)
     try {
-      await ordersAPI.updateStatus(orderId, status, undefined, Number(order.version || 1), `${statusEffectiveDate}T12:00:00.000Z`)
+      await ordersAPI.updateStatus(orderId, status, undefined, Number(order.version || 1), businessDateToEffectiveIso(statusEffectiveDate) || undefined)
       await loadOrder()
       toast.success(`Status updated → ${statusLabel(status)}`)
     } catch (e: any) {
@@ -904,7 +904,7 @@ export default function OrderDetailPage() {
     }
     setUpdating(true)
     try {
-      await ordersAPI.updateStatus(orderId, statusModal.target, statusModal.reason.trim(), Number(order.version || 1), `${statusEffectiveDate}T12:00:00.000Z`)
+      await ordersAPI.updateStatus(orderId, statusModal.target, statusModal.reason.trim(), Number(order.version || 1), businessDateToEffectiveIso(statusEffectiveDate) || undefined)
       await loadOrder()
       setStatusModal({ open: false, target: '', kind: 'forward', reason: '' })
       toast.success(`Status updated → ${statusLabel(statusModal.target)}`)
@@ -975,7 +975,7 @@ export default function OrderDetailPage() {
           <div>
             <div style={{fontFamily:'var(--crm-font-display)',fontWeight:800,fontSize:26,color:'#023c62',lineHeight:1.1}}>{order.orderNumber}</div>
             <div style={{fontSize:13,color:'#6b7fa3',marginTop:4}}>
-              Placed {format(new Date(order.createdAt),'d MMM yyyy, h:mm a')} · {order.createdBy?.name || order.customer?.name || 'Staff'}
+              Placed {formatBusinessDateTime(order.createdAt)} · {order.createdBy?.name || order.customer?.name || 'Staff'}
             </div>
           </div>
           <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' as const}}>
@@ -1100,8 +1100,8 @@ export default function OrderDetailPage() {
           <div style={{background:'#fff',border:'1px solid #e3edf6',borderRadius:14}}>
             <div style={{padding:'16px 20px',borderBottom:'1px solid #edf3f8',fontFamily:'var(--crm-font-display)',fontWeight:700,fontSize:15,color:'#023c62'}}>Delivery</div>
             {[
-              ['Pickup Date', order.pickupDate ? format(new Date(order.pickupDate),'d MMM yyyy') : 'Not scheduled'],
-              ['Expected Delivery', order.deliveryDate ? format(new Date(order.deliveryDate),'d MMM yyyy') : 'Not scheduled'],
+              ['Pickup Date', order.pickupDate ? formatBusinessDate(order.pickupDate) : 'Not scheduled'],
+              ['Expected Delivery', order.deliveryDate ? formatBusinessDate(order.deliveryDate) : 'Not scheduled'],
               ['Assigned Staff', order.assignedTo?.name || '—'],
             ].map(([label,val]:any) => (
               <div key={label} style={{display:'flex',justifyContent:'space-between',padding:'10px 20px',fontSize:13.5,borderBottom:'1px solid #f3f7fa'}}>
@@ -1129,7 +1129,7 @@ export default function OrderDetailPage() {
             <div style={{padding:16,display:'flex',flexDirection:'column' as const,gap:8}}>
               <label style={{display:'grid',gap:5,fontSize:11.5,color:'#6b7fa3',fontWeight:700,textTransform:'uppercase' as const,letterSpacing:'0.05em'}}>
                 Action Date
-                <input type="date" value={statusEffectiveDate} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setStatusEffectiveDate(event.target.value)}
+                <input type="date" value={statusEffectiveDate} max={currentBusinessDateKey()} onChange={(event) => setStatusEffectiveDate(event.target.value)}
                   style={{padding:'9px 10px',border:'1.5px solid #dce8f0',borderRadius:9,fontSize:12.5,color:'#142033',fontWeight:600,textTransform:'none' as const,letterSpacing:0}} />
               </label>
               {forwardActionStatuses.length > 0 && !isLocked && !order.isReturn && forwardActionStatuses.map((targetStatus, index) => {
@@ -1235,7 +1235,7 @@ export default function OrderDetailPage() {
                             </button>
                           )}
                         </div>
-                        <div style={{fontSize:11.5,color:isWhatsAppFailed||isActionFailed?'#b45353':'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{st.notificationQueuedAt ? `Queued ${format(new Date(st.notificationQueuedAt),'d MMM, h:mm a')} · outcome recorded ${format(new Date(st.createdAt),'d MMM, h:mm a')}` : format(new Date(st.createdAt),'d MMM, h:mm a')}{timelineNote ? ` · ${timelineNote}` : ''}</div>
+                        <div style={{fontSize:11.5,color:isWhatsAppFailed||isActionFailed?'#b45353':'#9dafc8',marginTop:2,overflowWrap:'anywhere' as const,lineHeight:1.45}}>{st.notificationQueuedAt ? `Queued ${formatBusinessDateTime(st.notificationQueuedAt)} · outcome recorded ${formatBusinessDateTime(st.createdAt)}` : formatBusinessDateTime(st.createdAt)}{timelineNote ? ` · ${timelineNote}` : ''}</div>
                           {timelineErrorCode && (
                             <div style={{marginTop:7,display:'inline-flex',alignItems:'center',gap:6,border:'1px solid #fecaca',background:'#fff',color:'#991b1b',borderRadius:999,padding:'4px 8px',fontSize:11,fontWeight:800,letterSpacing:'0.02em'}}>
                               Ref: {timelineErrorCode}
@@ -1245,7 +1245,7 @@ export default function OrderDetailPage() {
                             <div style={{marginTop:9,display:'grid',gap:6}}>
                               {failedRetryAttempts.map((attempt: any, attemptIndex: number) => {
                                 const attemptedAt = attempt?.attemptedAt ? new Date(attempt.attemptedAt) : null
-                                const attemptedAtLabel = attemptedAt && !Number.isNaN(attemptedAt.getTime()) ? format(attemptedAt, 'd MMM, h:mm a') : 'Unknown time'
+                              const attemptedAtLabel = attemptedAt && !Number.isNaN(attemptedAt.getTime()) ? formatBusinessDateTime(attemptedAt) : 'Unknown time'
                                 return (
                                   <div key={`${st.id}-retry-${attemptIndex}`} style={{border:'1px solid #fecaca',background:'#fff',borderRadius:10,padding:'7px 9px',fontSize:11.5,color:'#991b1b',lineHeight:1.4,overflowWrap:'anywhere' as const}}>
                                     <strong>Retry failed</strong> at {attemptedAtLabel}{attempt?.error ? ` · ${attempt.error}` : ''}
