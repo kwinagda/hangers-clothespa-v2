@@ -830,7 +830,7 @@ export default function FinancePage() {
             </div>
             <table className="finance-table" style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{background:'#f7f9fc'}}>
-                {['Time','Invoice','Customer','Method','Ref','Amount','By','Document'].map(h=>(
+                {['CRM entry time','Invoice','Customer','Method','Ref','Amount','By','Document'].map(h=>(
                   <th key={h} style={{padding:'11px 18px',textAlign:'left',fontSize:10.5,fontWeight:700,color:'#6b7fa3',textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:'1px solid #e8f0f7',background:'#f7f9fc'}}>{h}</th>
                 ))}
               </tr></thead>
@@ -839,7 +839,7 @@ export default function FinancePage() {
                 :!filtered.length?<tr><td colSpan={8} style={{padding:48,textAlign:'center',color:'#9dafc8'}}>No transactions for this date.</td></tr>
                 :pagedPayments.map((p:any)=>(
                   <tr key={p.id} style={{borderBottom:'1px solid #eef4f8'}}>
-                    <td style={{padding:'13px 18px',fontSize:13.5,color:'#6b7fa3'}}>{formatBusinessTime(p.createdAt)}</td>
+                    <td style={{padding:'13px 18px',fontSize:12,color:p.recordedAt?'#6b7fa3':'#9dafc8'}}>{p.recordedAt ? formatBusinessDateTime(p.recordedAt) : 'Not recorded'}</td>
                     <td style={{padding:'13px 18px',fontFamily:"var(--crm-font-mono)",fontSize:13.5,color:'#023c62'}}>{paymentSourceNumber(p)}</td>
                     <td style={{padding:'13px 18px',fontSize:13.5}}>{paymentCustomerName(p)}</td>
                     <td style={{padding:'11px 16px'}}>
@@ -869,7 +869,7 @@ export default function FinancePage() {
               )}
             </table>
             <div className="finance-mobile-transactions">
-              {loading ? Array.from({length:5},(_,index)=><div className="finance-mobile-skeleton" key={index}><i/><span/><b/></div>) : !filtered.length ? <div className="finance-mobile-empty">No transactions for this date.</div> : pagedPayments.map((p:any)=>{const Icon=METHOD_ICON[(p.method||'OTHER') as keyof typeof METHOD_ICON]||Tag;const invoice=p.allocations?.[0]?.invoice;return <article key={p.id}><div><strong>{paymentCustomerName(p)}</strong><small>{paymentSourceNumber(p)} · {formatBusinessTime(p.createdAt)}</small></div><span><b style={{color:signedPaymentAmount(p)<0?'#b91c1c':'inherit'}}>{signedPaymentLabel(p)}</b><small><Icon size={11}/>{methodLabels[p.method]||p.method}</small>{p.kind==='REFUND'&&<small style={{color:'#b91c1c',fontWeight:700}}>Refund</small>}{providerMethodLabel(p)&&<small>{providerMethodLabel(p)}</small>}{paymentModeLabel(p)&&<small style={{fontWeight:700,color:p.mode === 'TEST' ? '#92400e' : p.mode === 'LIVE' ? '#166534' : '#475569'}}>{paymentModeLabel(p)}</small>}</span>{paymentReference(p) !== '—'&&<p>{p.method === 'RAZORPAY' ? 'Razorpay payment: ' : 'Reference: '}{paymentReference(p)}</p>}{p.method === 'RAZORPAY' && p.razorpayOrderId && <p>Razorpay order: {p.razorpayOrderId}</p>}<em>Collected by {p.collectedByStaff?.name||'—'}</em>{invoice?.id&&<div style={{display:'flex',gap:7,flexWrap:'wrap'}}><button type="button" onClick={()=>viewInvoicePdf(invoice.id).catch((error)=>toast.error(error.message))}>View / Print Invoice</button><button type="button" onClick={()=>downloadInvoicePdf(invoice.id,invoice.invoiceNumber).catch((error)=>toast.error(error.message))}>Download PDF</button></div>}</article>})}
+              {loading ? Array.from({length:5},(_,index)=><div className="finance-mobile-skeleton" key={index}><i/><span/><b/></div>) : !filtered.length ? <div className="finance-mobile-empty">No transactions for this date.</div> : pagedPayments.map((p:any)=>{const Icon=METHOD_ICON[(p.method||'OTHER') as keyof typeof METHOD_ICON]||Tag;const invoice=p.allocations?.[0]?.invoice;return <article key={p.id}><div><strong>{paymentCustomerName(p)}</strong><small>{paymentSourceNumber(p)} · CRM entry {p.recordedAt ? formatBusinessDateTime(p.recordedAt) : 'not recorded'}</small></div><span><b style={{color:signedPaymentAmount(p)<0?'#b91c1c':'inherit'}}>{signedPaymentLabel(p)}</b><small><Icon size={11}/>{methodLabels[p.method]||p.method}</small>{p.kind==='REFUND'&&<small style={{color:'#b91c1c',fontWeight:700}}>Refund</small>}{providerMethodLabel(p)&&<small>{providerMethodLabel(p)}</small>}{paymentModeLabel(p)&&<small style={{fontWeight:700,color:p.mode === 'TEST' ? '#92400e' : p.mode === 'LIVE' ? '#166534' : '#475569'}}>{paymentModeLabel(p)}</small>}</span>{paymentReference(p) !== '—'&&<p>{p.method === 'RAZORPAY' ? 'Razorpay payment: ' : 'Reference: '}{paymentReference(p)}</p>}{p.method === 'RAZORPAY' && p.razorpayOrderId && <p>Razorpay order: {p.razorpayOrderId}</p>}<em>Collected by {p.collectedByStaff?.name||'—'}</em>{invoice?.id&&<div style={{display:'flex',gap:7,flexWrap:'wrap'}}><button type="button" onClick={()=>viewInvoicePdf(invoice.id).catch((error)=>toast.error(error.message))}>View / Print Invoice</button><button type="button" onClick={()=>downloadInvoicePdf(invoice.id,invoice.invoiceNumber).catch((error)=>toast.error(error.message))}>Download PDF</button></div>}</article>})}
             </div>
           </div>
           <PaginationControls

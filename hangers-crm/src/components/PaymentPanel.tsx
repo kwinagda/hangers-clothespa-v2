@@ -4,6 +4,7 @@ import api, { idempotencyConfig, metadataAPI, paymentsAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { CheckCircle2, CreditCard, IndianRupee, RotateCcw, Wallet } from 'lucide-react'
 import WalletTenderInput from '@/components/WalletTenderInput'
+import { formatBusinessDate, formatBusinessDateTime } from '@/lib/businessTime'
 
 interface Props {
   orderId:          string
@@ -300,7 +301,7 @@ export default function PaymentPanel({ orderId, customerId, walletBalance = 0, t
                         ₹{Number(payment.amount || 0).toFixed(2)} · {payment.method}
                       </div>
                       <div style={{ fontSize:11, color:'#6b7fa3', marginTop:3 }}>
-                        {payment.kind || 'RECEIPT'} · {payment.status} · {new Date(payment.createdAt).toLocaleString('en-IN')}
+                        {payment.kind || 'RECEIPT'} · {payment.status} · Payment date {formatBusinessDate(payment.createdAt)} · CRM entry {payment.recordedAt ? formatBusinessDateTime(payment.recordedAt) : 'time not recorded'}
                       </div>
                       {payment.reversalReason && <div style={{ fontSize:11, color:'#9a3412', marginTop:3 }}>Correction: {payment.reversalReason}</div>}
                       {refunded > 0 && <div style={{ fontSize:11, color:'#991b1b', marginTop:3 }}>₹{refunded.toFixed(2)} already refunded/credited</div>}
@@ -480,7 +481,7 @@ export default function PaymentPanel({ orderId, customerId, walletBalance = 0, t
             </select>
             {selectedCorrectionPayment && (
               <div style={{ fontSize:11, color:'#6b7fa3', background:'#f8fafc', border:'1px solid #e8f0f7', borderRadius:8, padding:'8px 10px' }}>
-                Selected entry: ₹{Number(selectedCorrectionPayment.amount || 0).toFixed(2)} {selectedCorrectionPayment.method} recorded on {new Date(selectedCorrectionPayment.createdAt).toLocaleString('en-IN')}.
+                Selected entry: ₹{Number(selectedCorrectionPayment.amount || 0).toFixed(2)} {selectedCorrectionPayment.method} · payment date {formatBusinessDate(selectedCorrectionPayment.createdAt)} · CRM entry {selectedCorrectionPayment.recordedAt ? formatBusinessDateTime(selectedCorrectionPayment.recordedAt) : 'time not recorded'}.
               </div>
             )}
             <input value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} maxLength={500} placeholder="Required correction reason, e.g. Cash selected by mistake" style={{ padding:'8px 10px', border:'1.5px solid #fed7aa', borderRadius:8, fontSize:12 }} />

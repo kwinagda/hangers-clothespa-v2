@@ -642,6 +642,7 @@ model Payment {
   reference                         String?
   notes                             String?
   createdAt                         DateTime                @default(now())
+  recordedAt                        DateTime?               @default(now())
   collectedBy                       String?
   razorpayOrderId                   String?
   razorpayPaymentId                 String?
