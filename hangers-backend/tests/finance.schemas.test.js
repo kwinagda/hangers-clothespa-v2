@@ -7,6 +7,7 @@ const {
   recordPaymentSchema,
   walletAdjustmentSchema,
   walletApplySchema,
+  walletReversalSchema,
 } = require('../src/validation/finance.schemas');
 
 test('checkoutCouponSchema accepts valid coupon payload', () => {
@@ -26,5 +27,8 @@ test('recordPaymentSchema accepts payment method strings for DB-backed validatio
 
 test('wallet schemas reject invalid payloads', () => {
   assert.equal(walletAdjustmentSchema.safeParse({ amount: -1, reason: 'x' }).success, false);
+  assert.equal(walletAdjustmentSchema.safeParse({ amount: 10, reasonCode: 'OTHER_CREDIT', note: 'Documented correction' }).success, true);
+  assert.equal(walletAdjustmentSchema.safeParse({ amount: 10, reasonCode: 'OTHER_CREDIT', note: 'x', unexpected: true }).success, false);
+  assert.equal(walletReversalSchema.safeParse({ reasonCode: 'ENTRY_ERROR', note: 'Wrong entry' }).success, true);
   assert.equal(walletApplySchema.safeParse({ orderId: '', amount: 10 }).success, false);
 });

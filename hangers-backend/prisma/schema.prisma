@@ -1073,6 +1073,7 @@ model WalletTransaction {
   customerId        String
   amount            Decimal             @db.Decimal(18, 2)
   type              String
+  origin            String              @default("SYSTEM")
   reasonCode        String              @default("MANUAL_ADJUSTMENT")
   reason            String
   orderId           String?
@@ -1083,7 +1084,7 @@ model WalletTransaction {
   idempotencyKey    String?             @unique
   externalReference String?
   expiresAt         DateTime?
-  reversalOfId      String?
+  reversalOfId      String?             @unique
   createdAt         DateTime            @default(now())
   customer          Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
   order             Order?              @relation(fields: [orderId], references: [id], onDelete: Restrict)

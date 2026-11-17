@@ -19,6 +19,7 @@ const buildTransactionData = (customerId, amount, type, reason, balances, opts) 
   customerId,
   amount,
   type,
+  origin: opts.origin || 'SYSTEM',
   reasonCode: opts.reasonCode || 'MANUAL_ADJUSTMENT',
   reason,
   orderId: opts.orderId ?? null,
@@ -121,4 +122,48 @@ async function getWalletSummary(customerId, { limit = 20 } = {}) {
   };
 }
 
-module.exports = { creditWallet, debitWallet, getWalletSummary };
+async function reverseWalletTransaction(customerId, transactionId, reason, opts = {}) {
+  if (!customerId || !transactionId) throw new Error('reverseWalletTransaction: customerId and transactionId are required');
+
+  const run = async (tx) => {
+    const original = await tx.walletTransaction.findFirst({
+      where: { id: transactionId, customerId },
+      include: { reversals: { select: { id: true } } },
+    });
+    if (!original) {
+      const err = new Error('Wallet transaction not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    if (original.origin !== 'CRM_MANUAL_ADJUSTMENT') {
+      const err = new Error('Only manual CRM wallet adjustments can be reversed here');
+      err.statusCode = 409;
+      throw err;
+    }
+    if (!['CREDIT', 'DEBIT'].includes(original.type)) {
+      const err = new Error('Wallet transaction type cannot be reversed');
+      err.statusCode = 409;
+      throw err;
+    }
+    if (original.reversalOfId || original.reversals.length) {
+      const err = new Error('Wallet transaction has already been reversed');
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const mutation = original.type === 'CREDIT' ? debitWallet : creditWallet;
+    return mutation(customerId, Number(original.amount), reason, {
+      ...opts,
+      tx,
+      reasonCode: 'MANUAL_REVERSAL',
+      origin: 'CRM_MANUAL_REVERSAL',
+      reversalOfId: original.id,
+      externalReference: original.externalReference,
+      returnTransaction: true,
+    });
+  };
+
+  return opts.tx ? run(opts.tx) : prisma.$transaction(run, { isolationLevel: 'Serializable' });
+}
+
+module.exports = { creditWallet, debitWallet, getWalletSummary, reverseWalletTransaction };

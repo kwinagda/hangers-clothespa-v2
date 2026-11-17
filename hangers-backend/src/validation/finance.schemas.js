@@ -25,8 +25,13 @@ const recordPaymentSchema = z.object({
 
 const walletAdjustmentSchema = z.object({
   amount: positiveMoneySchema,
-  reason: z.string().trim().min(2).max(240),
-  orderId: z.string().trim().min(1).optional().nullable(),
+  reasonCode: z.string().trim().min(2).max(80),
+  note: z.string().trim().min(3).max(500),
+}).strict();
+
+const walletReversalSchema = z.object({
+  reasonCode: z.string().trim().min(2).max(80),
+  note: z.string().trim().min(3).max(500),
 }).strict();
 
 const walletApplySchema = z.object({
@@ -48,5 +53,6 @@ module.exports = {
   checkoutLoyaltySchema,
   recordPaymentSchema,
   walletAdjustmentSchema,
+  walletReversalSchema,
   walletApplySchema,
 };

@@ -1,8 +1,9 @@
 # Hangers CRM Masterbase Audit and Fix Plan
 
 **Audit date:** 12 July 2026  
-**Last updated:** 13 July 2026  
-**Document version:** 1.31  
+**Last updated:** 17 November 2026
+
+**Document version:** 1.34
 **Document status:** Active remediation register  
 **Primary scope:** CRM web application and the backend services required to make the CRM the master system of record  
 **Code baseline reviewed:** Commit 748adb9 plus the uncommitted CRM/order workflow changes present on 12 July 2026  
@@ -330,13 +331,26 @@ The final CRM must own these records and expose them to future channels:
 | PAY-007 | P1 | In Progress | Immutable refund Payments, source links, RefundAllocations, posted CreditNotes, and explicit wallet disposition are implemented without editing the original receipt. | Remaining work: generic receipt void/reissue and non-refund charge-correction UI. |
 | PAY-008 | P1 | In Progress | Separate captured receipt rows can settle one invoice and CRM checkout supports wallet plus an external tender. | Remaining work: a single checkout UI for multiple simultaneous external tenders and one consolidated receipt. |
 | PAY-009 | P1 | Complete | Active receipt flows reject overpayment. Refund-to-wallet requires an explicit disposition and creates linked ledger evidence; no endpoint silently clips or credits excess value. | Integration tests prove an additional receipt cannot over-collect a settled order. |
-| PAY-010 | P1 | Complete | WalletTransaction now stores actor/approver, before/after balances, idempotency key, reference, expiry, reversal link, reason code, and restrictive relations. | Opening balances were backfilled to ledger entries and migration reconciliation reports zero wallet variance. |
-| PAY-011 | P1 | Complete | Wallet mutations use one locked central service with conditional balance checks and ledger/cache updates in the same transaction. | Direct CRM wallet mutations no longer bypass the service. |
+| PAY-010 | P1 | Complete | WalletTransaction stores origin, actor/approver capacity, before/after balances, idempotency key, reference, expiry, a unique reversal link, structured reason code, and restrictive relations. CRM manual entries can be corrected only by a linked opposite entry; posted entries cannot be edited or deleted. | The customer Wallet tab exposes balance evidence, origin/actor, structured reason, order link, reversal state, and a Reverse action only for eligible manual CRM adjustments. System/order/referral entries stay read-only and must be corrected in their source workflow. |
+| PAY-011 | P1 | Complete | Wallet mutations use one locked central service with conditional balance checks and ledger/cache updates in the same transaction. | Referral rewards and customer-app order wallet use were moved off direct balance writes into the same service. Reconciliation continues to compare every cached customer balance to signed ledger movement. |
 | PAY-012 | P1 | Complete | The invalid raw `Customer` debit path was replaced with transaction-safe operations against mapped customer records. | Wallet and migration reconciliation tests pass. |
 | PAY-013 | P1 | In Progress | Live customer finance/stats and AR now derive from invoices and allocations instead of `ordersDue`. | Remove the residual legacy `Customer.ordersDue` column after import consumers are confirmed retired. |
 | PAY-014 | P1 | In Progress | Write-offs are posted as immutable `FinancialAdjustment` rows with creator, approver, reason, reversal relationship, and invoice-balance effect. | Remaining work: configurable approval limits and double-entry journal posting. |
 | PAY-015 | P1 | Complete | Counter staff could record order payments through a CRM-only route guarded by broad role names rather than an explicit cashier permission. | Fixed locally: payment collection now requires `finance.collect_payment`; Manager, Accounts, and Counter Staff receive that permission from DB-backed role master data. Finance payment API still requires FINANCE service access, while order-level CRM payment collection uses the narrow permission. |
 | PAY-016 | P1 | Complete | Normalized method/reference fingerprints and unique idempotency keys reject duplicate manual/provider references while preserving the original display reference. | Database uniqueness protects concurrent duplicates. |
+
+### 12.1 Wallet adjustment operating rules (implemented 17 November 2026)
+
+1. The Hangers wallet is a closed-loop stored-value balance usable only for Hangers goods and services. It is not transferable, withdrawable as cash, or usable with third-party merchants.
+2. CRM staff never set a customer's balance directly. They post a CREDIT or DEBIT adjustment through the wallet API; the cached balance and immutable ledger entry commit atomically.
+3. Adjustment and reversal reason options are stored under DB-backed master setting `master.walletAdjustmentReasons` and delivered to CRM through the metadata API. The frontend contains no independent reason list.
+4. Every manual adjustment requires the `finance.wallet_adjust` permission, FINANCE service access, a positive fixed-precision amount, a structured reason code, and a free-text audit note.
+5. Debits cannot create a negative balance. Financial writes require idempotency keys and run in serializable transactions.
+6. A posted manual adjustment is never edited or deleted. A correction posts exactly one linked opposite entry; a database unique constraint prevents two reversals of the same entry.
+7. Only entries with origin `CRM_MANUAL_ADJUSTMENT` are reversible from the wallet screen. Order payments, referral rewards, refunds, promotions, and migration entries must be reversed through their owning workflow so downstream records remain balanced.
+8. The CRM presents one required adjustment flow and one contextual reversal flow. Unauthorized staff see the ledger but no mutation controls; backend authorization remains authoritative.
+9. Amount-affecting fields are immutable. Correcting both direction and amount requires reversing the incorrect entry and posting a new adjustment with its own evidence.
+10. Current launch policy is permission-authorized immediate posting for Manager/Accounts/Super Admin access resolved from DB-backed role and staff permission tables. A future maker-checker threshold must introduce a real pending request/approval state; `approvedById` must not be populated with the maker merely to simulate approval.
 | PAY-017 | P1 | In Progress | Every allocated captured receipt receives an immutable numbered Receipt with allocation/invoice/customer snapshot and reissue/print metadata. | Remaining work: CRM reprint audit, receipt void/reissue workflow, and customer sharing. |
 | PAY-018 | P1 | In Progress | Scheduled and on-demand reconciliation now checks orders, invoices, receipts, refunds, wallet, write-offs, vendor AP, garment custody, delivery assignments, outbox, and idempotency locks and stores each run. | Remaining work: production worker deployment and a complete CRM exception-resolution screen/day-close gate. |
 
@@ -880,6 +894,14 @@ Latest local remediation verification on 13 July 2026:
 - Remaining P0/P1 items are still open unless their register row explicitly says Complete.
 - Version 1.31 evidence reconciliation rechecked the current workspace: no post-1.30 organization/register/cash-shift or double-entry accounting implementation is present, so ARC-001/ARC-002, FIN-002/FIN-003, and FIN-006/FIN-007 correctly remain Open and the verified status counts are unchanged.
 
+Wallet remediation verification on 17 November 2026:
+
+- Prisma schema validation passed with the new wallet origin and single-reversal constraint.
+- Focused finance schema and wallet reversal suites passed: 7 tests, 0 failed.
+- CRM TypeScript check and optimized production build passed; the customer Wallet route compiled successfully.
+- The wider backend run with safe test environment values reached 214 passing tests, 103 skipped DB/provider cases, and one unrelated toolchain failure: the host is Node 26 while production is pinned to Node 24.
+- No production database migration or deployment was performed in this wallet session.
+
 ---
 
 ## 31. Decision Log
@@ -932,6 +954,7 @@ Latest local remediation verification on 13 July 2026:
 | 1.31 | 2026-07-13 | Reconciled the audit against the current schema, services, tests, and migration chain. All verified remediation through 1.30 remains recorded; no unsupported completion claims were added. The register remains 89 Complete, 39 In Progress, and 124 Open, with cash shifts, organization/branch dimensions, and double-entry accounting retained as the next implementation block. |
 | 1.32 | 2026-11-16 | Invoice documents were made durable for every existing random share token while explicit revocation remains enforced and expired checkout authorization stays closed. Added canonical invoice payment evidence for Cash, UPI, Card, Razorpay and other captured methods; public and authenticated PDF/print/download endpoints; CRM invoice actions across Orders, Finance, Customers, Daily Iron, and Service Appointments; future share provenance; regression tests; and a guarded production migration/deployment path. |
 | 1.33 | 2026-11-17 | Corrected invoice document rendering so CRM view/print/download and public PDF reuse the exact customer invoice page sent through WhatsApp instead of a second backend HTML design. Payment allocation evidence remains part of the canonical page and PDF. Print/PDF actions were moved into the blue invoice header as compact controls and are excluded from printed output. WhatsApp provider-template domain replacement is explicitly deferred. |
+| 1.34 | 2026-11-17 | Implemented the governed CRM wallet correction flow. Wallet adjustment reasons are DB/master-data and metadata-API backed; CRM exposes one permission-aware Adjust Wallet dialog and contextual reversal only for manual entries; ledger rows show before/after balance, origin/actor, structured reason, order and reversal evidence. Backend posts immutable, idempotent, serializable credit/debit entries, prevents negative balance and duplicate reversal, and uses a unique linked opposite entry instead of editing history. Referral and customer-app order balance mutations now use the same central ledger service. |
 
 ---
 

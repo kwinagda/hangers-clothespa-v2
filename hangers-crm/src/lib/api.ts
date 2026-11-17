@@ -371,8 +371,9 @@ export const securityAPI = {
 }
 
 export const walletAPI = {
-  get:    (customerId: string)                        => api.get(`/wallet/${customerId}`) as any,
+  get:    (customerId: string, params?: { page?: number; limit?: number }) => api.get(`/wallet/${customerId}`, { params }) as any,
   credit: (customerId: string, data: any)             => api.post(`/wallet/${customerId}/credit`, data, idempotencyConfig('crm-wallet-credit')) as any,
   deduct: (customerId: string, data: any)             => api.post(`/wallet/${customerId}/deduct`, data, idempotencyConfig('crm-wallet-debit')) as any,
+  reverse: (customerId: string, transactionId: string, data: any) => api.post(`/wallet/${customerId}/transactions/${transactionId}/reverse`, data, idempotencyConfig('crm-wallet-reverse')) as any,
   apply:  (customerId: string, orderId: string, amount: number) => api.post(`/wallet/${customerId}/apply`, { orderId, amount }, idempotencyConfig('crm-wallet-apply')) as any,
 }
