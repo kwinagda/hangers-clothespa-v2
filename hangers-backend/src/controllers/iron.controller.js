@@ -600,7 +600,7 @@ const getMonthlySummary = async (req, res) => {
     const [subscriptions, logs, bills] = await Promise.all([
       prisma.ironSubscription.findMany({
         where: { applicationStatus: 'ACTIVE' },
-        include: { customer: { select: { id: true, name: true, phone: true, ironSubStatus: true } } },
+        include: { customer: { select: { id: true, name: true, phone: true, ironSubStatus: true, walletBalance: true } } },
         orderBy: { customer: { name: 'asc' } },
       }),
       prisma.ironLog.findMany({
@@ -1592,6 +1592,7 @@ const generateBill = async (req, res) => {
             phone: true,
             preferredLanguage: true,
             notifWhatsApp: true,
+            walletBalance: true,
           },
         },
       },
@@ -1772,6 +1773,7 @@ const getBillById = async (req, res) => {
             phone: true,
             preferredLanguage: true,
             notifWhatsApp: true,
+            walletBalance: true,
           },
         },
         logs: {
@@ -1884,11 +1886,12 @@ const voidBill = async (req, res) => {
 };
 
 const recordBillPayment = async (req, res) => {
-  const { amount = 0, paymentMethod, reference, notes, writeOffAmount = 0, writeOffReason, effectiveAt } = req.body;
+  const { amount = 0, walletAmount = 0, paymentMethod, reference, notes, writeOffAmount = 0, writeOffReason, effectiveAt } = req.body;
   const paymentAmount = Number(amount);
+  const walletPaymentAmount = Number(walletAmount || 0);
   const writeOff = Number(writeOffAmount || 0);
-  if (!(paymentAmount > 0 || writeOff > 0)) return badRequest(res, 'payment or write-off amount is required');
-  const normalizedMethod = paymentAmount > 0 ? normalizePaymentMethod(paymentMethod || 'CASH') : null;
+  if (!(paymentAmount > 0 || walletPaymentAmount > 0 || writeOff > 0)) return badRequest(res, 'payment, wallet, or write-off amount is required');
+  const normalizedMethod = paymentAmount > 0 ? normalizePaymentMethod(paymentMethod) : null;
   const corePaymentMethods = await getCorePaymentMethods();
   if (paymentAmount > 0 && !corePaymentMethods.includes(normalizedMethod)) {
     return badRequest(res, `paymentMethod must be one of: ${corePaymentMethods.join(', ')}`);
@@ -1900,6 +1903,7 @@ const recordBillPayment = async (req, res) => {
       const settlement = await recordInvoiceSettlement(tx, {
         invoiceId: invoice.id,
         amount: paymentAmount,
+        walletAmount: walletPaymentAmount,
         method: normalizedMethod,
         reference,
         notes,
@@ -1921,11 +1925,11 @@ const recordBillPayment = async (req, res) => {
       });
       await writeAuditEvent(tx, {
         actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
-        action: paymentAmount > 0 ? 'DAILY_IRON_PAYMENT_RECORDED' : 'DAILY_IRON_WRITE_OFF_RECORDED',
+        action: paymentAmount > 0 || walletPaymentAmount > 0 ? 'DAILY_IRON_PAYMENT_RECORDED' : 'DAILY_IRON_WRITE_OFF_RECORDED',
         resource: settlement.payment ? 'payment' : 'financial_adjustment',
         resourceId: settlement.payment?.id || settlement.adjustment?.id || bill.id,
-        description: paymentAmount > 0
-          ? `Rs ${paymentAmount.toFixed(2)} collected against ${invoice.invoiceNumber}`
+        description: paymentAmount > 0 || walletPaymentAmount > 0
+          ? `Rs ${(paymentAmount + walletPaymentAmount).toFixed(2)} settled against ${invoice.invoiceNumber}`
           : `Rs ${writeOff.toFixed(2)} written off against ${invoice.invoiceNumber}`,
         metadata: {
           invoiceId: invoice.id,
@@ -1933,21 +1937,23 @@ const recordBillPayment = async (req, res) => {
           billId: bill.id,
           billNumber: bill.billNumber,
           method: normalizedMethod,
+          walletAmount: walletPaymentAmount,
+          paymentIds: settlement.payments.map((payment) => payment.id),
           writeOffAmount: writeOff,
           balanceDue: Number(settlement.invoice.balanceDue || 0),
         },
         ...getRequestMeta(req),
       });
-      if (settlement.payment && bill.customer?.notifWhatsApp !== false) {
+      if (bill.customer?.notifWhatsApp !== false) for (const payment of settlement.payments) {
         await enqueueOutboxEvent(tx, {
           eventType: OUTBOX_EVENT.DAILY_IRON_PAYMENT,
           aggregateType: 'iron_bill',
           aggregateId: bill.id,
-          payload: { paymentId: settlement.payment.id, invoiceId: invoice.id },
-          dedupeKey: `daily-iron-payment:${settlement.payment.id}`,
+          payload: { paymentId: payment.id, invoiceId: invoice.id },
+          dedupeKey: `daily-iron-payment:${payment.id}`,
         });
       }
-      return { bill, payment: settlement.payment, invoice: settlement.invoice };
+      return { bill, payment: settlement.payment, payments: settlement.payments, invoice: settlement.invoice };
     }, { isolationLevel: 'Serializable' });
 
     return success(res, result, 'Payment recorded');

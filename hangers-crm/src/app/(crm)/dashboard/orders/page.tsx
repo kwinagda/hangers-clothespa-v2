@@ -12,6 +12,7 @@ import { PaginationControls } from '@/components/ui/PaginationControls'
 import MissingVendorRatesModal from '@/components/MissingVendorRatesModal'
 import { itemServiceCode } from '@/lib/serviceCode'
 import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
+import WalletTenderInput from '@/components/WalletTenderInput'
 const asArray = (value: any, keys: string[] = []) => {
   if (Array.isArray(value)) return value
   for (const key of keys) {
@@ -271,7 +272,7 @@ function OrdersPageContent() {
   const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([])
   const [showBulkPayModal, setShowBulkPayModal] = useState(false)
   const [bulkPayBusy, setBulkPayBusy] = useState(false)
-  const [bulkPayForm, setBulkPayForm] = useState({ method: '', reference: '', notes: '', amount: '', paymentDate: format(new Date(), 'yyyy-MM-dd') })
+  const [bulkPayForm, setBulkPayForm] = useState({ method: '', reference: '', notes: '', amount: '', walletAmount: '', paymentDate: format(new Date(), 'yyyy-MM-dd') })
   const [whatsAppModal, setWhatsAppModal] = useState<{ open: boolean; order: any | null; type: 'ORDER_DETAILS' | 'PAYMENT_REMINDER_ORDER' | 'PAYMENT_REMINDER_SUMMARY'; confirm: boolean }>({
     open: false,
     order: null,
@@ -488,25 +489,30 @@ function OrdersPageContent() {
       return
     }
     const totalDue = payable.reduce((sum: number, order: any) => sum + orderBalanceDue(order), 0)
-    setBulkPayForm((prev) => ({ ...prev, amount: totalDue.toFixed(2), method: prev.method || paymentMethods[0]?.value || 'CASH' }))
+    setBulkPayForm((prev) => ({ ...prev, amount: totalDue.toFixed(2), walletAmount: '', method: prev.method || paymentMethods[0]?.value || '' }))
     setShowBulkPayModal(true)
   }
 
   const submitBulkPayment = async () => {
     if (bulkPayBusy) return
     const amount = Number(bulkPayForm.amount)
+    const walletAmount = Number(bulkPayForm.walletAmount || 0)
     const payable = selectedOrders
       .filter((order: any) => orderBalanceDue(order) > 0 && !['CANCELLED', 'RETURNED'].includes(order.status))
     const totalDue = payable.reduce((sum: number, order: any) => sum + orderBalanceDue(order), 0)
-    if (!(amount > 0) || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) {
-      toast.error('Enter a positive amount with at most two decimal places')
+    if (![amount, walletAmount].every((value) => Number.isFinite(value) && value >= 0 && Math.abs(value * 100 - Math.round(value * 100)) <= 0.000001) || !(amount + walletAmount > 0)) {
+      toast.error('Enter external and wallet amounts with at most two decimal places')
       return
     }
-    if (amount > totalDue) {
-      toast.error(`Amount cannot exceed selected outstanding ${formatCurrency(totalDue)}`)
+    if (amount + walletAmount > totalDue) {
+      toast.error(`Settlement cannot exceed selected outstanding ${formatCurrency(totalDue)}`)
       return
     }
-    if (!bulkPayForm.method) {
+    if (walletAmount > Number(payable[0]?.customer?.walletBalance || 0)) {
+      toast.error('Wallet amount exceeds the customer available balance')
+      return
+    }
+    if (amount > 0 && !bulkPayForm.method) {
       toast.error('Select payment method')
       return
     }
@@ -521,7 +527,8 @@ function OrdersPageContent() {
         customerId: payable[0].customer?.id || payable[0].customerId,
         orderIds: payable.map((order: any) => order.id),
         amount,
-        method: bulkPayForm.method,
+        walletAmount,
+        ...(amount > 0 ? { method: bulkPayForm.method } : {}),
         effectiveAt: `${bulkPayForm.paymentDate}T00:00:00+05:30`,
         reference: bulkPayForm.reference || undefined,
         notes: bulkPayForm.notes || undefined,
@@ -529,7 +536,7 @@ function OrdersPageContent() {
       toast.success('Bulk payment recorded')
       setSelected(new Set())
       setShowBulkPayModal(false)
-      setBulkPayForm((prev) => ({ ...prev, reference: '', notes: '', amount: '' }))
+      setBulkPayForm((prev) => ({ ...prev, reference: '', notes: '', amount: '', walletAmount: '' }))
       load()
     } catch (e: any) {
       toast.error(e?.response?.data?.message || e?.message || 'Failed to record bulk payment')
@@ -1021,15 +1028,18 @@ function OrdersPageContent() {
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
                 <div>
                   <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Amount Received</label>
-                  <input type="number" min="0" step="0.01" value={bulkPayForm.amount} onChange={(e)=>setBulkPayForm((prev)=>({...prev,amount:e.target.value}))}
+                  <input type="number" min="0" step="0.01" max={Math.max(0, selectedPayableTotal - Number(bulkPayForm.walletAmount || 0))} value={bulkPayForm.amount} onChange={(e)=>setBulkPayForm((prev)=>({...prev,amount:e.target.value}))}
                     style={{width:'100%',border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',boxSizing:'border-box'}} />
                 </div>
                 <div>
                   <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Payment Method</label>
-                  <select value={bulkPayForm.method} onChange={(e)=>setBulkPayForm((prev)=>({...prev,method:e.target.value}))}
+                  <select disabled={Number(bulkPayForm.amount || 0) <= 0} value={bulkPayForm.method} onChange={(e)=>setBulkPayForm((prev)=>({...prev,method:e.target.value}))}
                     style={{width:'100%',border:'1px solid #dce8f0',borderRadius:10,padding:'10px 12px',boxSizing:'border-box',background:'#fff'}}>
                     {paymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
                   </select>
+                </div>
+                <div style={{gridColumn:'1 / -1'}}>
+                  <WalletTenderInput availableBalance={Number(selectedPayableOrders[0]?.customer?.walletBalance || 0)} outstandingBalance={selectedPayableTotal} externalAmount={Number(bulkPayForm.amount || 0)} onExternalAmountChange={(amount)=>setBulkPayForm((prev)=>({...prev,amount}))} value={bulkPayForm.walletAmount} onChange={(walletAmount)=>setBulkPayForm((prev)=>({...prev,walletAmount}))} disabled={bulkPayBusy} />
                 </div>
                 <div>
                   <label style={{fontSize:12,color:'#6b7fa3',display:'block',marginBottom:6}}>Reference</label>

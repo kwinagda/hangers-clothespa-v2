@@ -7,6 +7,7 @@
 const prisma = require('../config/database');
 const { generateOrderNumber } = require('../utils/order-number');
 const { success, created, error, badRequest, notFound } = require('../utils/response');
+const { debitWallet } = require('../services/wallet.service');
 const ORDER_ONLY_WHERE = { documentType: 'ORDER' };
 
 const normalizeRequestedItems = async (items) => {
@@ -189,18 +190,12 @@ const requestPickup = async (req, res) => {
       });
 
       if (appliedWallet > 0) {
-        await tx.customer.update({
-          where: { id: customerId },
-          data:  { walletBalance: { decrement: appliedWallet } },
-        });
-        await tx.walletTransaction.create({
-          data: {
-            customerId,
-            amount:  appliedWallet,
-            type:    'DEBIT',
-            reason:  'ORDER_PAYMENT',
-            orderId: created.id,
-          },
+        await debitWallet(customerId, appliedWallet, 'ORDER_PAYMENT', {
+          tx,
+          origin: 'CUSTOMER_APP_ORDER',
+          reasonCode: 'ORDER_PAYMENT',
+          orderId: created.id,
+          idempotencyKey: `customer-order-wallet:${created.id}`,
         });
       }
 

@@ -26,10 +26,10 @@ const recordPayment = async (req, res) => {
       statusCode: 400, code: 'PAYMENT_VALIDATION_FAILED', message: parsed.error.issues[0]?.message || 'Invalid payment payload',
       requestId: req.id, fieldErrors: validationFieldErrors(parsed.error.issues),
     });
-    const { orderId, amount, method, reference, notes, effectiveAt } = parsed.data;
-    const normalizedMethod = normalizePaymentMethod(method);
+    const { orderId, amount, walletAmount = 0, method, reference, notes, effectiveAt } = parsed.data;
+    const normalizedMethod = amount > 0 ? normalizePaymentMethod(method) : null;
     const corePaymentMethods = await getCorePaymentMethods();
-    if (!corePaymentMethods.includes(normalizedMethod)) {
+    if (amount > 0 && !corePaymentMethods.includes(normalizedMethod)) {
       return paymentApiError(res, { statusCode: 400, code: 'PAYMENT_METHOD_UNSUPPORTED', message: `Payment method must be one of: ${corePaymentMethods.join(', ')}`, requestId: req.id });
     }
     const result = await prisma.$transaction(async (tx) => {
@@ -38,6 +38,7 @@ const recordPayment = async (req, res) => {
       const settlement = await recordOrderSettlement(tx, {
         orderId,
         amount,
+        walletAmount,
         method: normalizedMethod,
         reference,
         notes,
@@ -64,6 +65,7 @@ const recordPayment = async (req, res) => {
           orderNumber: before.orderNumber,
           paymentIds: settlement.payments.map((payment) => payment.id),
           method: normalizedMethod,
+          walletAmount,
           reference: reference || null,
           effectiveAt: effectiveAt?.toISOString() || null,
           before: { paidAmount: before.paidAmount, paymentStatus: before.paymentStatus },
@@ -333,9 +335,9 @@ const recordReceivablesPayment = async (req, res) => {
   const parsed = recordReceivablesPaymentSchema.safeParse(req.body);
   if (!parsed.success) return paymentApiError(res, { statusCode: 400, code: 'PAYMENT_VALIDATION_FAILED', message: parsed.error.issues[0]?.message || 'Invalid payment', requestId: req.id });
   try {
-    const { customerId, invoiceIds, orderIds, amount, method, effectiveAt, reference, notes } = parsed.data;
-    const normalizedMethod = normalizePaymentMethod(method);
-    if (!(await getCorePaymentMethods()).includes(normalizedMethod)) throw new PaymentRuleError('PAYMENT_METHOD_UNSUPPORTED', 'Select a supported manual payment method');
+    const { customerId, invoiceIds, orderIds, amount, walletAmount = 0, method, effectiveAt, reference, notes } = parsed.data;
+    const normalizedMethod = amount > 0 ? normalizePaymentMethod(method) : null;
+    if (amount > 0 && !(await getCorePaymentMethods()).includes(normalizedMethod)) throw new PaymentRuleError('PAYMENT_METHOD_UNSUPPORTED', 'Select a supported manual payment method');
     const result = await prisma.$transaction(async (tx) => {
       if (orderIds) {
         const orders = await tx.order.findMany({ where: { id: { in: orderIds }, customerId, documentType: 'ORDER', status: { notIn: ['CANCELLED', 'RETURNED'] } }, select: { id: true } });
@@ -345,21 +347,21 @@ const recordReceivablesPayment = async (req, res) => {
       const invoices = await tx.invoice.findMany({ where: { ...openInvoiceWhere, customerId, ...(invoiceIds ? { id: { in: invoiceIds } } : { orderId: { in: orderIds } }) } });
       if (invoices.length !== (invoiceIds || orderIds).length) throw new PaymentRuleError('INVOICE_NOT_COLLECTIBLE', 'Some invoices are closed, cancelled or belong to another customer. Refresh receivables.', 409);
       let allocations;
-      try { allocations = allocateReceivablePayment(invoices, amount); }
+      try { allocations = allocateReceivablePayment(invoices, Number(amount) + Number(walletAmount)); }
       catch (error) { throw new PaymentRuleError('INVALID_ALLOCATION_PLAN', error.message, 409); }
       const settlement = await recordInvoiceAllocationsSettlement(tx, {
         allocations, expectedCustomerId: customerId, expectedCurrency: 'INR',
-        amount,
+        amount, walletAmount,
         method: normalizedMethod, reference, notes, effectiveAt, staff: req.staff,
         idempotencyKey: req.idempotencyKey, allowPartial: true,
       });
       await writeAuditEvent(tx, { actorType: 'staff', actorId: req.staff?.id, actorName: req.staff?.name,
         action: 'PAYMENT_RECORDED', resource: 'customer', resourceId: customerId,
         description: `Payment recorded across ${allocations.length} invoices`,
-        metadata: { allocations, paymentIds: [settlement.payment.id], effectiveAt: effectiveAt?.toISOString() || null, reference: reference || null }, ...getRequestMeta(req) });
-      await enqueueOutboxEvent(tx, { eventType: OUTBOX_EVENT.INVOICE_PAYMENT_RECEIVED, aggregateType: 'invoice', aggregateId: settlement.invoice.id,
-        payload: { paymentId: settlement.payment.id }, dedupeKey: `payment-received:${settlement.payment.id}` });
-      return { payment: settlement.payment, invoiceCount: allocations.length };
+        metadata: { allocations, paymentIds: settlement.payments.map((payment) => payment.id), walletAmount, effectiveAt: effectiveAt?.toISOString() || null, reference: reference || null }, ...getRequestMeta(req) });
+      for (const payment of settlement.payments) await enqueueOutboxEvent(tx, { eventType: OUTBOX_EVENT.INVOICE_PAYMENT_RECEIVED, aggregateType: 'invoice', aggregateId: settlement.invoice.id,
+        payload: { paymentId: payment.id }, dedupeKey: `payment-received:${payment.id}` });
+      return { payments: settlement.payments, invoiceCount: allocations.length };
     }, { isolationLevel: 'Serializable', timeout: 30000 });
     return created(res, result, 'Selected invoice payments recorded');
   } catch (err) {

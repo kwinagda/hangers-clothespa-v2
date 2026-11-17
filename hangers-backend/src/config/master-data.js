@@ -347,6 +347,28 @@ const STAFF_ROLES = [
 ];
 
 const STAFF_ROLE_VALUES = STAFF_ROLES.map((role) => role.value);
+const WALLET_ADJUSTMENT_REASONS = {
+  CREDIT: [
+    { value: 'CUSTOMER_SERVICE_RECOVERY', label: 'Service recovery / goodwill' },
+    { value: 'OVERPAYMENT_CREDIT', label: 'Overpayment retained as credit' },
+    { value: 'PROMOTIONAL_CREDIT', label: 'Promotional credit' },
+    { value: 'MIGRATION_CORRECTION', label: 'Opening balance / migration correction' },
+    { value: 'OTHER_CREDIT', label: 'Other credit adjustment' },
+  ],
+  DEBIT: [
+    { value: 'DUPLICATE_CREDIT_CORRECTION', label: 'Duplicate credit correction' },
+    { value: 'INCORRECT_CREDIT_CORRECTION', label: 'Incorrect credit correction' },
+    { value: 'MIGRATION_CORRECTION', label: 'Opening balance / migration correction' },
+    { value: 'OTHER_DEBIT', label: 'Other debit adjustment' },
+  ],
+  REVERSAL: [
+    { value: 'ENTRY_ERROR', label: 'Entry made in error' },
+    { value: 'DUPLICATE_ENTRY', label: 'Duplicate entry' },
+    { value: 'WRONG_CUSTOMER', label: 'Posted to wrong customer' },
+    { value: 'WRONG_AMOUNT', label: 'Incorrect amount' },
+    { value: 'OTHER_REVERSAL', label: 'Other correction' },
+  ],
+};
 const SERVICE_CODES = [
   'CRM',
   'CUSTOMER_APP',
@@ -827,6 +849,7 @@ module.exports = {
   STAFF_ROLES,
   STAFF_ROLE_VALUES,
   WEEKDAY_OPTIONS,
+  WALLET_ADJUSTMENT_REASONS,
   EXPENSE_CATEGORIES,
   FIELD_SERVICE_STATUSES,
   FIELD_SERVICE_WORKFLOW,

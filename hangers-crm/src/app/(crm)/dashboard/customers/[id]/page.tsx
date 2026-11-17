@@ -2,11 +2,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { customersAPI, statsAPI, ordersAPI, walletAPI, ironAPI, servicesAPI, metadataAPI } from '@/lib/api'
+import { authAPI, customersAPI, statsAPI, ordersAPI, walletAPI, ironAPI, servicesAPI, metadataAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { CreditCard, Info, IndianRupee, MapPin, PackageCheck, Sparkles, Wallet } from 'lucide-react'
 import { downloadInvoicePdf, viewInvoicePdf } from '@/lib/invoiceDocuments'
+import WalletTenderInput from '@/components/WalletTenderInput'
 
 const TAG_COLORS: Record<string, { bg: string; color: string }> = {
   VIP:       { bg: '#fef9c3', color: '#854d0e' },
@@ -108,6 +109,7 @@ export default function CustomerProfilePage() {
   const [stats, setStats]           = useState<any>(null)
   const [orders, setOrders]         = useState<any[]>([])
   const [wallet, setWallet]         = useState<any>(null)
+  const [walletPage, setWalletPage] = useState(1)
   const [loading, setLoading]       = useState(true)
   const [tab, setTab]               = useState<Tab>('overview')
 
@@ -120,8 +122,12 @@ export default function CustomerProfilePage() {
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [walletAction, setWalletAction]       = useState<'credit' | 'deduct'>('credit')
   const [walletAmount, setWalletAmount]       = useState('')
-  const [walletReason, setWalletReason]       = useState('')
+  const [walletReasonCode, setWalletReasonCode] = useState('')
+  const [walletNote, setWalletNote]           = useState('')
   const [walletLoading, setWalletLoading]     = useState(false)
+  const [walletReversal, setWalletReversal]   = useState<any>(null)
+  const [currentStaff, setCurrentStaff]       = useState<any>(null)
+  const [walletAdjustmentReasons, setWalletAdjustmentReasons] = useState<Record<string, Array<{ value: string; label: string }>>>({ CREDIT: [], DEBIT: [], REVERSAL: [] })
 
   // Address modal
   const [showAddressModal, setShowAddressModal] = useState(false)
@@ -144,7 +150,7 @@ export default function CustomerProfilePage() {
   const [ironBusy, setIronBusy]                 = useState<string | null>(null)
   const [ironForm, setIronForm]                 = useState({ date: new Date().toISOString().slice(0, 10), serviceId: '', pieces: '', notes: '' })
   const [billForm, setBillForm]                 = useState({ billingPeriodStart: new Date().toISOString().slice(0, 10), carryForwardNotes: '', notes: '' })
-  const [paymentForm, setPaymentForm]           = useState<Record<string, { amount: string; paymentMethod: string }>>({})
+  const [paymentForm, setPaymentForm]           = useState<Record<string, { amount: string; walletAmount: string; paymentMethod: string }>>({})
 
   const languageLabel = useCallback((value?: string | null) => {
     if (!value) return 'English'
@@ -158,7 +164,7 @@ export default function CustomerProfilePage() {
         customersAPI.get(id as string),
         statsAPI.customer(id as string),
         ordersAPI.list({ customerId: id, limit: 10 }),
-        walletAPI.get(id as string),
+        walletAPI.get(id as string, { page: 1, limit: 50 }),
       ])
       const cust = c.data?.customer || c.data
       setReferralSummary(c.data?.referralSummary || null)
@@ -178,9 +184,20 @@ export default function CustomerProfilePage() {
       setStats(st.data)
       setOrders(asArray(o.data, ['orders', 'items']))
       setWallet(w.data)
+      setWalletPage(1)
       setAddresses(asArray(cust?.addresses).map(normalizeAddress))
     } catch { toast.error('Failed to load customer') }
     setLoading(false)
+  }, [id])
+
+  const loadWalletPage = useCallback(async (page: number) => {
+    try {
+      const response: any = await walletAPI.get(id as string, { page, limit: 50 })
+      setWallet(response.data)
+      setWalletPage(page)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load wallet history')
+    }
   }, [id])
 
   const loadIron = useCallback(async () => {
@@ -220,6 +237,9 @@ export default function CustomerProfilePage() {
 
   useEffect(() => { loadAll() }, [loadAll])
   useEffect(() => {
+    authAPI.me().then((r: any) => setCurrentStaff(r?.staff || r?.data?.staff || null)).catch(() => setCurrentStaff(null))
+  }, [])
+  useEffect(() => {
     metadataAPI.getAll().then((r: any) => {
       const metadata = r?.metadata || r?.data?.metadata || {}
       setTagOptions(asArray(metadata.customerTags))
@@ -227,12 +247,14 @@ export default function CustomerProfilePage() {
       setAddressLabels(asArray(metadata.addressLabels))
       setPaymentMethods(asArray(metadata.collectablePaymentMethods).length ? asArray(metadata.collectablePaymentMethods) : asArray(metadata.paymentMethods).filter((method: any) => asArray(metadata.corePaymentMethods).includes(method.value)))
       setPaymentStatusMeta(Object.fromEntries(asArray(metadata.paymentStatuses).map((item: any) => [item.value, { label: item.label || item.value, color: item.color || '#023c62', bg: item.bg || '#f4f7fb' }])))
+      setWalletAdjustmentReasons(metadata.walletAdjustmentReasons || { CREDIT: [], DEBIT: [], REVERSAL: [] })
     }).catch(() => {
       setTagOptions([])
       setLanguageOptions([])
       setAddressLabels([])
       setPaymentMethods([])
       setPaymentStatusMeta({})
+      setWalletAdjustmentReasons({ CREDIT: [], DEBIT: [], REVERSAL: [] })
       toast.error('Failed to load customer metadata')
     })
   }, [])
@@ -275,21 +297,39 @@ export default function CustomerProfilePage() {
 
   const handleWalletAction = async () => {
     if (!walletAmount || parseFloat(walletAmount) <= 0) { toast.error('Enter a valid amount'); return }
-    if (!walletReason) { toast.error('Enter a reason'); return }
+    if (!walletReasonCode) { toast.error('Select a reason'); return }
+    if (walletNote.trim().length < 3) { toast.error('Enter a clear note of at least 3 characters'); return }
     setWalletLoading(true)
     try {
       if (walletAction === 'credit') {
-        await walletAPI.credit(id as string, { amount: parseFloat(walletAmount), reason: walletReason })
+        await walletAPI.credit(id as string, { amount: parseFloat(walletAmount), reasonCode: walletReasonCode, note: walletNote.trim() })
         toast.success(`₹${walletAmount} credited to wallet`)
       } else {
-        await walletAPI.deduct(id as string, { amount: parseFloat(walletAmount), reason: walletReason })
+        await walletAPI.deduct(id as string, { amount: parseFloat(walletAmount), reasonCode: walletReasonCode, note: walletNote.trim() })
         toast.success(`₹${walletAmount} deducted from wallet`)
       }
       setShowWalletModal(false)
       setWalletAmount('')
-      setWalletReason('')
+      setWalletReasonCode('')
+      setWalletNote('')
       loadAll()
     } catch (e: any) { toast.error(e.message || 'Failed') }
+    setWalletLoading(false)
+  }
+
+  const handleWalletReversal = async () => {
+    if (!walletReversal) return
+    if (!walletReasonCode) { toast.error('Select a correction reason'); return }
+    if (walletNote.trim().length < 3) { toast.error('Enter a clear correction note'); return }
+    setWalletLoading(true)
+    try {
+      await walletAPI.reverse(id as string, walletReversal.id, { reasonCode: walletReasonCode, note: walletNote.trim() })
+      toast.success('Wallet adjustment reversed')
+      setWalletReversal(null)
+      setWalletReasonCode('')
+      setWalletNote('')
+      await loadAll()
+    } catch (e: any) { toast.error(e.message || 'Failed to reverse wallet adjustment') }
     setWalletLoading(false)
   }
 
@@ -442,15 +482,20 @@ export default function CustomerProfilePage() {
 
   const recordIronPayment = async (billId: string) => {
     const form = paymentForm[billId]
-    if (!form?.amount || Number(form.amount) <= 0) {
-      toast.error('Enter a valid payment amount')
+    const amount = Number(form?.amount || 0)
+    const walletAmount = Number(form?.walletAmount || 0)
+    const bill = ironBills.find((item) => item.id === billId)
+    const balance = Number(bill?.invoice?.balanceDue ?? (Number(bill?.totalAmount || 0) - Number(bill?.paidAmount || 0)))
+    if (!(amount + walletAmount > 0) || amount + walletAmount > balance || walletAmount > Number(customer?.walletBalance || 0)) {
+      toast.error('Enter external and wallet amounts within the available balances')
       return
     }
+    if (amount > 0 && !form?.paymentMethod) { toast.error('Select a payment method'); return }
     setIronBusy(`bill-pay-${billId}`)
     try {
-      await ironAPI.recordPayment(billId, { amount: Number(form.amount), paymentMethod: form.paymentMethod || 'CASH' })
+      await ironAPI.recordPayment(billId, { amount, walletAmount, ...(amount > 0 ? { paymentMethod: form.paymentMethod } : {}) })
       toast.success('Payment recorded')
-      setPaymentForm((prev) => ({ ...prev, [billId]: { amount: '', paymentMethod: prev[billId]?.paymentMethod || 'CASH' } }))
+      setPaymentForm((prev) => ({ ...prev, [billId]: { amount: '', walletAmount: '', paymentMethod: prev[billId]?.paymentMethod || paymentMethods[0]?.value || '' } }))
       await loadIron()
     } catch (e: any) {
       toast.error(e.message || 'Failed to record payment')
@@ -540,6 +585,22 @@ export default function CustomerProfilePage() {
     : hasLockedBillForPeriod
       ? 'Generate Supplemental Bill'
       : 'Generate Monthly Bill'
+  const staffPermissions = currentStaff?.effectivePermissions || currentStaff?.permissions || []
+  const canAdjustWallet = currentStaff?.role === 'SUPER_ADMIN' || staffPermissions.includes('*') || staffPermissions.includes('finance.wallet_adjust')
+  const openWalletAdjustment = () => {
+    setWalletReversal(null)
+    setWalletAction('credit')
+    setWalletAmount('')
+    setWalletReasonCode('')
+    setWalletNote('')
+    setShowWalletModal(true)
+  }
+  const openWalletReversal = (transaction: any) => {
+    setShowWalletModal(false)
+    setWalletReversal(transaction)
+    setWalletReasonCode('')
+    setWalletNote('')
+  }
 
   const tabBtn = (t: Tab, l: string, count?: number) => (
     <button onClick={() => setActiveTab(t)} style={{ padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', background: tab === t ? '#fff' : 'transparent', color: tab === t ? '#023c62' : '#6b7fa3', boxShadow: tab === t ? '0 8px 18px rgba(2,60,98,0.08)' : 'none' }}>
@@ -826,14 +887,10 @@ export default function CustomerProfilePage() {
                   style={{ padding: '10px 16px', background: '#fff', color: '#023c62', borderRadius: 10, fontSize: 13, fontWeight: 700, textDecoration: 'none', textAlign: 'center' as const, border: '1px solid #dce8f0' }}>
                   + New Quotation
                 </Link>
-                <button onClick={() => { setWalletAction('credit'); setShowWalletModal(true) }}
-                  style={{ padding: '10px 16px', background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                  + Add Wallet Credit
-                </button>
-                <button onClick={() => { setWalletAction('deduct'); setShowWalletModal(true) }}
-                  style={{ padding: '10px 16px', background: '#fef2f2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                  − Deduct Wallet
-                </button>
+                {canAdjustWallet && <button onClick={openWalletAdjustment}
+                  style={{ padding: '10px 16px', background: '#eef7fb', color: '#023c62', border: '1px solid #bcd7e7', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  Adjust Wallet
+                </button>}
                 <button onClick={() => setActiveTab('addresses')}
                   style={{ padding: '10px 16px', background: '#f8fafc', color: '#374151', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                   <span style={{display:'inline-flex',alignItems:'center',gap:6}}><MapPin size={14} />Manage Addresses</span>
@@ -857,29 +914,25 @@ export default function CustomerProfilePage() {
       {/* ── WALLET TAB ───────────────────────────────────────────── */}
       {tab === 'wallet' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: canAdjustWallet ? '2fr 1fr' : '1fr', gap: 12, marginBottom: 20 }}>
             <div style={{ background: '#023c62', borderRadius: 12, padding: 20, color: '#fff' }}>
               <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Wallet Balance</div>
               <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 800, fontSize: 28 }}>{fmt(wallet?.balance || 0)}</div>
             </div>
-            <button onClick={() => { setWalletAction('credit'); setShowWalletModal(true) }}
-              style={{ background: '#f0fdf4', borderRadius: 12, padding: 20, border: '1px solid #bbf7d0', cursor: 'pointer', textAlign: 'left' as const }}>
-              <div style={{ fontSize: 11, color: '#166534', marginBottom: 4, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Add Credit</div>
-              <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 20, color: '#166534' }}>+ Credit</div>
-            </button>
-            <button onClick={() => { setWalletAction('deduct'); setShowWalletModal(true) }}
-              style={{ background: '#fef2f2', borderRadius: 12, padding: 20, border: '1px solid #fca5a5', cursor: 'pointer', textAlign: 'left' as const }}>
-              <div style={{ fontSize: 11, color: '#991b1b', marginBottom: 4, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Deduct</div>
-              <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 20, color: '#991b1b' }}>− Deduct</div>
-            </button>
+            {canAdjustWallet && <button onClick={openWalletAdjustment}
+              style={{ background: '#eef7fb', borderRadius: 12, padding: 20, border: '1px solid #bcd7e7', cursor: 'pointer', textAlign: 'left' as const }}>
+              <div style={{ fontSize: 11, color: '#52718d', marginBottom: 4, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Controlled correction</div>
+              <div style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 20, color: '#023c62' }}>Adjust Wallet</div>
+            </button>}
           </div>
           <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e3edf6', overflow: 'hidden' }}>
             {!wallet?.transactions?.length ? (
               <div style={{ padding: 40, textAlign: 'center', color: '#9dafc8' }}>No wallet transactions yet</div>
             ) : (
+              <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr style={{ background: '#f8fafc' }}>
-                  {['Date', 'Type', 'Amount', 'Reason', 'Order'].map(h => (
+                  {['Date', 'Movement', 'Amount', 'Balance', 'Evidence', 'Actor', 'Action'].map(h => (
                     <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: '#9dafc8', textTransform: 'uppercase' as const, letterSpacing: '0.06em', borderBottom: '1px solid #e8f0f7' }}>{h}</th>
                   ))}
                 </tr></thead>
@@ -889,20 +942,40 @@ export default function CustomerProfilePage() {
                       <td style={{ padding: '10px 16px', color: '#6b7fa3' }}>{format(new Date(t.createdAt), 'dd MMM yyyy, h:mm a')}</td>
                       <td style={{ padding: '10px 16px' }}>
                         <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: t.type === 'CREDIT' ? '#dcfce7' : '#fee2e2', color: t.type === 'CREDIT' ? '#166534' : '#991b1b' }}>
-                          {t.type}
+                          {t.reversalOfId ? 'REVERSAL' : t.type}
                         </span>
+                        {t.reversals?.length > 0 && <div style={{ marginTop: 5, fontSize: 10, fontWeight: 800, color: '#9a3412' }}>REVERSED</div>}
                       </td>
                       <td style={{ padding: '10px 16px', fontWeight: 700, color: t.type === 'CREDIT' ? '#166534' : '#991b1b' }}>
                         {t.type === 'CREDIT' ? '+' : '-'}{fmt(t.amount)}
                       </td>
-                      <td style={{ padding: '10px 16px', color: '#374151' }}>{t.reason}</td>
-                      <td style={{ padding: '10px 16px', fontFamily: 'monospace', fontSize: 11, color: '#023c62' }}>
-                        {t.order?.orderNumber || '—'}
+                      <td style={{ padding: '10px 16px', color: '#374151', whiteSpace: 'nowrap' }}>{fmt(t.balanceBefore)} → {fmt(t.balanceAfter)}</td>
+                      <td style={{ padding: '10px 16px', color: '#374151', maxWidth: 280 }}>
+                        <div style={{ fontWeight: 700 }}>{t.reason}</div>
+                        <div style={{ marginTop: 3, fontSize: 10, color: '#8ba0bb', fontFamily: 'monospace' }}>{t.reasonCode}{t.order?.orderNumber ? ` · ${t.order.orderNumber}` : ''}</div>
+                      </td>
+                      <td style={{ padding: '10px 16px', color: '#52718d', fontSize: 12 }}>
+                        {t.createdBy?.name || (t.origin === 'SYSTEM' ? 'System' : t.origin?.replaceAll('_', ' ') || 'System')}
+                      </td>
+                      <td style={{ padding: '10px 16px' }}>
+                        {canAdjustWallet && t.origin === 'CRM_MANUAL_ADJUSTMENT' && !t.reversalOfId && !t.reversals?.length ? (
+                          <button onClick={() => openWalletReversal(t)} style={{ border: '1px solid #fed7aa', background: '#fff7ed', color: '#9a3412', borderRadius: 8, padding: '6px 9px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Reverse</button>
+                        ) : <span style={{ color: '#b3c1d1' }}>—</span>}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
+            )}
+            {(wallet?.total || 0) > 50 && (
+              <div style={{ padding: '12px 16px', borderTop: '1px solid #edf3f8', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <span style={{ fontSize: 12, color: '#6b7fa3' }}>Page {walletPage} of {Math.ceil(wallet.total / 50)} · {wallet.total} entries</span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => loadWalletPage(walletPage - 1)} disabled={walletPage <= 1} style={{ border: '1px solid #dce8f0', background: '#fff', borderRadius: 8, padding: '6px 10px', color: '#023c62', cursor: walletPage <= 1 ? 'not-allowed' : 'pointer', opacity: walletPage <= 1 ? 0.45 : 1 }}>Previous</button>
+                  <button onClick={() => loadWalletPage(walletPage + 1)} disabled={walletPage >= Math.ceil(wallet.total / 50)} style={{ border: '1px solid #dce8f0', background: '#fff', borderRadius: 8, padding: '6px 10px', color: '#023c62', cursor: walletPage >= Math.ceil(wallet.total / 50) ? 'not-allowed' : 'pointer', opacity: walletPage >= Math.ceil(wallet.total / 50) ? 0.45 : 1 }}>Next</button>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -1214,16 +1287,19 @@ export default function CustomerProfilePage() {
                             {bill.paidAt && <span style={{ fontWeight: 600, color: '#15803d' }}>{format(new Date(bill.paidAt), 'dd MMM yyyy')}</span>}
                           </div>
                         ) : (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px auto', gap: 8 }}>
-                            <input type="number" max={billBalance} value={paymentForm[bill.id]?.amount || ''} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: e.target.value, paymentMethod: paymentForm[bill.id]?.paymentMethod || 'CASH' } })} placeholder={`Balance ${fmt(billBalance)}`}
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 130px auto', gap:8 }}>
+                            <input type="number" min="0" step="0.01" max={Math.max(0, billBalance - Number(paymentForm[bill.id]?.walletAmount || 0))} value={paymentForm[bill.id]?.amount || ''} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: e.target.value, walletAmount: paymentForm[bill.id]?.walletAmount || '', paymentMethod: paymentForm[bill.id]?.paymentMethod || paymentMethods[0]?.value || '' } })} placeholder={`Balance ${fmt(billBalance)}`}
                               style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
-                            <select value={paymentForm[bill.id]?.paymentMethod || 'CASH'} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: paymentForm[bill.id]?.amount || '', paymentMethod: e.target.value } })}
+                            <select disabled={Number(paymentForm[bill.id]?.amount || 0) <= 0} value={paymentForm[bill.id]?.paymentMethod || paymentMethods[0]?.value || ''} onChange={e => setPaymentForm({ ...paymentForm, [bill.id]: { amount: paymentForm[bill.id]?.amount || '', walletAmount: paymentForm[bill.id]?.walletAmount || '', paymentMethod: e.target.value } })}
                               style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
                               {paymentMethods.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
                             </select>
                             <button onClick={() => recordIronPayment(bill.id)} disabled={ironBusy === `bill-pay-${bill.id}`} style={{ padding: '8px 12px', background: '#166534', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                               {ironBusy === `bill-pay-${bill.id}` ? 'Saving…' : 'Record Pay'}
                             </button>
+                            </div>
+                            <WalletTenderInput availableBalance={Number(customer?.walletBalance || 0)} outstandingBalance={billBalance} externalAmount={Number(paymentForm[bill.id]?.amount || 0)} onExternalAmountChange={(amount) => setPaymentForm((current) => ({ ...current, [bill.id]: { ...current[bill.id], amount } }))} value={paymentForm[bill.id]?.walletAmount || ''} onChange={(walletAmount) => setPaymentForm({ ...paymentForm, [bill.id]: { amount: paymentForm[bill.id]?.amount || '', walletAmount, paymentMethod: paymentForm[bill.id]?.paymentMethod || paymentMethods[0]?.value || '' } })} disabled={Boolean(ironBusy)} />
                           </div>
                         )}
                         {!isBillPaid && billBalance > 0.005 && (
@@ -1317,12 +1393,16 @@ export default function CustomerProfilePage() {
           <div className="crm-responsive-dialog crm-dialog-sm" style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
             <div className="crm-dialog-header">
             <h2 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, margin: 0 }}>
-              {walletAction === 'credit' ? '+ Add Wallet Credit' : '− Deduct Wallet Balance'}
+              Adjust Wallet
             </h2>
-            <p style={{ fontSize: 13, color: '#6b7fa3', margin: '4px 0 0' }}>Current balance: <strong>{fmt(wallet?.balance || 0)}</strong></p>
+            <p style={{ fontSize: 13, color: '#6b7fa3', margin: '4px 0 0' }}>Creates an immutable ledger entry. Current balance: <strong>{fmt(wallet?.balance || 0)}</strong></p>
             </div>
             <div className="crm-dialog-body">
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button type="button" onClick={() => { setWalletAction('credit'); setWalletReasonCode('') }} style={{ padding: '9px 12px', borderRadius: 8, border: walletAction === 'credit' ? '1px solid #166534' : '1px solid #e2e8f0', background: walletAction === 'credit' ? '#f0fdf4' : '#fff', color: walletAction === 'credit' ? '#166534' : '#6b7fa3', fontWeight: 800, cursor: 'pointer' }}>Credit</button>
+                <button type="button" onClick={() => { setWalletAction('deduct'); setWalletReasonCode('') }} style={{ padding: '9px 12px', borderRadius: 8, border: walletAction === 'deduct' ? '1px solid #991b1b' : '1px solid #e2e8f0', background: walletAction === 'deduct' ? '#fef2f2' : '#fff', color: walletAction === 'deduct' ? '#991b1b' : '#6b7fa3', fontWeight: 800, cursor: 'pointer' }}>Debit</button>
+              </div>
               <div>
                 <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Amount (₹) *</label>
                 <input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} placeholder="0"
@@ -1330,26 +1410,16 @@ export default function CustomerProfilePage() {
               </div>
               <div>
                 <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Reason *</label>
-                <select value={walletReason} onChange={e => setWalletReason(e.target.value)}
+                <select value={walletReasonCode} onChange={e => setWalletReasonCode(e.target.value)}
                   style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
                   <option value="">Select reason</option>
-                  {walletAction === 'credit' ? (
-                    <>
-                      <option value="Goodwill credit">Goodwill credit</option>
-                      <option value="Refund">Refund</option>
-                      <option value="Compensation">Compensation</option>
-                      <option value="Overpayment refund">Overpayment refund</option>
-                      <option value="Referral bonus">Referral bonus</option>
-                      <option value="Manual adjustment">Manual adjustment</option>
-                    </>
-                  ) : (
-                    <>
-                      <option value="Applied to order">Applied to order</option>
-                      <option value="Manual deduction">Manual deduction</option>
-                      <option value="Admin adjustment">Admin adjustment</option>
-                    </>
-                  )}
+                  {(walletAdjustmentReasons[walletAction === 'credit' ? 'CREDIT' : 'DEBIT'] || []).map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
                 </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Audit note *</label>
+                <textarea value={walletNote} onChange={e => setWalletNote(e.target.value)} maxLength={500} placeholder="Explain why this balance correction is required"
+                  style={{ width: '100%', minHeight: 76, resize: 'vertical', border: '1px solid #e2e8f0', borderRadius: 8, padding: '9px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
               </div>
             </div>
             </div>
@@ -1359,6 +1429,36 @@ export default function CustomerProfilePage() {
                 style={{ padding: '10px 20px', background: walletAction === 'credit' ? '#166534' : '#991b1b', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', opacity: walletLoading ? 0.5 : 1 }}>
                 {walletLoading ? 'Processing...' : walletAction === 'credit' ? `Credit ₹${walletAmount || '0'}` : `Deduct ₹${walletAmount || '0'}`}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {walletReversal && (
+        <div className="crm-dialog-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div className="crm-responsive-dialog crm-dialog-sm" style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+            <div className="crm-dialog-header">
+              <h2 style={{ fontFamily: "var(--crm-font-ui)", fontWeight: 700, fontSize: 18, margin: 0 }}>Reverse Wallet Adjustment</h2>
+              <p style={{ fontSize: 13, color: '#6b7fa3', margin: '4px 0 0' }}>The original entry stays unchanged. An opposite entry for <strong>{fmt(walletReversal.amount)}</strong> will be posted.</p>
+            </div>
+            <div className="crm-dialog-body" style={{ display: 'grid', gap: 14 }}>
+              <div style={{ border: '1px solid #e5edf4', background: '#f8fafc', borderRadius: 10, padding: 12, fontSize: 12, color: '#52718d' }}>{walletReversal.reason}</div>
+              <div>
+                <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Correction reason *</label>
+                <select value={walletReasonCode} onChange={e => setWalletReasonCode(e.target.value)} style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
+                  <option value="">Select reason</option>
+                  {(walletAdjustmentReasons.REVERSAL || []).map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: '#6b7fa3', display: 'block', marginBottom: 6 }}>Correction note *</label>
+                <textarea value={walletNote} onChange={e => setWalletNote(e.target.value)} maxLength={500} placeholder="Explain the error and correction"
+                  style={{ width: '100%', minHeight: 76, resize: 'vertical', border: '1px solid #e2e8f0', borderRadius: 8, padding: '9px 12px', fontSize: 13, boxSizing: 'border-box' as const }} />
+              </div>
+            </div>
+            <div className="crm-dialog-footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setWalletReversal(null)} style={{ padding: '8px 16px', fontSize: 13, color: '#6b7fa3', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleWalletReversal} disabled={walletLoading} style={{ padding: '10px 20px', background: '#9a3412', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 800, border: 'none', cursor: 'pointer', opacity: walletLoading ? 0.5 : 1 }}>{walletLoading ? 'Reversing...' : 'Post Reversal'}</button>
             </div>
           </div>
         </div>

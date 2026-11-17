@@ -10,6 +10,7 @@ const {
   creditWallet,
   deductWallet,
   applyWalletToOrder,
+  reverseAdjustment,
 } = require('../controllers/staff.wallet.controller');
 
 const walletRoles = requireRole('SUPER_ADMIN', 'MANAGER', 'ACCOUNTS', 'COUNTER_STAFF');
@@ -21,6 +22,7 @@ const financeAccess = requireServiceAccess('FINANCE');
 router.get ('/:customerId',              staffAuth, financeAccess, walletRoles, getCustomerWallet);
 router.post('/:customerId/credit',       staffAuth, financeAccess, requirePermission('finance.wallet_adjust'), idempotent({ scope: 'wallet.credit' }), creditWallet);
 router.post('/:customerId/deduct',       staffAuth, financeAccess, requirePermission('finance.wallet_adjust'), idempotent({ scope: 'wallet.debit' }), deductWallet);
+router.post('/:customerId/transactions/:transactionId/reverse', staffAuth, financeAccess, requirePermission('finance.wallet_adjust'), idempotent({ scope: 'wallet.reverse' }), reverseAdjustment);
 router.post('/:customerId/apply',        staffAuth, financeAccess, requirePermission('finance.collect_payment'), idempotent({ scope: 'wallet.apply' }), applyWalletToOrder);
 
 module.exports = router;

@@ -68,8 +68,8 @@ jobs:
       - name: Deploy migrations to test DB
         run: npx prisma migrate deploy
 
-      - name: Verify pricing category creation and migration gate
-        run: node --test tests/service-categories.controller.test.js tests/deploy-service-categories-migration.test.js
+      - name: Verify reviewed migration gates
+        run: node --test tests/service-categories.controller.test.js tests/deploy-service-categories-migration.test.js tests/deploy-wallet-governance-migration.test.js
 
       - name: Verify durable invoice documents and settlement evidence
         run: node --test tests/invoice-document.service.test.js tests/public-share-document-lifetime.test.js

@@ -70,7 +70,7 @@ const findOpenReceivableInvoices = async ({ customerId } = {}) => {
       ...(customerId ? { customerId } : {}),
     },
     include: {
-      customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true } },
+      customer: { select: { id: true, name: true, phone: true, notifWhatsApp: true, walletBalance: true } },
       order: { select: { id: true, orderNumber: true, status: true } },
       ironBill: { select: { id: true, billNumber: true, status: true } },
       serviceAppointment: { select: { id: true, appointmentNumber: true, status: true } },

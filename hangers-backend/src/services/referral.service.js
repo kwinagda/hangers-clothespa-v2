@@ -1,4 +1,5 @@
 const prisma = require('../config/database');
+const { creditWallet } = require('./wallet.service');
 
 const REFERRAL_SETTING_DEFAULTS = {
   referral_reward_percent: 20,
@@ -116,32 +117,20 @@ const processReferralQualification = async (orderId) => {
 
     const rewardTimestamp = new Date();
 
-    await tx.customer.update({
-      where: { id: referral.referrerId },
-      data: { walletBalance: { increment: rewardAmount } },
-    });
-    await tx.walletTransaction.create({
-      data: {
-        customerId: referral.referrerId,
-        amount: rewardAmount,
-        type: 'CREDIT',
-        reason: REFERRAL_REASON.REFERRER,
-        orderId: order.id,
-      },
+    await creditWallet(referral.referrerId, rewardAmount, REFERRAL_REASON.REFERRER, {
+      tx,
+      origin: 'REFERRAL_REWARD',
+      reasonCode: REFERRAL_REASON.REFERRER,
+      orderId: order.id,
+      idempotencyKey: `referral:${referral.id}:referrer`,
     });
 
-    await tx.customer.update({
-      where: { id: referral.referredId },
-      data: { walletBalance: { increment: rewardAmount } },
-    });
-    await tx.walletTransaction.create({
-      data: {
-        customerId: referral.referredId,
-        amount: rewardAmount,
-        type: 'CREDIT',
-        reason: REFERRAL_REASON.REFERRED,
-        orderId: order.id,
-      },
+    await creditWallet(referral.referredId, rewardAmount, REFERRAL_REASON.REFERRED, {
+      tx,
+      origin: 'REFERRAL_REWARD',
+      reasonCode: REFERRAL_REASON.REFERRED,
+      orderId: order.id,
+      idempotencyKey: `referral:${referral.id}:referred`,
     });
 
     await tx.referral.update({

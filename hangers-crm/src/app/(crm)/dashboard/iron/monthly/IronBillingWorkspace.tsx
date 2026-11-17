@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { AlertCircle, Check, ChevronRight, FileText, Loader2, MessageCircle, ReceiptIndianRupee, Send, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { ironAPI, metadataAPI, paymentsAPI } from '@/lib/api'
+import WalletTenderInput from '@/components/WalletTenderInput'
 
 type BulkAction = 'GENERATE' | 'SEND' | 'PAY' | 'REMIND'
 type Props = { month:string; rows:any[]; action?:BulkAction|null; onClose:()=>void; onChanged:()=>Promise<void>|void }
@@ -27,7 +28,7 @@ export default function IronBillingWorkspace({month,rows,action,onClose,onChange
   const [lastGeneratedBillId,setLastGeneratedBillId]=useState('')
   const [methods,setMethods]=useState<Array<{value:string;label:string}>>([])
   const [notes,setNotes]=useState({carryForwardNotes:'',notes:''})
-  const [payment,setPayment]=useState<Record<string,{amount:string;paymentMethod:string;reference:string;effectiveAt:string}>>({})
+  const [payment,setPayment]=useState<Record<string,{amount:string;walletAmount:string;paymentMethod:string;reference:string;effectiveAt:string}>>({})
   const [results,setResults]=useState<Result[]>([])
   useEffect(()=>{setWorkspaceRows(rows)},[rows])
 
@@ -90,12 +91,14 @@ export default function IronBillingWorkspace({month,rows,action,onClose,onChange
     finally{setBusy('')}
   }
   const recordPay=async(bill:any)=>{
-    const form=payment[bill.id]||{amount:'',paymentMethod:methods[0]?.value||'',reference:'',effectiveAt:''}
+    const form=payment[bill.id]||{amount:'',walletAmount:'',paymentMethod:methods[0]?.value||'',reference:'',effectiveAt:''}
     const amount=Number(form.amount)
-    if(!(amount>0)||amount>billBalance(bill)+.005)return toast.error(`Enter an amount up to ${money(billBalance(bill))}`)
-    if(!form.paymentMethod)return toast.error('Select a payment method')
+    const walletAmount=Number(form.walletAmount||0)
+    const row=workspaceRows.find(item=>item.customer.id===bill.customerId)
+    if(!(amount+walletAmount>0)||amount+walletAmount>billBalance(bill)+.005||walletAmount>Number(row?.customer?.walletBalance||0))return toast.error(`Enter external and wallet amounts within ${money(billBalance(bill))}`)
+    if(amount>0&&!form.paymentMethod)return toast.error('Select a payment method')
     setBusy(`pay-${bill.id}`)
-    try{await ironAPI.recordPayment(bill.id,{amount,paymentMethod:form.paymentMethod,reference:form.reference||undefined,effectiveAt:form.effectiveAt||undefined});toast.success('Payment recorded');await refresh()}
+    try{await ironAPI.recordPayment(bill.id,{amount,walletAmount,...(amount>0?{paymentMethod:form.paymentMethod}:{}),reference:form.reference||undefined,effectiveAt:form.effectiveAt||undefined});toast.success('Payment recorded');await refresh()}
     catch(error:any){toast.error(error.message||'Failed to record payment')}
     finally{setBusy('')}
   }
@@ -133,11 +136,14 @@ export default function IronBillingWorkspace({month,rows,action,onClose,onChange
         if(action==='GENERATE')await ironAPI.generateBill({customerId:row.customer.id,billingPeriodStart:`${month}-01`})
         if(action==='SEND')for(const bill of unsentBills(row))await ironAPI.sendBill(bill.id)
         if(action==='PAY')for(const bill of payableBills(row)){
-          const form=payment[bill.id]||{amount:String(billBalance(bill)),paymentMethod:methods[0]?.value||'',reference:'',effectiveAt:''}
+          const form=payment[bill.id]||{amount:String(billBalance(bill)),walletAmount:'',paymentMethod:methods[0]?.value||'',reference:'',effectiveAt:''}
           const amount=Number(form?.amount)
-          if(!(amount>0)||!form?.paymentMethod)throw new Error(`Enter amount and payment method for ${bill.billNumber}`)
-          if(amount>billBalance(bill)+.005)throw new Error(`Amount exceeds ${bill.billNumber} balance`)
-          await ironAPI.recordPayment(bill.id,{amount,paymentMethod:form.paymentMethod,reference:form.reference||undefined,effectiveAt:form.effectiveAt||undefined})
+          const walletAmount=Number(form?.walletAmount||0)
+          if(!(amount+walletAmount>0)||(amount>0&&!form?.paymentMethod))throw new Error(`Enter a settlement for ${bill.billNumber}`)
+          if(amount+walletAmount>billBalance(bill)+.005)throw new Error(`Settlement exceeds ${bill.billNumber} balance`)
+          const customerWalletTotal=payableBills(row).reduce((sum:number,item:any)=>sum+Number(payment[item.id]?.walletAmount||0),0)
+          if(customerWalletTotal>Number(row.customer.walletBalance||0)+.005)throw new Error(`Wallet allocations exceed ${row.customer.name}'s available balance`)
+          await ironAPI.recordPayment(bill.id,{amount,walletAmount,...(amount>0?{paymentMethod:form.paymentMethod}:{}),reference:form.reference||undefined,effectiveAt:form.effectiveAt||undefined})
         }
         if(action==='REMIND')await paymentsAPI.sendReceivablesReminder({customerId:row.customer.id,invoiceIds:payableBills(row).map((bill:any)=>bill.invoice?.id).filter(Boolean)})
         next.push({key:row.customer.id,name:row.customer.name,ok:true,message:action==='GENERATE'?'Bill generated':action==='SEND'?'Bill queued':action==='PAY'?'Payment recorded':'Reminder sent'})
@@ -185,12 +191,12 @@ export default function IronBillingWorkspace({month,rows,action,onClose,onChange
     const isDraft=status==='DRAFT'
     const statusLabel=isVoid?'Void':paid?'Paid':isDraft?'Draft':status==='SENT'?'Sent':status
     const sendLabel=isDraft?'Send bill':'Resend bill'
-    const form=payment[bill.id]||{amount:'',paymentMethod:methods[0]?.value||'',reference:'',effectiveAt:''}
+    const form=payment[bill.id]||{amount:'',walletAmount:'',paymentMethod:methods[0]?.value||'',reference:'',effectiveAt:''}
     const setForm=(key:string,value:string)=>setPayment(p=>({...p,[bill.id]:{...form,[key]:value}}))
     return <section className="card"><div className="card-title"><div><h3>{bill.billNumber}</h3><small>{bill.invoice?.invoiceNumber||'Invoice linked on generation'}</small></div><span className={`badge ${isVoid?'void':paid?'paid':isDraft?'draft':status==='SENT'?'sent':''}`}>{statusLabel}</span></div><div className="metrics"><div className="metric"><span>Pieces</span><strong>{bill.totalPieces}</strong></div><div className="metric"><span>Total</span><strong>{money(bill.totalAmount)}</strong></div><div className="metric"><span>Paid</span><strong>{money(bill.invoice?.paidAmount??bill.paidAmount)}</strong></div><div className="metric"><span>Balance</span><strong>{isVoid?'Void':money(balance)}</strong></div></div>
       {isVoid&&<div className="void-note">Bill voided. Linked clothes are available for fresh billing.</div>}
       {!isVoid&&<div className="actions">{!paid&&<button className="primary" disabled={!!busy} onClick={()=>send(bill)}><Send size={13}/> {busy===`send-${bill.id}`?'Sending…':sendLabel}</button>} {!paid&&<button className="danger" disabled={!!busy} onClick={()=>voidBill(bill)}>{busy===`void-bill-${bill.id}`?'Voiding…':'Void bill'}</button>}</div>}
-      {!isVoid&&!paid&&<><div className="payment-row"><input inputMode="decimal" value={form.amount} onChange={e=>setForm('amount',e.target.value.replace(/[^0-9.]/g,''))} placeholder={`Amount up to ${money(balance)}`}/><select value={form.paymentMethod} onChange={e=>setForm('paymentMethod',e.target.value)}><option value="">Method</option>{methods.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}</select><input value={form.reference} onChange={e=>setForm('reference',e.target.value)} placeholder="Reference (optional)"/></div><div className="fields two" style={{marginTop:7}}><input type="date" value={form.effectiveAt} onChange={e=>setForm('effectiveAt',e.target.value)}/><div className="actions" style={{marginTop:0}}><button className="primary" disabled={!!busy} onClick={()=>recordPay(bill)}><ReceiptIndianRupee size={13}/> Record payment</button><button className="danger" disabled={!!busy} onClick={()=>writeOff(bill)}>Write off</button></div></div></>}
+      {!isVoid&&!paid&&<><div className="payment-row"><input inputMode="decimal" value={form.amount} onChange={e=>setForm('amount',e.target.value.replace(/[^0-9.]/g,''))} placeholder={`External amount up to ${money(balance)}`}/><select disabled={Number(form.amount||0)<=0} value={form.paymentMethod} onChange={e=>setForm('paymentMethod',e.target.value)}><option value="">Method</option>{methods.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}</select><input value={form.reference} onChange={e=>setForm('reference',e.target.value)} placeholder="Reference (optional)"/></div><div style={{marginTop:7}}><WalletTenderInput availableBalance={Number(workspaceRows.find(item=>item.customer.id===bill.customerId)?.customer?.walletBalance||0)} outstandingBalance={balance} externalAmount={Number(form.amount||0)} onExternalAmountChange={value=>setForm('amount',value)} value={form.walletAmount} onChange={value=>setForm('walletAmount',value)} disabled={!!busy}/></div><div className="fields two" style={{marginTop:7}}><input type="date" value={form.effectiveAt} onChange={e=>setForm('effectiveAt',e.target.value)}/><div className="actions" style={{marginTop:0}}><button className="primary" disabled={!!busy} onClick={()=>recordPay(bill)}><ReceiptIndianRupee size={13}/> Record payment</button><button className="danger" disabled={!!busy} onClick={()=>writeOff(bill)}>Write off</button></div></div></>}
       {!!allocations.length&&<div className="history">{allocations.map((allocation:any)=>{const entry=allocation.payment;const voided=['VOIDED','REVERSED'].includes(String(entry.status).toUpperCase())||String(allocation.status).toUpperCase()==='REVERSED';return <div key={entry.id}><span>{money(entry.amount)} · {entry.method} · {entry.status}</span>{!voided&&<button className="danger" disabled={!!busy} onClick={()=>reverse(bill,entry.id)}>Void entry</button>}</div>})}</div>}</section>
   }
   function BulkView(){
@@ -204,13 +210,14 @@ export default function IronBillingWorkspace({month,rows,action,onClose,onChange
         return <section className="bulk-row" key={row.customer.id}>
           <div className="bulk-main"><span><strong>{row.customer.name}</strong><small>{row.customer.phone}</small></span><b className={state.ok?'ready':'blocked'}>{state.label}</b></div>
           {action==='PAY'&&payableBills(row).map((bill:any)=>{
-            const form=payment[bill.id]||{amount:String(billBalance(bill)),paymentMethod:methods[0]?.value||'',reference:'',effectiveAt:''}
+            const form=payment[bill.id]||{amount:String(billBalance(bill)),walletAmount:'',paymentMethod:methods[0]?.value||'',reference:'',effectiveAt:''}
             const update=(key:string,value:string)=>setPayment(p=>({...p,[bill.id]:{...form,[key]:value}}))
             return <div className="bulk-pay" key={bill.id}>
               <strong>{bill.billNumber}</strong>
               <input inputMode="decimal" value={form.amount} onChange={e=>update('amount',e.target.value.replace(/[^0-9.]/g,''))}/>
-              <select value={form.paymentMethod} onChange={e=>update('paymentMethod',e.target.value)}><option value="">Method</option>{methods.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}</select>
+              <select disabled={Number(form.amount||0)<=0} value={form.paymentMethod} onChange={e=>update('paymentMethod',e.target.value)}><option value="">Method</option>{methods.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}</select>
               <input value={form.reference} onChange={e=>update('reference',e.target.value)} placeholder="Reference"/>
+              <div style={{gridColumn:'1 / -1'}}><WalletTenderInput availableBalance={Number(row.customer.walletBalance||0)} outstandingBalance={billBalance(bill)} externalAmount={Number(form.amount||0)} onExternalAmountChange={value=>update('amount',value)} value={form.walletAmount} onChange={value=>update('walletAmount',value)} disabled={!!busy}/></div>
             </div>
           })}
           {result&&<div className={`result ${result.ok?'ok':'fail'}`}>{result.ok?<Check size={13}/>:<AlertCircle size={13}/>} {result.message}</div>}

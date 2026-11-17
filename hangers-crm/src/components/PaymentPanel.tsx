@@ -3,10 +3,12 @@ import { useState, useEffect, useRef } from 'react'
 import api, { idempotencyConfig, metadataAPI, paymentsAPI } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { CheckCircle2, CreditCard, IndianRupee, RotateCcw, Wallet } from 'lucide-react'
+import WalletTenderInput from '@/components/WalletTenderInput'
 
 interface Props {
   orderId:          string
   customerId?:      string
+  walletBalance?:   number
   totalAmount:      number
   paidAmount:       number
   paymentStatus:    string
@@ -17,9 +19,10 @@ interface Props {
   canRefund?: boolean
 }
 
-export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmount, paymentStatus, onPaymentRecorded, writeOffAlreadyDone = 0, payments = [], refundAttempts = [], canRefund = false }: Props) {
+export default function PaymentPanel({ orderId, customerId, walletBalance = 0, totalAmount, paidAmount, paymentStatus, onPaymentRecorded, writeOffAlreadyDone = 0, payments = [], refundAttempts = [], canRefund = false }: Props) {
   const [amount, setAmount]           = useState('')
-  const [method, setMethod]           = useState('CASH')
+  const [walletAmount, setWalletAmount] = useState('')
+  const [method, setMethod]           = useState('')
   const [loading, setLoading]         = useState(false)
   const [writeOff, setWriteOff]       = useState(false)
   const [writeOffReason, setWriteOffReason] = useState('')
@@ -27,11 +30,11 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   const [writeOffOnlyReason, setWriteOffOnlyReason] = useState('')
   const [writeOffMax, setWriteOffMax] = useState(50)
   const [paymentStatusMeta, setPaymentStatusMeta] = useState<Record<string, { label: string; color: string; bg: string }>>({})
-  const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([{ value: 'CASH', label: 'Cash' }])
+  const [paymentMethods, setPaymentMethods] = useState<Array<{ value: string; label: string }>>([])
   const [showRefund, setShowRefund] = useState(false)
   const [refundSourceId, setRefundSourceId] = useState('')
   const [refundAmount, setRefundAmount] = useState('')
-  const [refundMethod, setRefundMethod] = useState('CASH')
+  const [refundMethod, setRefundMethod] = useState('')
   const [refundReasonCode, setRefundReasonCode] = useState('CUSTOMER_REFUND')
   const [refundReason, setRefundReason] = useState('')
   const [refundReviewOpen, setRefundReviewOpen] = useState(false)
@@ -44,8 +47,10 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
 
   // Auto-detect write-off when amount typed
   const paid        = parseFloat(amount) || 0
-  const remaining   = balance - paid
-  const canWriteOff = amount !== '' && paid > 0 && remaining > 0 && remaining <= writeOffMax
+  const walletPaid  = parseFloat(walletAmount) || 0
+  const settlement  = paid + walletPaid
+  const remaining   = balance - settlement
+  const canWriteOff = settlement > 0 && remaining > 0 && remaining <= writeOffMax
   const capturedReceipts = payments.filter((payment) => payment.kind !== 'REFUND' && ['CAPTURED', 'SUCCESS', 'PAID'].includes(payment.status))
   const refundedFor = (paymentId: string) => payments
     .filter((payment) => payment.kind === 'REFUND' && payment.reversalOfId === paymentId && ['CAPTURED', 'SUCCESS', 'PAID'].includes(payment.status))
@@ -82,6 +87,7 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
       if (collectableMethods.length) {
         setPaymentMethods(collectableMethods.map((item: any) => ({ value: item.value, label: item.label || item.value })))
         setMethod((current) => collectableMethods.some((item: any) => item.value === current) ? current : collectableMethods[0].value)
+        setRefundMethod((current) => collectableMethods.some((item: any) => item.value === current) ? current : collectableMethods[0].value)
       }
       setPaymentStatusMeta((metadata.paymentStatuses || []).reduce((acc: Record<string, { label: string; color: string; bg: string }>, item: any) => {
         acc[item.value] = {
@@ -97,18 +103,21 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
   // Reset write-off when amount changes
   useEffect(() => {
     if (!canWriteOff) setWriteOff(false)
-  }, [amount, canWriteOff])
+  }, [amount, walletAmount, canWriteOff])
 
   const handleSubmit = async () => {
-    if (!amount || paid <= 0) { toast.error('Enter a valid amount'); return }
-    if (paid > balance) { toast.error(`Amount cannot exceed the ₹${balance.toFixed(2)} balance`); return }
+    if (!(settlement > 0)) { toast.error('Enter an external or wallet amount'); return }
+    if (settlement > balance) { toast.error(`Settlement cannot exceed the ₹${balance.toFixed(2)} balance`); return }
+    if (walletPaid > Number(walletBalance || 0)) { toast.error('Wallet amount exceeds the available balance'); return }
+    if (paid > 0 && !method) { toast.error('Select a payment method'); return }
     if (writeOff && writeOffReason.trim().length < 3) { toast.error('Enter a write-off reason'); return }
     setLoading(true)
     try {
       const writeOffAmount = writeOff ? remaining : 0
       await (api as any).post(`/orders/${orderId}/payments`, {
         amount: paid,
-        method,
+        walletAmount: walletPaid,
+        ...(paid > 0 ? { method } : {}),
         effectiveAt: `${paymentDate}T12:00:00.000Z`,
         ...(writeOffAmount > 0 ? { writeOffAmount } : {}),
         ...(writeOff && writeOffReason.trim() ? { writeOffReason: writeOffReason.trim() } : {}),
@@ -119,6 +128,7 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
         toast.success('Payment recorded')
       }
       setAmount('')
+      setWalletAmount('')
       setWriteOff(false)
       setWriteOffReason('')
       onPaymentRecorded()
@@ -158,6 +168,7 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
     const minimumRefund = source.razorpayPaymentId ? 1 : 0.01
     if (!(value >= minimumRefund) || value > available) { toast.error(`Refund must be between ₹${minimumRefund.toFixed(2)} and ₹${available.toFixed(2)}`); return }
     if (refundReason.trim().length < 3) { toast.error('Enter a refund reason'); return }
+    if (!source.razorpayPaymentId && !refundMethod) { toast.error('Choose the refund method'); return }
     const refundRequest = {
       sourcePaymentId: source.id,
       amount: value,
@@ -344,6 +355,9 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
               placeholder={`Amount`}
               value={amount}
               onChange={e => setAmount(e.target.value)}
+              min="0"
+              max={Math.max(0, balance - walletPaid)}
+              step="0.01"
               style={{ flex:1, padding:'8px 12px', border:'1.5px solid #dce8f0', borderRadius:8, fontSize:13, outline:'none' }}
             />
             <select
@@ -354,17 +368,20 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
               {paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </div>
+          <div style={{ marginBottom:8 }}>
+            <WalletTenderInput availableBalance={walletBalance} outstandingBalance={balance} externalAmount={paid} onExternalAmountChange={setAmount} value={walletAmount} onChange={setWalletAmount} disabled={loading} />
+          </div>
           <input type="date" value={paymentDate} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setPaymentDate(event.target.value)}
             style={{ width:'100%', boxSizing:'border-box', marginBottom:8, padding:'8px 10px', border:'1.5px solid #dce8f0', borderRadius:8, fontSize:12, outline:'none' }} />
 
           {/* Balance display */}
-          {amount && (
+          {settlement > 0 && (
             <div style={{ marginBottom: 8 }}>
-              {paid > balance ? (
+              {settlement > balance ? (
                 <div style={{ fontSize: 12, color: '#991b1b', padding: '6px 10px', background: '#fef2f2', borderRadius: 6 }}>
-                  Amount exceeds the balance by ₹{(paid - balance).toLocaleString('en-IN')}. Record only the amount due.
+                  Settlement exceeds the balance by ₹{(settlement - balance).toLocaleString('en-IN')}. Record only the amount due.
                 </div>
-              ) : paid < balance ? (
+              ) : settlement < balance ? (
                 <div style={{ fontSize: 12, color: '#991b1b', padding: '6px 10px', background: '#fef2f2', borderRadius: 6 }}>
                   ₹{remaining.toLocaleString('en-IN')} still due
                 </div>
@@ -456,7 +473,7 @@ export default function PaymentPanel({ orderId, customerId, totalAmount, paidAmo
           </button>
           {showCorrection && <div style={{ marginTop:10, display:'grid', gap:8 }}>
             <div style={{ fontSize:11, color:'#9a3412', lineHeight:1.45, background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:8, padding:'8px 10px' }}>
-              Use this only when payment was marked by mistake. No money is returned to the customer; the receipt is voided and the order balance is restored.
+              Use this only when payment was marked by mistake. The receipt is voided and the order balance is restored. Wallet payments are returned to the same customer wallet automatically.
             </div>
             <select value={correctionPaymentId} onChange={(event) => setCorrectionPaymentId(event.target.value)} style={{ padding:'8px 10px', border:'1.5px solid #fed7aa', borderRadius:8, background:'#fff', fontSize:12 }}>
               {reversibleReceipts.map((payment) => <option key={payment.id} value={payment.id}>₹{Number(payment.amount || 0).toFixed(2)} · {payment.method} · {new Date(payment.createdAt).toLocaleDateString('en-IN')}</option>)}

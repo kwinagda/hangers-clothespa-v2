@@ -72,6 +72,7 @@ const getMetadata = async (_req, res) => {
         plantPartners: dbPlantPartners,
         quotationStatuses: masterMetadata.quotationStatuses,
         customerTags: masterMetadata.customerTags,
+        walletAdjustmentReasons: masterMetadata.walletAdjustmentReasons,
         languages: masterMetadata.languages,
         launchCapabilities: masterMetadata.launchCapabilities,
         recurringFrequencies: masterMetadata.recurringFrequencies,

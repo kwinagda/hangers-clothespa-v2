@@ -34,6 +34,7 @@ const {
   STAFF_ROLES,
   STAFF_COLLECTABLE_PAYMENT_METHOD_VALUES,
   WEEKDAY_OPTIONS,
+  WALLET_ADJUSTMENT_REASONS,
   WHATSAPP_TEMPLATES,
   WEBSITE_PICKUP_REQUEST_STATUSES,
   WEBSITE_PICKUP_TIME_SLOTS,
@@ -74,6 +75,7 @@ const MASTER_SETTING_KEYS = {
   staffRoles: 'master.staffRoles',
   roleServiceAccess: 'master.roleServiceAccess',
   weekdays: 'master.weekdays',
+  walletAdjustmentReasons: 'master.walletAdjustmentReasons',
   whatsappTemplates: 'master.whatsappTemplates',
   websitePickupRequestStatuses: 'master.websitePickupRequestStatuses',
   websitePickupTimeSlots: 'master.websitePickupTimeSlots',
@@ -114,6 +116,7 @@ const BOOTSTRAP_MASTER_SETTINGS = {
   [MASTER_SETTING_KEYS.staffRoles]: STAFF_ROLES,
   [MASTER_SETTING_KEYS.roleServiceAccess]: ROLE_SERVICE_ACCESS,
   [MASTER_SETTING_KEYS.weekdays]: WEEKDAY_OPTIONS,
+  [MASTER_SETTING_KEYS.walletAdjustmentReasons]: WALLET_ADJUSTMENT_REASONS,
   [MASTER_SETTING_KEYS.whatsappTemplates]: WHATSAPP_TEMPLATES,
   [MASTER_SETTING_KEYS.websitePickupRequestStatuses]: WEBSITE_PICKUP_REQUEST_STATUSES,
   [MASTER_SETTING_KEYS.websitePickupTimeSlots]: WEBSITE_PICKUP_TIME_SLOTS,
@@ -196,6 +199,7 @@ const getWhatsAppTemplates = () => getMasterSetting(MASTER_SETTING_KEYS.whatsapp
 const getWebsitePickupRequestStatuses = () => getMasterSetting(MASTER_SETTING_KEYS.websitePickupRequestStatuses);
 const getWebsitePickupTimeSlots = () => getMasterSetting(MASTER_SETTING_KEYS.websitePickupTimeSlots);
 const getWebsitePickupContactMethods = () => getMasterSetting(MASTER_SETTING_KEYS.websitePickupContactMethods);
+const getWalletAdjustmentReasons = () => getMasterSetting(MASTER_SETTING_KEYS.walletAdjustmentReasons);
 
 const getMasterMetadata = async () => {
   const entries = await Promise.all(
@@ -310,5 +314,6 @@ module.exports = {
   getWebsitePickupRequestStatuses,
   getWebsitePickupTimeSlots,
   getWebsitePickupContactMethods,
+  getWalletAdjustmentReasons,
   syncMasterDataSettings,
 };

@@ -322,7 +322,7 @@ const listOrders = async (req, res) => {
       prisma.order.findMany({
         where,
         include: {
-          customer:   { select: { id: true, name: true, phone: true } },
+          customer:   { select: { id: true, name: true, phone: true, walletBalance: true } },
           items:      { include: { service: { select: { name: true, category: true } } } },
           payments:   { select: { amount: true, status: true } },
           invoice:    { select: { id: true, invoiceNumber: true, status: true } },
@@ -424,7 +424,7 @@ const getOrder = async (req, res) => {
     const order = await prisma.order.findFirst({
       where:   { id: req.params.id, ...ORDER_ONLY_WHERE },
       include: {
-        customer:   { select: { id: true, name: true, phone: true } },
+        customer:   { select: { id: true, name: true, phone: true, walletBalance: true } },
         items:      {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           include: { service: true, garmentUnits: { where: { status: { not: 'VOID' } }, orderBy: { sequence: 'asc' } } },
@@ -1856,8 +1856,8 @@ const recordPayment = async (req, res) => {
 
   try {
     const { id } = req.params;
-	    const { amount, method, reference, notes, writeOffAmount = 0, writeOffReason, effectiveAt } = parsed.data;
-	    const normalizedMethod = amount > 0 ? normalizePaymentMethod(method) : null;
+    const { amount, walletAmount = 0, method, reference, notes, writeOffAmount = 0, writeOffReason, effectiveAt } = parsed.data;
+    const normalizedMethod = amount > 0 ? normalizePaymentMethod(method) : null;
     const corePaymentMethods = await getCorePaymentMethods();
     if (amount > 0 && !corePaymentMethods.includes(normalizedMethod)) {
       return paymentApiError(res, {
@@ -1876,6 +1876,7 @@ const recordPayment = async (req, res) => {
       const settlement = await recordOrderSettlement(tx, {
         orderId: id,
         amount,
+        walletAmount,
         method: normalizedMethod,
         reference,
         notes,
@@ -1907,6 +1908,7 @@ const recordPayment = async (req, res) => {
           paymentIds: settlement.payments.map((payment) => payment.id),
           adjustmentId: settlement.adjustment?.id || null,
           method: normalizedMethod,
+          walletAmount,
           reference: reference || null,
           before: {
             paidAmount: before.paidAmount,

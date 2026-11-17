@@ -133,14 +133,15 @@ const collectCashSchema = z.object({
 
 const orderPaymentSchema = z.object({
   amount: money,
+  walletAmount: money.optional(),
   method: z.string().trim().min(1).max(64).optional().nullable(),
   reference: z.string().trim().max(120).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
   writeOffAmount: money.optional(),
   writeOffReason: adjustmentReason.optional(),
   effectiveAt: z.coerce.date().optional(),
-}).strict().refine((data) => data.amount > 0 || Number(data.writeOffAmount || 0) > 0, {
-  message: 'A payment or write-off amount is required',
+}).strict().refine((data) => data.amount > 0 || Number(data.walletAmount || 0) > 0 || Number(data.writeOffAmount || 0) > 0, {
+  message: 'A payment, wallet, or write-off amount is required',
   path: ['amount'],
 });
 
